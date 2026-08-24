@@ -63,6 +63,8 @@ describe("注册路由", () => {
       error: {
         code: "INVALID_REGISTER_INPUT",
         message: "注册信息格式不正确。",
+        fieldErrors: {},
+        details: {},
       },
     });
     expect(register).not.toHaveBeenCalled();
@@ -74,6 +76,7 @@ describe("注册路由", () => {
         "REGISTRATION_INVITE_REQUIRED",
         "当前系统仅允许受邀用户注册。",
         403,
+        { registrationPolicy: "INVITE_ONLY" },
       ),
     );
 
@@ -94,6 +97,8 @@ describe("注册路由", () => {
       error: {
         code: "REGISTRATION_INVITE_REQUIRED",
         message: "当前系统仅允许受邀用户注册。",
+        fieldErrors: {},
+        details: { registrationPolicy: "INVITE_ONLY" },
       },
     });
   });

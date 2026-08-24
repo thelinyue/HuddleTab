@@ -48,8 +48,13 @@ describe("Better Auth 公共注册旁路", () => {
     );
 
     expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({
-      code: "AUTH_REGISTRATION_PATH_DISABLED",
+    expect(await response.json()).toEqual({
+      error: {
+        code: "AUTH_REGISTRATION_PATH_DISABLED",
+        message: "请使用 /api/auth/register 完成注册。",
+        fieldErrors: {},
+        details: {},
+      },
     });
     expect(globalForDb.database).toBe(databaseBeforeTest);
   });

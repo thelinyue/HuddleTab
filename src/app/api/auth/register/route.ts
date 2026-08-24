@@ -7,16 +7,21 @@ const rejectingInvitationVerifier = {
   verify: async () => false,
 };
 
-function invalidInputResponse(): Response {
+/** 当前路由的预期业务错误统一保持 V1 固定错误信封，避免客户端按端点分支解析。 */
+function errorResponse(
+  code: string,
+  message: string,
+  status: number,
+  details: Record<string, unknown> = {},
+): Response {
   return Response.json(
-    {
-      error: {
-        code: "INVALID_REGISTER_INPUT",
-        message: "注册信息格式不正确。",
-      },
-    },
-    { status: 422 },
+    { error: { code, message, fieldErrors: {}, details } },
+    { status },
   );
+}
+
+function invalidInputResponse(): Response {
+  return errorResponse("INVALID_REGISTER_INPUT", "注册信息格式不正确。", 422);
 }
 
 /**
@@ -43,9 +48,11 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ data }, { status: 201 });
   } catch (error) {
     if (error instanceof ApplicationError) {
-      return Response.json(
-        { error: { code: error.code, message: error.message } },
-        { status: error.status },
+      return errorResponse(
+        error.code,
+        error.message,
+        error.status,
+        error.details,
       );
     }
 

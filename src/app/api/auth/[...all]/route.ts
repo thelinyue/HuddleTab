@@ -12,8 +12,12 @@ export async function POST(request: Request): Promise<Response> {
   if (new URL(request.url).pathname === "/api/auth/sign-up/email") {
     return Response.json(
       {
-        code: "AUTH_REGISTRATION_PATH_DISABLED",
-        message: "请使用 /api/auth/register 完成注册。",
+        error: {
+          code: "AUTH_REGISTRATION_PATH_DISABLED",
+          message: "请使用 /api/auth/register 完成注册。",
+          fieldErrors: {},
+          details: {},
+        },
       },
       { status: 404 },
     );
