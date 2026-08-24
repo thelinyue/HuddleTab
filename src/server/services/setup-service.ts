@@ -109,8 +109,8 @@ export class SetupService {
 
   /**
    * begin() 发生网络错误时，服务端可能已经提交但客户端尚未收到 COMMIT 响应。此处必须脱离
-   * 原 transaction 重新读取提交结果：只有确认角色和 completed_at 都不存在时才可补偿；
-   * 任何不确定状态都保留账户，避免删除已经提交的唯一管理员。
+   * 原 transaction 重新读取提交结果：本次 user 没有管理员角色即可确认其未提交，即使其他
+   * 并发 claim 已完成 bootstrap；只有本次角色存在但 completed_at 缺失等状态才保守保留。
    */
   private async readClaimOutcome(userId: string): Promise<SetupClaimOutcome> {
     try {
@@ -124,8 +124,9 @@ export class SetupService {
         (select completed_at from system_bootstrap where id = 'singleton') as completed_at
       `;
 
-      if (state?.has_admin && state.completed_at) return "COMMITTED";
-      if (!state?.has_admin && !state?.completed_at) return "NOT_COMMITTED";
+      if (!state) return "UNKNOWN";
+      if (!state.has_admin) return "NOT_COMMITTED";
+      if (state.completed_at) return "COMMITTED";
       return "UNKNOWN";
     } catch {
       return "UNKNOWN";

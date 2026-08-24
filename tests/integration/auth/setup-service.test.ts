@@ -39,6 +39,10 @@ function restoreAuthEnvironment() {
   }
 }
 
+function cookieRequestHeader(setCookies: string[]): string {
+  return setCookies.map((cookie) => cookie.split(";", 1)[0]).join("; ");
+}
+
 /** Setup 凭据走真实 Better Auth；只有 token 哈希轮换可使用最小假凭据隔离验证。 */
 describe("SetupService", () => {
   beforeAll(async () => {
@@ -327,6 +331,126 @@ describe("SetupService", () => {
       expect.stringContaining("SETUP_CLAIM_OUTCOME_UNKNOWN"),
       userId,
     );
+  }, 60_000);
+
+  it("另一 claim 完成 setup 时仍精确补偿已回滚的并发凭据", async () => {
+    const { SetupService } = await import("@/server/services/setup-service");
+    const { createSetupCredentialUser, compensateSetupCredentialUser } =
+      await import("@/server/services/registration-service");
+    const compensate = vi.fn(compensateSetupCredentialUser);
+    const credentials = {
+      create: createSetupCredentialUser,
+      compensate,
+    };
+    const setupService = new SetupService(harness.sql, credentials);
+    const token = await setupService.rotateForUninitializedStartup();
+    let releaseOutcomeRead!: () => void;
+    const allowOutcomeRead = new Promise<void>((resolve) => {
+      releaseOutcomeRead = resolve;
+    });
+    let markOutcomeReadStarted!: () => void;
+    const outcomeReadStarted = new Promise<void>((resolve) => {
+      markOutcomeReadStarted = resolve;
+    });
+    const sqlWithDelayedOutcomeRead = new Proxy(harness.sql, {
+      get(target, property, receiver) {
+        if (property === "begin") return target.begin.bind(target);
+        return Reflect.get(target, property, receiver);
+      },
+      apply(target, thisArgument, argumentsList) {
+        markOutcomeReadStarted();
+        return allowOutcomeRead.then(() =>
+          Reflect.apply(target, thisArgument, argumentsList),
+        );
+      },
+    }) as Sql;
+    const failedService = new SetupService(
+      sqlWithDelayedOutcomeRead,
+      credentials,
+    );
+    await harness.sql.unsafe(`
+      create function reject_interleaved_setup_a_role_write() returns trigger as $$
+      begin
+        if exists (
+          select 1 from "user"
+          where id = new.user_id and username = 'interleaved-setup-a'
+        ) then
+          raise exception 'injected interleaved A role failure';
+        end if;
+        return new;
+      end;
+      $$ language plpgsql;
+      create trigger reject_interleaved_setup_a_role_write
+      before insert on system_roles
+      for each row execute function reject_interleaved_setup_a_role_write();
+    `);
+
+    const failedClaim = failedService.claim(token!, {
+      username: "interleaved-setup-a",
+      password: "valid-password-123",
+      nickname: "并发回滚成员",
+    });
+    try {
+      await outcomeReadStarted;
+      const successfulClaim = await setupService.claim(token!, {
+        username: "interleaved-setup-b",
+        password: "valid-password-123",
+        nickname: "并发管理员",
+      });
+      releaseOutcomeRead();
+
+      await expect(failedClaim).rejects.toThrow(
+        "injected interleaved A role failure",
+      );
+      const { auth } = await import("@/server/auth/auth");
+      const session = await auth.api.getSession({
+        headers: new Headers({
+          cookie: cookieRequestHeader(successfulClaim.headers.getSetCookie()),
+        }),
+      });
+      const [state] = await harness.sql<
+        {
+          aUsers: number;
+          aAccounts: number;
+          aProfiles: number;
+          aSessions: number;
+          bHasAdmin: boolean;
+          bUsers: number;
+          completedAt: string | null;
+        }[]
+      >`
+        select
+          (select count(*)::int from "user" where username = 'interleaved-setup-a') as "aUsers",
+          (select count(*)::int from account a join "user" u on u.id = a.user_id where u.username = 'interleaved-setup-a') as "aAccounts",
+          (select count(*)::int from user_profiles p join "user" u on u.id = p.user_id where u.username = 'interleaved-setup-a') as "aProfiles",
+          (select count(*)::int from session s join "user" u on u.id = s.user_id where u.username = 'interleaved-setup-a') as "aSessions",
+          exists(select 1 from system_roles where user_id = ${successfulClaim.userId} and role = 'system_admin') as "bHasAdmin",
+          (select count(*)::int from "user" where id = ${successfulClaim.userId}) as "bUsers",
+          (select completed_at from system_bootstrap where id = 'singleton') as "completedAt"
+      `;
+
+      expect(compensate).toHaveBeenCalledTimes(1);
+      expect(compensate).toHaveBeenCalledWith(
+        expect.not.stringMatching(successfulClaim.userId),
+      );
+      expect(successfulClaim.headers.getSetCookie()).not.toHaveLength(0);
+      expect(session?.user.id).toBe(successfulClaim.userId);
+      expect(state).toMatchObject({
+        aUsers: 0,
+        aAccounts: 0,
+        aProfiles: 0,
+        aSessions: 0,
+        bHasAdmin: true,
+        bUsers: 1,
+        completedAt: expect.any(String),
+      });
+      expect(await setupService.isSetupRequired()).toBe(false);
+    } finally {
+      releaseOutcomeRead();
+      await harness.sql.unsafe(
+        "drop trigger if exists reject_interleaved_setup_a_role_write on system_roles; drop function if exists reject_interleaved_setup_a_role_write();",
+      );
+    }
   }, 60_000);
 
   it("成功 claim 只创建一个 system admin、清除 hash 并永久关闭 setup", async () => {
