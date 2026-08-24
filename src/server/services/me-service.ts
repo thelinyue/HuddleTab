@@ -41,7 +41,10 @@ export class MeService {
     };
   }
 
-  /** 真实邮箱只有在 profile 已标记为 REAL 后才能返回，内部兼容邮箱永远不离开服务端。 */
+  /**
+   * email_kind 只是产品资料标记，异常数据仍可能把内部域名误标为 REAL；因此必须同时确认
+   * 邮箱不属于 local.invalid（大小写不敏感）后才公开，任何不一致状态一律安全地视为未绑定。
+   */
   async getEmail(userId: string) {
     const [row] = await this.sql<
       { email: string; emailKind: "SYNTHETIC" | "REAL" }[]
@@ -55,7 +58,8 @@ export class MeService {
       throw new ApplicationError("PROFILE_NOT_FOUND", "用户资料不存在。", 404);
     }
 
-    return row.emailKind === "REAL"
+    return row.emailKind === "REAL" &&
+      !row.email.toLowerCase().endsWith("@local.invalid")
       ? { emailBound: true, email: row.email }
       : { emailBound: false };
   }

@@ -283,6 +283,27 @@ describe("已登录账户 API", () => {
     expect(JSON.stringify(response.json)).not.toContain("@local.invalid");
   });
 
+  it("does not expose a Synthetic Email when a corrupt profile is marked REAL", async () => {
+    const syntheticUserSession = await createSyntheticUser();
+    await harness.sql`
+      update user_profiles
+      set email_kind = 'REAL'
+      where user_id = ${syntheticUserSession.user.id}
+    `;
+    await harness.sql`
+      update "user"
+      set email = upper(email)
+      where id = ${syntheticUserSession.user.id}
+    `;
+
+    const response = await api.get("/api/me/email", syntheticUserSession);
+
+    expect(response).toMatchObject({
+      status: 200,
+      json: { data: { emailBound: false } },
+    });
+    expect(JSON.stringify(response.json)).not.toMatch(/@local\.invalid/i);
+  });
   it("validates the current password and delegates a successful password change", async () => {
     const syntheticUserSession = await createSyntheticUser();
 
