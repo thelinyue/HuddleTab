@@ -1,7 +1,11 @@
+import { execFile } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
+
+const execFileAsync = promisify(execFile);
 
 const mocks = vi.hoisted(() => ({
   rotateForUninitializedStartup: vi.fn(),
@@ -127,6 +131,32 @@ describe("初始化启动器", () => {
 });
 
 describe("Docker 运行时命令", () => {
+  it("生产启动脚本以 react-server condition 加载 bootstrap，且不触发 server-only 错误", async () => {
+    const packageJson = JSON.parse(
+      await readFile(resolve("package.json"), "utf8"),
+    ) as { scripts: { "start:container": string } };
+    const script = packageJson.scripts["start:container"];
+
+    expect(script).toBe(
+      "node --conditions=react-server --import tsx src/server/bootstrap/container-start.ts",
+    );
+
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      [
+        "--conditions=react-server",
+        "--import",
+        "tsx",
+        "-e",
+        "import('./src/server/bootstrap/initialize-setup.ts').then(()=>console.log('imported'))",
+      ],
+      { cwd: resolve(".") },
+    );
+
+    expect(stdout).toBe("imported\n");
+    expect(stderr).toBe("");
+  });
+
   it("入口脚本保持唯一迁移职责，CMD 只启动 container 启动器", async () => {
     const dockerfile = await readFile(resolve("Dockerfile"), "utf8");
     const entrypoint = await readFile(resolve("docker-entrypoint.sh"), "utf8");
@@ -136,5 +166,11 @@ describe("Docker 运行时命令", () => {
     expect(dockerfile).not.toContain("db:migrate && npm run start:container");
     expect(dockerfile).toContain("/app/tsconfig.json ./tsconfig.json");
     expect(dockerfile).toContain("/app/src/server ./src/server");
+    const packageJson = JSON.parse(
+      await readFile(resolve("package.json"), "utf8"),
+    ) as { scripts: { "start:container": string } };
+    expect(packageJson.scripts["start:container"]).toContain(
+      "--conditions=react-server",
+    );
   });
 });

@@ -19,7 +19,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/server/db/migrate.ts",
     "format:check": "prettier --check . --end-of-line auto",
-    "start:container": "tsx src/server/bootstrap/container-start.ts"
+    "start:container": "node --conditions=react-server --import tsx src/server/bootstrap/container-start.ts"
   },
   "keywords": [],
   "author": "",
