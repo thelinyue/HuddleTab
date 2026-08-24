@@ -1,6 +1,128 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-body {
-  margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-ring: var(--ring);
+  --color-control-border: var(--control-border);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: #f6f8f7;
+  --foreground: #17211d;
+  --card: #ffffff;
+  --card-foreground: #17211d;
+  --popover: #ffffff;
+  --popover-foreground: #17211d;
+  --primary: #146b52;
+  --primary-foreground: #ffffff;
+  --secondary: #eaf2ee;
+  --secondary-foreground: #17211d;
+  --muted: #eaf2ee;
+  --muted-foreground: #56675f;
+  --accent: #eaf2ee;
+  --accent-foreground: #146b52;
+  --destructive: #c93636;
+  --border: #dce5e0;
+  --input: #dce5e0;
+  --control-border: #7c8e85;
+  --ring: #146b52;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: #0d1512;
+  --foreground: #f1f7f4;
+  --card: #14201b;
+  --card-foreground: #f1f7f4;
+  --popover: #14201b;
+  --popover-foreground: #f1f7f4;
+  --primary: #5dd6a7;
+  --primary-foreground: #062017;
+  --secondary: #1b2b24;
+  --secondary-foreground: #f1f7f4;
+  --muted: #1b2b24;
+  --muted-foreground: #a9bbb3;
+  --accent: #1b2b24;
+  --accent-foreground: #5dd6a7;
+  --destructive: #ff7b7b;
+  --border: #2a3b34;
+  --input: #2a3b34;
+  --control-border: #657b70;
+  --ring: #5dd6a7;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family:
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      "PingFang SC",
+      "Microsoft YaHei",
+      sans-serif;
+  }
+
+  button,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .money {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* 统一关闭非必要动效，避免 Radix 与反馈组件遗漏无障碍兜底。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }
