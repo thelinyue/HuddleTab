@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-huddletab}
+      POSTGRES_USER: ${POSTGRES_USER:-huddletab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-huddletab} -d ${POSTGRES_DB:-huddletab}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-huddletab}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-huddletab}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?请设置 BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5660}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
+      DATA_DIR: /data
+    ports:
+      - "5660:5660"
+    volumes:
+      - app-uploads:/data/uploads
+      - app-backups:/data/backups
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5660/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-data:
+  app-uploads:
+  app-backups:
