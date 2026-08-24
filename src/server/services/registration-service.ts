@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isAPIError } from "@better-auth/core/utils/is-api-error";
 import { eq } from "drizzle-orm";
 
 import { auth } from "@/server/auth/auth";
@@ -13,6 +14,7 @@ import {
 import { normalizeUsername } from "@/server/auth/username";
 import { getDatabaseClient } from "@/server/db";
 import { systemSettings, userProfiles, users } from "@/server/db/schema";
+import { ApplicationError } from "@/server/errors/application-error";
 
 export type RegistrationInput = {
   username: string;
@@ -26,6 +28,11 @@ export type RegisteredUser = {
   id: string;
   username: string;
   nickname: string;
+};
+
+export type RegistrationResult = {
+  user: RegisteredUser;
+  headers: Headers;
 };
 
 /**
@@ -53,16 +60,41 @@ async function compensateCreatedAuthUser(
   }
 }
 
+/** 仅映射 Better Auth 1.7.1 已知的注册唯一约束；其他底层错误必须保持原样抛出。 */
+function mapKnownSignUpConflict(error: unknown): ApplicationError | undefined {
+  if (!isAPIError(error) || typeof error.body?.code !== "string") {
+    return undefined;
+  }
+
+  if (error.body.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL") {
+    return new ApplicationError(
+      "EMAIL_ALREADY_REGISTERED",
+      "该邮箱已注册，请使用其他邮箱。",
+      409,
+    );
+  }
+
+  if (error.body.code === "USERNAME_IS_ALREADY_TAKEN") {
+    return new ApplicationError(
+      "USERNAME_ALREADY_TAKEN",
+      "该用户名已被占用，请使用其他用户名。",
+      409,
+    );
+  }
+
+  return undefined;
+}
+
 /**
  * 把 username-first 产品注册适配到 Better Auth 的 email/password 认证模型。
- * 返回 DTO 只包含可展示的身份资料，绝不返回密码、邀请码证明或内部 synthetic 邮箱。
+ * 只有 profile 成功创建后才返回 Better Auth 的 Set-Cookie，避免补偿失败的账号产生可用会话。
  */
 export class RegistrationService {
   constructor(
     private readonly inviteVerifier: InvitationRegistrationVerifier,
   ) {}
 
-  async register(input: RegistrationInput): Promise<RegisteredUser> {
+  async register(input: RegistrationInput): Promise<RegistrationResult> {
     const database = getDatabaseClient().db;
     const [settings] = await database
       .select({ registrationPolicy: systemSettings.registrationPolicy })
@@ -84,16 +116,30 @@ export class RegistrationService {
     const email = realEmail ?? createSyntheticEmail(randomUUID());
     const emailKind: EmailKind = realEmail ? "REAL" : "SYNTHETIC";
     const nickname = input.nickname.trim();
-    const created = await auth.api.signUpEmail({
-      body: {
-        email,
-        password: input.password,
-        name: nickname,
-        username,
-        displayUsername: input.username.trim(),
-      },
-    });
 
+    const signUp = () =>
+      auth.api.signUpEmail({
+        body: {
+          email,
+          password: input.password,
+          name: nickname,
+          username,
+          displayUsername: input.username.trim(),
+        },
+        returnHeaders: true,
+      });
+    let signedUp: Awaited<ReturnType<typeof signUp>>;
+    try {
+      signedUp = await signUp();
+    } catch (error) {
+      const conflict = mapKnownSignUpConflict(error);
+      if (conflict) {
+        throw conflict;
+      }
+      throw error;
+    }
+
+    const created = signedUp.response;
     try {
       await database.insert(userProfiles).values({
         userId: created.user.id,
@@ -107,9 +153,12 @@ export class RegistrationService {
     }
 
     return {
-      id: created.user.id,
-      username,
-      nickname,
+      user: {
+        id: created.user.id,
+        username,
+        nickname,
+      },
+      headers: signedUp.headers,
     };
   }
 }

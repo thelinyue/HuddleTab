@@ -84,13 +84,14 @@ describe("RegistrationService", () => {
       nickname: "小艾",
     });
 
-    expect(result).toEqual({
+    expect(result.user).toEqual({
       id: expect.any(String),
       username: "alice_01",
       nickname: "小艾",
     });
-    expect(result).not.toHaveProperty("email");
-    expect(JSON.stringify(result)).not.toContain("local.invalid");
+    expect(result.user).not.toHaveProperty("email");
+    expect(JSON.stringify(result.user)).not.toContain("local.invalid");
+    expect(result.headers.getSetCookie()).not.toHaveLength(0);
 
     const [record] = await harness.sql<
       {
@@ -106,7 +107,7 @@ describe("RegistrationService", () => {
       from "user" u
       join user_profiles p on p.user_id = u.id
       join account a on a.user_id = u.id
-      where u.id = ${result.id}
+      where u.id = ${result.user.id}
     `;
     expect(record).toMatchObject({
       username: "alice_01",
@@ -133,13 +134,13 @@ describe("RegistrationService", () => {
       select u.email, p.email_kind as "emailKind"
       from "user" u
       join user_profiles p on p.user_id = u.id
-      where u.id = ${result.id}
+      where u.id = ${result.user.id}
     `;
     expect(record).toEqual({
       email: "real.user@example.test",
       emailKind: "REAL",
     });
-    expect(result).not.toHaveProperty("email");
+    expect(result.user).not.toHaveProperty("email");
   }, 60_000);
 
   it.each([undefined, "bad-invite-proof"])(
@@ -197,11 +198,14 @@ describe("RegistrationService", () => {
       }),
     ).rejects.toThrow();
 
-    const [record] = await harness.sql<{ users: number; accounts: number }[]>`
+    const [record] = await harness.sql<
+      { users: number; accounts: number; sessions: number }[]
+    >`
       select
         (select count(*)::int from "user" where username = ${username}) as users,
-        (select count(*)::int from account a join "user" u on u.id = a.user_id where u.username = ${username}) as accounts
+        (select count(*)::int from account a join "user" u on u.id = a.user_id where u.username = ${username}) as accounts,
+        (select count(*)::int from session s join "user" u on u.id = s.user_id where u.username = ${username}) as sessions
     `;
-    expect(record).toEqual({ users: 0, accounts: 0 });
+    expect(record).toEqual({ users: 0, accounts: 0, sessions: 0 });
   }, 60_000);
 });

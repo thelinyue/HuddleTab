@@ -42,10 +42,16 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const data = await new RegistrationService(
+    const result = await new RegistrationService(
       rejectingInvitationVerifier,
     ).register(parsed.data);
-    return Response.json({ data }, { status: 201 });
+    const response = Response.json({ data: result.user }, { status: 201 });
+
+    for (const setCookie of result.headers.getSetCookie()) {
+      response.headers.append("set-cookie", setCookie);
+    }
+
+    return response;
   } catch (error) {
     if (error instanceof ApplicationError) {
       return errorResponse(
