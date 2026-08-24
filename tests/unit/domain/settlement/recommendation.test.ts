@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { recommendSettlements } from "@/domain/settlement/recommendation";
 
 const balances = [
@@ -76,7 +76,7 @@ describe("recommendSettlements", () => {
   });
 
   it("精确处理超过 Number.MAX_SAFE_INTEGER 的 bigint 金额", () => {
-    const amountMinor = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+    const amountMinor = BigInt(Number.MAX_SAFE_INTEGER) + 2n;
 
     expect(
       recommendSettlements([
@@ -137,6 +137,10 @@ describe("recommendSettlements", () => {
     ]);
   });
   it("同额时按 Unicode code-point 顺序选择 z 而非 ä", () => {
+    vi.spyOn(String.prototype, "localeCompare").mockImplementation(() => {
+      throw new Error("结算推荐不得依赖 localeCompare");
+    });
+
     expect(
       recommendSettlements([
         { memberId: "ä-creditor", netMinor: 1n },
