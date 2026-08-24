@@ -5,3 +5,6 @@ node_modules/
 .env.*
 !.env.example
 .worktrees/
+/test-results/
+/tsconfig.tsbuildinfo
+/next-env.d.ts
