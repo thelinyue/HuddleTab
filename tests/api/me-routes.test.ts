@@ -169,6 +169,21 @@ async function createSyntheticUser(
   };
 }
 
+async function expireCurrentSession(
+  authenticatedSession: AuthenticatedSession,
+): Promise<void> {
+  const { auth } = await import("@/server/auth/auth");
+  const current = await auth.api.getSession({
+    headers: authenticatedSession.headers,
+  });
+  if (!current) throw new Error("未能读取需要回拨的测试会话。");
+
+  await harness.sql`
+    update session
+    set created_at = now() - interval '25 hours'
+    where id = ${current.session.id}
+  `;
+}
 async function resetDatabase(): Promise<void> {
   await harness.sql`delete from session`;
   await harness.sql`delete from account`;
@@ -363,6 +378,34 @@ describe("已登录账户 API", () => {
     expect(JSON.stringify(response.json)).not.toMatch(/token|@local\.invalid/i);
   });
 
+  it("requires a fresh session before listing or revoking sessions", async () => {
+    const syntheticUserSession = await createSyntheticUser();
+    const target = await api.seedSecondSession(syntheticUserSession);
+    await expireCurrentSession(syntheticUserSession);
+
+    const listResponse = await api.get(
+      "/api/me/sessions",
+      syntheticUserSession,
+    );
+    const revokeResponse = await api.delete(
+      `/api/me/sessions?sessionId=${target.id}`,
+      syntheticUserSession,
+    );
+
+    for (const response of [listResponse, revokeResponse]) {
+      expect(response).toMatchObject({
+        status: 403,
+        json: {
+          error: {
+            code: "SESSION_NOT_FRESH",
+            message: "当前登录状态需要重新验证身份，请重新登录。",
+            fieldErrors: {},
+            details: {},
+          },
+        },
+      });
+    }
+  });
   it("revokes one selected session without revoking the current session", async () => {
     const syntheticUserSession = await createSyntheticUser();
     const target = await api.seedSecondSession(syntheticUserSession);

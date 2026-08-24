@@ -1,3 +1,5 @@
+import { isAPIError } from "@better-auth/core/utils/is-api-error";
+
 import { auth } from "@/server/auth/auth";
 import { requireSession } from "@/server/auth/session";
 import { ApplicationError } from "@/server/errors/application-error";
@@ -14,6 +16,18 @@ function errorResponse(error: ApplicationError): Response {
     },
     { status: error.status },
   );
+}
+
+function knownSessionErrorResponse(error: unknown): Response | undefined {
+  if (isAPIError(error) && error.body?.code === "SESSION_NOT_FRESH") {
+    return errorResponse(
+      new ApplicationError(
+        "SESSION_NOT_FRESH",
+        "当前登录状态需要重新验证身份，请重新登录。",
+        403,
+      ),
+    );
+  }
 }
 
 /**
@@ -35,6 +49,8 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ data });
   } catch (error) {
     if (error instanceof ApplicationError) return errorResponse(error);
+    const response = knownSessionErrorResponse(error);
+    if (response) return response;
     throw error;
   }
 }
@@ -72,6 +88,8 @@ export async function DELETE(request: Request): Promise<Response> {
     return new Response(null, { status: 204 });
   } catch (error) {
     if (error instanceof ApplicationError) return errorResponse(error);
+    const response = knownSessionErrorResponse(error);
+    if (response) return response;
     throw error;
   }
 }
