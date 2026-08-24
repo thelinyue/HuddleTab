@@ -20,6 +20,15 @@ export interface LedgerInput {
  * 以不依赖运行 locale 的 Unicode 代码点顺序输出，避免展示环境改变账务结果。
  */
 export function calculateLedger(input: LedgerInput): MemberBalance[] {
+  const memberIds = new Set<string>();
+  for (const memberId of input.memberIds) {
+    if (memberIds.has(memberId)) {
+      throw new Error("总账成员不能重复");
+    }
+
+    memberIds.add(memberId);
+  }
+
   const values = new Map(input.memberIds.map((memberId) => [memberId, 0n]));
   const change = (memberId: string, delta: bigint): void => {
     if (!values.has(memberId)) {
@@ -29,13 +38,29 @@ export function calculateLedger(input: LedgerInput): MemberBalance[] {
     values.set(memberId, values.get(memberId)! + delta);
   };
 
+  // 守恒只验证余额总和；负金额方向、自结算和重复成员仍可能让总和为零，必须先校验。
   for (const payment of input.payments) {
+    if (payment.amountMinor < 0n) {
+      throw new Error("付款金额不能为负数");
+    }
+
     change(payment.memberId, payment.amountMinor);
   }
   for (const share of input.shares) {
+    if (share.amountMinor < 0n) {
+      throw new Error("分摊金额不能为负数");
+    }
+
     change(share.memberId, -share.amountMinor);
   }
   for (const settlement of input.settlements) {
+    if (settlement.amountMinor <= 0n) {
+      throw new Error("结算金额必须大于零");
+    }
+    if (settlement.payerMemberId === settlement.receiverMemberId) {
+      throw new Error("结算付款人与收款人不能相同");
+    }
+
     change(settlement.payerMemberId, settlement.amountMinor);
     change(settlement.receiverMemberId, -settlement.amountMinor);
   }
