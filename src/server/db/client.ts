@@ -11,8 +11,7 @@ const globalForDb = globalThis as unknown as {
   database?: ReturnType<typeof createDatabaseClient>;
 };
 const database =
-  globalForDb.database ??
-  createDatabaseClient(process.env.DATABASE_URL ?? "");
+  globalForDb.database ?? createDatabaseClient(process.env.DATABASE_URL ?? "");
 
 if (process.env.NODE_ENV !== "production") globalForDb.database = database;
 
