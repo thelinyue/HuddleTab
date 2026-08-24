@@ -11,3 +11,8 @@ export const registerInput = z.object({
   email: z.string().trim().toLowerCase().email().optional(),
   inviteProof: z.string().min(1).optional(),
 });
+
+/** Setup 复用注册的凭据字段校验，只额外接受从容器日志获得的一次性 token。 */
+export const setupInput = registerInput
+  .pick({ username: true, password: true, nickname: true })
+  .extend({ setupToken: z.string().min(20).max(128) });

@@ -18,7 +18,8 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/server/db/migrate.ts",
-    "format:check": "prettier --check . --end-of-line auto"
+    "format:check": "prettier --check . --end-of-line auto",
+    "start:container": "tsx src/server/bootstrap/container-start.ts"
   },
   "keywords": [],
   "author": "",

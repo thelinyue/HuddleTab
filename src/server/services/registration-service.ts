@@ -24,6 +24,11 @@ export type RegistrationInput = {
   inviteProof?: string;
 };
 
+export type SetupCredentialInput = Pick<
+  RegistrationInput,
+  "username" | "password" | "nickname"
+>;
+
 export type RegisteredUser = {
   id: string;
   username: string;
@@ -33,6 +38,16 @@ export type RegisteredUser = {
 export type RegistrationResult = {
   user: RegisteredUser;
   headers: Headers;
+};
+
+export type SetupCredentialResult = {
+  userId: string;
+  headers: Headers;
+};
+
+type CredentialInput = SetupCredentialInput & {
+  email: string;
+  emailKind: EmailKind;
 };
 
 /**
@@ -54,7 +69,7 @@ async function compensateCreatedAuthUser(
       throw new Error("未找到需要补偿删除的认证账户。");
     }
   } catch (error) {
-    throw new Error("注册资料写入失败，且无法清理刚创建的认证账户。", {
+    throw new Error("认证资料写入失败，且无法清理刚创建的认证账户。", {
       cause: error,
     });
   }
@@ -86,6 +101,77 @@ function mapKnownSignUpConflict(error: unknown): ApplicationError | undefined {
 }
 
 /**
+ * 统一执行 Better Auth 凭据与 profile 写入。成功后才将 headers 交给调用方，确保后续
+ * route 只会在完整业务写入成功时转发自动登录 Cookie。
+ */
+async function createCredentialWithProfile(
+  input: CredentialInput,
+): Promise<SetupCredentialResult & RegisteredUser> {
+  const database = getDatabaseClient().db;
+  const username = normalizeUsername(input.username);
+  const nickname = input.nickname.trim();
+  const signUp = () =>
+    auth.api.signUpEmail({
+      body: {
+        email: input.email,
+        password: input.password,
+        name: nickname,
+        username,
+        displayUsername: input.username.trim(),
+      },
+      returnHeaders: true,
+    });
+  let signedUp: Awaited<ReturnType<typeof signUp>>;
+  try {
+    signedUp = await signUp();
+  } catch (error) {
+    const conflict = mapKnownSignUpConflict(error);
+    if (conflict) throw conflict;
+    throw error;
+  }
+
+  const created = signedUp.response;
+  try {
+    await database.insert(userProfiles).values({
+      userId: created.user.id,
+      usernameNormalized: username,
+      nickname,
+      emailKind: input.emailKind,
+    });
+  } catch (profileError) {
+    await compensateCreatedAuthUser(database, created.user.id);
+    throw profileError;
+  }
+
+  return {
+    userId: created.user.id,
+    id: created.user.id,
+    username,
+    nickname,
+    headers: signedUp.headers,
+  };
+}
+
+/** Setup 仅绕过邀请注册门禁，仍使用同一用户名、密码、昵称与 Synthetic Email 兼容层。 */
+export async function createSetupCredentialUser(
+  input: SetupCredentialInput,
+): Promise<SetupCredentialResult> {
+  const result = await createCredentialWithProfile({
+    ...input,
+    email: createSyntheticEmail(randomUUID()),
+    emailKind: "SYNTHETIC",
+  });
+  return { userId: result.userId, headers: result.headers };
+}
+
+/** 仅供 SetupService 在角色/bootstrap 事务失败后清理本次刚创建的账号。 */
+export async function compensateSetupCredentialUser(
+  userId: string,
+): Promise<void> {
+  await compensateCreatedAuthUser(getDatabaseClient().db, userId);
+}
+
+/**
  * 把 username-first 产品注册适配到 Better Auth 的 email/password 认证模型。
  * 只有 profile 成功创建后才返回 Better Auth 的 Set-Cookie，避免补偿失败的账号产生可用会话。
  */
@@ -111,54 +197,22 @@ export class RegistrationService {
       this.inviteVerifier,
     );
 
-    const username = normalizeUsername(input.username);
     const realEmail = input.email?.trim().toLowerCase();
-    const email = realEmail ?? createSyntheticEmail(randomUUID());
-    const emailKind: EmailKind = realEmail ? "REAL" : "SYNTHETIC";
-    const nickname = input.nickname.trim();
-
-    const signUp = () =>
-      auth.api.signUpEmail({
-        body: {
-          email,
-          password: input.password,
-          name: nickname,
-          username,
-          displayUsername: input.username.trim(),
-        },
-        returnHeaders: true,
-      });
-    let signedUp: Awaited<ReturnType<typeof signUp>>;
-    try {
-      signedUp = await signUp();
-    } catch (error) {
-      const conflict = mapKnownSignUpConflict(error);
-      if (conflict) {
-        throw conflict;
-      }
-      throw error;
-    }
-
-    const created = signedUp.response;
-    try {
-      await database.insert(userProfiles).values({
-        userId: created.user.id,
-        usernameNormalized: username,
-        nickname,
-        emailKind,
-      });
-    } catch (profileError) {
-      await compensateCreatedAuthUser(database, created.user.id);
-      throw profileError;
-    }
+    const result = await createCredentialWithProfile({
+      username: input.username,
+      password: input.password,
+      nickname: input.nickname,
+      email: realEmail ?? createSyntheticEmail(randomUUID()),
+      emailKind: realEmail ? "REAL" : "SYNTHETIC",
+    });
 
     return {
       user: {
-        id: created.user.id,
-        username,
-        nickname,
+        id: result.id,
+        username: result.username,
+        nickname: result.nickname,
       },
-      headers: signedUp.headers,
+      headers: result.headers,
     };
   }
 }
