@@ -28,7 +28,10 @@ const MINOR_AMOUNT_PATTERN = /^-?(0|[1-9]\d*)$/;
 
 /** 将 API 的十进制整数金额转换为精确的领域金额。 */
 export function moneyFromApi(money: MoneyApi): Money {
-  if (!MINOR_AMOUNT_PATTERN.test(money.amountMinor)) {
+  if (
+    typeof money.amountMinor !== "string" ||
+    !MINOR_AMOUNT_PATTERN.test(money.amountMinor)
+  ) {
     throw new Error("金额必须是最小货币单位整数");
   }
 

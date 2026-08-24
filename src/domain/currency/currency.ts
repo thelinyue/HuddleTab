@@ -39,22 +39,52 @@ const THREE_MINOR_UNIT_CURRENCIES = new Set([
 const FOUR_MINOR_UNIT_CURRENCIES = new Set(["CLF", "UYW"]);
 
 /**
- * Intl.supportedValuesOf("currency") 可能遗漏冻结计划明确支持的 ISO 基金/单位代码。
- * UYI 与 CLF/UYW 分别来自上方的零位、四位精度规则，因此该例外集合必须与
- * minor-unit 列表保持一致，避免运行时 ICU 差异导致这些合法金额在校验阶段被拒绝。
+ * 当前 ICU 未列出的官方 ISO 4217 代码补集。
+ * 本领域层的 ISO 4217 代码由 ICU 支持集合与该补集共同构成：
+ * Intl.supportedValuesOf("currency") 并非 ISO 4217 权威全集，可能遗漏基金、
+ * 贵金属、测试及单位代码；补集与冻结的官方清单保持一致，避免运行时 ICU 差异
+ * 让合法币种在校验阶段被拒绝。
  */
+const ICU_MISSING_OFFICIAL_ISO_4217_CODES = new Set([
+  "BOV",
+  "CHE",
+  "CHW",
+  "CLF",
+  "COU",
+  "MXV",
+  "USN",
+  "UYI",
+  "UYW",
+  "VED",
+  "XAD",
+  "XAG",
+  "XAU",
+  "XBA",
+  "XBB",
+  "XBC",
+  "XBD",
+  "XPD",
+  "XPT",
+  "XTS",
+  "XUA",
+  "XXX",
+]);
+
 const SUPPORTED_CURRENCY_CODES = new Set([
   ...Intl.supportedValuesOf("currency"),
-  "UYI",
-  ...FOUR_MINOR_UNIT_CURRENCIES,
+  ...ICU_MISSING_OFFICIAL_ISO_4217_CODES,
 ]);
 
 /**
  * 将外部币种代码标准化并验证为运行时支持的 ISO 4217 币种。
  * Intl.NumberFormat 负责校验运行时的货币格式能力；成员校验使用包含
- * supportedValuesOf 与冻结精度例外的集合，排除形似三位字母但并未获支持的代码。
+ * ICU 支持集合与官方缺失补集，排除形似三位字母但并未获支持的代码。
  */
 export function asCurrencyCode(input: string): CurrencyCode {
+  if (typeof input !== "string") {
+    throw new Error("币种代码必须是三个大写字母");
+  }
+
   const code = input.trim().toUpperCase();
 
   if (!/^[A-Z]{3}$/.test(code)) {

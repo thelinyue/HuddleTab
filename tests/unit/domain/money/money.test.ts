@@ -31,6 +31,36 @@ describe("Money", () => {
     expect(asCurrencyCode("UYW")).toBe("UYW");
     expect(getCurrencyMinorUnits("UYW")).toBe(4);
   });
+
+  it("accepts current ISO 4217 codes omitted by ICU", () => {
+    for (const [currency, minorUnits] of [
+      ["BOV", 2],
+      ["VED", 2],
+      ["XAU", 2],
+      ["XTS", 2],
+    ] as const) {
+      expect(asCurrencyCode(currency)).toBe(currency);
+      expect(getCurrencyMinorUnits(currency)).toBe(minorUnits);
+    }
+  });
+
+  it("rejects non-string minor amounts before integer validation", () => {
+    for (const amountMinor of [
+      9007199254740993 as unknown as string,
+      1 as unknown as string,
+      1n as unknown as string,
+    ]) {
+      expect(() => moneyFromApi({ currency: "CNY", amountMinor })).toThrow(
+        "金额必须是最小货币单位整数",
+      );
+    }
+  });
+
+  it("rejects non-string currency codes with the existing validation error", () => {
+    expect(() => asCurrencyCode(123 as unknown as string)).toThrow(
+      "币种代码必须是三个大写字母",
+    );
+  });
   it("rejects float syntax and cross-currency arithmetic", () => {
     expect(() => moneyFromApi({ currency: "CNY", amountMinor: "1.5" })).toThrow(
       "金额必须是最小货币单位整数",
