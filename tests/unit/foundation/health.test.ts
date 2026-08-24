@@ -1,27 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/server/db", () => ({ sql: vi.fn() }));
+vi.mock("@/server/db", () => ({ getDatabaseClient: vi.fn() }));
 
 import { GET } from "@/app/api/health/route";
-import { sql } from "@/server/db";
+import { getDatabaseClient } from "@/server/db";
 
-/**
- * postgres.js 的 Sql 类型是高度递归的交叉类型；测试只需要 Vitest mock 的三个操作，
- * 因此收窄为最小接口，避免 typecheck 展开整个驱动类型。
- */
-const sqlMock = sql as unknown as {
+/** 健康检查只依赖获取器和最小查询能力，避免测试展开 postgres.js 的复杂类型。 */
+const getDatabaseClientMock = getDatabaseClient as unknown as {
   mockReset(): void;
-  mockResolvedValueOnce(value: unknown): void;
-  mockRejectedValueOnce(error: Error): void;
+  mockReturnValueOnce(value: { sql: unknown }): void;
+  mockImplementationOnce(callback: () => never): void;
 };
+
+function sqlThatResolves() {
+  return vi.fn().mockResolvedValue([]);
+}
+
+function sqlThatRejects() {
+  return vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED"));
+}
 
 describe("health route", () => {
   beforeEach(() => {
-    sqlMock.mockReset();
+    getDatabaseClientMock.mockReset();
   });
 
   it("returns ok when PostgreSQL is available", async () => {
-    sqlMock.mockResolvedValueOnce([] as never);
+    getDatabaseClientMock.mockReturnValueOnce({ sql: sqlThatResolves() });
 
     const response = await GET();
 
@@ -30,7 +35,21 @@ describe("health route", () => {
   });
 
   it("returns a deployer-friendly error when PostgreSQL is unavailable", async () => {
-    sqlMock.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+    getDatabaseClientMock.mockReturnValueOnce({ sql: sqlThatRejects() });
+
+    const response = await GET();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      status: "error",
+      message: "数据库连接不可用",
+    });
+  });
+
+  it("returns the same error when the database configuration cannot be loaded", async () => {
+    getDatabaseClientMock.mockImplementationOnce(() => {
+      throw new Error("数据库连接配置无效");
+    });
 
     const response = await GET();
 

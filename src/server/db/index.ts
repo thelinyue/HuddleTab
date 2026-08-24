@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Next.js 应用通过此入口取得数据库实例，避免客户端组件误导入数据库访问代码。
- * 迁移 CLI 与集成测试则直接使用 client.ts，以兼容裸 Node.js 运行时。
+ * Next.js 服务端代码只能经此入口获取运行时数据库客户端。
+ * 纯工厂位于 factory.ts，供迁移 CLI 和 Testcontainers 测试在普通 Node.js 环境中调用。
  */
-export { db, sql } from "./client";
+export { getDatabaseClient } from "./client";

@@ -1,18 +1,24 @@
-import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
-function source(path: string) {
-  return readFileSync(path, "utf8");
-}
+const execFileAsync = promisify(execFile);
+const tsxEntrypoint = resolve("node_modules/tsx/dist/cli.mjs");
+const databaseRuntimeEntrypoint = resolve("src/server/db/client.ts");
 
 describe("server database boundary", () => {
-  it("keeps the Next server-only marker outside the CLI-compatible database client", () => {
-    expect(source("src/server/db/index.ts")).toContain('import "server-only";');
-    expect(source("src/server/db/client.ts")).not.toContain(
-      'import "server-only";',
-    );
-    expect(source("src/app/api/health/route.ts")).toContain(
-      'from "@/server/db";',
-    );
+  it("rejects a direct Node import of the database runtime entrypoint", async () => {
+    await expect(
+      execFileAsync(
+        process.execPath,
+        [tsxEntrypoint, databaseRuntimeEntrypoint],
+        {
+          env: { ...process.env },
+        },
+      ),
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("Client Component"),
+    });
   });
 });

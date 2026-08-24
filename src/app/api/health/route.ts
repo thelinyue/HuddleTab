@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { sql } from "@/server/db";
+import { getDatabaseClient } from "@/server/db";
 
 /** 健康检查通过轻量查询确认应用当前可访问其主数据库。 */
 export async function GET() {
   try {
+    const { sql } = getDatabaseClient();
     await sql`select 1`;
     return NextResponse.json({ status: "ok" });
   } catch {
