@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   index,
   integer,
   pgEnum,
@@ -72,30 +73,42 @@ export const systemRoles = pgTable(
 );
 
 /**
- * 全局设置固定使用 singleton 主键，保证部署和并发启动时只有一条权威设置记录。
+ * 全局设置固定使用 singleton 主键，check 约束阻止任何第二个设置记录。
  * 首次迁移的幂等 seed 由 seedSystemSingletons 和迁移末尾 SQL 共同表达。
  */
-export const systemSettings = pgTable("system_settings", {
-  id: text("id").primaryKey().default("singleton"),
-  registrationPolicy: registrationPolicy("registration_policy")
-    .notNull()
-    .default("INVITE_ONLY"),
-  maintenanceMode: boolean("maintenance_mode").notNull().default(false),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedByUserId: text("updated_by_user_id").references(() => users.id, {
-    onDelete: "set null",
-  }),
-});
+export const systemSettings = pgTable(
+  "system_settings",
+  {
+    id: text("id").primaryKey().default("singleton"),
+    registrationPolicy: registrationPolicy("registration_policy")
+      .notNull()
+      .default("INVITE_ONLY"),
+    maintenanceMode: boolean("maintenance_mode").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedByUserId: text("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    check("system_settings_singleton_id_chk", sql`${table.id} = 'singleton'`),
+  ],
+);
 
-/** 系统初始化凭据和完成状态与可变系统设置分离，便于设置流程单独演进。 */
-export const systemBootstrap = pgTable("system_bootstrap", {
-  id: text("id").primaryKey().default("singleton"),
-  setupTokenHash: text("setup_token_hash"),
-  generatedAt: timestamp("generated_at", { withTimezone: true }),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-});
+/** 系统初始化状态同样只允许 singleton，避免出现互相矛盾的 setup 状态。 */
+export const systemBootstrap = pgTable(
+  "system_bootstrap",
+  {
+    id: text("id").primaryKey().default("singleton"),
+    setupTokenHash: text("setup_token_hash"),
+    generatedAt: timestamp("generated_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("system_bootstrap_singleton_id_chk", sql`${table.id} = 'singleton'`),
+  ],
+);
 
 /**
  * 限流桶以窗口开始时间区分同一 key 的不同窗口，过期索引用于后台高效回收。
