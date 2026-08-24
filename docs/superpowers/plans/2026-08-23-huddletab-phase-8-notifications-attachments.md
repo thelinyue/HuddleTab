@@ -28,6 +28,7 @@ src/server/jobs/orphan-attachment-cleanup.ts         单进程孤立文件清理
 ### Task 1: Reuse notification schema and add attachment tables
 
 **Files:**
+
 - Modify: `src/server/db/schema/activity.ts` (reuse the Phase 3 `notifications` table; do not recreate it)
 - Create: `src/server/db/schema/expense-attachments.ts`
 - Modify: `src/server/db/schema/index.ts`
@@ -43,9 +44,16 @@ import { createPostgresTestContext } from "../support/postgres-test-context";
 it("enforces attachment retry idempotency", async () => {
   const ctx = await createPostgresTestContext();
   const ids = await ctx.seedExpense();
-  await ctx.insertAttachment({ ...ids, clientAttachmentId: "57d79eb0-8611-4e82-815b-b1cfdf859b74" });
-  await expect(ctx.insertAttachment({ ...ids, clientAttachmentId: "57d79eb0-8611-4e82-815b-b1cfdf859b74" }))
-    .rejects.toMatchObject({ code: "23505" });
+  await ctx.insertAttachment({
+    ...ids,
+    clientAttachmentId: "57d79eb0-8611-4e82-815b-b1cfdf859b74",
+  });
+  await expect(
+    ctx.insertAttachment({
+      ...ids,
+      clientAttachmentId: "57d79eb0-8611-4e82-815b-b1cfdf859b74",
+    }),
+  ).rejects.toMatchObject({ code: "23505" });
   await ctx.close();
 });
 ```
@@ -61,27 +69,45 @@ Expected: FAIL with `relation "expense_attachments" does not exist`.
 ```ts
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey(),
-  recipientUserId: uuid("recipient_user_id").notNull().references(() => users.id),
+  recipientUserId: uuid("recipient_user_id")
+    .notNull()
+    .references(() => users.id),
   type: text("type").notNull(),
   targetType: text("target_type").notNull(),
   targetId: uuid("target_id").notNull(),
   payload: jsonb("payload").notNull().$type<Record<string, string>>(),
   readAt: timestamp("read_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
-export const expenseAttachments = pgTable("expense_attachments", {
-  id: uuid("id").primaryKey(),
-  expenseId: uuid("expense_id").notNull().references(() => expenses.id, { onDelete: "cascade" }),
-  clientAttachmentId: uuid("client_attachment_id").notNull(),
-  storageKey: text("storage_key").notNull().unique(),
-  safeFilename: text("safe_filename").notNull(),
-  mimeType: text("mime_type").notNull(),
-  width: integer("width").notNull(), height: integer("height").notNull(),
-  byteSize: bigint("byte_size", { mode: "number" }).notNull(),
-  sha256: text("sha256").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [uniqueIndex("expense_attachments_expense_client_uidx").on(t.expenseId, t.clientAttachmentId)]);
+export const expenseAttachments = pgTable(
+  "expense_attachments",
+  {
+    id: uuid("id").primaryKey(),
+    expenseId: uuid("expense_id")
+      .notNull()
+      .references(() => expenses.id, { onDelete: "cascade" }),
+    clientAttachmentId: uuid("client_attachment_id").notNull(),
+    storageKey: text("storage_key").notNull().unique(),
+    safeFilename: text("safe_filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    sha256: text("sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("expense_attachments_expense_client_uidx").on(
+      t.expenseId,
+      t.clientAttachmentId,
+    ),
+  ],
+);
 ```
 
 Run: `npm run db:generate`
@@ -102,6 +128,7 @@ git commit -m "feat: add notification and attachment metadata"
 ### Task 2: Implement server-backed in-app notifications
 
 **Files:**
+
 - Create: `src/server/services/notification-service.ts`
 - Create: `src/app/api/notifications/route.ts`
 - Create: `src/app/api/notifications/[notificationId]/read/route.ts`
@@ -114,16 +141,27 @@ git commit -m "feat: add notification and attachment metadata"
 ```ts
 it("rolls notification back with the business transaction", async () => {
   const seed = await ctx.seedActivityMember();
-  await expect(ctx.db.transaction(async (tx) => {
-    await service.create(tx, { recipientUserId: seed.userId, type: "ACTIVITY_STATUS_CHANGED",
-      targetType: "activity", targetId: seed.activityId, payload: { status: "ENDED" } });
-    throw new Error("模拟事务失败");
-  })).rejects.toThrow("模拟事务失败");
+  await expect(
+    ctx.db.transaction(async (tx) => {
+      await service.create(tx, {
+        recipientUserId: seed.userId,
+        type: "ACTIVITY_STATUS_CHANGED",
+        targetType: "activity",
+        targetId: seed.activityId,
+        payload: { status: "ENDED" },
+      });
+      throw new Error("模拟事务失败");
+    }),
+  ).rejects.toThrow("模拟事务失败");
   expect(await ctx.countNotifications(seed.userId)).toBe(0);
 });
 
 it("cannot mark another user's notification read", async () => {
-  const response = await api.post(`/api/notifications/${aliceNotification.id}/read`, {}, bob.session);
+  const response = await api.post(
+    `/api/notifications/${aliceNotification.id}/read`,
+    {},
+    bob.session,
+  );
   expect(response.status).toBe(404);
   expect((await response.json()).error.code).toBe("NOTIFICATION_NOT_FOUND");
 });
@@ -139,9 +177,14 @@ Expected: FAIL because service/routes do not exist.
 
 ```ts
 export const notificationTypes = [
-  "ACTIVITY_INVITATION", "JOIN_APPROVAL_REQUESTED", "JOIN_APPROVAL_RESOLVED",
-  "PARTICIPATING_EXPENSE_CHANGED", "PARTICIPATING_EXPENSE_DELETED",
-  "SETTLEMENT_RECEIVED", "ACTIVITY_STATUS_CHANGED", "OWNERSHIP_CHANGED",
+  "ACTIVITY_INVITATION",
+  "JOIN_APPROVAL_REQUESTED",
+  "JOIN_APPROVAL_RESOLVED",
+  "PARTICIPATING_EXPENSE_CHANGED",
+  "PARTICIPATING_EXPENSE_DELETED",
+  "SETTLEMENT_RECEIVED",
+  "ACTIVITY_STATUS_CHANGED",
+  "OWNERSHIP_CHANGED",
 ] as const;
 
 export class NotificationService {
@@ -150,11 +193,18 @@ export class NotificationService {
     return tx.insert(notifications).values({ id: randomUUID(), ...input });
   }
   list(recipientUserId: string, limit: number) {
-    return this.repository.listForRecipient(recipientUserId, Math.min(limit, 50));
+    return this.repository.listForRecipient(
+      recipientUserId,
+      Math.min(limit, 50),
+    );
   }
   async markRead(recipientUserId: string, id: string) {
-    if (!await this.repository.markReadForRecipient(recipientUserId, id))
-      throw new AppError(404, "NOTIFICATION_NOT_FOUND", "通知不存在或你无权查看。");
+    if (!(await this.repository.markReadForRecipient(recipientUserId, id)))
+      throw new AppError(
+        404,
+        "NOTIFICATION_NOT_FOUND",
+        "通知不存在或你无权查看。",
+      );
   }
   constructor(private readonly repository: NotificationRepository) {}
 }
@@ -178,6 +228,7 @@ git commit -m "feat: add in-app notifications"
 ### Task 3: Validate, re-encode and privately store images
 
 **Files:**
+
 - Modify: `package.json`, `package-lock.json`
 - Create: `src/server/attachments/image-policy.ts`
 - Create: `src/server/attachments/local-attachment-store.ts`
@@ -189,15 +240,22 @@ Run: `npm install sharp file-type`
 
 ```ts
 it.each([
-  [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), "image/svg+xml", "ATTACHMENT_TYPE_NOT_ALLOWED"],
+  [
+    Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+    "image/svg+xml",
+    "ATTACHMENT_TYPE_NOT_ALLOWED",
+  ],
   [Buffer.alloc(10 * 1024 * 1024 + 1), "image/jpeg", "ATTACHMENT_TOO_LARGE"],
 ])("rejects unsafe image", async (bytes, mime, code) => {
-  await expect(processAttachmentImage(bytes, mime)).rejects.toMatchObject({ code });
+  await expect(processAttachmentImage(bytes, mime)).rejects.toMatchObject({
+    code,
+  });
 });
 
 it("rejects traversal", async () => {
-  await expect(new LocalAttachmentStore(tempRoot).read("../../outside"))
-    .rejects.toMatchObject({ code: "ATTACHMENT_STORAGE_KEY_INVALID" });
+  await expect(
+    new LocalAttachmentStore(tempRoot).read("../../outside"),
+  ).rejects.toMatchObject({ code: "ATTACHMENT_STORAGE_KEY_INVALID" });
 });
 ```
 
@@ -254,6 +312,7 @@ git commit -m "feat: secure local image processing"
 ### Task 4: Add authorized attachment APIs, retry and cleanup
 
 **Files:**
+
 - Create: `src/server/services/attachment-service.ts`
 - Create: `src/app/api/activities/[activityId]/expenses/[expenseId]/attachments/route.ts`
 - Create: `src/app/api/activities/[activityId]/expenses/[expenseId]/attachments/[attachmentId]/route.ts`
@@ -267,19 +326,35 @@ git commit -m "feat: secure local image processing"
 ```ts
 it("is idempotent and keeps LEFT read-only", async () => {
   const seed = await ctx.seedExpenseWithLeftMember();
-  const input = await ctx.validUpload(seed.ownerUserId, seed, clientAttachmentId);
-  const first = await service.upload(input); const second = await service.upload(input);
+  const input = await ctx.validUpload(
+    seed.ownerUserId,
+    seed,
+    clientAttachmentId,
+  );
+  const first = await service.upload(input);
+  const second = await service.upload(input);
   expect(second.id).toBe(first.id);
-  await expect(service.download(seed.leftUserId, seed.activityId, first.id)).resolves.toBeDefined();
-  await expect(service.upload(await ctx.validUpload(seed.leftUserId, seed, crypto.randomUUID())))
-    .rejects.toMatchObject({ code: "LEFT_MEMBER_EXPENSE_READ_ONLY" });
+  await expect(
+    service.download(seed.leftUserId, seed.activityId, first.id),
+  ).resolves.toBeDefined();
+  await expect(
+    service.upload(
+      await ctx.validUpload(seed.leftUserId, seed, crypto.randomUUID()),
+    ),
+  ).rejects.toMatchObject({ code: "LEFT_MEMBER_EXPENSE_READ_ONLY" });
 });
 
-test("attachment retries without rolling back Expense", async ({ page, context }) => {
+test("attachment retries without rolling back Expense", async ({
+  page,
+  context,
+}) => {
   await context.route("**/attachments", (r) => r.fulfill({ status: 503 }));
   await page.goto("/activities/test/expenses/new");
-  await page.getByLabel("用途").fill("晚餐"); await page.getByLabel("金额").fill("88");
-  await page.getByLabel("附件").setInputFiles("tests/fixtures/images/receipt.jpg");
+  await page.getByLabel("用途").fill("晚餐");
+  await page.getByLabel("金额").fill("88");
+  await page
+    .getByLabel("附件")
+    .setInputFiles("tests/fixtures/images/receipt.jpg");
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("账单已同步，附件待同步")).toBeVisible();
 });

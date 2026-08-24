@@ -45,6 +45,7 @@ tests/unit/auth/**, tests/integration/auth/**     behavior and transaction tests
 ### Task 1: Add authentication/system schema and shared integration harness
 
 **Files:**
+
 - Create: `src/server/db/schema/auth.ts`
 - Create: `src/server/db/schema/system.ts`
 - Modify: `src/server/db/schema/index.ts`
@@ -57,15 +58,23 @@ tests/unit/auth/**, tests/integration/auth/**     behavior and transaction tests
 ```ts
 // tests/integration/auth/auth-schema.test.ts
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startPostgres, type PostgresHarness } from "@/../tests/support/postgres";
+import {
+  startPostgres,
+  type PostgresHarness,
+} from "@/../tests/support/postgres";
 
 describe("auth schema", () => {
   let harness: PostgresHarness;
-  beforeAll(async () => { harness = await startPostgres(); });
-  afterAll(async () => { await harness.stop(); });
+  beforeAll(async () => {
+    harness = await startPostgres();
+  });
+  afterAll(async () => {
+    await harness.stop();
+  });
 
   it("defaults registration to INVITE_ONLY and keeps username globally unique", async () => {
-    const setting = await harness.sql`select registration_policy from system_settings where id = 'singleton'`;
+    const setting =
+      await harness.sql`select registration_policy from system_settings where id = 'singleton'`;
     expect(setting[0].registration_policy).toBe("INVITE_ONLY");
     await harness.sql`insert into "user" (id, name, email, email_verified, created_at, updated_at)
       values ('u1', '甲', 'u_1@local.invalid', false, now(), now()),
@@ -73,7 +82,9 @@ describe("auth schema", () => {
     await harness.sql`insert into user_profiles (user_id, username_normalized, nickname, email_kind, created_at, updated_at)
       values ('u1', 'alice', '甲', 'SYNTHETIC', now(), now())`;
     await expect(harness.sql`insert into user_profiles (user_id, username_normalized, nickname, email_kind, created_at, updated_at)
-      values ('u2', 'alice', '乙', 'SYNTHETIC', now(), now())`).rejects.toMatchObject({ code: "23505" });
+      values ('u2', 'alice', '乙', 'SYNTHETIC', now(), now())`).rejects.toMatchObject(
+      { code: "23505" },
+    );
   });
 });
 ```
@@ -98,8 +109,12 @@ export const users = pgTable("user", {
   image: text("image"),
   username: text("username").unique(),
   displayUsername: text("display_username"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const sessions = pgTable("session", {
@@ -108,26 +123,47 @@ export const sessions = pgTable("session", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const accounts = pgTable("account", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull(),
   providerId: text("provider_id").notNull(),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"), refreshToken: text("refresh_token"), idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
-  scope: text("scope"), password: text("password"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", {
+    withTimezone: true,
+  }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+    withTimezone: true,
+  }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const verifications = pgTable("verification", {
-  id: text("id").primaryKey(), identifier: text("identifier").notNull(), value: text("value").notNull(),
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -137,38 +173,85 @@ export const verifications = pgTable("verification", {
 ```ts
 // src/server/db/schema/system.ts
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { users } from "./auth";
 
 export const emailKind = pgEnum("email_kind", ["SYNTHETIC", "REAL"]);
-export const registrationPolicy = pgEnum("registration_policy", ["INVITE_ONLY", "OPEN"]);
+export const registrationPolicy = pgEnum("registration_policy", [
+  "INVITE_ONLY",
+  "OPEN",
+]);
 export const systemRole = pgEnum("system_role", ["system_admin"]);
-export const themePreference = pgEnum("theme_preference", ["SYSTEM", "LIGHT", "DARK"]);
+export const themePreference = pgEnum("theme_preference", [
+  "SYSTEM",
+  "LIGHT",
+  "DARK",
+]);
 
-export const userProfiles = pgTable("user_profiles", {
-  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
-  usernameNormalized: text("username_normalized").notNull(),
-  nickname: text("nickname").notNull(),
-  emailKind: emailKind("email_kind").notNull(),
-  disabledAt: timestamp("disabled_at", { withTimezone: true }),
-  themePreference: themePreference("theme_preference").notNull().default("SYSTEM"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("user_profiles_username_uq").on(table.usernameNormalized)]);
+export const userProfiles = pgTable(
+  "user_profiles",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    usernameNormalized: text("username_normalized").notNull(),
+    nickname: text("nickname").notNull(),
+    emailKind: emailKind("email_kind").notNull(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    themePreference: themePreference("theme_preference")
+      .notNull()
+      .default("SYSTEM"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("user_profiles_username_uq").on(table.usernameNormalized),
+  ],
+);
 
-export const systemRoles = pgTable("system_roles", {
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  role: systemRole("role").notNull(),
-  grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [primaryKey({ columns: [table.userId, table.role] })]);
+export const systemRoles = pgTable(
+  "system_roles",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: systemRole("role").notNull(),
+    grantedByUserId: text("granted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.role] })],
+);
 
 export const systemSettings = pgTable("system_settings", {
   id: text("id").primaryKey().default("singleton"),
-  registrationPolicy: registrationPolicy("registration_policy").notNull().default("INVITE_ONLY"),
+  registrationPolicy: registrationPolicy("registration_policy")
+    .notNull()
+    .default("INVITE_ONLY"),
   maintenanceMode: boolean("maintenance_mode").notNull().default(false),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedByUserId: text("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedByUserId: text("updated_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
 });
 
 export const systemBootstrap = pgTable("system_bootstrap", {
@@ -178,10 +261,21 @@ export const systemBootstrap = pgTable("system_bootstrap", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
-export const securityRateLimitBuckets = pgTable("security_rate_limit_buckets", {
-  bucketKey: text("bucket_key").notNull(), windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
-  attempts: integer("attempts").notNull().default(0), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-}, (table) => [primaryKey({ columns: [table.bucketKey, table.windowStartedAt] }), index("rate_limit_expiry_idx").on(table.expiresAt)]);
+export const securityRateLimitBuckets = pgTable(
+  "security_rate_limit_buckets",
+  {
+    bucketKey: text("bucket_key").notNull(),
+    windowStartedAt: timestamp("window_started_at", {
+      withTimezone: true,
+    }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.bucketKey, table.windowStartedAt] }),
+    index("rate_limit_expiry_idx").on(table.expiresAt),
+  ],
+);
 
 export const seedSystemSingletons = sql`
   insert into system_settings (id) values ('singleton') on conflict do nothing;
@@ -211,7 +305,13 @@ export async function startPostgres(): Promise<PostgresHarness> {
   const container = await new PostgreSqlContainer("postgres:18-alpine").start();
   const sql = postgres(container.getConnectionUri(), { max: 1 });
   await migrate(drizzle(sql), { migrationsFolder: "drizzle" });
-  return { sql, stop: async () => { await sql.end(); await container.stop(); } };
+  return {
+    sql,
+    stop: async () => {
+      await sql.end();
+      await container.stop();
+    },
+  };
 }
 ```
 
@@ -245,6 +345,7 @@ git commit -m "feat: add authentication system schema"
 ### Task 2: Configure Better Auth with username and Synthetic Email compatibility
 
 **Files:**
+
 - Create: `src/server/errors/application-error.ts`
 - Create: `src/server/auth/username.ts`
 - Create: `src/server/auth/synthetic-email.ts`
@@ -258,7 +359,10 @@ git commit -m "feat: add authentication system schema"
 // tests/unit/auth/compatibility.test.ts
 import { describe, expect, it } from "vitest";
 import { normalizeUsername } from "@/server/auth/username";
-import { createSyntheticEmail, isSyntheticEmail } from "@/server/auth/synthetic-email";
+import {
+  createSyntheticEmail,
+  isSyntheticEmail,
+} from "@/server/auth/synthetic-email";
 
 describe("auth compatibility", () => {
   it("normalizes one canonical username for profile and Better Auth", () => {
@@ -305,8 +409,18 @@ import { ApplicationError } from "@/server/errors/application-error";
 /** NFKC + lower-case 是全局唯一判断的唯一入口，显示昵称不参与唯一性。 */
 export function normalizeUsername(input: string): string {
   const value = input.normalize("NFKC").trim().toLocaleLowerCase("en-US");
-  if (value.length < 3 || value.length > 32) throw new ApplicationError("INVALID_USERNAME", "用户名长度必须为 3 到 32 个字符。", 422);
-  if (/\s|@/.test(value)) throw new ApplicationError("INVALID_USERNAME", "用户名不能包含空白或 @。", 422);
+  if (value.length < 3 || value.length > 32)
+    throw new ApplicationError(
+      "INVALID_USERNAME",
+      "用户名长度必须为 3 到 32 个字符。",
+      422,
+    );
+  if (/\s|@/.test(value))
+    throw new ApplicationError(
+      "INVALID_USERNAME",
+      "用户名不能包含空白或 @。",
+      422,
+    );
   return value;
 }
 ```
@@ -319,10 +433,13 @@ const SYNTHETIC = /^u_[0-9a-f]{32}@local\.invalid$/;
 /** 该地址仅满足认证存储兼容，不可投递、不可展示、不可触发邮件。 */
 export function createSyntheticEmail(id: string): string {
   const compact = id.replaceAll("-", "").toLowerCase();
-  if (!/^[0-9a-f]{32}$/.test(compact)) throw new Error("生成内部邮箱时收到无效标识");
+  if (!/^[0-9a-f]{32}$/.test(compact))
+    throw new Error("生成内部邮箱时收到无效标识");
   return `u_${compact}@local.invalid`;
 }
-export function isSyntheticEmail(email: string): boolean { return SYNTHETIC.test(email); }
+export function isSyntheticEmail(email: string): boolean {
+  return SYNTHETIC.test(email);
+}
 ```
 
 ```ts
@@ -339,13 +456,19 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: { enabled: true, requireEmailVerification: false },
-  plugins: [username({
-    minUsernameLength: 3,
-    maxUsernameLength: 32,
-    usernameValidator: (value) => {
-      try { return normalizeUsername(value) === value; } catch { return false; }
-    },
-  })],
+  plugins: [
+    username({
+      minUsernameLength: 3,
+      maxUsernameLength: 32,
+      usernameValidator: (value) => {
+        try {
+          return normalizeUsername(value) === value;
+        } catch {
+          return false;
+        }
+      },
+    }),
+  ],
 });
 ```
 
@@ -372,6 +495,7 @@ git commit -m "feat: configure username-first Better Auth"
 ### Task 3: Enforce registration policy in the username-first registration service
 
 **Files:**
+
 - Create: `src/server/auth/registration-gate.ts`
 - Create: `src/server/services/registration-service.ts`
 - Create: `src/server/validation/auth.ts`
@@ -389,14 +513,23 @@ import { assertRegistrationAllowed } from "@/server/auth/registration-gate";
 describe("registration gate", () => {
   it("allows OPEN and delegates INVITE_ONLY to Phase 3 verifier", async () => {
     const verifier = { verify: vi.fn().mockResolvedValue(true) };
-    await expect(assertRegistrationAllowed("OPEN", undefined, verifier)).resolves.toBeUndefined();
-    await expect(assertRegistrationAllowed("INVITE_ONLY", "proof", verifier)).resolves.toBeUndefined();
+    await expect(
+      assertRegistrationAllowed("OPEN", undefined, verifier),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertRegistrationAllowed("INVITE_ONLY", "proof", verifier),
+    ).resolves.toBeUndefined();
     expect(verifier.verify).toHaveBeenCalledWith("proof");
   });
 
   it("rejects missing invite proof with a stable Chinese error", async () => {
-    await expect(assertRegistrationAllowed("INVITE_ONLY", undefined, { verify: async () => false })).rejects.toMatchObject({
-      code: "REGISTRATION_INVITE_REQUIRED", status: 403,
+    await expect(
+      assertRegistrationAllowed("INVITE_ONLY", undefined, {
+        verify: async () => false,
+      }),
+    ).rejects.toMatchObject({
+      code: "REGISTRATION_INVITE_REQUIRED",
+      status: 403,
       message: "当前系统仅允许受邀用户注册。",
     });
   });
@@ -415,7 +548,9 @@ Expected: FAIL because `registration-gate` does not exist.
 // src/server/auth/registration-gate.ts
 import { ApplicationError } from "@/server/errors/application-error";
 export type RegistrationPolicy = "INVITE_ONLY" | "OPEN";
-export interface InvitationRegistrationVerifier { verify(proof: string): Promise<boolean> }
+export interface InvitationRegistrationVerifier {
+  verify(proof: string): Promise<boolean>;
+}
 
 export async function assertRegistrationAllowed(
   policy: RegistrationPolicy,
@@ -424,7 +559,11 @@ export async function assertRegistrationAllowed(
 ): Promise<void> {
   if (policy === "OPEN") return;
   if (!proof || !(await verifier.verify(proof))) {
-    throw new ApplicationError("REGISTRATION_INVITE_REQUIRED", "当前系统仅允许受邀用户注册。", 403);
+    throw new ApplicationError(
+      "REGISTRATION_INVITE_REQUIRED",
+      "当前系统仅允许受邀用户注册。",
+      403,
+    );
   }
 }
 ```
@@ -433,8 +572,11 @@ export async function assertRegistrationAllowed(
 // src/server/validation/auth.ts
 import { z } from "zod";
 export const registerInput = z.object({
-  username: z.string(), password: z.string().min(8).max(128), nickname: z.string().trim().min(1).max(40),
-  email: z.string().email().optional(), inviteProof: z.string().min(1).optional(),
+  username: z.string(),
+  password: z.string().min(8).max(128),
+  nickname: z.string().trim().min(1).max(40),
+  email: z.string().email().optional(),
+  inviteProof: z.string().min(1).optional(),
 });
 ```
 
@@ -443,38 +585,75 @@ export const registerInput = z.object({
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { auth } from "@/server/auth/auth";
-import { assertRegistrationAllowed, type InvitationRegistrationVerifier } from "@/server/auth/registration-gate";
+import {
+  assertRegistrationAllowed,
+  type InvitationRegistrationVerifier,
+} from "@/server/auth/registration-gate";
 import { createSyntheticEmail } from "@/server/auth/synthetic-email";
 import { normalizeUsername } from "@/server/auth/username";
 import { db } from "@/server/db/client";
 import { systemSettings, userProfiles } from "@/server/db/schema";
 
 export class RegistrationService {
-  constructor(private readonly inviteVerifier: InvitationRegistrationVerifier) {}
+  constructor(
+    private readonly inviteVerifier: InvitationRegistrationVerifier,
+  ) {}
 
   /**
    * 前端始终提交 username；只有本兼容层知道 Better Auth 的 emailAndPassword 入口。
    * Profile 写入失败时删除刚创建的认证用户，避免留下无法完成注册的孤儿账号。
    */
-  async register(input: { username: string; password: string; nickname: string; email?: string; inviteProof?: string }) {
-    const [settings] = await db.select().from(systemSettings).where(eq(systemSettings.id, "singleton"));
-    await assertRegistrationAllowed(settings.registrationPolicy, input.inviteProof, this.inviteVerifier);
+  async register(input: {
+    username: string;
+    password: string;
+    nickname: string;
+    email?: string;
+    inviteProof?: string;
+  }) {
+    const [settings] = await db
+      .select()
+      .from(systemSettings)
+      .where(eq(systemSettings.id, "singleton"));
+    await assertRegistrationAllowed(
+      settings.registrationPolicy,
+      input.inviteProof,
+      this.inviteVerifier,
+    );
     const normalized = normalizeUsername(input.username);
-    const email = input.email?.trim().toLowerCase() ?? createSyntheticEmail(randomUUID());
-    const created = await auth.api.signUpEmail({ body: {
-      email, password: input.password, name: input.nickname,
-      username: normalized, displayUsername: input.username.trim(),
-    } });
+    const email =
+      input.email?.trim().toLowerCase() ?? createSyntheticEmail(randomUUID());
+    const created = await auth.api.signUpEmail({
+      body: {
+        email,
+        password: input.password,
+        name: input.nickname,
+        username: normalized,
+        displayUsername: input.username.trim(),
+      },
+    });
     try {
       await db.insert(userProfiles).values({
-        userId: created.user.id, usernameNormalized: normalized, nickname: input.nickname,
+        userId: created.user.id,
+        usernameNormalized: normalized,
+        nickname: input.nickname,
         emailKind: input.email ? "REAL" : "SYNTHETIC",
       });
     } catch (error) {
-      await auth.api.deleteUser({ body: { callbackURL: "/" }, headers: new Headers({ "x-user-id-for-compensation": created.user.id }) }).catch(() => undefined);
+      await auth.api
+        .deleteUser({
+          body: { callbackURL: "/" },
+          headers: new Headers({
+            "x-user-id-for-compensation": created.user.id,
+          }),
+        })
+        .catch(() => undefined);
       throw error;
     }
-    return { id: created.user.id, username: normalized, nickname: input.nickname };
+    return {
+      id: created.user.id,
+      username: normalized,
+      nickname: input.nickname,
+    };
   }
 }
 ```
@@ -497,7 +676,10 @@ Create `tests/integration/auth/registration-service.test.ts`:
 
 ```ts
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
-import { startPostgres, type PostgresHarness } from "@/../tests/support/postgres";
+import {
+  startPostgres,
+  type PostgresHarness,
+} from "@/../tests/support/postgres";
 import { RegistrationService } from "@/server/services/registration-service";
 import { auth } from "@/server/auth/auth";
 
@@ -505,18 +687,35 @@ let h: PostgresHarness;
 beforeAll(async () => {
   h = await startPostgres();
   await h.sql`update system_settings set registration_policy=''OPEN'' where id=''singleton''`;
-  vi.spyOn(auth.api, "signUpEmail").mockResolvedValue({ user: { id: "new-user" } } as never);
-  await h.seedCredentialUser("new-user", "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid");
+  vi.spyOn(auth.api, "signUpEmail").mockResolvedValue({
+    user: { id: "new-user" },
+  } as never);
+  await h.seedCredentialUser(
+    "new-user",
+    "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid",
+  );
 });
-afterAll(async () => { vi.restoreAllMocks(); await h.stop(); });
+afterAll(async () => {
+  vi.restoreAllMocks();
+  await h.stop();
+});
 
 it("stores a synthetic profile but never returns its internal email", async () => {
-  const result = await new RegistrationService({ verify: async () => false }).register({
-    username: "Alice", password: "password-123", nickname: "小艾",
+  const result = await new RegistrationService({
+    verify: async () => false,
+  }).register({
+    username: "Alice",
+    password: "password-123",
+    nickname: "小艾",
   });
-  const [profile] = await h.sql`select email_kind from user_profiles where user_id=''new-user''`;
+  const [profile] =
+    await h.sql`select email_kind from user_profiles where user_id=''new-user''`;
   expect(profile.email_kind).toBe("SYNTHETIC");
-  expect(result).toEqual({ id: "new-user", username: "alice", nickname: "小艾" });
+  expect(result).toEqual({
+    id: "new-user",
+    username: "alice",
+    nickname: "小艾",
+  });
   expect(result).not.toHaveProperty("email");
 });
 ```
@@ -542,6 +741,7 @@ git commit -m "feat: enforce username registration policy"
 ### Task 4: Rotate the Setup Token on every uninitialized container start
 
 **Files:**
+
 - Create: `src/server/services/setup-service.ts`
 - Create: `src/server/bootstrap/initialize-setup.ts`
 - Create: `src/server/bootstrap/container-start.ts`
@@ -555,29 +755,47 @@ git commit -m "feat: enforce username registration policy"
 ```ts
 // tests/integration/auth/setup-service.test.ts
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { startPostgres, type PostgresHarness } from "@/../tests/support/postgres";
+import {
+  startPostgres,
+  type PostgresHarness,
+} from "@/../tests/support/postgres";
 import { SetupService } from "@/server/services/setup-service";
 
 describe("SetupService", () => {
   let harness: PostgresHarness;
-  beforeAll(async () => { harness = await startPostgres(); });
-  afterAll(async () => { await harness.stop(); });
+  beforeAll(async () => {
+    harness = await startPostgres();
+  });
+  afterAll(async () => {
+    await harness.stop();
+  });
 
   it("replaces the previous hash on restart and never stores plaintext", async () => {
     const service = new SetupService(harness.sql, vi.fn());
     const first = await service.rotateForUninitializedStartup();
     const second = await service.rotateForUninitializedStartup();
-    const rows = await harness.sql`select setup_token_hash from system_bootstrap where id = 'singleton'`;
+    const rows =
+      await harness.sql`select setup_token_hash from system_bootstrap where id = 'singleton'`;
     expect(first).not.toBe(second);
     expect(rows[0].setup_token_hash).not.toContain(second);
-    await expect(service.claim(first!, { username: "owner", password: "password-123", nickname: "Owner" })).rejects.toMatchObject({ code: "INVALID_SETUP_TOKEN" });
+    await expect(
+      service.claim(first!, {
+        username: "owner",
+        password: "password-123",
+        nickname: "Owner",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_SETUP_TOKEN" });
   });
 
   it("creates the first admin once and permanently closes setup", async () => {
     const createUser = vi.fn().mockResolvedValue({ userId: "admin-1" });
     const service = new SetupService(harness.sql, createUser);
     const token = await service.rotateForUninitializedStartup();
-    await service.claim(token!, { username: "owner", password: "password-123", nickname: "Owner" });
+    await service.claim(token!, {
+      username: "owner",
+      password: "password-123",
+      nickname: "Owner",
+    });
     expect(await service.rotateForUninitializedStartup()).toBeNull();
   });
 });
@@ -597,14 +815,22 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type postgres from "postgres";
 import { ApplicationError } from "@/server/errors/application-error";
 
-const digest = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
+const digest = (token: string): Buffer =>
+  createHash("sha256").update(token, "utf8").digest();
 export interface SetupCredentialCreator {
-  create(input: { username: string; password: string; nickname: string }): Promise<{ userId: string }>;
+  create(input: {
+    username: string;
+    password: string;
+    nickname: string;
+  }): Promise<{ userId: string }>;
   compensate(userId: string): Promise<void>;
 }
 
 export class SetupService {
-  constructor(private readonly sql: ReturnType<typeof postgres>, private readonly credentials: SetupCredentialCreator) {}
+  constructor(
+    private readonly sql: ReturnType<typeof postgres>,
+    private readonly credentials: SetupCredentialCreator,
+  ) {}
 
   /**
    * PostgreSQL 事务级 advisory lock 保证单 App 实例内不会并发生成两个有效 Token。
@@ -613,7 +839,8 @@ export class SetupService {
   async rotateForUninitializedStartup(): Promise<string | null> {
     return this.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtext('huddletab-setup'))`;
-      const admins = await tx`select 1 from system_roles where role = 'system_admin' limit 1`;
+      const admins =
+        await tx`select 1 from system_roles where role = 'system_admin' limit 1`;
       if (admins.length > 0) {
         await tx`update system_bootstrap set setup_token_hash = null, completed_at = coalesce(completed_at, now()) where id = 'singleton'`;
         return null;
@@ -624,16 +851,30 @@ export class SetupService {
     });
   }
 
-  async claim(token: string, input: { username: string; password: string; nickname: string }): Promise<void> {
+  async claim(
+    token: string,
+    input: { username: string; password: string; nickname: string },
+  ): Promise<void> {
     let createdUserId: string | undefined;
     try {
       await this.sql.begin(async (tx) => {
         await tx`select pg_advisory_xact_lock(hashtext('huddletab-setup'))`;
-        const [row] = await tx`select setup_token_hash, completed_at from system_bootstrap where id = 'singleton' for update`;
+        const [row] =
+          await tx`select setup_token_hash, completed_at from system_bootstrap where id = 'singleton' for update`;
         const supplied = digest(token);
-        const stored = row?.setup_token_hash ? Buffer.from(row.setup_token_hash, "base64url") : Buffer.alloc(0);
-        if (row?.completed_at || stored.length !== supplied.length || !timingSafeEqual(stored, supplied)) {
-          throw new ApplicationError("INVALID_SETUP_TOKEN", "初始化口令无效或已失效。", 403);
+        const stored = row?.setup_token_hash
+          ? Buffer.from(row.setup_token_hash, "base64url")
+          : Buffer.alloc(0);
+        if (
+          row?.completed_at ||
+          stored.length !== supplied.length ||
+          !timingSafeEqual(stored, supplied)
+        ) {
+          throw new ApplicationError(
+            "INVALID_SETUP_TOKEN",
+            "初始化口令无效或已失效。",
+            403,
+          );
         }
         const created = await this.credentials.create(input);
         createdUserId = created.userId;
@@ -642,9 +883,14 @@ export class SetupService {
       });
     } catch (error) {
       if (createdUserId) {
-        await this.credentials.compensate(createdUserId).catch((cleanupError) =>
-          console.error("首次初始化回滚失败，检测到未完成的凭证账号，请管理员检查后重试", cleanupError),
-        );
+        await this.credentials
+          .compensate(createdUserId)
+          .catch((cleanupError) =>
+            console.error(
+              "首次初始化回滚失败，检测到未完成的凭证账号，请管理员检查后重试",
+              cleanupError,
+            ),
+          );
       }
       throw error;
     }
@@ -659,9 +905,15 @@ import { createSetupCredentialUser } from "@/server/services/registration-servic
 import { SetupService } from "@/server/services/setup-service";
 
 export async function initializeSetup(): Promise<void> {
-  const token = await new SetupService(sql, createSetupCredentialUser).rotateForUninitializedStartup();
+  const token = await new SetupService(
+    sql,
+    createSetupCredentialUser,
+  ).rotateForUninitializedStartup();
   if (token) {
-    console.warn("伙记尚未初始化。Setup Token 仅在本次容器启动输出一次，请仅由部署管理员查看：%s", token);
+    console.warn(
+      "伙记尚未初始化。Setup Token 仅在本次容器启动输出一次，请仅由部署管理员查看：%s",
+      token,
+    );
   }
 }
 ```
@@ -672,9 +924,14 @@ import { spawn } from "node:child_process";
 import { initializeSetup } from "./initialize-setup";
 
 await initializeSetup();
-const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "0.0.0.0", "-p", "5660"], {
-  stdio: "inherit", env: process.env,
-});
+const child = spawn(
+  process.execPath,
+  ["node_modules/next/dist/bin/next", "start", "-H", "0.0.0.0", "-p", "5660"],
+  {
+    stdio: "inherit",
+    env: process.env,
+  },
+);
 child.on("exit", (code) => process.exit(code ?? 1));
 ```
 
@@ -685,15 +942,24 @@ import { z } from "zod";
 import { sql } from "@/server/db/client";
 import { SetupService } from "@/server/services/setup-service";
 import { createSetupCredentialUser } from "@/server/services/registration-service";
-const setupInput = z.object({ setupToken: z.string().min(20), username: z.string(), password: z.string().min(8), nickname: z.string().min(1) });
+const setupInput = z.object({
+  setupToken: z.string().min(20),
+  username: z.string(),
+  password: z.string().min(8),
+  nickname: z.string().min(1),
+});
 
 export async function GET() {
-  const [row] = await sql`select completed_at from system_bootstrap where id = 'singleton'`;
+  const [row] =
+    await sql`select completed_at from system_bootstrap where id = 'singleton'`;
   return NextResponse.json({ data: { setupRequired: !row?.completed_at } });
 }
 export async function POST(request: Request) {
   const body = setupInput.parse(await request.json());
-  await new SetupService(sql, createSetupCredentialUser).claim(body.setupToken, body);
+  await new SetupService(sql, createSetupCredentialUser).claim(
+    body.setupToken,
+    body,
+  );
   return NextResponse.json({ data: { initialized: true } }, { status: 201 });
 }
 ```
@@ -716,6 +982,7 @@ git commit -m "feat: add one-time setup bootstrap"
 ### Task 5: Enforce LAST_ACTIVE_ADMIN inside every destructive admin transaction
 
 **Files:**
+
 - Create: `src/server/services/system-admin-service.ts`
 - Create: `tests/integration/auth/system-admin-invariant.test.ts`
 
@@ -724,26 +991,36 @@ git commit -m "feat: add one-time setup bootstrap"
 ```ts
 // tests/integration/auth/system-admin-invariant.test.ts
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startPostgres, type PostgresHarness } from "@/../tests/support/postgres";
+import {
+  startPostgres,
+  type PostgresHarness,
+} from "@/../tests/support/postgres";
 import { SystemAdminService } from "@/server/services/system-admin-service";
 
 describe("LAST_ACTIVE_ADMIN", () => {
   let harness: PostgresHarness;
-  beforeAll(async () => { harness = await startPostgres(); });
-  afterAll(async () => { await harness.stop(); });
+  beforeAll(async () => {
+    harness = await startPostgres();
+  });
+  afterAll(async () => {
+    await harness.stop();
+  });
 
   it("rejects disabling the final login-capable admin", async () => {
     await harness.seedCredentialAdmin("admin-1");
     const service = new SystemAdminService(harness.sql);
     await expect(service.disableUser("admin-1")).rejects.toMatchObject({
-      code: "LAST_ACTIVE_ADMIN", status: 409,
+      code: "LAST_ACTIVE_ADMIN",
+      status: 409,
       message: "系统必须至少保留一个能够正常登录的系统管理员。",
     });
   });
 
   it("allows the operation after another login-capable admin exists", async () => {
     await harness.seedCredentialAdmin("admin-2");
-    await expect(new SystemAdminService(harness.sql).disableUser("admin-1")).resolves.toBeUndefined();
+    await expect(
+      new SystemAdminService(harness.sql).disableUser("admin-1"),
+    ).resolves.toBeUndefined();
   });
 });
 ```
@@ -764,7 +1041,10 @@ import { ApplicationError } from "@/server/errors/application-error";
 export class SystemAdminService {
   constructor(private readonly sql: ReturnType<typeof postgres>) {}
 
-  private async assertAdminRemains(tx: postgres.TransactionSql, targetUserId: string): Promise<void> {
+  private async assertAdminRemains(
+    tx: postgres.TransactionSql,
+    targetUserId: string,
+  ): Promise<void> {
     await tx`select pg_advisory_xact_lock(hashtext('huddletab-system-admin-invariant'))`;
     const [row] = await tx`
       select count(distinct sr.user_id)::int as count
@@ -773,7 +1053,11 @@ export class SystemAdminService {
       join account a on a.user_id = sr.user_id and a.provider_id = 'credential' and a.password is not null
       where sr.role = 'system_admin' and sr.user_id <> ${targetUserId}`;
     if (row.count < 1) {
-      throw new ApplicationError("LAST_ACTIVE_ADMIN", "系统必须至少保留一个能够正常登录的系统管理员。", 409);
+      throw new ApplicationError(
+        "LAST_ACTIVE_ADMIN",
+        "系统必须至少保留一个能够正常登录的系统管理员。",
+        409,
+      );
     }
   }
 
@@ -831,6 +1115,7 @@ git commit -m "feat: protect the last active system admin"
 ### Task 6: Add server Session lookup and real-email migration
 
 **Files:**
+
 - Create: `src/server/auth/session.ts`
 - Create: `src/server/services/profile-email-service.ts`
 - Create: `tests/unit/auth/session.test.ts`
@@ -843,8 +1128,14 @@ git commit -m "feat: protect the last active system admin"
 import { expect, it, vi } from "vitest";
 import { requireSession } from "@/server/auth/session";
 it("returns 401 when Better Auth has no Session", async () => {
-  await expect(requireSession(new Headers(), { getSession: vi.fn().mockResolvedValue(null) })).rejects.toMatchObject({
-    code: "UNAUTHENTICATED", status: 401, message: "登录状态已失效，请重新登录。",
+  await expect(
+    requireSession(new Headers(), {
+      getSession: vi.fn().mockResolvedValue(null),
+    }),
+  ).rejects.toMatchObject({
+    code: "UNAUTHENTICATED",
+    status: 401,
+    message: "登录状态已失效，请重新登录。",
   });
 });
 ```
@@ -852,15 +1143,34 @@ it("returns 401 when Better Auth has no Session", async () => {
 ```ts
 // tests/integration/auth/profile-email-service.test.ts
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { startPostgres, type PostgresHarness } from "@/../tests/support/postgres";
+import {
+  startPostgres,
+  type PostgresHarness,
+} from "@/../tests/support/postgres";
 import { ProfileEmailService } from "@/server/services/profile-email-service";
 let harness: PostgresHarness;
-beforeAll(async () => { harness = await startPostgres(); await harness.seedCredentialUser("user-1", "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid"); });
-afterAll(async () => { await harness.stop(); });
+beforeAll(async () => {
+  harness = await startPostgres();
+  await harness.seedCredentialUser(
+    "user-1",
+    "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid",
+  );
+});
+afterAll(async () => {
+  await harness.stop();
+});
 it("migrates synthetic identity to a real unverified email without exposing the old value", async () => {
-  await new ProfileEmailService(harness.sql).bindRealEmail("user-1", "Alice@Example.com");
-  const [row] = await harness.sql`select u.email, u.email_verified, p.email_kind from "user" u join user_profiles p on p.user_id = u.id where u.id = 'user-1'`;
-  expect(row).toEqual({ email: "alice@example.com", email_verified: false, email_kind: "REAL" });
+  await new ProfileEmailService(harness.sql).bindRealEmail(
+    "user-1",
+    "Alice@Example.com",
+  );
+  const [row] =
+    await harness.sql`select u.email, u.email_verified, p.email_kind from "user" u join user_profiles p on p.user_id = u.id where u.id = 'user-1'`;
+  expect(row).toEqual({
+    email: "alice@example.com",
+    email_verified: false,
+    email_kind: "REAL",
+  });
 });
 ```
 
@@ -876,10 +1186,20 @@ Expected: FAIL because both modules are missing.
 // src/server/auth/session.ts
 import { auth } from "./auth";
 import { ApplicationError } from "@/server/errors/application-error";
-export interface SessionReader { getSession(input: { headers: Headers }): Promise<unknown> }
-export async function requireSession(headers: Headers, reader: SessionReader = auth.api): Promise<NonNullable<Awaited<ReturnType<SessionReader["getSession"]>>>> {
+export interface SessionReader {
+  getSession(input: { headers: Headers }): Promise<unknown>;
+}
+export async function requireSession(
+  headers: Headers,
+  reader: SessionReader = auth.api,
+): Promise<NonNullable<Awaited<ReturnType<SessionReader["getSession"]>>>> {
   const session = await reader.getSession({ headers });
-  if (!session) throw new ApplicationError("UNAUTHENTICATED", "登录状态已失效，请重新登录。", 401);
+  if (!session)
+    throw new ApplicationError(
+      "UNAUTHENTICATED",
+      "登录状态已失效，请重新登录。",
+      401,
+    );
   return session as NonNullable<typeof session>;
 }
 ```
@@ -892,8 +1212,15 @@ export class ProfileEmailService {
   constructor(private readonly sql: ReturnType<typeof postgres>) {}
   async bindRealEmail(userId: string, input: string): Promise<void> {
     const email = input.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.endsWith("@local.invalid")) {
-      throw new ApplicationError("INVALID_REAL_EMAIL", "请输入可接收邮件的真实邮箱地址。", 422);
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+      email.endsWith("@local.invalid")
+    ) {
+      throw new ApplicationError(
+        "INVALID_REAL_EMAIL",
+        "请输入可接收邮件的真实邮箱地址。",
+        422,
+      );
     }
     await this.sql.begin(async (tx) => {
       await tx`update "user" set email = ${email}, email_verified = false, updated_at = now() where id = ${userId}`;
@@ -906,7 +1233,10 @@ export class ProfileEmailService {
 Add this exact method to `PostgresHarness` and the returned harness object:
 
 ```ts
-async function seedCredentialUser(userId: string, email: string): Promise<void> {
+async function seedCredentialUser(
+  userId: string,
+  email: string,
+): Promise<void> {
   await sql.begin(async (tx) => {
     await tx`insert into "user" (id,name,email,email_verified,created_at,updated_at) values (${userId},${userId},${email},false,now(),now()) on conflict (id) do nothing`;
     await tx`insert into user_profiles (user_id,username_normalized,nickname,email_kind,created_at,updated_at) values (${userId},${userId},${userId},${email.endsWith("@local.invalid") ? "SYNTHETIC" : "REAL"},now(),now()) on conflict (user_id) do nothing`;
@@ -931,6 +1261,7 @@ git commit -m "feat: add session and real email compatibility"
 ### Task 7: Expose the authenticated “Me” boundary without leaking Synthetic Email
 
 **Files:**
+
 - Create: `src/server/services/me-service.ts`
 - Create: `src/app/api/me/profile/route.ts`
 - Create: `src/app/api/me/email/route.ts`
@@ -945,13 +1276,20 @@ git commit -m "feat: add session and real email compatibility"
 it("returns profile and sessions without exposing Synthetic Email", async () => {
   const response = await api.get("/api/me/profile", syntheticUserSession);
   expect(response.status).toBe(200);
-  expect(response.json.data).toMatchObject({ username: "alice", nickname: "Alice", emailBound: false, themePreference: "SYSTEM" });
+  expect(response.json.data).toMatchObject({
+    username: "alice",
+    nickname: "Alice",
+    emailBound: false,
+    themePreference: "SYSTEM",
+  });
   expect(JSON.stringify(response.json)).not.toContain("@local.invalid");
 });
 
 it("revokes one selected session without revoking the current session", async () => {
   const target = await api.seedSecondSession(syntheticUserSession.user.id);
-  await expect(api.delete(`/api/me/sessions?sessionId=${target.id}`, syntheticUserSession)).resolves.toMatchObject({ status: 204 });
+  await expect(
+    api.delete(`/api/me/sessions?sessionId=${target.id}`, syntheticUserSession),
+  ).resolves.toMatchObject({ status: 204 });
 });
 ```
 
@@ -968,18 +1306,29 @@ export class MeService {
   constructor(private readonly sql: ReturnType<typeof postgres>) {}
 
   async getProfile(userId: string) {
-    const [row] = await this.sql`select username_normalized,nickname,email_kind,theme_preference from user_profiles where user_id=${userId}`;
-    if (!row) throw new ApplicationError("PROFILE_NOT_FOUND", "用户资料不存在。", 404);
-    return { username: row.username_normalized, nickname: row.nickname,
-      emailBound: row.email_kind === "REAL", themePreference: row.theme_preference };
+    const [row] = await this
+      .sql`select username_normalized,nickname,email_kind,theme_preference from user_profiles where user_id=${userId}`;
+    if (!row)
+      throw new ApplicationError("PROFILE_NOT_FOUND", "用户资料不存在。", 404);
+    return {
+      username: row.username_normalized,
+      nickname: row.nickname,
+      emailBound: row.email_kind === "REAL",
+      themePreference: row.theme_preference,
+    };
   }
 
-  async updateTheme(userId: string, theme: "SYSTEM" | "LIGHT" | "DARK"): Promise<void> {
-    await this.sql`update user_profiles set theme_preference=${theme},updated_at=now() where user_id=${userId}`;
+  async updateTheme(
+    userId: string,
+    theme: "SYSTEM" | "LIGHT" | "DARK",
+  ): Promise<void> {
+    await this
+      .sql`update user_profiles set theme_preference=${theme},updated_at=now() where user_id=${userId}`;
   }
 
   async updateNickname(userId: string, nickname: string): Promise<void> {
-    await this.sql`update user_profiles set nickname=${nickname},updated_at=now() where user_id=${userId}`;
+    await this
+      .sql`update user_profiles set nickname=${nickname},updated_at=now() where user_id=${userId}`;
   }
 }
 ```
@@ -1002,6 +1351,7 @@ git commit -m "feat: add authenticated account management api"
 ### Task 8: Enforce PostgreSQL-backed rate limits for login, registration, Setup and invitations
 
 **Files:**
+
 - Create: `src/server/security/rate-limiter.ts`
 - Modify: `src/app/api/setup/route.ts`
 - Modify: `src/app/api/auth/register/route.ts`
@@ -1013,9 +1363,14 @@ git commit -m "feat: add authenticated account management api"
 ```ts
 it("returns 429 after the configured Setup attempts without storing the raw identifier", async () => {
   const limiter = new RateLimiter(harness.sql, "test-rate-limit-secret");
-  for (let attempt = 0; attempt < 5; attempt++) await limiter.consume("SETUP", "203.0.113.8", { limit: 5, windowSeconds: 600 });
-  await expect(limiter.consume("SETUP", "203.0.113.8", { limit: 5, windowSeconds: 600 }))
-    .rejects.toMatchObject({ status: 429, code: "RATE_LIMITED" });
+  for (let attempt = 0; attempt < 5; attempt++)
+    await limiter.consume("SETUP", "203.0.113.8", {
+      limit: 5,
+      windowSeconds: 600,
+    });
+  await expect(
+    limiter.consume("SETUP", "203.0.113.8", { limit: 5, windowSeconds: 600 }),
+  ).rejects.toMatchObject({ status: 429, code: "RATE_LIMITED" });
   expect(await harness.rawRateLimitKeys()).not.toContain("203.0.113.8");
 });
 ```
@@ -1030,20 +1385,37 @@ Expected: FAIL because `RateLimiter` does not exist.
 
 ```ts
 export class RateLimiter {
-  constructor(private readonly sql: ReturnType<typeof postgres>, private readonly secret: string) {}
+  constructor(
+    private readonly sql: ReturnType<typeof postgres>,
+    private readonly secret: string,
+  ) {}
 
   /** 标识符只保存服务端 HMAC 摘要；同一窗口的计数更新在行锁事务内完成。 */
-  async consume(scope: string, identifier: string, policy: { limit: number; windowSeconds: number }): Promise<void> {
-    const bucketKey = createHmac("sha256", this.secret).update(`${scope}:${identifier}`).digest("base64url");
+  async consume(
+    scope: string,
+    identifier: string,
+    policy: { limit: number; windowSeconds: number },
+  ): Promise<void> {
+    const bucketKey = createHmac("sha256", this.secret)
+      .update(`${scope}:${identifier}`)
+      .digest("base64url");
     const windowMs = policy.windowSeconds * 1000;
-    const windowStartedAt = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+    const windowStartedAt = new Date(
+      Math.floor(Date.now() / windowMs) * windowMs,
+    );
     const expiresAt = new Date(windowStartedAt.getTime() + windowMs);
     await this.sql.begin(async (tx) => {
-      const [row] = await tx`insert into security_rate_limit_buckets (bucket_key,window_started_at,attempts,expires_at)
+      const [row] =
+        await tx`insert into security_rate_limit_buckets (bucket_key,window_started_at,attempts,expires_at)
         values (${bucketKey},${windowStartedAt},1,${expiresAt})
         on conflict (bucket_key,window_started_at) do update set attempts=security_rate_limit_buckets.attempts+1
         returning attempts`;
-      if (Number(row.attempts) > policy.limit) throw new ApplicationError("RATE_LIMITED", "尝试次数过多，请稍后再试。", 429);
+      if (Number(row.attempts) > policy.limit)
+        throw new ApplicationError(
+          "RATE_LIMITED",
+          "尝试次数过多，请稍后再试。",
+          429,
+        );
     });
   }
 }
@@ -1067,6 +1439,7 @@ git commit -m "feat: add persistent authentication rate limits"
 ### Task 9: Run the Phase 2 gate
 
 **Files:**
+
 - Test: `tests/unit/auth/**`
 - Test: `tests/integration/auth/**`
 

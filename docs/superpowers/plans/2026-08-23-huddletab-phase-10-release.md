@@ -32,6 +32,7 @@ scripts/verify-upgrade.ps1                       升级/Migration 演练
 ### Task 1: Add installable manifest and generated icons
 
 **Files:**
+
 - Create: `src/app/manifest.ts`
 - Create: `scripts/generate-pwa-icons.mjs`
 - Create: `public/icons/icon-source.svg`
@@ -48,12 +49,22 @@ import manifest from "@/app/manifest";
 
 it("defines an installable HuddleTab manifest", () => {
   const value = manifest();
-  expect(value).toMatchObject({ name: "伙记 HuddleTab", short_name: "伙记",
-    start_url: "/activities", display: "standalone", theme_color: "#0F766E" });
-  expect(value.icons).toEqual(expect.arrayContaining([
-    expect.objectContaining({ src: "/icons/icon-192.png", sizes: "192x192" }),
-    expect.objectContaining({ src: "/icons/icon-maskable-512.png", purpose: "maskable" }),
-  ]));
+  expect(value).toMatchObject({
+    name: "伙记 HuddleTab",
+    short_name: "伙记",
+    start_url: "/activities",
+    display: "standalone",
+    theme_color: "#0F766E",
+  });
+  expect(value.icons).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ src: "/icons/icon-192.png", sizes: "192x192" }),
+      expect.objectContaining({
+        src: "/icons/icon-maskable-512.png",
+        purpose: "maskable",
+      }),
+    ]),
+  );
 });
 ```
 
@@ -68,14 +79,27 @@ Expected: FAIL because `src/app/manifest.ts` does not exist.
 ```ts
 import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
-  return { name: "伙记 HuddleTab", short_name: "伙记", description: "一起花，清楚分。",
-    start_url: "/activities", scope: "/", display: "standalone",
-    background_color: "#F8FAFC", theme_color: "#0F766E", lang: "zh-CN",
+  return {
+    name: "伙记 HuddleTab",
+    short_name: "伙记",
+    description: "一起花，清楚分。",
+    start_url: "/activities",
+    scope: "/",
+    display: "standalone",
+    background_color: "#F8FAFC",
+    theme_color: "#0F766E",
+    lang: "zh-CN",
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
-      { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-    ] };
+      {
+        src: "/icons/icon-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+  };
 }
 ```
 
@@ -97,6 +121,7 @@ git commit -m "feat: add installable pwa manifest"
 ### Task 2: Add Serwist static caching and controlled updates
 
 **Files:**
+
 - Modify: `package.json`, `package-lock.json`, `next.config.ts`
 - Create: `src/app/sw.ts`
 - Create: `src/pwa/service-worker/update-controller.ts`
@@ -112,9 +137,15 @@ Run: `npm install serwist @serwist/next`
 ```ts
 it("does not activate a waiting worker while foreground queues are pending", async () => {
   const worker = { postMessage: vi.fn() };
-  const controller = createUpdateController({ pendingMutationCount: async () => 1,
-    pendingAttachmentCount: async () => 0, reload: vi.fn() });
-  expect(await controller.requestActivation(worker)).toEqual({ activated: false, reason: "PENDING_SYNC" });
+  const controller = createUpdateController({
+    pendingMutationCount: async () => 1,
+    pendingAttachmentCount: async () => 0,
+    reload: vi.fn(),
+  });
+  expect(await controller.requestActivation(worker)).toEqual({
+    activated: false,
+    reason: "PENDING_SYNC",
+  });
   expect(worker.postMessage).not.toHaveBeenCalled();
 });
 
@@ -136,13 +167,29 @@ Expected: FAIL because worker/update modules are absent.
 ```ts
 // src/app/sw.ts
 import { Serwist, CacheFirst, NetworkFirst, ExpirationPlugin } from "serwist";
-declare const self: ServiceWorkerGlobalScope & { __SW_MANIFEST: Array<PrecacheEntry> };
-const serwist = new Serwist({ precacheEntries: self.__SW_MANIFEST, skipWaiting: false, clientsClaim: false,
+declare const self: ServiceWorkerGlobalScope & {
+  __SW_MANIFEST: Array<PrecacheEntry>;
+};
+const serwist = new Serwist({
+  precacheEntries: self.__SW_MANIFEST,
+  skipWaiting: false,
+  clientsClaim: false,
   runtimeCaching: [
-    { matcher: ({ request }) => request.mode === "navigate", handler: new NetworkFirst({ cacheName: "app-shell" }) },
-    { matcher: ({ url }) => url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/"),
-      handler: new CacheFirst({ cacheName: "static-v1", plugins: [new ExpirationPlugin({ maxEntries: 80 })] }) },
-  ] });
+    {
+      matcher: ({ request }) => request.mode === "navigate",
+      handler: new NetworkFirst({ cacheName: "app-shell" }),
+    },
+    {
+      matcher: ({ url }) =>
+        url.pathname.startsWith("/_next/static/") ||
+        url.pathname.startsWith("/icons/"),
+      handler: new CacheFirst({
+        cacheName: "static-v1",
+        plugins: [new ExpirationPlugin({ maxEntries: 80 })],
+      }),
+    },
+  ],
+});
 serwist.addEventListeners();
 ```
 
@@ -152,15 +199,18 @@ No matcher may cache `/api/`, attachments, auth, activity Snapshot or mutation r
 import { mayActivateUpdate } from "@/pwa/service-worker/update-policy";
 
 export function createUpdateController(deps: UpdateDependencies) {
-  return { async requestActivation(worker: Pick<ServiceWorker, "postMessage">) {
-    const decision = mayActivateUpdate({
-      pendingMutations: await deps.pendingMutationCount(),
-      pendingAttachments: await deps.pendingAttachmentCount(),
-    });
-    if (!decision.allowed) return { activated: false as const, reason: "PENDING_SYNC" as const };
-    worker.postMessage({ type: "SKIP_WAITING" });
-    return { activated: true as const };
-  }};
+  return {
+    async requestActivation(worker: Pick<ServiceWorker, "postMessage">) {
+      const decision = mayActivateUpdate({
+        pendingMutations: await deps.pendingMutationCount(),
+        pendingAttachments: await deps.pendingAttachmentCount(),
+      });
+      if (!decision.allowed)
+        return { activated: false as const, reason: "PENDING_SYNC" as const };
+      worker.postMessage({ type: "SKIP_WAITING" });
+      return { activated: true as const };
+    },
+  };
 }
 ```
 
@@ -182,6 +232,7 @@ git commit -m "feat: add controlled pwa updates"
 ### Task 3: Harden production startup, Docker and Setup Token logging
 
 **Files:**
+
 - Modify: `src/server/bootstrap/container-start.ts`
 - Create: `docker/entrypoint.sh`
 - Modify: `Dockerfile`, `compose.yaml`, `.env.example`, `package.json`
@@ -197,7 +248,9 @@ it("reuses the Phase 2 setup initializer exactly once before starting Next.js", 
   await prepareContainerStart({ initializeSetup, startNext });
   expect(initializeSetup).toHaveBeenCalledTimes(1);
   expect(startNext).toHaveBeenCalledTimes(1);
-  expect(initializeSetup.mock.invocationCallOrder[0]).toBeLessThan(startNext.mock.invocationCallOrder[0]);
+  expect(initializeSetup.mock.invocationCallOrder[0]).toBeLessThan(
+    startNext.mock.invocationCallOrder[0],
+  );
 });
 ```
 
@@ -225,7 +278,9 @@ interface ContainerStartDependencies {
  * 生产启动只编排迁移后的初始化检查与 Next.js 启动。
  * Setup Token 的生成、Hash 替换和一次性中文日志仍由 Phase 2 initializeSetup() 唯一负责。
  */
-export async function prepareContainerStart(deps: ContainerStartDependencies): Promise<void> {
+export async function prepareContainerStart(
+  deps: ContainerStartDependencies,
+): Promise<void> {
   await deps.initializeSetup();
   await deps.startNext();
 }
@@ -260,9 +315,11 @@ Expected: PASS; services are exactly `app` and `postgres`; uninitialized startup
 git add src/server/bootstrap/container-start.ts docker/entrypoint.sh Dockerfile compose.yaml .env.example package.json tests/integration/phase-10/bootstrap.test.ts tests/e2e/production-compose.spec.ts
 git commit -m "chore: harden production startup"
 ```
+
 ### Task 4: Add HTTPS, backup/restore, upgrade and release verification
 
 **Files:**
+
 - Create: `docs/deployment/https.md`
 - Create: `docs/deployment/backup-restore.md`
 - Create: `docs/deployment/upgrade.md`
@@ -278,12 +335,18 @@ git commit -m "chore: harden production startup"
 ```ts
 import { expect, test } from "@playwright/test";
 
-test("production security and PWA endpoints are healthy", async ({ request }) => {
-  const health = await request.get("/api/health"); expect(health.status()).toBe(200);
-  const manifest = await request.get("/manifest.webmanifest"); expect(manifest.status()).toBe(200);
+test("production security and PWA endpoints are healthy", async ({
+  request,
+}) => {
+  const health = await request.get("/api/health");
+  expect(health.status()).toBe(200);
+  const manifest = await request.get("/manifest.webmanifest");
+  expect(manifest.status()).toBe(200);
   const page = await request.get("/");
   expect(page.headers()["x-content-type-options"]).toBe("nosniff");
-  expect(page.headers()["content-security-policy"]).toContain("default-src 'self'");
+  expect(page.headers()["content-security-policy"]).toContain(
+    "default-src 'self'",
+  );
   expect(page.headers()["x-frame-options"]).toBe("DENY");
 });
 ```

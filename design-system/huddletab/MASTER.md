@@ -17,33 +17,33 @@
 
 ### Light
 
-| Token | Value | Usage |
-|---|---:|---|
-| `background` | `#F6F8F7` | 页面底色 |
-| `surface` | `#FFFFFF` | Sheet、Dialog、主要内容面 |
-| `surface-muted` | `#EAF2EE` | 摘要、选中、轻提示 |
-| `foreground` | `#17211D` | 主文本 |
-| `muted-foreground` | `#56675F` | 辅助文本 |
-| `primary` | `#146B52` | 主按钮、选中、关键链接 |
-| `on-primary` | `#FFFFFF` | 主色上的文本与图标 |
-| `border` | `#DCE5E0` | 分隔和输入边界 |
-| `warning` | `#8A5510` | 超额、待同步、注意事项 |
-| `destructive` | `#C93636` | 删除、失败、危险操作 |
+| Token              |     Value | Usage                     |
+| ------------------ | --------: | ------------------------- |
+| `background`       | `#F6F8F7` | 页面底色                  |
+| `surface`          | `#FFFFFF` | Sheet、Dialog、主要内容面 |
+| `surface-muted`    | `#EAF2EE` | 摘要、选中、轻提示        |
+| `foreground`       | `#17211D` | 主文本                    |
+| `muted-foreground` | `#56675F` | 辅助文本                  |
+| `primary`          | `#146B52` | 主按钮、选中、关键链接    |
+| `on-primary`       | `#FFFFFF` | 主色上的文本与图标        |
+| `border`           | `#DCE5E0` | 分隔和输入边界            |
+| `warning`          | `#8A5510` | 超额、待同步、注意事项    |
+| `destructive`      | `#C93636` | 删除、失败、危险操作      |
 
 ### Dark
 
-| Token | Value | Usage |
-|---|---:|---|
-| `background` | `#0D1512` | 页面底色 |
-| `surface` | `#14201B` | Sheet、Dialog、主要内容面 |
-| `surface-muted` | `#1B2B24` | 摘要、选中、轻提示 |
-| `foreground` | `#F1F7F4` | 主文本 |
-| `muted-foreground` | `#A9BBB3` | 辅助文本 |
-| `primary` | `#5DD6A7` | 主按钮、选中、关键链接 |
-| `on-primary` | `#062017` | 主色上的文本与图标 |
-| `border` | `#2A3B34` | 分隔和输入边界 |
-| `warning` | `#F1B968` | 超额、待同步、注意事项 |
-| `destructive` | `#FF7B7B` | 删除、失败、危险操作 |
+| Token              |     Value | Usage                     |
+| ------------------ | --------: | ------------------------- |
+| `background`       | `#0D1512` | 页面底色                  |
+| `surface`          | `#14201B` | Sheet、Dialog、主要内容面 |
+| `surface-muted`    | `#1B2B24` | 摘要、选中、轻提示        |
+| `foreground`       | `#F1F7F4` | 主文本                    |
+| `muted-foreground` | `#A9BBB3` | 辅助文本                  |
+| `primary`          | `#5DD6A7` | 主按钮、选中、关键链接    |
+| `on-primary`       | `#062017` | 主色上的文本与图标        |
+| `border`           | `#2A3B34` | 分隔和输入边界            |
+| `warning`          | `#F1B968` | 超额、待同步、注意事项    |
+| `destructive`      | `#FF7B7B` | 删除、失败、危险操作      |
 
 ## 3. Typography
 

@@ -583,32 +583,32 @@ Owner 约束：
 
 ### 10.2 主要资源路由
 
-| 资源 | 主要边界 |
-|---|---|
-| `/api/setup` | 初始化状态、一次性 Token 校验、创建首个 System Admin |
-| `/api/auth/*` | Better Auth Session；用户名注册由 Compatibility Layer 适配 |
-| `/api/activities` | 活动列表与创建 |
-| `/api/activities/:id` | 活动详情与允许的基础字段修改 |
-| `/api/activities/:id/end` | ACTIVE → ENDED |
-| `/api/activities/:id/reopen` | ENDED → ACTIVE |
-| `/api/activities/:id/archive` | ENDED → ARCHIVED |
-| `/api/activities/:id/unarchive` | ARCHIVED → ENDED |
-| `/api/activities/:id/delete` | 软删除与 30 天回收站 |
-| `/api/activities/:id/restore` | 恢复已删除活动 |
-| `/api/activities/:id/snapshot` | Revision 与完整活动 Snapshot |
-| `/api/activities/:id/members/*` | 成员、退出、临时成员、绑定、角色和 Owner 转让 |
-| `/api/activities/:id/invitations/*` | 邀请链接、账号邀请和审批 |
-| `/api/activities/:id/expenses` | 搜索、筛选和创建 Expense |
-| `/api/activities/:id/expenses/:expenseId` | 详情、版本更新和软删除 |
-| `/api/activities/:id/expenses/:expenseId/attachments` | 受控上传和下载 |
-| `/api/activities/:id/settlement-recommendations` | 动态计算推荐方案 |
-| `/api/activities/:id/settlements` | 创建实际 Settlement |
-| `/api/activities/:id/settlements/:settlementId` | 版本更新和软删除 |
-| `/api/activities/:id/summary` | 结算摘要与复制/系统分享数据 |
-| `/api/activities/:id/export.csv` | CSV 导出 |
-| `/api/notifications` | 列表、未读数和已读状态 |
-| `/api/me/*` | 资料、邮箱绑定、密码、Session、主题偏好 |
-| `/api/admin/*` | 用户、注册策略、SMTP、存储、备份、恢复、系统信息 |
+| 资源                                                  | 主要边界                                                   |
+| ----------------------------------------------------- | ---------------------------------------------------------- |
+| `/api/setup`                                          | 初始化状态、一次性 Token 校验、创建首个 System Admin       |
+| `/api/auth/*`                                         | Better Auth Session；用户名注册由 Compatibility Layer 适配 |
+| `/api/activities`                                     | 活动列表与创建                                             |
+| `/api/activities/:id`                                 | 活动详情与允许的基础字段修改                               |
+| `/api/activities/:id/end`                             | ACTIVE → ENDED                                             |
+| `/api/activities/:id/reopen`                          | ENDED → ACTIVE                                             |
+| `/api/activities/:id/archive`                         | ENDED → ARCHIVED                                           |
+| `/api/activities/:id/unarchive`                       | ARCHIVED → ENDED                                           |
+| `/api/activities/:id/delete`                          | 软删除与 30 天回收站                                       |
+| `/api/activities/:id/restore`                         | 恢复已删除活动                                             |
+| `/api/activities/:id/snapshot`                        | Revision 与完整活动 Snapshot                               |
+| `/api/activities/:id/members/*`                       | 成员、退出、临时成员、绑定、角色和 Owner 转让              |
+| `/api/activities/:id/invitations/*`                   | 邀请链接、账号邀请和审批                                   |
+| `/api/activities/:id/expenses`                        | 搜索、筛选和创建 Expense                                   |
+| `/api/activities/:id/expenses/:expenseId`             | 详情、版本更新和软删除                                     |
+| `/api/activities/:id/expenses/:expenseId/attachments` | 受控上传和下载                                             |
+| `/api/activities/:id/settlement-recommendations`      | 动态计算推荐方案                                           |
+| `/api/activities/:id/settlements`                     | 创建实际 Settlement                                        |
+| `/api/activities/:id/settlements/:settlementId`       | 版本更新和软删除                                           |
+| `/api/activities/:id/summary`                         | 结算摘要与复制/系统分享数据                                |
+| `/api/activities/:id/export.csv`                      | CSV 导出                                                   |
+| `/api/notifications`                                  | 列表、未读数和已读状态                                     |
+| `/api/me/*`                                           | 资料、邮箱绑定、密码、Session、主题偏好                    |
+| `/api/admin/*`                                        | 用户、注册策略、SMTP、存储、备份、恢复、系统信息           |
 
 ### 10.3 HTTP 状态
 
@@ -639,18 +639,18 @@ Session
 
 ### 11.2 活动权限矩阵
 
-| 操作 | OWNER | ADMIN | MEMBER | LEFT MEMBER |
-|---|---|---|---|---|
-| 查看活动历史账务 | 允许 | 允许 | 允许 | 历史只读 |
-| 新增 Expense | 允许 | 允许 | 允许 | 禁止 |
-| 修改/删除 Expense | 全部 | 全部 | 仅自己创建 | 禁止，即使本人创建 |
-| 新增 Settlement | 全部 | 全部 | 仅本人付款 | 仅本人付款 |
-| 修改/删除 Settlement | 全部 | 全部 | 自己创建且本人付款 | 自己创建且本人付款 |
-| 邀请、审批、普通成员管理 | 允许 | 允许 | 禁止 | 禁止 |
-| 设置 Admin | 允许 | 禁止 | 禁止 | 禁止 |
-| 结束/恢复 ACTIVE | 允许 | 允许 | 禁止 | 禁止 |
-| 归档、解除归档、删除、恢复删除 | 允许 | 禁止 | 禁止 | 禁止 |
-| 转让所有权 | 二次确认 | 禁止 | 禁止 | 禁止 |
+| 操作                           | OWNER    | ADMIN | MEMBER             | LEFT MEMBER        |
+| ------------------------------ | -------- | ----- | ------------------ | ------------------ |
+| 查看活动历史账务               | 允许     | 允许  | 允许               | 历史只读           |
+| 新增 Expense                   | 允许     | 允许  | 允许               | 禁止               |
+| 修改/删除 Expense              | 全部     | 全部  | 仅自己创建         | 禁止，即使本人创建 |
+| 新增 Settlement                | 全部     | 全部  | 仅本人付款         | 仅本人付款         |
+| 修改/删除 Settlement           | 全部     | 全部  | 自己创建且本人付款 | 自己创建且本人付款 |
+| 邀请、审批、普通成员管理       | 允许     | 允许  | 禁止               | 禁止               |
+| 设置 Admin                     | 允许     | 禁止  | 禁止               | 禁止               |
+| 结束/恢复 ACTIVE               | 允许     | 允许  | 禁止               | 禁止               |
+| 归档、解除归档、删除、恢复删除 | 允许     | 禁止  | 禁止               | 禁止               |
+| 转让所有权                     | 二次确认 | 禁止  | 禁止               | 禁止               |
 
 ### 11.3 LEFT Settlement 约束
 
@@ -670,12 +670,12 @@ System Admin 只能访问平台管理 API。其身份不自动赋予任何私人
 
 ## 12. 活动生命周期
 
-| 状态 | Expense | Settlement | 成员/邀请 | 恢复路径 |
-|---|---|---|---|---|
-| ACTIVE | 可按权限增改删 | 可按权限增改删 | 可按权限管理 | 可结束 |
-| ENDED | 冻结增改删 | 仍可记录现实结算 | 冻结 | Owner/Admin 恢复 ACTIVE；Owner 可归档 |
-| ARCHIVED | 只读 | 只读 | 只读 | Owner 解除归档为 ENDED |
-| DELETED | 不可见于普通列表，禁止写入 | 禁止 | 禁止 | Owner 30 天内恢复原生命周期状态 |
+| 状态     | Expense                    | Settlement       | 成员/邀请    | 恢复路径                              |
+| -------- | -------------------------- | ---------------- | ------------ | ------------------------------------- |
+| ACTIVE   | 可按权限增改删             | 可按权限增改删   | 可按权限管理 | 可结束                                |
+| ENDED    | 冻结增改删                 | 仍可记录现实结算 | 冻结         | Owner/Admin 恢复 ACTIVE；Owner 可归档 |
+| ARCHIVED | 只读                       | 只读             | 只读         | Owner 解除归档为 ENDED                |
+| DELETED  | 不可见于普通列表，禁止写入 | 禁止             | 禁止         | Owner 30 天内恢复原生命周期状态       |
 
 消费时间可以超出活动起止日期，只显示轻量提示，不阻止保存。
 
@@ -694,14 +694,14 @@ System Admin 只能访问平台管理 API。其身份不自动赋予任何私人
 
 ### 13.2 离线能力边界
 
-| 能力 | V1 |
-|---|---|
-| 离线查看 | 支持 |
-| 离线新增 Expense | 支持 |
+| 能力             | V1     |
+| ---------------- | ------ |
+| 离线查看         | 支持   |
+| 离线新增 Expense | 支持   |
 | 离线修改 Expense | 不支持 |
 | 离线删除 Expense | 不支持 |
-| 离线 Settlement | 不支持 |
-| 离线成员管理 | 不支持 |
+| 离线 Settlement  | 不支持 |
+| 离线成员管理     | 不支持 |
 
 ### 13.3 离线创建流程
 
@@ -999,19 +999,19 @@ Domain Tests
 
 ## 20. 关键风险登记
 
-| 优先级 | 风险 | 设计控制 | 完成证据 |
-|---|---|---|---|
-| P0 | 金额或尾差错误 | bigint、DecimalRate、稳定分配、纯 Domain | 示例、边界和属性测试 |
-| P0 | 权限越界 | 固定服务器判断顺序、平台/活动角色隔离 | 权限矩阵 API 测试 |
-| P0 | 重复离线账单 | 幂等唯一键、重复请求返回原资源 | 响应丢失 E2E |
-| P0 | Setup 被抢占 | 高强度 Token、Hash、限流、初始化后永久关闭 | 安全集成测试 |
-| P0 | 备份恢复破坏数据 | DB + Uploads 同包、Maintenance Mode | 恢复演练 |
-| P1 | 并发静默覆盖 | Version 条件更新、409、不自动合并 | 并发集成测试 |
-| P1 | 汇率服务故障阻塞记账 | Provider 隔离、缓存、手工输入 | Provider 故障测试 |
-| P1 | PWA 更新丢失离线数据 | Pending 时禁止强制 Reload | 离线升级 E2E |
-| P1 | Better Auth 邮箱兼容泄漏 | Compatibility Layer、email_kind | 认证流程测试 |
-| P1 | 暗色主题状态不可辨识 | 语义 Token 和双主题状态矩阵 | 对比度与交互检查 |
-| P2 | 附件孤立或重复 | client_attachment_id、清理任务 | 附件集成测试 |
+| 优先级 | 风险                     | 设计控制                                   | 完成证据             |
+| ------ | ------------------------ | ------------------------------------------ | -------------------- |
+| P0     | 金额或尾差错误           | bigint、DecimalRate、稳定分配、纯 Domain   | 示例、边界和属性测试 |
+| P0     | 权限越界                 | 固定服务器判断顺序、平台/活动角色隔离      | 权限矩阵 API 测试    |
+| P0     | 重复离线账单             | 幂等唯一键、重复请求返回原资源             | 响应丢失 E2E         |
+| P0     | Setup 被抢占             | 高强度 Token、Hash、限流、初始化后永久关闭 | 安全集成测试         |
+| P0     | 备份恢复破坏数据         | DB + Uploads 同包、Maintenance Mode        | 恢复演练             |
+| P1     | 并发静默覆盖             | Version 条件更新、409、不自动合并          | 并发集成测试         |
+| P1     | 汇率服务故障阻塞记账     | Provider 隔离、缓存、手工输入              | Provider 故障测试    |
+| P1     | PWA 更新丢失离线数据     | Pending 时禁止强制 Reload                  | 离线升级 E2E         |
+| P1     | Better Auth 邮箱兼容泄漏 | Compatibility Layer、email_kind            | 认证流程测试         |
+| P1     | 暗色主题状态不可辨识     | 语义 Token 和双主题状态矩阵                | 对比度与交互检查     |
+| P2     | 附件孤立或重复           | client_attachment_id、清理任务             | 附件集成测试         |
 
 ## 21. V1 开发阶段路线图
 

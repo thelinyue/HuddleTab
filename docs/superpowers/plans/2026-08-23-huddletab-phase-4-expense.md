@@ -37,6 +37,7 @@ Phase 1 exports `parseDecimalRate()` / `convertMinorAmount()` from `src/domain/e
 ### Task 1: Add Expense fact tables and database invariants
 
 **Files:**
+
 - Create: `src/server/db/schema/expenses.ts`
 - Modify: `src/server/db/schema/index.ts`
 - Create: `drizzle/0003_expense_facts.sql`
@@ -55,15 +56,28 @@ afterAll(() => db.stop());
 test("同一用户重试同一个 client_mutation_id 只能保留一笔消费", async () => {
   const seed = await db.seedActiveActivity();
   const row = {
-    id: crypto.randomUUID(), activityId: seed.activityId, title: "晚餐", category: "FOOD",
-    originalCurrency: "CNY", originalAmountMinor: 1000n, baseCurrency: "CNY",
-    baseAmountMinor: 1000n, exchangeRate: "1", exchangeRateSource: "IDENTITY",
-    exchangeRateAt: new Date(), splitMode: "EQUAL", occurredAt: new Date(),
-    createdByMemberId: seed.memberId, createdByUserId: seed.userId,
-    clientMutationId: "01JEXPENSEMUTATION00000001", version: 1,
+    id: crypto.randomUUID(),
+    activityId: seed.activityId,
+    title: "晚餐",
+    category: "FOOD",
+    originalCurrency: "CNY",
+    originalAmountMinor: 1000n,
+    baseCurrency: "CNY",
+    baseAmountMinor: 1000n,
+    exchangeRate: "1",
+    exchangeRateSource: "IDENTITY",
+    exchangeRateAt: new Date(),
+    splitMode: "EQUAL",
+    occurredAt: new Date(),
+    createdByMemberId: seed.memberId,
+    createdByUserId: seed.userId,
+    clientMutationId: "01JEXPENSEMUTATION00000001",
+    version: 1,
   };
   await db.insertExpense(row);
-  await expect(db.insertExpense({ ...row, id: crypto.randomUUID() })).rejects.toMatchObject({ code: "23505" });
+  await expect(
+    db.insertExpense({ ...row, id: crypto.randomUUID() }),
+  ).rejects.toMatchObject({ code: "23505" });
 });
 ```
 
@@ -77,48 +91,141 @@ Expected: FAIL because `expenses` and `insertExpense` do not exist.
 
 ```ts
 // src/server/db/schema/expenses.ts
-import { bigint, check, index, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  index,
+  numeric,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { activities, activityMembers } from "./activity";
 import { users } from "./auth";
 
-export const expenseCategory = pgEnum("expense_category", ["FOOD", "TRANSPORT", "LODGING", "TICKET", "SHOPPING", "ENTERTAINMENT", "OTHER"]);
-export const expenseSplitMode = pgEnum("expense_split_mode", ["EQUAL", "EXACT", "PERCENTAGE", "WEIGHT"]);
-
-export const expenses = pgTable("expenses", {
-  id: uuid("id").primaryKey(), activityId: text("activity_id").notNull().references(() => activities.id),
-  title: text("title").notNull(), category: expenseCategory("category").notNull(),
-  originalCurrency: text("original_currency").notNull(), originalAmountMinor: bigint("original_amount_minor", { mode: "bigint" }).notNull(),
-  baseCurrency: text("base_currency").notNull(), baseAmountMinor: bigint("base_amount_minor", { mode: "bigint" }).notNull(),
-  exchangeRate: numeric("exchange_rate").notNull(), exchangeRateSource: text("exchange_rate_source").notNull(), exchangeRateAt: timestamp("exchange_rate_at", { withTimezone: true }).notNull(),
-  splitMode: expenseSplitMode("split_mode").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(), note: text("note"),
-  createdByMemberId: text("created_by_member_id").notNull().references(() => activityMembers.id),
-  createdByUserId: text("created_by_user_id").notNull().references(() => users.id),
-  clientMutationId: text("client_mutation_id").notNull(), version: bigint("version", { mode: "number" }).notNull().default(1),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }), deletedByMemberId: text("deleted_by_member_id").references(() => activityMembers.id),
-}, (t) => [
-  uniqueIndex("expenses_creator_mutation_uq").on(t.createdByUserId, t.clientMutationId),
-  index("expenses_activity_occurred_idx").on(t.activityId, t.occurredAt),
-  check("expenses_original_positive", sql`${t.originalAmountMinor} > 0`),
-  check("expenses_base_positive", sql`${t.baseAmountMinor} > 0`),
-  check("expenses_version_positive", sql`${t.version} >= 1`),
+export const expenseCategory = pgEnum("expense_category", [
+  "FOOD",
+  "TRANSPORT",
+  "LODGING",
+  "TICKET",
+  "SHOPPING",
+  "ENTERTAINMENT",
+  "OTHER",
+]);
+export const expenseSplitMode = pgEnum("expense_split_mode", [
+  "EQUAL",
+  "EXACT",
+  "PERCENTAGE",
+  "WEIGHT",
 ]);
 
-export const expensePayments = pgTable("expense_payments", {
-  expenseId: uuid("expense_id").notNull().references(() => expenses.id, { onDelete: "cascade" }),
-  activityMemberId: uuid("activity_member_id").notNull().references(() => activityMembers.id),
-  originalAmountMinor: bigint("original_amount_minor", { mode: "bigint" }).notNull(),
-  baseAmountMinor: bigint("base_amount_minor", { mode: "bigint" }).notNull(),
-}, (t) => [primaryKey({ columns: [t.expenseId, t.activityMemberId] }), check("expense_payment_original_positive", sql`${t.originalAmountMinor} > 0`), check("expense_payment_base_nonnegative", sql`${t.baseAmountMinor} >= 0`)]);
+export const expenses = pgTable(
+  "expenses",
+  {
+    id: uuid("id").primaryKey(),
+    activityId: text("activity_id")
+      .notNull()
+      .references(() => activities.id),
+    title: text("title").notNull(),
+    category: expenseCategory("category").notNull(),
+    originalCurrency: text("original_currency").notNull(),
+    originalAmountMinor: bigint("original_amount_minor", {
+      mode: "bigint",
+    }).notNull(),
+    baseCurrency: text("base_currency").notNull(),
+    baseAmountMinor: bigint("base_amount_minor", { mode: "bigint" }).notNull(),
+    exchangeRate: numeric("exchange_rate").notNull(),
+    exchangeRateSource: text("exchange_rate_source").notNull(),
+    exchangeRateAt: timestamp("exchange_rate_at", {
+      withTimezone: true,
+    }).notNull(),
+    splitMode: expenseSplitMode("split_mode").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    note: text("note"),
+    createdByMemberId: text("created_by_member_id")
+      .notNull()
+      .references(() => activityMembers.id),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    clientMutationId: text("client_mutation_id").notNull(),
+    version: bigint("version", { mode: "number" }).notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedByMemberId: text("deleted_by_member_id").references(
+      () => activityMembers.id,
+    ),
+  },
+  (t) => [
+    uniqueIndex("expenses_creator_mutation_uq").on(
+      t.createdByUserId,
+      t.clientMutationId,
+    ),
+    index("expenses_activity_occurred_idx").on(t.activityId, t.occurredAt),
+    check("expenses_original_positive", sql`${t.originalAmountMinor} > 0`),
+    check("expenses_base_positive", sql`${t.baseAmountMinor} > 0`),
+    check("expenses_version_positive", sql`${t.version} >= 1`),
+  ],
+);
 
-export const expenseShares = pgTable("expense_shares", {
-  expenseId: uuid("expense_id").notNull().references(() => expenses.id, { onDelete: "cascade" }),
-  activityMemberId: uuid("activity_member_id").notNull().references(() => activityMembers.id),
-  splitInputMinor: bigint("split_input_minor", { mode: "bigint" }),
-  originalAmountMinor: bigint("original_amount_minor", { mode: "bigint" }).notNull(),
-  baseAmountMinor: bigint("base_amount_minor", { mode: "bigint" }).notNull(),
-}, (t) => [primaryKey({ columns: [t.expenseId, t.activityMemberId] }), check("expense_share_original_nonnegative", sql`${t.originalAmountMinor} >= 0`), check("expense_share_base_nonnegative", sql`${t.baseAmountMinor} >= 0`)]);
+export const expensePayments = pgTable(
+  "expense_payments",
+  {
+    expenseId: uuid("expense_id")
+      .notNull()
+      .references(() => expenses.id, { onDelete: "cascade" }),
+    activityMemberId: uuid("activity_member_id")
+      .notNull()
+      .references(() => activityMembers.id),
+    originalAmountMinor: bigint("original_amount_minor", {
+      mode: "bigint",
+    }).notNull(),
+    baseAmountMinor: bigint("base_amount_minor", { mode: "bigint" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.activityMemberId] }),
+    check(
+      "expense_payment_original_positive",
+      sql`${t.originalAmountMinor} > 0`,
+    ),
+    check("expense_payment_base_nonnegative", sql`${t.baseAmountMinor} >= 0`),
+  ],
+);
+
+export const expenseShares = pgTable(
+  "expense_shares",
+  {
+    expenseId: uuid("expense_id")
+      .notNull()
+      .references(() => expenses.id, { onDelete: "cascade" }),
+    activityMemberId: uuid("activity_member_id")
+      .notNull()
+      .references(() => activityMembers.id),
+    splitInputMinor: bigint("split_input_minor", { mode: "bigint" }),
+    originalAmountMinor: bigint("original_amount_minor", {
+      mode: "bigint",
+    }).notNull(),
+    baseAmountMinor: bigint("base_amount_minor", { mode: "bigint" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.activityMemberId] }),
+    check(
+      "expense_share_original_nonnegative",
+      sql`${t.originalAmountMinor} >= 0`,
+    ),
+    check("expense_share_base_nonnegative", sql`${t.baseAmountMinor} >= 0`),
+  ],
+);
 ```
 
 The SQL migration must create the same enums, columns, checks, foreign keys, composite primary keys, `expenses_creator_mutation_uq`, and activity/date index. Export all three tables from `src/server/db/schema/index.ts`.
@@ -139,6 +246,7 @@ git commit -m "feat: add expense fact schema"
 ### Task 2: Define JSON contracts and prepare a complete Expense in the Domain
 
 **Files:**
+
 - Create: `src/features/expenses/categories.ts`
 - Create: `src/features/expenses/contracts.ts`
 - Create: `src/domain/expenses/prepare-expense.ts`
@@ -151,24 +259,50 @@ git commit -m "feat: add expense fact schema"
 import { describe, expect, test } from "vitest";
 import { prepareExpense } from "@/domain/expenses/prepare-expense";
 
-const members = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003"];
+const members = [
+  "00000000-0000-4000-8000-000000000001",
+  "00000000-0000-4000-8000-000000000002",
+  "00000000-0000-4000-8000-000000000003",
+];
 
 describe("prepareExpense", () => {
   test("付款人与承担人独立，并稳定分配外币换算尾差", () => {
-    const result = prepareExpense({ originalCurrency: "JPY", baseCurrency: "CNY", originalAmountMinor: 6001n,
-      exchangeRate: "0.048", payments: [{ memberId: members[2], amountMinor: 6001n }],
-      split: { mode: "EQUAL", members: members.slice(0, 2) } });
+    const result = prepareExpense({
+      originalCurrency: "JPY",
+      baseCurrency: "CNY",
+      originalAmountMinor: 6001n,
+      exchangeRate: "0.048",
+      payments: [{ memberId: members[2], amountMinor: 6001n }],
+      split: { mode: "EQUAL", members: members.slice(0, 2) },
+    });
     expect(result.baseAmountMinor).toBe(28805n);
     expect(result.payments.map((x) => x.baseAmountMinor)).toEqual([28805n]);
-    expect(result.shares.map((x) => x.originalAmountMinor)).toEqual([3001n, 3000n]);
-    expect(result.shares.reduce((sum, x) => sum + x.baseAmountMinor, 0n)).toBe(28805n);
+    expect(result.shares.map((x) => x.originalAmountMinor)).toEqual([
+      3001n,
+      3000n,
+    ]);
+    expect(result.shares.reduce((sum, x) => sum + x.baseAmountMinor, 0n)).toBe(
+      28805n,
+    );
   });
 
   test("比例必须精确等于 10000 基点", () => {
-    expect(() => prepareExpense({ originalCurrency: "CNY", baseCurrency: "CNY", originalAmountMinor: 100n,
-      exchangeRate: "1", payments: [{ memberId: members[0], amountMinor: 100n }],
-      split: { mode: "PERCENTAGE", entries: [{ memberId: members[0], value: 3333n }, { memberId: members[1], value: 3333n }] } }))
-      .toThrowError("比例合计必须等于 100.00%");
+    expect(() =>
+      prepareExpense({
+        originalCurrency: "CNY",
+        baseCurrency: "CNY",
+        originalAmountMinor: 100n,
+        exchangeRate: "1",
+        payments: [{ memberId: members[0], amountMinor: 100n }],
+        split: {
+          mode: "PERCENTAGE",
+          entries: [
+            { memberId: members[0], value: 3333n },
+            { memberId: members[1], value: 3333n },
+          ],
+        },
+      }),
+    ).toThrowError("比例合计必须等于 100.00%");
   });
 });
 ```
@@ -185,19 +319,61 @@ Expected: FAIL with `Cannot find module '@/domain/expenses/prepare-expense'`.
 // src/features/expenses/contracts.ts
 export type SplitInput =
   | { mode: "EQUAL"; members: string[] }
-  | { mode: "EXACT" | "PERCENTAGE" | "WEIGHT"; entries: Array<{ memberId: string; value: string }> };
-export interface CreateExpenseRequest { clientMutationId: string; title: string; category: string; originalCurrency: string; originalAmountMinor: string; exchangeRate: string; exchangeRateSource: "IDENTITY" | "PROVIDER" | "CACHE" | "MANUAL"; exchangeRateAt: string; occurredAt: string; note?: string; payments: Array<{ memberId: string; amountMinor: string }>; split: SplitInput; }
-export interface ExpenseDto extends CreateExpenseRequest { id: string; activityId: string; baseCurrency: string; baseAmountMinor: string; createdByMemberId: string; createdByUserId: string; version: number; createdAt: string; updatedAt: string; deletedAt: string | null; }
+  | {
+      mode: "EXACT" | "PERCENTAGE" | "WEIGHT";
+      entries: Array<{ memberId: string; value: string }>;
+    };
+export interface CreateExpenseRequest {
+  clientMutationId: string;
+  title: string;
+  category: string;
+  originalCurrency: string;
+  originalAmountMinor: string;
+  exchangeRate: string;
+  exchangeRateSource: "IDENTITY" | "PROVIDER" | "CACHE" | "MANUAL";
+  exchangeRateAt: string;
+  occurredAt: string;
+  note?: string;
+  payments: Array<{ memberId: string; amountMinor: string }>;
+  split: SplitInput;
+}
+export interface ExpenseDto extends CreateExpenseRequest {
+  id: string;
+  activityId: string;
+  baseCurrency: string;
+  baseAmountMinor: string;
+  createdByMemberId: string;
+  createdByUserId: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
 ```
 
 ```ts
 // src/domain/expenses/prepare-expense.ts
 import { getCurrencyMinorUnits } from "@/domain/currency/currency";
-import { convertMinorAmount, parseDecimalRate } from "@/domain/exchange-rate/decimal-rate";
+import {
+  convertMinorAmount,
+  parseDecimalRate,
+} from "@/domain/exchange-rate/decimal-rate";
 import { allocateByWeights } from "@/domain/splitting/allocation";
 import { splitExpense } from "@/domain/splitting/split";
 
-type Input = { originalCurrency: string; baseCurrency: string; originalAmountMinor: bigint; exchangeRate: string; payments: Array<{ memberId: string; amountMinor: bigint }>; split: { mode: "EQUAL"; members: string[] } | { mode: "EXACT" | "PERCENTAGE" | "WEIGHT"; entries: Array<{ memberId: string; value: bigint }> } };
+type Input = {
+  originalCurrency: string;
+  baseCurrency: string;
+  originalAmountMinor: bigint;
+  exchangeRate: string;
+  payments: Array<{ memberId: string; amountMinor: bigint }>;
+  split:
+    | { mode: "EQUAL"; members: string[] }
+    | {
+        mode: "EXACT" | "PERCENTAGE" | "WEIGHT";
+        entries: Array<{ memberId: string; value: bigint }>;
+      };
+};
 
 /**
  * 将用户输入收敛为可持久化的 Expense 事实。
@@ -206,21 +382,84 @@ type Input = { originalCurrency: string; baseCurrency: string; originalAmountMin
  */
 export function prepareExpense(input: Input) {
   const rate = parseDecimalRate(input.exchangeRate);
-  const paymentTotal = input.payments.reduce((sum, row) => sum + row.amountMinor, 0n);
-  if (paymentTotal !== input.originalAmountMinor) throw new Error("付款合计必须等于消费金额");
-  const baseAmountMinor = convertMinorAmount(input.originalAmountMinor, getCurrencyMinorUnits(input.originalCurrency), getCurrencyMinorUnits(input.baseCurrency), rate);
-  const sharesOriginal = input.split.mode === "EQUAL"
-    ? splitExpense({ mode: "EQUAL", totalMinor: input.originalAmountMinor, memberIds: input.split.members })
-    : input.split.mode === "EXACT"
-      ? splitExpense({ mode: "EXACT", totalMinor: input.originalAmountMinor, shares: input.split.entries.map((x) => ({ memberId: x.memberId, amountMinor: x.value })) })
-      : input.split.mode === "PERCENTAGE"
-        ? splitExpense({ mode: "PERCENTAGE", totalMinor: input.originalAmountMinor, shares: input.split.entries.map((x) => ({ memberId: x.memberId, basisPoints: x.value })) })
-        : splitExpense({ mode: "WEIGHT", totalMinor: input.originalAmountMinor, shares: input.split.entries.map((x) => ({ memberId: x.memberId, weightHundredths: x.value })) });
-  const paymentBase = allocateByWeights(baseAmountMinor, input.payments.map((x) => ({ memberId: x.memberId, weight: x.amountMinor })));
-  const shareBase = allocateByWeights(baseAmountMinor, sharesOriginal.map((x) => ({ memberId: x.memberId, weight: x.amountMinor })));
-  const payments = paymentBase.map((x) => ({ memberId: x.memberId, originalAmountMinor: input.payments.find((p) => p.memberId === x.memberId)!.amountMinor, baseAmountMinor: x.amountMinor }));
-  const shares = shareBase.map((x) => ({ memberId: x.memberId, splitInputMinor: input.split.mode === "EQUAL" ? null : input.split.entries.find((e) => e.memberId === x.memberId)!.value, originalAmountMinor: sharesOriginal.find((row) => row.memberId === x.memberId)!.amountMinor, baseAmountMinor: x.amountMinor }));
-  if (!shares.some((x) => x.originalAmountMinor > 0n)) throw new Error("至少一名成员必须承担大于零的金额");
+  const paymentTotal = input.payments.reduce(
+    (sum, row) => sum + row.amountMinor,
+    0n,
+  );
+  if (paymentTotal !== input.originalAmountMinor)
+    throw new Error("付款合计必须等于消费金额");
+  const baseAmountMinor = convertMinorAmount(
+    input.originalAmountMinor,
+    getCurrencyMinorUnits(input.originalCurrency),
+    getCurrencyMinorUnits(input.baseCurrency),
+    rate,
+  );
+  const sharesOriginal =
+    input.split.mode === "EQUAL"
+      ? splitExpense({
+          mode: "EQUAL",
+          totalMinor: input.originalAmountMinor,
+          memberIds: input.split.members,
+        })
+      : input.split.mode === "EXACT"
+        ? splitExpense({
+            mode: "EXACT",
+            totalMinor: input.originalAmountMinor,
+            shares: input.split.entries.map((x) => ({
+              memberId: x.memberId,
+              amountMinor: x.value,
+            })),
+          })
+        : input.split.mode === "PERCENTAGE"
+          ? splitExpense({
+              mode: "PERCENTAGE",
+              totalMinor: input.originalAmountMinor,
+              shares: input.split.entries.map((x) => ({
+                memberId: x.memberId,
+                basisPoints: x.value,
+              })),
+            })
+          : splitExpense({
+              mode: "WEIGHT",
+              totalMinor: input.originalAmountMinor,
+              shares: input.split.entries.map((x) => ({
+                memberId: x.memberId,
+                weightHundredths: x.value,
+              })),
+            });
+  const paymentBase = allocateByWeights(
+    baseAmountMinor,
+    input.payments.map((x) => ({
+      memberId: x.memberId,
+      weight: x.amountMinor,
+    })),
+  );
+  const shareBase = allocateByWeights(
+    baseAmountMinor,
+    sharesOriginal.map((x) => ({
+      memberId: x.memberId,
+      weight: x.amountMinor,
+    })),
+  );
+  const payments = paymentBase.map((x) => ({
+    memberId: x.memberId,
+    originalAmountMinor: input.payments.find((p) => p.memberId === x.memberId)!
+      .amountMinor,
+    baseAmountMinor: x.amountMinor,
+  }));
+  const shares = shareBase.map((x) => ({
+    memberId: x.memberId,
+    splitInputMinor:
+      input.split.mode === "EQUAL"
+        ? null
+        : input.split.entries.find((e) => e.memberId === x.memberId)!.value,
+    originalAmountMinor: sharesOriginal.find(
+      (row) => row.memberId === x.memberId,
+    )!.amountMinor,
+    baseAmountMinor: x.amountMinor,
+  }));
+  if (!shares.some((x) => x.originalAmountMinor > 0n))
+    throw new Error("至少一名成员必须承担大于零的金额");
   return { baseAmountMinor, payments, shares };
 }
 ```
@@ -243,6 +482,7 @@ git commit -m "feat: prepare complete expense facts"
 ### Task 3: Isolate exchange-rate provider and cache fallback
 
 **Files:**
+
 - Create: `src/server/db/schema/exchange-rates.ts`
 - Modify: `src/server/db/schema/index.ts`
 - Modify: `drizzle/0003_expense_facts.sql`
@@ -258,8 +498,21 @@ import { ExchangeRateService } from "@/server/services/exchange-rate-service";
 
 test("Provider 失败时使用最近缓存而不阻塞记账", async () => {
   const provider = { getRate: vi.fn().mockRejectedValue(new Error("timeout")) };
-  const cache = { findToday: vi.fn().mockResolvedValue(null), findLatest: vi.fn().mockResolvedValue({ rate: "0.048", capturedAt: new Date("2026-08-22T08:00:00Z") }), save: vi.fn() };
-  await expect(new ExchangeRateService(provider, cache).suggest("JPY", "CNY", new Date("2026-08-23T08:00:00Z"))).resolves.toMatchObject({ rate: "0.048", source: "CACHE" });
+  const cache = {
+    findToday: vi.fn().mockResolvedValue(null),
+    findLatest: vi.fn().mockResolvedValue({
+      rate: "0.048",
+      capturedAt: new Date("2026-08-22T08:00:00Z"),
+    }),
+    save: vi.fn(),
+  };
+  await expect(
+    new ExchangeRateService(provider, cache).suggest(
+      "JPY",
+      "CNY",
+      new Date("2026-08-23T08:00:00Z"),
+    ),
+  ).resolves.toMatchObject({ rate: "0.048", source: "CACHE" });
 });
 ```
 
@@ -272,16 +525,55 @@ Expected: FAIL because `ExchangeRateService` does not exist.
 - [ ] **Step 3: Implement the minimal provider boundary**
 
 ```ts
-export interface ExchangeRateProvider { getRate(from: string, to: string, at: Date): Promise<{ rate: string; capturedAt: Date; provider: string }>; }
-export interface ExchangeRateCache { findToday(from: string, to: string, at: Date): Promise<{ rate: string; capturedAt: Date } | null>; findLatest(from: string, to: string): Promise<{ rate: string; capturedAt: Date } | null>; save(value: { from: string; to: string; rate: string; capturedAt: Date; provider: string }): Promise<void>; }
+export interface ExchangeRateProvider {
+  getRate(
+    from: string,
+    to: string,
+    at: Date,
+  ): Promise<{ rate: string; capturedAt: Date; provider: string }>;
+}
+export interface ExchangeRateCache {
+  findToday(
+    from: string,
+    to: string,
+    at: Date,
+  ): Promise<{ rate: string; capturedAt: Date } | null>;
+  findLatest(
+    from: string,
+    to: string,
+  ): Promise<{ rate: string; capturedAt: Date } | null>;
+  save(value: {
+    from: string;
+    to: string;
+    rate: string;
+    capturedAt: Date;
+    provider: string;
+  }): Promise<void>;
+}
 
 /** Provider 只提供建议；保存 Expense 时使用请求中的精确字符串快照，之后不再追随实时汇率。 */
 export class ExchangeRateService {
-  constructor(private readonly provider: ExchangeRateProvider, private readonly cache: ExchangeRateCache) {}
+  constructor(
+    private readonly provider: ExchangeRateProvider,
+    private readonly cache: ExchangeRateCache,
+  ) {}
   async suggest(from: string, to: string, at: Date) {
-    if (from === to) return { rate: "1", source: "IDENTITY" as const, capturedAt: at };
-    try { const value = await this.provider.getRate(from, to, at); await this.cache.save({ from, to, ...value }); return { rate: value.rate, source: "PROVIDER" as const, capturedAt: value.capturedAt }; }
-    catch { const cached = await this.cache.findToday(from, to, at) ?? await this.cache.findLatest(from, to); return cached ? { ...cached, source: "CACHE" as const } : null; }
+    if (from === to)
+      return { rate: "1", source: "IDENTITY" as const, capturedAt: at };
+    try {
+      const value = await this.provider.getRate(from, to, at);
+      await this.cache.save({ from, to, ...value });
+      return {
+        rate: value.rate,
+        source: "PROVIDER" as const,
+        capturedAt: value.capturedAt,
+      };
+    } catch {
+      const cached =
+        (await this.cache.findToday(from, to, at)) ??
+        (await this.cache.findLatest(from, to));
+      return cached ? { ...cached, source: "CACHE" as const } : null;
+    }
   }
 }
 ```
@@ -304,6 +596,7 @@ git commit -m "feat: add exchange rate fallback service"
 ### Task 4: Create Expense idempotently in one transaction
 
 **Files:**
+
 - Create: `src/server/repositories/expense-repository.ts`
 - Create: `src/server/services/expense-service.ts`
 - Test: `tests/integration/expenses/create-expense.test.ts`
@@ -316,7 +609,9 @@ import { createExpenseHarness } from "./support/expense-harness";
 
 test("重复创建返回原资源且不重复 Audit 与 Revision", async () => {
   const h = await createExpenseHarness();
-  const request = h.validRequest({ clientMutationId: "01JEXPENSERETRY0000000001" });
+  const request = h.validRequest({
+    clientMutationId: "01JEXPENSERETRY0000000001",
+  });
   const first = await h.service.create(h.session, h.activityId, request);
   const second = await h.service.create(h.session, h.activityId, request);
   expect(second.expense.id).toBe(first.expense.id);
@@ -378,6 +673,7 @@ git commit -m "feat: create expenses idempotently"
 ### Task 5: Add optimistic update, soft delete, and LEFT protection
 
 **Files:**
+
 - Modify: `src/server/services/expense-service.ts`
 - Modify: `src/server/repositories/expense-repository.ts`
 - Test: `tests/integration/expenses/update-delete-expense.test.ts`
@@ -389,15 +685,32 @@ import { expect, test } from "vitest";
 import { createExpenseHarness } from "./support/expense-harness";
 
 test("旧版本修改返回 409 VERSION_CONFLICT 且不覆盖新值", async () => {
-  const h = await createExpenseHarness(); const expense = await h.createExpense();
-  await h.service.update(h.ownerSession, h.activityId, expense.id, { ...h.validRequest(), version: 1, title: "新标题" });
-  await expect(h.service.update(h.adminSession, h.activityId, expense.id, { ...h.validRequest(), version: 1, title: "旧表单" }))
-    .rejects.toMatchObject({ status: 409, code: "VERSION_CONFLICT", message: "这笔消费已被其他人修改，请刷新后重试" });
+  const h = await createExpenseHarness();
+  const expense = await h.createExpense();
+  await h.service.update(h.ownerSession, h.activityId, expense.id, {
+    ...h.validRequest(),
+    version: 1,
+    title: "新标题",
+  });
+  await expect(
+    h.service.update(h.adminSession, h.activityId, expense.id, {
+      ...h.validRequest(),
+      version: 1,
+      title: "旧表单",
+    }),
+  ).rejects.toMatchObject({
+    status: 409,
+    code: "VERSION_CONFLICT",
+    message: "这笔消费已被其他人修改，请刷新后重试",
+  });
 });
 
 test("LEFT 成员即使是创建者也不能修改或删除历史消费", async () => {
-  const h = await createExpenseHarness(); const expense = await h.createExpenseBy(h.leftUserBeforeLeaving);
-  await expect(h.service.remove(h.leftSession, h.activityId, expense.id, 1)).rejects.toMatchObject({ status: 403, code: "EXPENSE_READ_ONLY_FOR_LEFT" });
+  const h = await createExpenseHarness();
+  const expense = await h.createExpenseBy(h.leftUserBeforeLeaving);
+  await expect(
+    h.service.remove(h.leftSession, h.activityId, expense.id, 1),
+  ).rejects.toMatchObject({ status: 403, code: "EXPENSE_READ_ONLY_FOR_LEFT" });
 });
 ```
 
@@ -454,6 +767,7 @@ git commit -m "feat: protect expense updates with version locks"
 ### Task 6: Expose Expense list, detail, create, update, and delete routes
 
 **Files:**
+
 - Create: `src/app/api/activities/[activityId]/expenses/route.ts`
 - Create: `src/app/api/activities/[activityId]/expenses/[expenseId]/route.ts`
 - Test: `tests/api/expenses/expense-routes.test.ts`
@@ -465,11 +779,14 @@ import { expect, test } from "vitest";
 import { apiHarness } from "../support/api-harness";
 
 test("POST 返回 JSON-safe 金额与幂等重放标志", async () => {
-  const h = await apiHarness(); const body = h.validExpenseRequest();
+  const h = await apiHarness();
+  const body = h.validExpenseRequest();
   const first = await h.post(`/api/activities/${h.activityId}/expenses`, body);
   const replay = await h.post(`/api/activities/${h.activityId}/expenses`, body);
-  expect(first.status).toBe(201); expect(typeof first.json.expense.baseAmountMinor).toBe("string");
-  expect(replay.status).toBe(200); expect(replay.json.idempotentReplay).toBe(true);
+  expect(first.status).toBe(201);
+  expect(typeof first.json.expense.baseAmountMinor).toBe("string");
+  expect(replay.status).toBe(200);
+  expect(replay.json.idempotentReplay).toBe(true);
 });
 ```
 
@@ -483,12 +800,17 @@ Expected: FAIL with route module not found.
 
 ```ts
 // POST excerpt; GET uses the same session and activity visibility checks.
-export async function POST(request: Request, context: { params: Promise<{ activityId: string }> }) {
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ activityId: string }> },
+) {
   const session = await requireSession(request);
   const input = createExpenseSchema.parse(await request.json());
   const { activityId } = await context.params;
   const result = await expenseService.create(session, activityId, input);
-  return NextResponse.json(serializeExpenseResult(result), { status: result.idempotentReplay ? 200 : 201 });
+  return NextResponse.json(serializeExpenseResult(result), {
+    status: result.idempotentReplay ? 200 : 201,
+  });
 }
 ```
 
@@ -510,6 +832,7 @@ git commit -m "feat: expose expense API"
 ## Phase 4 verification gate
 
 **Files:**
+
 - Verify only; modify only Phase 4 files when a failure is caused by this phase.
 
 - [ ] **Step 1: Run focused invariant tests**

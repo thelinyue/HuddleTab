@@ -177,7 +177,12 @@ import nextTypeScript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypeScript,
-  globalIgnores([".next/**", "coverage/**", "playwright-report/**", "test-results/**"]),
+  globalIgnores([
+    ".next/**",
+    "coverage/**",
+    "playwright-report/**",
+    "test-results/**",
+  ]),
 ]);
 ```
 
@@ -190,7 +195,14 @@ Create `src/app/globals.css`:
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
 }
 ```
 
@@ -387,14 +399,31 @@ Ensure `src/app/globals.css` contains:
 }
 
 @layer base {
-  * { @apply border-border outline-ring/50; }
+  * {
+    @apply border-border outline-ring/50;
+  }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      "PingFang SC",
+      "Microsoft YaHei",
+      sans-serif;
   }
-  button, [role="button"] { touch-action: manipulation; }
-  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-  .money { font-variant-numeric: tabular-nums; }
+  button,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .money {
+    font-variant-numeric: tabular-nums;
+  }
 }
 ```
 
@@ -465,7 +494,11 @@ export default defineConfig({
   dialect: "postgresql",
   schema: "./src/server/db/schema/*.ts",
   out: "./drizzle",
-  dbCredentials: { url: process.env.DATABASE_URL ?? "postgresql://huddletab:huddletab@localhost:5432/huddletab" },
+  dbCredentials: {
+    url:
+      process.env.DATABASE_URL ??
+      "postgresql://huddletab:huddletab@localhost:5432/huddletab",
+  },
   strict: true,
   verbose: true,
 });
@@ -484,8 +517,11 @@ export function createDatabaseClient(connectionString: string, max = 10) {
   return { sql, db: drizzle(sql) };
 }
 
-const globalForDb = globalThis as unknown as { database?: ReturnType<typeof createDatabaseClient> };
-const database = globalForDb.database ?? createDatabaseClient(process.env.DATABASE_URL ?? "");
+const globalForDb = globalThis as unknown as {
+  database?: ReturnType<typeof createDatabaseClient>;
+};
+const database =
+  globalForDb.database ?? createDatabaseClient(process.env.DATABASE_URL ?? "");
 if (process.env.NODE_ENV !== "production") globalForDb.database = database;
 export const sql = database.sql;
 export const db = database.db;

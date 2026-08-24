@@ -28,6 +28,7 @@ src/server/db/schema/backup-records.ts              备份元数据
 ### Task 1: Enforce System Admin user-management invariants
 
 **Files:**
+
 - Create: `src/server/permissions/require-system-admin.ts`
 - Modify: `src/server/services/system-admin-service.ts`
 - Create: `src/app/api/admin/users/[userId]/status/route.ts`
@@ -38,16 +39,28 @@ src/server/db/schema/backup-records.ts              备份元数据
 - [ ] **Step 1: Write failing transaction tests**
 
 ```ts
-it.each(["DISABLE", "REVOKE_ADMIN", "DELETE"])("rejects %s on the last login-capable admin", async (operation) => {
-  const admin = await ctx.seedOnlyLoginCapableSystemAdmin();
-  await expect(service.apply({ actorUserId: admin.id, targetUserId: admin.id, operation }))
-    .rejects.toMatchObject({ status: 409, code: "LAST_ACTIVE_ADMIN" });
-  expect(await ctx.isLoginCapableAdmin(admin.id)).toBe(true);
-});
+it.each(["DISABLE", "REVOKE_ADMIN", "DELETE"])(
+  "rejects %s on the last login-capable admin",
+  async (operation) => {
+    const admin = await ctx.seedOnlyLoginCapableSystemAdmin();
+    await expect(
+      service.apply({
+        actorUserId: admin.id,
+        targetUserId: admin.id,
+        operation,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "LAST_ACTIVE_ADMIN" });
+    expect(await ctx.isLoginCapableAdmin(admin.id)).toBe(true);
+  },
+);
 
 it("revokes sessions when a user is disabled", async () => {
   const { actor, target } = await ctx.seedTwoAdminsAndUser();
-  await service.apply({ actorUserId: actor.id, targetUserId: target.id, operation: "DISABLE" });
+  await service.apply({
+    actorUserId: actor.id,
+    targetUserId: target.id,
+    operation: "DISABLE",
+  });
   expect(await ctx.activeSessionCount(target.id)).toBe(0);
 });
 ```
@@ -77,6 +90,7 @@ async grantSystemAdmin(userId: string, grantedByUserId: string): Promise<void> {
 ```
 
 `requireSystemAdmin()` checks Session then platform role only and never creates or impersonates ActivityMember. The status and role Route Handlers dispatch to the existing `disableUser()`, `revokeSystemAdmin()`, `deleteUser()` plus the two methods above. All routes preserve `409 LAST_ACTIVE_ADMIN`; disabled users receive `403 ACCOUNT_DISABLED` with Chinese copy.
+
 - [ ] **Step 4: Verify API and transaction behavior**
 
 Run: `npm run test:integration -- tests/integration/phase-9/admin-user-service.test.ts && npm run test:unit -- tests/api/admin-users.test.ts`
@@ -93,6 +107,7 @@ git commit -m "feat: enforce system admin invariants"
 ### Task 2: Manage registration policy and optional SMTP
 
 **Files:**
+
 - Create: `src/server/services/system-settings-service.ts`
 - Create: `src/app/api/admin/registration-policy/route.ts`
 - Create: `src/app/api/admin/smtp/route.ts`
@@ -111,8 +126,18 @@ it("defaults registration to INVITE_ONLY", async () => {
 });
 
 it("redacts SMTP password and does not block login when SMTP is absent", async () => {
-  await service.saveSmtp({ enabled: false, host: "", port: 587, secure: false, username: "", password: "" });
-  expect(await service.getSmtpView()).toEqual({ enabled: false, configured: false });
+  await service.saveSmtp({
+    enabled: false,
+    host: "",
+    port: 587,
+    secure: false,
+    username: "",
+    password: "",
+  });
+  expect(await service.getSmtpView()).toEqual({
+    enabled: false,
+    configured: false,
+  });
   await expect(ctx.loginExistingUser()).resolves.toBeDefined();
 });
 ```
@@ -127,27 +152,47 @@ Expected: FAIL because settings service/API are absent.
 
 ```ts
 export const registrationPolicySchema = z.enum(["INVITE_ONLY", "OPEN"]);
-export const smtpSchema = z.object({
-  enabled: z.boolean(), host: z.string().trim().max(255), port: z.number().int().min(1).max(65535),
-  secure: z.boolean(), username: z.string().max(255), password: z.string().max(1024),
-}).superRefine((v, ctx) => {
-  if (v.enabled && (!v.host || !v.username || !v.password))
-    ctx.addIssue({ code: "custom", message: "启用 SMTP 时必须填写服务器、用户名和密码。" });
-});
+export const smtpSchema = z
+  .object({
+    enabled: z.boolean(),
+    host: z.string().trim().max(255),
+    port: z.number().int().min(1).max(65535),
+    secure: z.boolean(),
+    username: z.string().max(255),
+    password: z.string().max(1024),
+  })
+  .superRefine((v, ctx) => {
+    if (v.enabled && (!v.host || !v.username || !v.password))
+      ctx.addIssue({
+        code: "custom",
+        message: "启用 SMTP 时必须填写服务器、用户名和密码。",
+      });
+  });
 
 export class SystemSettingsService {
   setRegistrationPolicy(policy: "INVITE_ONLY" | "OPEN", actorUserId: string) {
     return this.repository.upsert("registration_policy", policy, actorUserId);
   }
   async saveSmtp(input: SmtpInput, actorUserId: string) {
-    const encryptedPassword = input.password ? this.secrets.encrypt(input.password) : null;
-    await this.repository.saveSmtp({ ...input, password: encryptedPassword }, actorUserId);
+    const encryptedPassword = input.password
+      ? this.secrets.encrypt(input.password)
+      : null;
+    await this.repository.saveSmtp(
+      { ...input, password: encryptedPassword },
+      actorUserId,
+    );
   }
   async getSmtpView() {
     const row = await this.repository.getSmtp();
-    return { enabled: row?.enabled ?? false, configured: Boolean(row?.host && row?.password) };
+    return {
+      enabled: row?.enabled ?? false,
+      configured: Boolean(row?.host && row?.password),
+    };
   }
-  constructor(private readonly repository: SystemSettingsRepository, private readonly secrets: SettingsSecretBox) {}
+  constructor(
+    private readonly repository: SystemSettingsRepository,
+    private readonly secrets: SettingsSecretBox,
+  ) {}
 }
 ```
 
@@ -169,6 +214,7 @@ git commit -m "feat: add registration and smtp settings"
 ### Task 3: Report storage and system information
 
 **Files:**
+
 - Create: `src/server/services/system-information-service.ts`
 - Create: `src/app/api/admin/storage/route.ts`
 - Create: `src/app/api/admin/system-information/route.ts`
@@ -180,13 +226,24 @@ git commit -m "feat: add registration and smtp settings"
 
 ```ts
 it("reports database, uploads, backups and total bytes", async () => {
-  const service = new SystemInformationService({ databaseBytes: async () => 100n,
-    directoryBytes: async (name) => name === "uploads" ? 20n : 5n, databaseVersion: async () => "PostgreSQL 18.0" });
-  expect(await service.storage()).toEqual({ databaseBytes: "100", uploadsBytes: "20", backupsBytes: "5", totalBytes: "125" });
+  const service = new SystemInformationService({
+    databaseBytes: async () => 100n,
+    directoryBytes: async (name) => (name === "uploads" ? 20n : 5n),
+    databaseVersion: async () => "PostgreSQL 18.0",
+  });
+  expect(await service.storage()).toEqual({
+    databaseBytes: "100",
+    uploadsBytes: "20",
+    backupsBytes: "5",
+    totalBytes: "125",
+  });
 });
 
 it("does not disclose system paths to non-admin", async () => {
-  const response = await api.get("/api/admin/system-information", member.session);
+  const response = await api.get(
+    "/api/admin/system-information",
+    member.session,
+  );
   expect(response.status).toBe(403);
 });
 ```
@@ -203,14 +260,24 @@ Expected: FAIL because service/routes do not exist.
 export class SystemInformationService {
   async storage() {
     const [databaseBytes, uploadsBytes, backupsBytes] = await Promise.all([
-      this.probe.databaseBytes(), this.probe.directoryBytes("uploads"), this.probe.directoryBytes("backups"),
+      this.probe.databaseBytes(),
+      this.probe.directoryBytes("uploads"),
+      this.probe.directoryBytes("backups"),
     ]);
-    return { databaseBytes: String(databaseBytes), uploadsBytes: String(uploadsBytes),
-      backupsBytes: String(backupsBytes), totalBytes: String(databaseBytes + uploadsBytes + backupsBytes) };
+    return {
+      databaseBytes: String(databaseBytes),
+      uploadsBytes: String(uploadsBytes),
+      backupsBytes: String(backupsBytes),
+      totalBytes: String(databaseBytes + uploadsBytes + backupsBytes),
+    };
   }
   async information() {
-    return { appVersion: process.env.APP_VERSION ?? "dev", pwaVersion: process.env.PWA_VERSION ?? "dev",
-      databaseVersion: await this.probe.databaseVersion(), dataDirectory: process.env.DATA_DIR ?? "/data" };
+    return {
+      appVersion: process.env.APP_VERSION ?? "dev",
+      pwaVersion: process.env.PWA_VERSION ?? "dev",
+      databaseVersion: await this.probe.databaseVersion(),
+      dataDirectory: process.env.DATA_DIR ?? "/data",
+    };
   }
   constructor(private readonly probe: SystemProbe) {}
 }
@@ -234,6 +301,7 @@ git commit -m "feat: add storage and system information"
 ### Task 4: Create, download, delete and restore complete backups
 
 **Files:**
+
 - Modify: `package.json`, `package-lock.json`
 - Create: `src/server/db/schema/backup-records.ts`
 - Create: `src/server/maintenance/maintenance-mode.ts`
@@ -254,13 +322,19 @@ Run: `npm install tar`
 it("creates a backup containing only manifest, database dump and uploads", async () => {
   const record = await backupService.create(admin.id);
   expect(await ctx.archiveEntries(record.path)).toEqual([
-    "manifest.json", "database.dump", "uploads/receipt.webp",
+    "manifest.json",
+    "database.dump",
+    "uploads/receipt.webp",
   ]);
 });
 
 it("blocks business writes while restore owns maintenance mode", async () => {
   await maintenance.enter("RESTORE", admin.id);
-  const response = await api.post("/api/activities", validActivity, member.session);
+  const response = await api.post(
+    "/api/activities",
+    validActivity,
+    member.session,
+  );
   expect(response.status).toBe(503);
   expect((await response.json()).error.code).toBe("MAINTENANCE_MODE");
 });
@@ -283,13 +357,26 @@ export class BackupService {
       try {
         await this.commands.pgDump(join(work, "database.dump"));
         await cp(this.uploadsRoot, join(work, "uploads"), { recursive: true });
-        await writeFile(join(work, "manifest.json"), JSON.stringify(await this.manifest.create()));
+        await writeFile(
+          join(work, "manifest.json"),
+          JSON.stringify(await this.manifest.create()),
+        );
         const finalPath = join(this.backupsRoot, `backup_${Date.now()}.tar.gz`);
-        await tar.create({ gzip: true, cwd: work, file: finalPath }, ["manifest.json", "database.dump", "uploads"]);
+        await tar.create({ gzip: true, cwd: work, file: finalPath }, [
+          "manifest.json",
+          "database.dump",
+          "uploads",
+        ]);
         return await this.repository.recordReady(actorUserId, finalPath);
       } catch (error) {
-        console.error("备份创建失败 [BACKUP_CREATE_FAILED]", redactError(error)); throw error;
-      } finally { await rm(work, { recursive: true, force: true }); }
+        console.error(
+          "备份创建失败 [BACKUP_CREATE_FAILED]",
+          redactError(error),
+        );
+        throw error;
+      } finally {
+        await rm(work, { recursive: true, force: true });
+      }
     });
   }
 }
@@ -300,7 +387,11 @@ export class RestoreService {
   /** 恢复是高风险串行操作：先校验归档，再进入 Maintenance Mode，失败保持可诊断状态。 */
   async restore(backupId: string, actorUserId: string) {
     const record = await this.repository.requireReady(backupId);
-    await this.archive.validateEntries(record.path, ["manifest.json", "database.dump", "uploads/"]);
+    await this.archive.validateEntries(record.path, [
+      "manifest.json",
+      "database.dump",
+      "uploads/",
+    ]);
     await this.maintenance.enter("RESTORE", actorUserId);
     try {
       await this.commands.pgRestore(record.path);
@@ -309,8 +400,15 @@ export class RestoreService {
       await this.commands.runSmokeCheck();
       await this.maintenance.leave();
     } catch (error) {
-      console.error("恢复失败，系统仍处于维护模式 [RESTORE_FAILED]", redactError(error));
-      throw new AppError(500, "RESTORE_FAILED", "恢复失败，系统保持维护模式，请管理员查看日志并重试。");
+      console.error(
+        "恢复失败，系统仍处于维护模式 [RESTORE_FAILED]",
+        redactError(error),
+      );
+      throw new AppError(
+        500,
+        "RESTORE_FAILED",
+        "恢复失败，系统保持维护模式，请管理员查看日志并重试。",
+      );
     }
   }
 }

@@ -44,46 +44,47 @@
 
 ## Plan pack and dependency order
 
-| Order | Plan | Delivers | Depends on |
-|---:|---|---|---|
-| 0 | `2026-08-23-huddletab-phase-0-foundation.md` | Runnable Next.js app, tests, DB, Docker, design tokens | Design Spec |
-| 1 | `2026-08-23-huddletab-phase-1-money-domain.md` | Currency, Money, rate, split, ledger, recommendation | Phase 0 |
-| 2 | `2026-08-23-huddletab-phase-2-auth.md` | Better Auth, username, Synthetic Email, setup, system roles | Phase 0 |
-| 3 | `2026-08-23-huddletab-phase-3-activity-member.md` | Activities, members, invitations, lifecycle, permission invariants | Phases 1–2 |
-| 4 | `2026-08-23-huddletab-phase-4-expense.md` | Expense facts, exchange rates, audit, optimistic locking | Phases 1–3 |
-| 5 | `2026-08-23-huddletab-phase-5-ledger-settlement.md` | Dynamic balances, recommendations, actual Settlement | Phases 1–4 |
-| 6 | `2026-08-23-huddletab-phase-6-core-ui.md` | Mobile-first product UI and dark mode | Phases 2–5 |
-| 7 | `2026-08-23-huddletab-phase-7-offline.md` | IndexedDB snapshots, pending mutations, idempotent sync | Phases 4–6 |
-| 8 | `2026-08-23-huddletab-phase-8-notifications-attachments.md` | Notifications and secure image attachments | Phases 4–7 |
-| 9 | `2026-08-23-huddletab-phase-9-admin.md` | Users, policy, SMTP, storage, backup and restore | Phases 2–8 |
-| 10 | `2026-08-23-huddletab-phase-10-release.md` | Manifest, Serwist, production image, HTTPS docs, release gates | Phases 0–9 |
+| Order | Plan                                                        | Delivers                                                           | Depends on  |
+| ----: | ----------------------------------------------------------- | ------------------------------------------------------------------ | ----------- |
+|     0 | `2026-08-23-huddletab-phase-0-foundation.md`                | Runnable Next.js app, tests, DB, Docker, design tokens             | Design Spec |
+|     1 | `2026-08-23-huddletab-phase-1-money-domain.md`              | Currency, Money, rate, split, ledger, recommendation               | Phase 0     |
+|     2 | `2026-08-23-huddletab-phase-2-auth.md`                      | Better Auth, username, Synthetic Email, setup, system roles        | Phase 0     |
+|     3 | `2026-08-23-huddletab-phase-3-activity-member.md`           | Activities, members, invitations, lifecycle, permission invariants | Phases 1–2  |
+|     4 | `2026-08-23-huddletab-phase-4-expense.md`                   | Expense facts, exchange rates, audit, optimistic locking           | Phases 1–3  |
+|     5 | `2026-08-23-huddletab-phase-5-ledger-settlement.md`         | Dynamic balances, recommendations, actual Settlement               | Phases 1–4  |
+|     6 | `2026-08-23-huddletab-phase-6-core-ui.md`                   | Mobile-first product UI and dark mode                              | Phases 2–5  |
+|     7 | `2026-08-23-huddletab-phase-7-offline.md`                   | IndexedDB snapshots, pending mutations, idempotent sync            | Phases 4–6  |
+|     8 | `2026-08-23-huddletab-phase-8-notifications-attachments.md` | Notifications and secure image attachments                         | Phases 4–7  |
+|     9 | `2026-08-23-huddletab-phase-9-admin.md`                     | Users, policy, SMTP, storage, backup and restore                   | Phases 2–8  |
+|    10 | `2026-08-23-huddletab-phase-10-release.md`                  | Manifest, Serwist, production image, HTTPS docs, release gates     | Phases 0–9  |
 
 ## Design Spec coverage map
 
-| Design Spec section | Primary implementation plan |
-|---|---|
-| 1–5 Product, scope, runtime architecture | Roadmap + Phase 0 + Phase 10 |
-| 6 Module map and dependency direction | Roadmap + Phase 0 |
-| 7 Money, rate, split, ledger, recommendation | Phase 1 |
-| 8.1 Auth and system tables | Phase 2 + Phase 9 |
-| 8.2 Activities, members, invitations, preferences | Phase 3 |
-| 8.3 Expense aggregate | Phase 4 |
-| 8.4 Settlement | Phase 5 |
-| 8.5 Attachments, notifications, audit | Phase 4 + Phase 8 |
-| 8.6 Rate cache, backup records, support data | Phase 4 + Phase 9 |
-| 9 Transaction boundaries | Phases 3–5 + Phase 9 |
-| 10 API conventions and resource routes | Phases 2–9 |
-| 11 Permission model and LEFT constraints | Phase 3 + Phase 5 |
-| 12 Activity lifecycle | Phase 3 |
-| 13 PWA and offline flow | Phase 7 + Phase 10 |
-| 14 UI/UX specification | Phase 6 |
-| 15 Notifications, attachments, summary, CSV, Me | Phase 6 + Phase 8 + Phase 9 |
-| 16 Operations, migration, backup, HTTPS | Phase 9 + Phase 10 |
-| 17 Security design | Phases 0, 2–5, 8–10 |
-| 18 Chinese comments and understandable logs | Every phase |
-| 19 Test strategy and acceptance evidence | Every phase; final consolidation in Phase 10 |
-| 20 Risk controls | The phase that owns each risk, verified again in Phase 10 |
-| 21–22 Stage order and frozen design checks | Roadmap and final plan-pack review |
+| Design Spec section                               | Primary implementation plan                               |
+| ------------------------------------------------- | --------------------------------------------------------- |
+| 1–5 Product, scope, runtime architecture          | Roadmap + Phase 0 + Phase 10                              |
+| 6 Module map and dependency direction             | Roadmap + Phase 0                                         |
+| 7 Money, rate, split, ledger, recommendation      | Phase 1                                                   |
+| 8.1 Auth and system tables                        | Phase 2 + Phase 9                                         |
+| 8.2 Activities, members, invitations, preferences | Phase 3                                                   |
+| 8.3 Expense aggregate                             | Phase 4                                                   |
+| 8.4 Settlement                                    | Phase 5                                                   |
+| 8.5 Attachments, notifications, audit             | Phase 4 + Phase 8                                         |
+| 8.6 Rate cache, backup records, support data      | Phase 4 + Phase 9                                         |
+| 9 Transaction boundaries                          | Phases 3–5 + Phase 9                                      |
+| 10 API conventions and resource routes            | Phases 2–9                                                |
+| 11 Permission model and LEFT constraints          | Phase 3 + Phase 5                                         |
+| 12 Activity lifecycle                             | Phase 3                                                   |
+| 13 PWA and offline flow                           | Phase 7 + Phase 10                                        |
+| 14 UI/UX specification                            | Phase 6                                                   |
+| 15 Notifications, attachments, summary, CSV, Me   | Phase 6 + Phase 8 + Phase 9                               |
+| 16 Operations, migration, backup, HTTPS           | Phase 9 + Phase 10                                        |
+| 17 Security design                                | Phases 0, 2–5, 8–10                                       |
+| 18 Chinese comments and understandable logs       | Every phase                                               |
+| 19 Test strategy and acceptance evidence          | Every phase; final consolidation in Phase 10              |
+| 20 Risk controls                                  | The phase that owns each risk, verified again in Phase 10 |
+| 21–22 Stage order and frozen design checks        | Roadmap and final plan-pack review                        |
+
 ## Global file responsibility map
 
 ```text
