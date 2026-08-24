@@ -23,6 +23,14 @@ describe("Money", () => {
     expect(moneyToApi(value).amountMinor).toBe("90071992547409931234");
   });
 
+  it("supports frozen precision codes omitted by Intl currency values", () => {
+    expect(asCurrencyCode("UYI")).toBe("UYI");
+    expect(getCurrencyMinorUnits("UYI")).toBe(0);
+    expect(asCurrencyCode("CLF")).toBe("CLF");
+    expect(getCurrencyMinorUnits("CLF")).toBe(4);
+    expect(asCurrencyCode("UYW")).toBe("UYW");
+    expect(getCurrencyMinorUnits("UYW")).toBe(4);
+  });
   it("rejects float syntax and cross-currency arithmetic", () => {
     expect(() => moneyFromApi({ currency: "CNY", amountMinor: "1.5" })).toThrow(
       "金额必须是最小货币单位整数",
