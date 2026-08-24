@@ -51,6 +51,14 @@ describe("recommendSettlements", () => {
     ]);
   });
 
+  it("全员零余额时不生成建议", () => {
+    expect(
+      recommendSettlements([
+        { memberId: "member-a", netMinor: 0n },
+        { memberId: "member-b", netMinor: 0n },
+      ]),
+    ).toEqual([]);
+  });
   it("忽略零余额", () => {
     expect(
       recommendSettlements([
@@ -67,6 +75,22 @@ describe("recommendSettlements", () => {
     ]);
   });
 
+  it("精确处理超过 Number.MAX_SAFE_INTEGER 的 bigint 金额", () => {
+    const amountMinor = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+
+    expect(
+      recommendSettlements([
+        { memberId: "creditor", netMinor: amountMinor },
+        { memberId: "debtor", netMinor: -amountMinor },
+      ]),
+    ).toEqual([
+      {
+        payerMemberId: "debtor",
+        receiverMemberId: "creditor",
+        amountMinor,
+      },
+    ]);
+  });
   it("不修改传入的账本余额", () => {
     const input = [
       { memberId: "creditor", netMinor: 9n },
@@ -80,6 +104,67 @@ describe("recommendSettlements", () => {
     expect(input).toEqual(snapshot);
   });
 
+  it("每轮扣减后重新选择剩余金额最大的债务人", () => {
+    expect(
+      recommendSettlements([
+        { memberId: "debtor-a", netMinor: -10n },
+        { memberId: "debtor-b", netMinor: -9n },
+        { memberId: "creditor-a", netMinor: 8n },
+        { memberId: "creditor-b", netMinor: 7n },
+        { memberId: "creditor-c", netMinor: 4n },
+      ]),
+    ).toEqual([
+      {
+        payerMemberId: "debtor-a",
+        receiverMemberId: "creditor-a",
+        amountMinor: 8n,
+      },
+      {
+        payerMemberId: "debtor-b",
+        receiverMemberId: "creditor-b",
+        amountMinor: 7n,
+      },
+      {
+        payerMemberId: "debtor-a",
+        receiverMemberId: "creditor-c",
+        amountMinor: 2n,
+      },
+      {
+        payerMemberId: "debtor-b",
+        receiverMemberId: "creditor-c",
+        amountMinor: 2n,
+      },
+    ]);
+  });
+  it("同额时按 Unicode code-point 顺序选择 z 而非 ä", () => {
+    expect(
+      recommendSettlements([
+        { memberId: "ä-creditor", netMinor: 1n },
+        { memberId: "z-debtor", netMinor: -1n },
+        { memberId: "z-creditor", netMinor: 1n },
+        { memberId: "ä-debtor", netMinor: -1n },
+      ]),
+    ).toEqual([
+      {
+        payerMemberId: "z-debtor",
+        receiverMemberId: "z-creditor",
+        amountMinor: 1n,
+      },
+      {
+        payerMemberId: "ä-debtor",
+        receiverMemberId: "ä-creditor",
+        amountMinor: 1n,
+      },
+    ]);
+  });
+  it("拒绝重复 memberId，避免生成自我付款建议", () => {
+    expect(() =>
+      recommendSettlements([
+        { memberId: "same-member", netMinor: -1n },
+        { memberId: "same-member", netMinor: 1n },
+      ]),
+    ).toThrow("成员余额不能重复");
+  });
   it("余额合计不为零时抛出明确错误", () => {
     expect(() =>
       recommendSettlements([

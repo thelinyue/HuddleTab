@@ -25,7 +25,18 @@ interface WorkingBalance {
 export function recommendSettlements(
   balances: readonly MemberBalance[],
 ): SettlementRecommendation[] {
-  const total = balances.reduce((sum, balance) => sum + balance.netMinor, 0n);
+  // recommendation 只接受每位成员一行的 Ledger 输出，先阻止重复 ID 形成自我付款。
+  const memberIds = new Set<string>();
+  let total = 0n;
+  for (const balance of balances) {
+    if (memberIds.has(balance.memberId)) {
+      throw new Error("成员余额不能重复");
+    }
+
+    memberIds.add(balance.memberId);
+    total += balance.netMinor;
+  }
+
   if (total !== 0n) {
     throw new Error("成员余额合计必须为零");
   }
