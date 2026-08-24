@@ -22,15 +22,24 @@ if [ -z "${BETTER_AUTH_SECRET:-}" ]; then
   export BETTER_AUTH_SECRET
 fi
 
-# 允许完整连接串直接覆盖；缺失时由标准 URL API 构建，避免可选密码中的特殊字符破坏连接串。
+# 允许完整连接串直接覆盖；缺失时按 postgres.js 的实际解析语义用标准 URL API 安全构建。
 if [ -z "${DATABASE_URL:-}" ]; then
   DATABASE_URL="$(node -e '
     const url = new URL("postgresql://postgres");
+    const username = process.env.POSTGRES_USER ?? "huddletab";
+    const password = process.env.POSTGRES_PASSWORD ?? "huddletab-local-db-password";
+    const database = process.env.POSTGRES_DB ?? "huddletab";
+
     url.hostname = process.env.POSTGRES_HOST ?? "postgres";
     url.port = process.env.POSTGRES_PORT ?? "5432";
-    url.username = process.env.POSTGRES_USER ?? "huddletab";
-    url.password = process.env.POSTGRES_PASSWORD ?? "huddletab-local-db-password";
-    url.pathname = `/${process.env.POSTGRES_DB ?? "huddletab"}`;
+
+    // postgres.js 会对用户名和密码 decodeURIComponent 一次，预编码可完整保留字面百分号。
+    url.username = encodeURIComponent(username);
+    url.password = encodeURIComponent(password);
+
+    // postgres.js 不解码 pathname；查询参数会由 URLSearchParams 解码并覆盖实际启动数据库名。
+    url.pathname = "/";
+    url.searchParams.set("database", database);
     process.stdout.write(url.toString());
   ')"
   export DATABASE_URL
