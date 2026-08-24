@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-huddletab}
       POSTGRES_USER: ${POSTGRES_USER:-huddletab}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-huddletab-local-db-password}
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - ./data/postgres:/var/lib/postgresql
     healthcheck:
       test:
         [
@@ -23,16 +23,22 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-huddletab}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-huddletab}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?请设置 BETTER_AUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-huddletab}
+      POSTGRES_USER: ${POSTGRES_USER:-huddletab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-huddletab-local-db-password}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5660}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
       DATA_DIR: /data
     ports:
       - "5660:5660"
     volumes:
-      - app-uploads:/data/uploads
-      - app-backups:/data/backups
+      - ./data/uploads:/data/uploads
+      - ./data/backups:/data/backups
+      - ./data/config:/data/config
     healthcheck:
       test:
         [
@@ -44,8 +50,3 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
-
-volumes:
-  postgres-data:
-  app-uploads:
-  app-backups:

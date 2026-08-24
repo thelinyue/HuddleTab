@@ -14,6 +14,9 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/src/server/db ./src/server/db
-RUN mkdir -p /data/uploads /data/backups
+COPY docker-entrypoint.sh /usr/local/bin/huddletab-entrypoint
+RUN mkdir -p /data/uploads /data/backups /data/config \
+  && chmod 755 /usr/local/bin/huddletab-entrypoint
 EXPOSE 5660
-CMD ["sh", "-c", "npm run db:migrate && npm run start"]
+ENTRYPOINT ["/usr/local/bin/huddletab-entrypoint"]
+CMD ["npm", "run", "start"]
