@@ -1,12 +1,47 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import postgres, { type Sql } from "postgres";
 
+vi.mock("server-only", () => ({}));
+
+import type { createDatabaseClient } from "@/server/db/factory";
 import {
   startPostgres,
   type PostgresHarness,
 } from "@/../tests/support/postgres";
 
 let harness: PostgresHarness;
+
+const authEnvironmentKeys = [
+  "DATABASE_URL",
+  "BETTER_AUTH_URL",
+  "BETTER_AUTH_SECRET",
+] as const;
+const originalEnvironment = new Map<string, string | undefined>();
+const credentialPassword = "test-only-password";
+type DatabaseClient = ReturnType<typeof createDatabaseClient>;
+const globalForDb = globalThis as typeof globalThis & {
+  database?: DatabaseClient;
+};
+
+let databaseBeforeTest: DatabaseClient | undefined;
+
+function restoreAuthEnvironment() {
+  for (const [key, value] of originalEnvironment) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
 
 async function createService(sql: Sql = harness.sql) {
   const { SystemAdminService } =
@@ -38,6 +73,8 @@ async function countLoginCapableAdmins(
     join user_profiles up on up.user_id = sr.user_id and up.disabled_at is null
     join account a on a.user_id = sr.user_id
       and a.provider_id = 'credential'
+      and a.issuer = 'local:credential'
+      and a.account_id = sr.user_id
       and a.password is not null
     where sr.role = 'system_admin'
   `;
@@ -50,17 +87,102 @@ async function countLoginCapableAdmins(
  */
 describe("LAST_ACTIVE_ADMIN", () => {
   beforeAll(async () => {
+    databaseBeforeTest = globalForDb.database;
+    delete globalForDb.database;
     harness = await startPostgres();
-  });
+
+    for (const key of authEnvironmentKeys) {
+      originalEnvironment.set(key, process.env[key]);
+    }
+    process.env.DATABASE_URL = harness.connectionUri;
+    process.env.BETTER_AUTH_URL = "http://localhost:5660";
+    process.env.BETTER_AUTH_SECRET =
+      "test-secret-with-at-least-thirty-two-characters";
+    vi.resetModules();
+  }, 60_000);
 
   beforeEach(async () => {
     await resetDatabase();
   });
 
   afterAll(async () => {
-    await harness.stop();
+    try {
+      const database = globalForDb.database;
+      if (database && database !== databaseBeforeTest) {
+        delete globalForDb.database;
+        await database.sql.end();
+      }
+    } finally {
+      if (databaseBeforeTest === undefined) {
+        delete globalForDb.database;
+      } else {
+        globalForDb.database = databaseBeforeTest;
+      }
+      vi.resetModules();
+      restoreAuthEnvironment();
+      originalEnvironment.clear();
+      if (harness) {
+        await harness.stop();
+      }
+    }
   });
 
+  it("真实 credential seed 可通过 Better Auth 密码登录", async () => {
+    await harness.seedCredentialAdmin("auth-seeded-admin", credentialPassword);
+    const { auth } = await import("@/server/auth/auth");
+
+    const result = await auth.api.signInEmail({
+      body: {
+        email: "auth-seeded-admin@example.com",
+        password: credentialPassword,
+      },
+    });
+
+    expect(result.user.id).toBe("auth-seeded-admin");
+  });
+
+  it.each([
+    ["issuer 错误", "issuer"],
+    ["account_id 错误", "account_id"],
+  ] as const)(
+    "错误 %s 的 system admin 不计入唯一可登录管理员",
+    async (_label, invalidField) => {
+      await harness.seedCredentialAdmin(
+        "real-active-admin",
+        credentialPassword,
+      );
+      await harness.seedCredentialAdmin(
+        "invalid-identity-admin",
+        credentialPassword,
+      );
+      if (invalidField === "issuer") {
+        await harness.sql`
+          update account
+          set issuer = 'local:other'
+          where user_id = 'invalid-identity-admin'
+        `;
+      } else {
+        await harness.sql`
+          update account
+          set account_id = 'other-account'
+          where user_id = 'invalid-identity-admin'
+        `;
+      }
+
+      const service = await createService();
+      for (const operation of [
+        () => service.disableUser("real-active-admin"),
+        () => service.revokeSystemAdmin("real-active-admin"),
+        () => service.deleteUser("real-active-admin"),
+      ]) {
+        await expect(operation()).rejects.toMatchObject({
+          code: "LAST_ACTIVE_ADMIN",
+          message: "系统必须至少保留一个能够正常登录的系统管理员。",
+          status: 409,
+        });
+      }
+    },
+  );
   it("拒绝禁用、撤销或删除最后一个可登录系统管理员", async () => {
     await harness.seedCredentialAdmin("last-admin");
     await seedSession("last-admin");

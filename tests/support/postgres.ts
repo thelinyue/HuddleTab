@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { drizzle } from "drizzle-orm/postgres-js";
+import { createLocalAccountIssuer } from "@better-auth/core/db";
+import { hashPassword } from "@better-auth/utils/password";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres, { type Sql } from "postgres";
 
@@ -9,7 +11,7 @@ const migrationsFolder = resolve(process.cwd(), "drizzle");
 export type PostgresHarness = {
   readonly connectionUri: string;
   sql: Sql;
-  seedCredentialAdmin(userId: string): Promise<void>;
+  seedCredentialAdmin(userId: string, password?: string): Promise<void>;
   stop(): Promise<void>;
 };
 
@@ -36,7 +38,9 @@ export async function startPostgres(): Promise<PostgresHarness> {
   return {
     connectionUri,
     sql,
-    async seedCredentialAdmin(userId: string) {
+    async seedCredentialAdmin(userId: string, password = "test-only-password") {
+      const passwordHash = await hashPassword(password);
+
       await sql.begin(async (transaction) => {
         await transaction`
           insert into "user" (id, name, email, email_verified, created_at, updated_at)
@@ -53,8 +57,8 @@ export async function startPostgres(): Promise<PostgresHarness> {
             id, account_id, provider_id, issuer, user_id, password, created_at, updated_at
           )
           values (
-            ${`${userId}-credential`}, ${userId}, 'credential', 'credential',
-            ${userId}, 'test-password-hash', now(), now()
+            ${`${userId}-credential`}, ${userId}, 'credential', ${createLocalAccountIssuer("credential")},
+            ${userId}, ${passwordHash}, now(), now()
           )
         `;
         await transaction`
