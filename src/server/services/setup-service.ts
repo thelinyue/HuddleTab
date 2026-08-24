@@ -26,6 +26,8 @@ export interface SetupCredentialCreator {
 
 export type SetupClaimResult = SetupCredentialCreation;
 
+type SetupClaimOutcome = "COMMITTED" | "NOT_COMMITTED" | "UNKNOWN";
+
 const SETUP_ADVISORY_LOCK = "huddletab-setup";
 
 function hashToken(token: string): Buffer {
@@ -106,9 +108,33 @@ export class SetupService {
   }
 
   /**
+   * begin() 发生网络错误时，服务端可能已经提交但客户端尚未收到 COMMIT 响应。此处必须脱离
+   * 原 transaction 重新读取提交结果：只有确认角色和 completed_at 都不存在时才可补偿；
+   * 任何不确定状态都保留账户，避免删除已经提交的唯一管理员。
+   */
+  private async readClaimOutcome(userId: string): Promise<SetupClaimOutcome> {
+    try {
+      const [state] = await this.sql<
+        { has_admin: boolean; completed_at: string | null }[]
+      >`
+        select exists(
+          select 1 from system_roles
+          where user_id = ${userId} and role = 'system_admin'
+        ) as has_admin,
+        (select completed_at from system_bootstrap where id = 'singleton') as completed_at
+      `;
+
+      if (state?.has_admin && state.completed_at) return "COMMITTED";
+      if (!state?.has_admin && !state?.completed_at) return "NOT_COMMITTED";
+      return "UNKNOWN";
+    } catch {
+      return "UNKNOWN";
+    }
+  }
+
+  /**
    * 先锁定并校验 token，再创建 Better Auth 凭据，最后在锁内提交管理员角色和完成标志。
-   * 凭据写入无法纳入该事务；角色或 bootstrap 写入失败时，在事务回滚后精确补偿该用户，
-   * 且绝不返回其自动登录 Cookie。
+   * 凭据写入无法纳入该事务；若事务拒绝，先重新核查提交结果，再决定保留、补偿或返回恢复错误。
    */
   async claim(
     token: string,
@@ -151,14 +177,35 @@ export class SetupService {
         `;
       });
     } catch (error) {
-      if (created) {
-        try {
-          await this.credentials.compensate(created.userId);
-        } catch {
-          console.error(
-            "首次初始化凭据补偿失败（SETUP_CREDENTIAL_COMPENSATION_FAILED），请部署管理员检查数据库后重试。",
-          );
-        }
+      if (!created) throw error;
+
+      const outcome = await this.readClaimOutcome(created.userId);
+      if (outcome === "COMMITTED") return created;
+
+      if (outcome === "UNKNOWN") {
+        console.error(
+          "首次初始化事务结果无法确认（SETUP_CLAIM_OUTCOME_UNKNOWN），请部署管理员检查数据库。用户标识：%s",
+          created.userId,
+        );
+        throw new ApplicationError(
+          "SETUP_CLAIM_OUTCOME_UNKNOWN",
+          "初始化结果暂时无法确认，请部署管理员检查数据库后重试。",
+          500,
+        );
+      }
+
+      try {
+        await this.credentials.compensate(created.userId);
+      } catch {
+        console.error(
+          "首次初始化凭据补偿失败（SETUP_CREDENTIAL_COMPENSATION_FAILED），请部署管理员检查数据库。用户标识：%s",
+          created.userId,
+        );
+        throw new ApplicationError(
+          "SETUP_CREDENTIAL_COMPENSATION_FAILED",
+          "初始化恢复失败，请部署管理员检查数据库后重试。",
+          500,
+        );
       }
       throw error;
     }

@@ -10,6 +10,8 @@ import {
 
 vi.mock("server-only", () => ({}));
 
+import type { Sql } from "postgres";
+
 import type { createDatabaseClient } from "@/server/db/factory";
 import { startPostgres, type PostgresHarness } from "../../support/postgres";
 
@@ -147,6 +149,184 @@ describe("SetupService", () => {
     expect(state.completed_at).toBe(expectedDatabaseTimestamp);
     expect(state.completed_at).toBe(before.completed_at);
     expect(await service.isSetupRequired()).toBe(false);
+  }, 60_000);
+
+  it("提交确认丢失时核查已提交状态并保留首个管理员", async () => {
+    const { SetupService } = await import("@/server/services/setup-service");
+    const { createSetupCredentialUser, compensateSetupCredentialUser } =
+      await import("@/server/services/registration-service");
+    const compensate = vi.fn(compensateSetupCredentialUser);
+    const credentials = {
+      create: createSetupCredentialUser,
+      compensate,
+    };
+    const token = await new SetupService(
+      harness.sql,
+      credentials,
+    ).rotateForUninitializedStartup();
+    const sqlWithCommitAcknowledgementLoss = new Proxy(harness.sql, {
+      get(target, property, receiver) {
+        if (property === "begin") {
+          return async (...args: Parameters<typeof target.begin>) => {
+            await target.begin(...args);
+            throw new Error("simulated commit acknowledgement lost");
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as Sql;
+    const service = new SetupService(
+      sqlWithCommitAcknowledgementLoss,
+      credentials,
+    );
+
+    const result = await service.claim(token!, {
+      username: "commit-ack-owner",
+      password: "valid-password-123",
+      nickname: "提交确认管理员",
+    });
+    const [state] = await harness.sql<
+      { has_admin: boolean; completed_at: string | null }[]
+    >`
+      select exists(
+        select 1 from system_roles
+        where user_id = ${result.userId} and role = 'system_admin'
+      ) as has_admin,
+      (select completed_at from system_bootstrap where id = 'singleton') as completed_at
+    `;
+
+    expect(result.headers.getSetCookie()).not.toHaveLength(0);
+    expect(compensate).not.toHaveBeenCalled();
+    expect(state).toMatchObject({
+      has_admin: true,
+      completed_at: expect.any(String),
+    });
+    expect(await service.isSetupRequired()).toBe(false);
+  }, 60_000);
+
+  it("补偿失败时返回稳定恢复错误且日志不含敏感初始化数据", async () => {
+    const { SetupService } = await import("@/server/services/setup-service");
+    const userId = "setup-compensation-failure-user";
+    const syntheticEmail = "u_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@local.invalid";
+    const password = "password-that-must-not-be-logged";
+    const cookie = "session=must-not-log";
+    await harness.sql`
+      insert into "user" (id, name, email, email_verified, created_at, updated_at)
+      values (${userId}, '补偿失败管理员', ${syntheticEmail}, false, now(), now())
+    `;
+    const compensate = vi
+      .fn()
+      .mockRejectedValue(new Error("simulated cleanup failure"));
+    const service = new SetupService(harness.sql, {
+      create: vi.fn().mockResolvedValue({
+        userId,
+        headers: new Headers({ "set-cookie": cookie }),
+      }),
+      compensate,
+    });
+    const token = await service.rotateForUninitializedStartup();
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await harness.sql.unsafe(`
+      create function reject_setup_compensation_role_write() returns trigger as $$
+      begin
+        raise exception 'injected setup role failure';
+      end;
+      $$ language plpgsql;
+      create trigger reject_setup_compensation_role_write
+      before insert on system_roles
+      for each row execute function reject_setup_compensation_role_write();
+    `);
+
+    try {
+      await expect(
+        service.claim(token!, {
+          username: "compensation-failure-owner",
+          password,
+          nickname: "补偿失败管理员",
+        }),
+      ).rejects.toMatchObject({
+        code: "SETUP_CREDENTIAL_COMPENSATION_FAILED",
+        status: 500,
+        message: "初始化恢复失败，请部署管理员检查数据库后重试。",
+      });
+    } finally {
+      await harness.sql.unsafe(
+        "drop trigger if exists reject_setup_compensation_role_write on system_roles; drop function if exists reject_setup_compensation_role_write();",
+      );
+    }
+
+    expect(compensate).toHaveBeenCalledWith(userId);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("SETUP_CREDENTIAL_COMPENSATION_FAILED"),
+      userId,
+    );
+    const logText = JSON.stringify(log.mock.calls);
+    expect(logText).not.toContain(token!);
+    expect(logText).not.toContain(password);
+    expect(logText).not.toContain(cookie);
+    expect(logText).not.toContain(syntheticEmail);
+  }, 60_000);
+
+  it("提交结果核查失败时保留凭据并返回稳定恢复错误", async () => {
+    const { SetupService } = await import("@/server/services/setup-service");
+    const userId = "setup-outcome-unknown-user";
+    await harness.sql`
+      insert into "user" (id, name, email, email_verified, created_at, updated_at)
+      values (${userId}, '结果未知管理员', 'u_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb@local.invalid', false, now(), now())
+    `;
+    const compensate = vi.fn();
+    const token = await new SetupService(harness.sql, {
+      create: vi.fn().mockResolvedValue({ userId, headers: new Headers() }),
+      compensate,
+    }).rotateForUninitializedStartup();
+    const sqlWithOutcomeReadFailure = new Proxy(harness.sql, {
+      get(target, property, receiver) {
+        if (property === "begin") return target.begin.bind(target);
+        return Reflect.get(target, property, receiver);
+      },
+      apply() {
+        throw new Error("simulated outcome lookup failure");
+      },
+    }) as Sql;
+    const service = new SetupService(sqlWithOutcomeReadFailure, {
+      create: vi.fn().mockResolvedValue({ userId, headers: new Headers() }),
+      compensate,
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await harness.sql.unsafe(`
+      create function reject_setup_outcome_role_write() returns trigger as $$
+      begin
+        raise exception 'injected setup role failure';
+      end;
+      $$ language plpgsql;
+      create trigger reject_setup_outcome_role_write
+      before insert on system_roles
+      for each row execute function reject_setup_outcome_role_write();
+    `);
+
+    try {
+      await expect(
+        service.claim(token!, {
+          username: "outcome-unknown-owner",
+          password: "valid-password-123",
+          nickname: "结果未知管理员",
+        }),
+      ).rejects.toMatchObject({
+        code: "SETUP_CLAIM_OUTCOME_UNKNOWN",
+        status: 500,
+        message: "初始化结果暂时无法确认，请部署管理员检查数据库后重试。",
+      });
+    } finally {
+      await harness.sql.unsafe(
+        "drop trigger if exists reject_setup_outcome_role_write on system_roles; drop function if exists reject_setup_outcome_role_write();",
+      );
+    }
+
+    expect(compensate).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("SETUP_CLAIM_OUTCOME_UNKNOWN"),
+      userId,
+    );
   }, 60_000);
 
   it("成功 claim 只创建一个 system admin、清除 hash 并永久关闭 setup", async () => {
