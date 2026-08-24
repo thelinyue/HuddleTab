@@ -121,10 +121,15 @@ describe("SetupService", () => {
       create: vi.fn(),
       compensate: vi.fn(),
     });
+    const fixedCompletedAt = "2001-02-03T04:05:06.789Z";
+    const expectedDatabaseTimestamp = "2001-02-03 04:05:06.789+00";
     await harness.sql`
       update system_bootstrap
-      set setup_token_hash = 'stale-setup-token-hash', completed_at = now()
+      set setup_token_hash = 'stale-setup-token-hash', completed_at = ${fixedCompletedAt}
       where id = 'singleton'
+    `;
+    const [before] = await harness.sql<{ completed_at: string | null }[]>`
+      select completed_at from system_bootstrap where id = 'singleton'
     `;
 
     const token = await service.rotateForUninitializedStartup();
@@ -136,11 +141,11 @@ describe("SetupService", () => {
       where id = 'singleton'
     `;
 
+    expect(before.completed_at).toBe(expectedDatabaseTimestamp);
     expect(token).toBeNull();
-    expect(state).toMatchObject({
-      setup_token_hash: null,
-      completed_at: expect.any(String),
-    });
+    expect(state).toMatchObject({ setup_token_hash: null });
+    expect(state.completed_at).toBe(expectedDatabaseTimestamp);
+    expect(state.completed_at).toBe(before.completed_at);
     expect(await service.isSetupRequired()).toBe(false);
   }, 60_000);
 
