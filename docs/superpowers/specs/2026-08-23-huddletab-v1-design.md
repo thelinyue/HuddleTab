@@ -36,6 +36,7 @@
 6. 首次启动在尚无 System Admin 时自动生成 Setup Token；数据库仅保存 Hash，明文只在容器日志中输出一次；每次未初始化重启都会使旧 Token 失效。
 7. 设计文档采用“完整 V1 总纲 + 分阶段实施计划”的组织方式。`app` 容器固定监听 `5660`，默认 Compose 映射为 `5660:5660`。
 8. Activity Owner 与 System Admin 的“最后一个有效管理主体”约束提升为 V1 核心权限不变量，由 Service/Transaction 在写入前强制校验，不依赖 UI。
+9. Docker Compose 默认无需 `.env` 即可启动；环境变量仅作为可选覆盖。生产持久化统一使用宿主机 `./data` 下的 bind mount，不创建 Docker named volume。未提供 `BETTER_AUTH_SECRET` 时，App 首次启动生成高强度随机密钥并仅保存到 `./data/config/better-auth-secret`，日志不得输出密钥内容，后续重启复用该文件。
 
 ## 3. 产品目标与成功标准
 
@@ -111,7 +112,8 @@ graph TD
 运行约束：
 
 - Docker Compose 仅包含 `app` 和 `postgres`。`app` 容器监听 `0.0.0.0:5660`，默认端口映射为 `5660:5660`。
-- PostgreSQL 使用独立 Volume；App 持久化挂载 `/data/uploads` 与 `/data/backups`，镜像升级不得覆盖这些数据。
+- PostgreSQL、Uploads、Backups 与运行时配置均使用宿主机 `./data` 下相互隔离的 bind mount：`./data/postgres`、`./data/uploads`、`./data/backups`、`./data/config`；不得创建 Docker named volume，镜像升级不得覆盖这些数据。
+- 默认部署命令不依赖 `.env`。Compose 提供仅限内部网络的数据库默认凭据；`.env` 或进程环境仅用于覆盖。`BETTER_AUTH_SECRET` 不允许使用公开固定默认值，缺失时由 App 入口脚本首次生成、以私密文件持久化并在重启后复用，日志只说明生成结果而不输出明文。
 - Next.js 页面、API 和业务服务同源部署，避免 CORS、Cookie 和 PWA 跨域复杂度。
 - V1 默认单 App 实例。
 - 不引入独立 Worker、Redis、Kafka、RabbitMQ 或复杂调度平台。

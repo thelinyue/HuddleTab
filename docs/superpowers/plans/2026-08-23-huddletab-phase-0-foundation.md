@@ -559,28 +559,90 @@ git add drizzle.config.ts drizzle src/server/db src/app/api/health tests/integra
 git commit -m "feat: add PostgreSQL and migration foundation"
 ```
 
-### Task 5: Add Docker Compose on port 5660
+### Task 5: Add env-optional Docker Compose on port 5660
 
-- [ ] **Step 1: Create environment documentation**
+- [ ] **Step 1: Document optional environment overrides and local data**
 
-Create `.env.example`:
+Create `.env.example` as an optional override template; the default deployment must not require copying it:
 
 ```dotenv
-DATABASE_URL=postgresql://huddletab:change-me@postgres:5432/huddletab
-POSTGRES_DB=huddletab
-POSTGRES_USER=huddletab
-POSTGRES_PASSWORD=change-me
-BETTER_AUTH_SECRET=replace-with-at-least-32-random-bytes
-BETTER_AUTH_URL=http://localhost:5660
-APP_BASE_URL=http://localhost:5660
-DATA_DIR=/data
+# HuddleTab 默认无需 .env 即可启动；仅在需要覆盖默认值时复制本文件为 .env 并取消对应注释。
+# POSTGRES_DB=huddletab
+# POSTGRES_USER=huddletab
+# POSTGRES_PASSWORD=replace-with-a-url-safe-password
+# DATABASE_URL=postgresql://huddletab:replace-with-a-url-safe-password@postgres:5432/huddletab
+# BETTER_AUTH_SECRET=replace-with-at-least-32-random-bytes
+# BETTER_AUTH_URL=http://localhost:5660
+# APP_BASE_URL=http://localhost:5660
 ```
 
-Create an empty tracked marker `public/.gitkeep` so Docker can copy `public/` before PWA assets exist.
+Append `/data/` to `.gitignore`. The generated database files, uploads, backups and runtime secret must never enter Git.
 
-- [ ] **Step 2: Create the production image**
+Keep the empty tracked marker `public/.gitkeep` so Docker can copy `public/` before PWA assets exist.
 
-Create `Dockerfile`:
+- [ ] **Step 2: Write the failing env-free deployment checks**
+
+Before changing the current image and Compose files, verify the current contract fails:
+
+```powershell
+Remove-Item Env:POSTGRES_PASSWORD -ErrorAction SilentlyContinue
+Remove-Item Env:BETTER_AUTH_SECRET -ErrorAction SilentlyContinue
+wsl.exe -d Debian -- sh -lc 'cd /mnt/d/code/HuddleTab/.worktrees/codex-huddletab-v1 && test ! -f .env && docker compose -p huddletab-task5-revision config'
+```
+
+Expected: FAIL because the current Compose requires `POSTGRES_PASSWORD` and `BETTER_AUTH_SECRET`.
+
+Also record that `docker compose config` currently declares named volumes rather than `./data` bind mounts.
+
+- [ ] **Step 3: Add the production entrypoint**
+
+Create `docker-entrypoint.sh`:
+
+```sh
+#!/bin/sh
+set -eu
+
+data_dir="${DATA_DIR:-/data}"
+secret_file="$data_dir/config/better-auth-secret"
+
+mkdir -p "$data_dir/uploads" "$data_dir/backups" "$data_dir/config"
+
+if [ -z "${BETTER_AUTH_SECRET:-}" ]; then
+  if [ ! -s "$secret_file" ]; then
+    temporary_secret_file="$secret_file.tmp"
+    umask 077
+    node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64url'))" > "$temporary_secret_file"
+    chmod 600 "$temporary_secret_file"
+    mv "$temporary_secret_file" "$secret_file"
+    echo "未设置 BETTER_AUTH_SECRET，已在持久化目录自动生成应用密钥；密钥内容不会输出到日志。"
+  fi
+
+  BETTER_AUTH_SECRET="$(cat "$secret_file")"
+  export BETTER_AUTH_SECRET
+fi
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(node -e '
+    const url = new URL("postgresql://postgres");
+    url.hostname = process.env.POSTGRES_HOST ?? "postgres";
+    url.port = process.env.POSTGRES_PORT ?? "5432";
+    url.username = process.env.POSTGRES_USER ?? "huddletab";
+    url.password = process.env.POSTGRES_PASSWORD ?? "huddletab-local-db-password";
+    url.pathname = `/${process.env.POSTGRES_DB ?? "huddletab"}`;
+    process.stdout.write(url.toString());
+  ')"
+  export DATABASE_URL
+fi
+
+npm run db:migrate
+exec "$@"
+```
+
+The generated secret is never printed. Supplying `BETTER_AUTH_SECRET` explicitly bypasses file generation. `DATABASE_URL` is built with the standard URL API so optional credentials are encoded safely.
+
+- [ ] **Step 4: Update the production image**
+
+Update `Dockerfile`:
 
 ```dockerfile
 FROM node:24-bookworm-slim AS build
@@ -599,28 +661,19 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/src/server/db ./src/server/db
-RUN mkdir -p /data/uploads /data/backups
+COPY docker-entrypoint.sh /usr/local/bin/huddletab-entrypoint
+RUN mkdir -p /data/uploads /data/backups /data/config \
+  && chmod 755 /usr/local/bin/huddletab-entrypoint
 EXPOSE 5660
-CMD ["sh", "-c", "npm run db:migrate && npm run start"]
+ENTRYPOINT ["/usr/local/bin/huddletab-entrypoint"]
+CMD ["npm", "run", "start"]
 ```
 
-Create `.dockerignore`:
+Append `data` to `.dockerignore` so runtime data never enters the build context.
 
-```text
-.git
-.superpowers
-.next
-node_modules
-test-results
-playwright-report
-coverage
-.env*
-!.env.example
-```
+- [ ] **Step 5: Replace named volumes with `./data` bind mounts**
 
-- [ ] **Step 3: Create Compose**
-
-Create `compose.yaml`:
+Update `compose.yaml`:
 
 ```yaml
 services:
@@ -629,11 +682,15 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-huddletab}
       POSTGRES_USER: ${POSTGRES_USER:-huddletab}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-huddletab-local-db-password}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-huddletab} -d ${POSTGRES_DB:-huddletab}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-huddletab} -d ${POSTGRES_DB:-huddletab}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -644,47 +701,92 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-huddletab}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-huddletab}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?请设置 BETTER_AUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-huddletab}
+      POSTGRES_USER: ${POSTGRES_USER:-huddletab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-huddletab-local-db-password}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5660}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
       DATA_DIR: /data
     ports:
       - "5660:5660"
     volumes:
-      - app-uploads:/data/uploads
-      - app-backups:/data/backups
+      - ./data/uploads:/data/uploads
+      - ./data/backups:/data/backups
+      - ./data/config:/data/config
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5660/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5660/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 20
-
-volumes:
-  postgres-data:
-  app-uploads:
-  app-backups:
 ```
 
-- [ ] **Step 4: Verify production startup**
+There must be no top-level `volumes:` block and no Docker named volume. PostgreSQL 18 must mount the parent `/var/lib/postgresql`, because the official image stores its versioned cluster below `/var/lib/postgresql/18/docker`.
+
+- [ ] **Step 6: Verify env-free production startup and secret persistence**
+
+Run without `.env`, `POSTGRES_PASSWORD`, `DATABASE_URL` or `BETTER_AUTH_SECRET`:
+
+```powershell
+Remove-Item .env -ErrorAction SilentlyContinue
+Remove-Item Env:POSTGRES_PASSWORD -ErrorAction SilentlyContinue
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:BETTER_AUTH_SECRET -ErrorAction SilentlyContinue
+wsl.exe -d Debian -- sh -lc 'cd /mnt/d/code/HuddleTab/.worktrees/codex-huddletab-v1 && docker compose -p huddletab-task5-revision config && docker compose -p huddletab-task5-revision up --build -d'
+```
+
+Verify:
+
+- Compose has exactly `app` and `postgres`.
+- Both services become healthy.
+- App runs Node 24 and listens on `0.0.0.0:5660`.
+- PostgreSQL reports version 18.
+- `http://localhost:5660/api/health` returns `200 {"status":"ok"}`.
+- Mount types are `bind`, with sources below the resolved worktree `data` directory and destinations `/var/lib/postgresql`, `/data/uploads`, `/data/backups`, `/data/config`.
+- `./data/config/better-auth-secret` exists, is non-empty and is at least 32 bytes.
+- App logs contain the Chinese generation notice but do not contain the generated secret.
+- Hash the secret, restart the App service, and verify the hash is unchanged and no new generation notice appears.
+- App logs show `db:migrate` before `npm run start`.
+- `git status --short` stays clean because `/data/` is ignored.
+
+After verification, use the explicit Compose project name to run `down --remove-orphans`. Verify the project has no remaining containers. Then, within one shell, resolve and verify the exact Task 5 `./data` path is inside the worktree before deleting only that test data directory.
+
+- [ ] **Step 7: Run regressions and commit**
 
 Run:
 
-```bash
-Copy-Item .env.example .env
-docker compose config
-docker compose up --build -d
-docker compose ps
-curl http://localhost:5660/api/health
+```powershell
+npm run test:unit
+$env:DOCKER_HOST='tcp://127.0.0.1:2375'
+$env:TESTCONTAINERS_HOST_OVERRIDE='127.0.0.1'
+npm run test:integration -- tests/integration/foundation/database.test.ts
+npm run typecheck
+npm run lint
+npm run build
+npm run test:e2e -- tests/e2e/foundation/app-shell.spec.ts
+npm run db:generate
+npm run db:migrate
+npx prettier --check compose.yaml --end-of-line auto
+git diff --check
+git status --short
 ```
 
-Expected: both services are healthy and health returns `{"status":"ok"}`.
+Remove the empty untracked `drizzle/meta` created by `db:generate`. Expected: all checks pass and the worktree is clean except for intentional Task 5 changes before commit.
 
-- [ ] **Step 5: Commit**
+Commit:
 
-```bash
-git add .env.example public/.gitkeep Dockerfile compose.yaml .dockerignore package.json package-lock.json
-git commit -m "feat: add two-service Docker deployment"
+```powershell
+git add .env.example .gitignore .dockerignore Dockerfile docker-entrypoint.sh compose.yaml public/.gitkeep
+git commit -m "fix: support env-free bind-mount deployment"
 ```
 
 ### Task 6: Run the Phase 0 gate
