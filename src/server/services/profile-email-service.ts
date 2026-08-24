@@ -1,8 +1,16 @@
-import type { Sql } from "postgres";
+import postgres, { type Sql } from "postgres";
 
 import { ApplicationError } from "@/server/errors/application-error";
 
 const REAL_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isUserEmailUniqueViolation(error: unknown): boolean {
+  return (
+    error instanceof postgres.PostgresError &&
+    error.code === "23505" &&
+    error.constraint_name === "user_email_unique"
+  );
+}
 
 /**
  * 真实邮箱绑定只更新认证 user 与产品 profile 的邮箱身份字段。两项写入置于同一事务，
@@ -22,17 +30,35 @@ export class ProfileEmailService {
       );
     }
 
-    await this.sql.begin(async (transaction) => {
-      await transaction`
-        update "user"
-        set email = ${email}, email_verified = false, updated_at = now()
-        where id = ${userId}
-      `;
-      await transaction`
-        update user_profiles
-        set email_kind = 'REAL', updated_at = now()
-        where user_id = ${userId}
-      `;
-    });
+    try {
+      await this.sql.begin(async (transaction) => {
+        const userUpdate = await transaction`
+          update "user"
+          set email = ${email}, email_verified = false, updated_at = now()
+          where id = ${userId}
+        `;
+        if (userUpdate.count !== 1) {
+          throw new Error("未找到需要绑定邮箱的用户。");
+        }
+
+        const profileUpdate = await transaction`
+          update user_profiles
+          set email_kind = 'REAL', updated_at = now()
+          where user_id = ${userId}
+        `;
+        if (profileUpdate.count !== 1) {
+          throw new Error("用户资料缺失，无法绑定真实邮箱。");
+        }
+      });
+    } catch (error) {
+      if (isUserEmailUniqueViolation(error)) {
+        throw new ApplicationError(
+          "EMAIL_ALREADY_REGISTERED",
+          "该邮箱已注册，请使用其他邮箱。",
+          409,
+        );
+      }
+      throw error;
+    }
   }
 }

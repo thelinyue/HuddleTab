@@ -90,6 +90,68 @@ describe("ProfileEmailService", () => {
     expect(row).toEqual({ email: originalEmail, emailKind: "SYNTHETIC" });
   });
 
+  it("profile 缺失时拒绝绑定并回滚 user 邮箱更新", async () => {
+    const originalEmail = "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid";
+    await harness.seedCredentialUser("missing-profile-user", originalEmail);
+    await harness.sql`
+      update "user" set email_verified = true where id = 'missing-profile-user'
+    `;
+    await harness.sql`
+      delete from user_profiles where user_id = 'missing-profile-user'
+    `;
+
+    await expect(
+      (await createService()).bindRealEmail(
+        "missing-profile-user",
+        "member@example.com",
+      ),
+    ).rejects.toThrow("用户资料缺失，无法绑定真实邮箱。");
+
+    const [state] = await harness.sql<
+      { email: string; emailVerified: boolean; emailKind: string | null }[]
+    >`
+      select u.email, u.email_verified as "emailVerified",
+        (select email_kind from user_profiles where user_id = u.id) as "emailKind"
+      from "user" u
+      where u.id = 'missing-profile-user'
+    `;
+    expect(state).toEqual({
+      email: originalEmail,
+      emailVerified: true,
+      emailKind: null,
+    });
+  });
+
+  it("将重复邮箱映射为既有业务错误且不改变任一用户身份", async () => {
+    const sourceEmail = "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid";
+    await harness.seedCredentialUser("email-source", sourceEmail);
+    await harness.seedCredentialUser("email-owner", "taken@example.com");
+
+    await expect(
+      (await createService()).bindRealEmail(
+        "email-source",
+        " Taken@Example.com ",
+      ),
+    ).rejects.toMatchObject({
+      code: "EMAIL_ALREADY_REGISTERED",
+      message: "该邮箱已注册，请使用其他邮箱。",
+      status: 409,
+    });
+
+    const identities = await harness.sql<
+      { id: string; email: string; emailKind: string }[]
+    >`
+      select u.id, u.email, p.email_kind as "emailKind"
+      from "user" u
+      join user_profiles p on p.user_id = u.id
+      where u.id in ('email-source', 'email-owner')
+      order by u.id
+    `;
+    expect(identities).toEqual([
+      { id: "email-owner", email: "taken@example.com", emailKind: "REAL" },
+      { id: "email-source", email: sourceEmail, emailKind: "SYNTHETIC" },
+    ]);
+  });
   it("profile 更新失败时回滚同一事务中的 user 邮箱更新", async () => {
     const originalEmail = "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid";
     await harness.seedCredentialUser("rollback-email-user", originalEmail);
