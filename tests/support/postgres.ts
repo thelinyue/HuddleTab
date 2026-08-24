@@ -7,6 +7,7 @@ import postgres, { type Sql } from "postgres";
 const migrationsFolder = resolve(process.cwd(), "drizzle");
 
 export type PostgresHarness = {
+  readonly connectionUri: string;
   sql: Sql;
   stop(): Promise<void>;
 };
@@ -17,7 +18,8 @@ export type PostgresHarness = {
  */
 export async function startPostgres(): Promise<PostgresHarness> {
   const container = await new PostgreSqlContainer("postgres:18-alpine").start();
-  const sql = postgres(container.getConnectionUri(), { max: 1 });
+  const connectionUri = container.getConnectionUri();
+  const sql = postgres(connectionUri, { max: 1 });
 
   try {
     await migrate(drizzle(sql), { migrationsFolder });
@@ -31,6 +33,7 @@ export async function startPostgres(): Promise<PostgresHarness> {
   }
 
   return {
+    connectionUri,
     sql,
     async stop() {
       try {

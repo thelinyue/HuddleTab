@@ -12,14 +12,17 @@ import { normalizeUsername } from "./username";
  * Better Auth 初始化会在模块加载后异步创建适配器；此代理仅在适配器实际执行查询时
  * 才读取 DATABASE_URL 并获取 Drizzle 客户端，保持构建期与既有数据库惰性边界一致。
  */
-const lazyDatabase = new Proxy({} as ReturnType<typeof getDatabaseClient>, {
-  get(_target, property) {
-    const database = getDatabaseClient();
-    const value = Reflect.get(database, property);
+const lazyDatabase = new Proxy(
+  {} as ReturnType<typeof getDatabaseClient>["db"],
+  {
+    get(_target, property) {
+      const database = getDatabaseClient().db;
+      const value = Reflect.get(database, property);
 
-    return typeof value === "function" ? value.bind(database) : value;
+      return typeof value === "function" ? value.bind(database) : value;
+    },
   },
-});
+);
 
 function readRequiredAuthEnvironment(
   name: "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL",
