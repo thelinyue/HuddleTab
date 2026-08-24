@@ -115,6 +115,35 @@ describe("SetupService", () => {
     });
   }, 60_000);
 
+  it("completed_at 已存在时即使角色意外缺失也永久关闭 setup", async () => {
+    const { SetupService } = await import("@/server/services/setup-service");
+    const service = new SetupService(harness.sql, {
+      create: vi.fn(),
+      compensate: vi.fn(),
+    });
+    await harness.sql`
+      update system_bootstrap
+      set setup_token_hash = 'stale-setup-token-hash', completed_at = now()
+      where id = 'singleton'
+    `;
+
+    const token = await service.rotateForUninitializedStartup();
+    const [state] = await harness.sql<
+      { setup_token_hash: string | null; completed_at: string | null }[]
+    >`
+      select setup_token_hash, completed_at
+      from system_bootstrap
+      where id = 'singleton'
+    `;
+
+    expect(token).toBeNull();
+    expect(state).toMatchObject({
+      setup_token_hash: null,
+      completed_at: expect.any(String),
+    });
+    expect(await service.isSetupRequired()).toBe(false);
+  }, 60_000);
+
   it("成功 claim 只创建一个 system admin、清除 hash 并永久关闭 setup", async () => {
     const { SetupService } = await import("@/server/services/setup-service");
     const { createSetupCredentialUser, compensateSetupCredentialUser } =

@@ -69,17 +69,22 @@ export class SetupService {
   }
 
   /**
-   * 未初始化的每次容器启动都会产生新 token 并替换旧 hash。发现既有管理员时会修复
-   * bootstrap 到已完成状态并清除任何残留 hash，避免历史异常状态重新开放 setup。
+   * 未初始化的每次容器启动都会产生新 token 并替换旧 hash。completed_at 是永久关闭标志，
+   * 不因历史角色缺失而重新开放；发现既有管理员时则补写 completed_at 并清除残留 hash。
    */
   async rotateForUninitializedStartup(): Promise<string | null> {
     return this.sql.begin(async (transaction) => {
       await transaction`select pg_advisory_xact_lock(hashtext(${SETUP_ADVISORY_LOCK}))`;
       const [state] = await transaction<
-        { has_admin: boolean }[]
-      >`select exists(select 1 from system_roles where role = 'system_admin') as has_admin`;
+        { completed_at: string | null; has_admin: boolean }[]
+      >`
+        select b.completed_at,
+          exists(select 1 from system_roles where role = 'system_admin') as has_admin
+        from system_bootstrap b
+        where b.id = 'singleton'
+      `;
 
-      if (state?.has_admin) {
+      if (state?.completed_at || state?.has_admin) {
         await transaction`
           update system_bootstrap
           set setup_token_hash = null,
