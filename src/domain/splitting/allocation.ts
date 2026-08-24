@@ -13,7 +13,7 @@ export interface AllocationResult {
  * 配置影响。ActivityMember ID 是稳定账务身份；输入顺序、昵称、UI 排序以及 Guest
  * 后续绑定账号都不能改变分配结果。
  */
-function compareMemberIds(left: string, right: string): number {
+export function compareMemberIds(left: string, right: string): number {
   const leftCodePoints = Array.from(left);
   const rightCodePoints = Array.from(right);
   const sharedLength = Math.min(leftCodePoints.length, rightCodePoints.length);

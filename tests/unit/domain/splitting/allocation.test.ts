@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { allocateByWeights } from "@/domain/splitting/allocation";
+import {
+  allocateByWeights,
+  compareMemberIds,
+} from "@/domain/splitting/allocation";
 
 describe("allocateByWeights", () => {
   it("按 ActivityMember ID 升序分配剩余最小单位", () => {
@@ -69,5 +72,9 @@ describe("allocateByWeights", () => {
       { memberId: "\uE000", amountMinor: 1n },
       { memberId: "\u{10000}", amountMinor: 0n },
     ]);
+  });
+
+  it("导出跨分摊模式共用的 Unicode 代码点比较器", () => {
+    expect(compareMemberIds("\uE000", "\u{10000}")).toBeLessThan(0);
   });
 });
