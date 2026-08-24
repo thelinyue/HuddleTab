@@ -108,6 +108,10 @@ describe("内部邮箱兼容性", () => {
 const execFileAsync = promisify(execFile);
 const authRuntimeEntrypoint = resolve("src/server/auth/auth.ts");
 const authRouteEntrypoint = resolve("src/app/api/auth/[...all]/route.ts");
+const authHandlerInvocationScript = [
+  'import { auth } from "./src/server/auth/auth.ts";',
+  'await auth.handler(new Request("http://localhost:5660/api/auth/get-session"));',
+].join("\n");
 
 function environmentWithoutAuthRuntimeConfiguration(): NodeJS.ProcessEnv {
   const environment = { ...process.env };
@@ -115,6 +119,7 @@ function environmentWithoutAuthRuntimeConfiguration(): NodeJS.ProcessEnv {
   delete environment.AUTH_SECRET;
   delete environment.BETTER_AUTH_SECRET;
   delete environment.BETTER_AUTH_SECRETS;
+  delete environment.BETTER_AUTH_URL;
   delete environment.DATABASE_URL;
   environment.NODE_ENV = "production";
 
@@ -133,6 +138,71 @@ describe("Better Auth 构建期边界", () => {
 
       expect(stdout).toBe("");
       expect(stderr).toBe("");
+    },
+  );
+});
+
+async function invokeAuthHandlerWithEnvironment(
+  environment: NodeJS.ProcessEnv,
+) {
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        "--conditions=react-server",
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "--eval",
+        authHandlerInvocationScript,
+      ],
+      { env: environment },
+    );
+  } catch (error) {
+    return error as { stderr: string; stdout: string };
+  }
+
+  throw new Error("预期认证处理器拒绝无效运行时配置");
+}
+
+describe("Better Auth 运行时配置", () => {
+  it.each([
+    {
+      name: "无效 URL",
+      environment: {
+        ...environmentWithoutAuthRuntimeConfiguration(),
+        BETTER_AUTH_SECRET: "test-secret-with-at-least-thirty-two-characters",
+        BETTER_AUTH_URL: "not-a-url",
+      },
+      message:
+        "认证服务配置无效：BETTER_AUTH_URL 必须是有效的 HTTP 或 HTTPS 地址。",
+    },
+    {
+      name: "非 HTTP(S) URL",
+      environment: {
+        ...environmentWithoutAuthRuntimeConfiguration(),
+        BETTER_AUTH_SECRET: "test-secret-with-at-least-thirty-two-characters",
+        BETTER_AUTH_URL: "ftp://localhost:5660",
+      },
+      message: "认证服务配置无效：BETTER_AUTH_URL 仅支持 HTTP 或 HTTPS 地址。",
+    },
+    {
+      name: "过短密钥",
+      environment: {
+        ...environmentWithoutAuthRuntimeConfiguration(),
+        BETTER_AUTH_SECRET: "too-short",
+        BETTER_AUTH_URL: "http://localhost:5660",
+      },
+      message: "认证服务配置无效：BETTER_AUTH_SECRET 至少需要 32 个字符。",
+    },
+  ])(
+    "在首次 auth 访问时以项目中文错误拒绝 $name",
+    async ({ environment, message }) => {
+      const failure = await invokeAuthHandlerWithEnvironment(environment);
+
+      expect(failure.stderr).toContain(message);
+      expect(failure.stderr).not.toContain("BETTER_AUTH_SECRET is missing");
+      expect(failure.stderr).not.toContain("[Better Auth]");
     },
   );
 });

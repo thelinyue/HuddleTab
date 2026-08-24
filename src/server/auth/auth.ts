@@ -24,16 +24,49 @@ const lazyDatabase = new Proxy(
   },
 );
 
-function readRequiredAuthEnvironment(
-  name: "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL",
-) {
-  const value = process.env[name];
+function readAuthBaseUrl(): string {
+  const baseUrl = process.env.BETTER_AUTH_URL?.trim();
 
-  if (!value?.trim()) {
-    throw new Error(`认证服务缺少 ${name} 配置。`);
+  if (!baseUrl) {
+    throw new Error("认证服务缺少 BETTER_AUTH_URL 配置。");
   }
 
-  return value;
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(baseUrl);
+  } catch {
+    throw new Error(
+      "认证服务配置无效：BETTER_AUTH_URL 必须是有效的 HTTP 或 HTTPS 地址。",
+    );
+  }
+
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new Error(
+      "认证服务配置无效：BETTER_AUTH_URL 仅支持 HTTP 或 HTTPS 地址。",
+    );
+  }
+
+  return baseUrl;
+}
+
+/**
+ * 显式配置的密钥按原始字符串传给 Better Auth，避免 trim 改变部署者约定的密钥字节；
+ * 只用 trim 判断空白值，并在进入 Better Auth 前拒绝不足 32 字符的弱密钥。
+ */
+function readAuthSecret(): string {
+  const secret = process.env.BETTER_AUTH_SECRET;
+
+  if (!secret?.trim()) {
+    throw new Error("认证服务缺少 BETTER_AUTH_SECRET 配置。");
+  }
+
+  if (secret.length < 32) {
+    throw new Error(
+      "认证服务配置无效：BETTER_AUTH_SECRET 至少需要 32 个字符。",
+    );
+  }
+
+  return secret;
 }
 
 /**
@@ -43,8 +76,8 @@ function readRequiredAuthEnvironment(
 function createAuth() {
   return betterAuth({
     database: drizzleAdapter(lazyDatabase, { provider: "pg", schema }),
-    baseURL: readRequiredAuthEnvironment("BETTER_AUTH_URL"),
-    secret: readRequiredAuthEnvironment("BETTER_AUTH_SECRET"),
+    baseURL: readAuthBaseUrl(),
+    secret: readAuthSecret(),
     emailAndPassword: { enabled: true, requireEmailVerification: false },
     plugins: [
       username({
