@@ -44,6 +44,18 @@ describe("Money", () => {
     }
   });
 
+  it("rejects withdrawn ISO 4217 codes while accepting their current replacements", () => {
+    for (const currency of ["ANG", "BGN", "CUC", "HRK", "SLL", "ZWL"]) {
+      expect(() => asCurrencyCode(currency)).toThrow(
+        `不支持的币种：${currency}`,
+      );
+    }
+
+    for (const currency of ["XCG", "SLE", "ZWG"]) {
+      expect(asCurrencyCode(currency)).toBe(currency);
+    }
+  });
+
   it("rejects non-string minor amounts before integer validation", () => {
     for (const amountMinor of [
       9007199254740993 as unknown as string,

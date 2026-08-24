@@ -13,6 +13,25 @@ const DECIMAL_RATE_PATTERN = /^(?:0|[1-9]\d*)(?:\.(\d{1,12}))?$/;
 const INVALID_DECIMAL_RATE_ERROR = "汇率必须是最多 12 位小数的正十进制数";
 
 /**
+ * 校验 DecimalRate 的运行时结构，防止调用方绕过 TypeScript 接口直接伪造汇率。
+ * 解析器保证正常来源符合约束；公开消费入口仍需重复校验，以保护 JavaScript 调用方
+ * 和通过类型断言传入的对象，避免零汇率、超精度或错误字段类型进入金额计算。
+ */
+function assertValidDecimalRate(rate: DecimalRate): void {
+  if (
+    typeof rate !== "object" ||
+    rate === null ||
+    typeof rate.coefficient !== "bigint" ||
+    rate.coefficient <= 0n ||
+    !Number.isInteger(rate.scale) ||
+    rate.scale < 0 ||
+    rate.scale > 12
+  ) {
+    throw new Error(INVALID_DECIMAL_RATE_ERROR);
+  }
+}
+
+/**
  * 将用户输入的正十进制汇率规范化为精确的 coefficient/scale 形式。
  * 小数末尾零不保留，使相同经济含义的汇率拥有唯一领域表示。
  */
@@ -41,6 +60,8 @@ export function parseDecimalRate(input: string): DecimalRate {
 
 /** 将精确汇率恢复为规范十进制文本，全程不转换为 Number。 */
 export function decimalRateToString(rate: DecimalRate): string {
+  assertValidDecimalRate(rate);
+
   if (rate.scale === 0) {
     return rate.coefficient.toString();
   }
@@ -64,6 +85,8 @@ export function convertMinorAmount(
   baseMinorUnits: number,
   rate: DecimalRate,
 ): bigint {
+  assertValidDecimalRate(rate);
+
   if (originalMinor < 0n) {
     throw new Error("待换算金额不能为负数");
   }
