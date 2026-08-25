@@ -33,6 +33,15 @@ function createSetupService(): SetupService {
   });
 }
 
+/** 仅将 JSON 中实际存在的字符串 Token 作为完整 schema 校验前的稳定限流标识。 */
+function getRateLimitSetupToken(body: unknown): string | undefined {
+  if (!body || typeof body !== "object" || !("setupToken" in body)) {
+    return undefined;
+  }
+
+  return typeof body.setupToken === "string" ? body.setupToken : undefined;
+}
+
 /** 在验证 Setup Token 前先消费其 bucket，防止攻击者枚举或暴力抢占首次初始化。 */
 async function consumeSetupRateLimit(
   request: Request,
@@ -65,13 +74,21 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse("INVALID_SETUP_INPUT", "初始化信息格式不正确。", 422);
   }
 
-  const parsed = setupInput.safeParse(body);
-  if (!parsed.success) {
-    return errorResponse("INVALID_SETUP_INPUT", "初始化信息格式不正确。", 422);
-  }
-
   try {
-    await consumeSetupRateLimit(request, parsed.data.setupToken);
+    const setupToken = getRateLimitSetupToken(body);
+    if (setupToken !== undefined) {
+      await consumeSetupRateLimit(request, setupToken);
+    }
+
+    const parsed = setupInput.safeParse(body);
+    if (!parsed.success) {
+      return errorResponse(
+        "INVALID_SETUP_INPUT",
+        "初始化信息格式不正确。",
+        422,
+      );
+    }
+
     const result = await createSetupService().claim(parsed.data.setupToken, {
       username: parsed.data.username,
       password: parsed.data.password,

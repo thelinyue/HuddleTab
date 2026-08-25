@@ -234,6 +234,46 @@ describe("认证持久化限流", () => {
     expect(await bucketKeys()).toHaveLength(4);
   }, 60_000);
 
+  it("完整 schema 失败前仍消费可提取的注册用户名与 Setup Token", async () => {
+    const invalidRegistration = {
+      username: "early-register-user",
+      password: "short",
+      nickname: "提前限流注册",
+    };
+    for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPT_LIMIT; attempt += 1) {
+      const response = await register(invalidRegistration);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        error: { code: "INVALID_REGISTER_INPUT" },
+      });
+    }
+    const blockedRegistration = await register(invalidRegistration);
+    expect(blockedRegistration.status).toBe(429);
+    expect(await blockedRegistration.json()).toMatchObject({
+      error: { code: "RATE_LIMITED" },
+    });
+
+    const invalidSetup = {
+      setupToken: "early-setup-token-that-is-long-enough",
+      username: "early-setup-user",
+      password: "short",
+      nickname: "提前限流初始化",
+    };
+    for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPT_LIMIT; attempt += 1) {
+      const response = await setup(invalidSetup);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        error: { code: "INVALID_SETUP_INPUT" },
+      });
+    }
+    const blockedSetup = await setup(invalidSetup);
+    expect(blockedSetup.status).toBe(429);
+    expect(await blockedSetup.json()).toMatchObject({
+      error: { code: "RATE_LIMITED" },
+    });
+
+    expect(await bucketKeys()).toHaveLength(2);
+  }, 60_000);
   it("TRUST_PROXY=true 仅为单一合法 X-Real-IP 增加第二个 bucket", async () => {
     process.env.TRUST_PROXY = "true";
 

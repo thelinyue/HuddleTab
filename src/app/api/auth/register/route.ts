@@ -32,15 +32,31 @@ function invalidInputResponse(): Response {
 }
 
 /**
+ * 完整 schema 校验前只能使用已成功规范化的用户名作为稳定标识；无法提取时保留原有
+ * 422 行为且不创建 bucket，避免为缺失、非字符串或非法用户名制造无意义的共享计数器。
+ */
+function getRateLimitUsername(body: unknown): string | undefined {
+  if (!body || typeof body !== "object" || !("username" in body)) {
+    return undefined;
+  }
+
+  try {
+    return normalizeUsername(body.username);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 在任何凭据创建前消费规范化用户名；可信代理模式下额外消费 IP bucket，但 IP 绝不
  * 代替稳定业务标识。RateLimiter 只接收 HMAC secret，不会持久化这些原始值。
  */
 async function consumeRegistrationRateLimit(
   request: Request,
-  username: string,
+  normalizedUsername: string,
 ): Promise<void> {
   const buckets: RateLimitBucket[] = [
-    { scope: "REGISTER_USERNAME", identifier: normalizeUsername(username) },
+    { scope: "REGISTER_USERNAME", identifier: normalizedUsername },
   ];
   const clientAddress = getClientAddress(request);
   if (clientAddress) {
@@ -64,13 +80,17 @@ export async function POST(request: Request): Promise<Response> {
     return invalidInputResponse();
   }
 
-  const parsed = registerInput.safeParse(body);
-  if (!parsed.success) {
-    return invalidInputResponse();
-  }
-
   try {
-    await consumeRegistrationRateLimit(request, parsed.data.username);
+    const username = getRateLimitUsername(body);
+    if (username) {
+      await consumeRegistrationRateLimit(request, username);
+    }
+
+    const parsed = registerInput.safeParse(body);
+    if (!parsed.success) {
+      return invalidInputResponse();
+    }
+
     const result = await new RegistrationService(
       rejectingInvitationVerifier,
     ).register(parsed.data);
