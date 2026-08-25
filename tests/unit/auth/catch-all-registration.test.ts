@@ -37,12 +37,16 @@ afterEach(() => {
 });
 
 describe("Better Auth 公共注册旁路", () => {
-  it("在认证运行时初始化前拒绝原生 sign-up/email 路径", async () => {
+  it.each([
+    "/api/auth/sign-up/email",
+    "/api/auth/sign-up/email/",
+    "/api/auth/sign-up/email///",
+  ])("在认证运行时初始化前拒绝原生 sign-up/email 路径：%s", async (path) => {
     removeAuthEnvironment();
     const { POST } = await import("@/app/api/auth/[...all]/route");
 
     const response = await POST(
-      new Request("http://localhost:5660/api/auth/sign-up/email", {
+      new Request(`http://localhost:5660${path}`, {
         method: "POST",
       }),
     );

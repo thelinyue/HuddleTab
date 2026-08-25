@@ -11,6 +11,11 @@ import {
 
 const handlers = toNextJsHandler(auth);
 
+/** 认证路由的资源语义不受任意数量的尾斜杠影响，避免策略路径被表示形式绕过。 */
+function normalizeAuthPathname(pathname: string): string {
+  return pathname.replace(/\/+$/, "") || "/";
+}
+
 function errorResponse(error: ApplicationError): Response {
   return Response.json(
     {
@@ -66,7 +71,7 @@ async function consumeLoginRateLimit(request: Request): Promise<void> {
  * RegistrationService 仍可在进程内调用 auth.api.signUpEmail() 创建已通过门禁的账号。
  */
 export async function POST(request: Request): Promise<Response> {
-  const pathname = new URL(request.url).pathname;
+  const pathname = normalizeAuthPathname(new URL(request.url).pathname);
   if (pathname === "/api/auth/sign-up/email") {
     return Response.json(
       {

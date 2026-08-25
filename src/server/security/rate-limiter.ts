@@ -62,6 +62,12 @@ export class RateLimiter {
     const expiresAtIso = expiresAt.toISOString();
 
     await this.sql.begin(async (transaction) => {
+      // 使用既有 expires_at 索引回收历史窗口，不需要额外 scheduler 或部署配置。
+      await transaction`
+        delete from security_rate_limit_buckets
+        where expires_at <= now()
+      `;
+
       for (const bucket of uniqueBuckets) {
         const bucketKey = this.createBucketKey(bucket);
         const updated = await transaction<{ attempts: number }[]>`

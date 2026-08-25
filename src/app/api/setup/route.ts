@@ -39,7 +39,8 @@ function getRateLimitSetupToken(body: unknown): string | undefined {
     return undefined;
   }
 
-  return typeof body.setupToken === "string" ? body.setupToken : undefined;
+  const parsed = setupInput.shape.setupToken.safeParse(body.setupToken);
+  return parsed.success ? parsed.data : undefined;
 }
 
 /** 在验证 Setup Token 前先消费其 bucket，防止攻击者枚举或暴力抢占首次初始化。 */

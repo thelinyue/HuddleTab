@@ -10,6 +10,8 @@ import {
 
 vi.mock("server-only", () => ({}));
 
+import postgres from "postgres";
+
 import type { createDatabaseClient } from "@/server/db/factory";
 import {
   RATE_LIMIT_ATTEMPT_LIMIT,
@@ -176,6 +178,86 @@ describe("认证持久化限流", () => {
       expect(key).not.toContain(clientAddress);
     }
   });
+  it("独立数据库客户端并发消费同一 bucket 时仅允许前五次", async () => {
+    const clients = Array.from({ length: RATE_LIMIT_ATTEMPT_LIMIT + 3 }, () =>
+      postgres(harness.connectionUri, { max: 1 }),
+    );
+    try {
+      const results = await Promise.allSettled(
+        clients.map((client) =>
+          new RateLimiter(client, process.env.BETTER_AUTH_SECRET!).consume(
+            "LOGIN_USERNAME",
+            "concurrent-rate-limit-user",
+          ),
+        ),
+      );
+      const fulfilled = results.filter(
+        (result) => result.status === "fulfilled",
+      );
+      const rejected = results.filter((result) => result.status === "rejected");
+
+      expect(fulfilled).toHaveLength(RATE_LIMIT_ATTEMPT_LIMIT);
+      expect(rejected).toHaveLength(3);
+      for (const result of rejected) {
+        expect(result.reason).toMatchObject({
+          code: "RATE_LIMITED",
+          status: 429,
+        });
+      }
+
+      const [bucket] = await harness.sql<{ attempts: number }[]>`
+        select attempts from security_rate_limit_buckets
+      `;
+      expect(bucket).toEqual({ attempts: RATE_LIMIT_ATTEMPT_LIMIT });
+    } finally {
+      await Promise.all(clients.map((client) => client.end()));
+    }
+  }, 60_000);
+
+  it("第二个 bucket 已满时回滚同一 consumeAll 事务中的第一个 bucket", async () => {
+    const limiter = new RateLimiter(
+      harness.sql,
+      process.env.BETTER_AUTH_SECRET!,
+    );
+    for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPT_LIMIT; attempt += 1) {
+      await limiter.consume("LOGIN_IP", "already-full-ip-bucket");
+    }
+
+    await expect(
+      limiter.consumeAll([
+        { scope: "LOGIN_USERNAME", identifier: "must-roll-back-user" },
+        { scope: "LOGIN_IP", identifier: "already-full-ip-bucket" },
+      ]),
+    ).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+
+    const buckets = await harness.sql<{ attempts: number }[]>`
+      select attempts from security_rate_limit_buckets order by attempts
+    `;
+    expect(buckets).toEqual([{ attempts: RATE_LIMIT_ATTEMPT_LIMIT }]);
+  });
+  it("正常 consume 会在事务内清理过期 bucket 并保留当前计数", async () => {
+    await harness.sql`
+      insert into security_rate_limit_buckets (
+        bucket_key, window_started_at, attempts, expires_at
+      ) values (
+        ${"expired-rate-limit-bucket"}, ${"2000-01-01T00:00:00.000Z"}, 3,
+        ${"2000-01-01T00:15:00.000Z"}
+      )
+    `;
+    const limiter = new RateLimiter(
+      harness.sql,
+      process.env.BETTER_AUTH_SECRET!,
+    );
+
+    await limiter.consume("LOGIN_USERNAME", "expiry-cleanup-user");
+
+    const rows = await harness.sql<{ attempts: number; is_expired: boolean }[]>`
+      select attempts, expires_at <= now() as is_expired
+      from security_rate_limit_buckets
+      order by bucket_key
+    `;
+    expect(rows).toEqual([{ attempts: 1, is_expired: false }]);
+  });
   it("TRUST_PROXY=false 时稳定标识仍分别保护注册、Setup 与登录", async () => {
     const username = "stable-register-user";
     for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPT_LIMIT; attempt += 1) {
@@ -274,6 +356,26 @@ describe("认证持久化限流", () => {
 
     expect(await bucketKeys()).toHaveLength(2);
   }, 60_000);
+  it.each(["", "too-short-token"])(
+    "不为不符合 Setup Token 字段边界的字符串创建 bucket：%s",
+    async (setupToken) => {
+      const invalidSetup = {
+        setupToken,
+        username: "invalid-token-setup-user",
+        password: "valid-password-123",
+        nickname: "无效口令初始化",
+      };
+      for (let attempt = 0; attempt <= RATE_LIMIT_ATTEMPT_LIMIT; attempt += 1) {
+        const response = await setup(invalidSetup);
+        expect(response.status).toBe(422);
+        expect(await response.json()).toMatchObject({
+          error: { code: "INVALID_SETUP_INPUT" },
+        });
+      }
+
+      expect(await bucketKeys()).toHaveLength(0);
+    },
+  );
   it("TRUST_PROXY=true 仅为单一合法 X-Real-IP 增加第二个 bucket", async () => {
     process.env.TRUST_PROXY = "true";
 
