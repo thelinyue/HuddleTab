@@ -13,7 +13,7 @@
     "start": "next start -H 0.0.0.0 -p 5660",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run tests/unit",
+    "test:unit": "vitest run tests/unit --maxWorkers=1",
     "test:integration": "vitest run tests/integration --maxWorkers=1",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
