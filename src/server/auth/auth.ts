@@ -76,7 +76,7 @@ export function readAuthSecret(): string {
 function readUseSecureCookies(baseUrl: string): boolean {
   const override = process.env.SECURE_COOKIES;
 
-  if (override === undefined) {
+  if (override === undefined || override === "") {
     return new URL(baseUrl).protocol === "https:";
   }
 

@@ -268,6 +268,8 @@ describe("认证持久化限流", () => {
   it.each([
     ["http://localhost:5660", undefined, false],
     ["https://huddle.example.test", undefined, true],
+    ["http://localhost:5660", "", false],
+    ["https://huddle.example.test", "", true],
     ["https://huddle.example.test", "false", false],
     ["http://localhost:5660", "true", true],
   ])(
@@ -300,5 +302,27 @@ describe("认证持久化限流", () => {
       expect(hasSecureCookie).toBe(expectedSecure);
     },
     60_000,
+  );
+  it.each([" ", "unexpected"])(
+    "拒绝非精确 SECURE_COOKIES 覆盖值：%s",
+    async (secureCookies) => {
+      process.env.BETTER_AUTH_URL = "http://localhost:5660";
+      process.env.SECURE_COOKIES = secureCookies;
+      vi.resetModules();
+      const { auth } = await import("@/server/auth/auth");
+
+      await expect(
+        (async () => {
+          const handler = auth.handler;
+          return handler(
+            new Request("http://localhost:5660/api/auth/sign-in/email", {
+              method: "POST",
+            }),
+          );
+        })(),
+      ).rejects.toThrow(
+        "认证服务配置无效：SECURE_COOKIES 仅支持 true 或 false。",
+      );
+    },
   );
 });
