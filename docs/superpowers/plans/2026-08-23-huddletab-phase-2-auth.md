@@ -1367,133 +1367,49 @@ git commit -m "feat: add authenticated account management api"
 
 Authentication limits always consume a stable business identifier before verification: normalized username for login/registration, Setup Token for Setup, Invite Token for the future `INVITATION` scope. When a trusted IP is available, the route additionally consumes its IP bucket; each identifier is HMAC-hashed inside `RateLimiter`, so raw IPs, usernames and tokens never enter the rate-limit table or logs. Any exhausted bucket returns `429 RATE_LIMITED`.
 
-- [ ] **Step 1: Write failing address-boundary and persistent-window tests**
+- [x] **Step 1: Write failing address-boundary and persistent-window tests**
 
-```ts
-it("ignores every forwarded address header by default", () => {
-  expect(
-    getTrustedClientAddress(
-      new Headers({
-        "x-real-ip": "203.0.113.8",
-        "x-forwarded-for": "198.51.100.4",
-        forwarded: "for=192.0.2.9",
-      }),
-      false,
-    ),
-  ).toBeUndefined();
-});
+Coverage must establish the explicit address boundary and fixed-window behavior before implementation:
 
-it("uses only one well-formed X-Real-IP value when TRUST_PROXY is true", () => {
-  expect(
-    getTrustedClientAddress(new Headers({ "x-real-ip": "203.0.113.8" }), true),
-  ).toBe("203.0.113.8");
-  expect(
-    getTrustedClientAddress(
-      new Headers({ "x-real-ip": "203.0.113.8, 198.51.100.4" }),
-      true,
-    ),
-  ).toBeUndefined();
-});
+- `getClientAddress(request)` ignores `Forwarded`, `X-Forwarded-For`, and `X-Real-IP` unless the environment value is exactly `TRUST_PROXY=true`.
+- With that exact opt-in, it reads only one valid `X-Real-IP`; a missing, malformed, empty, comma-merged, or duplicate value returns no address bucket.
+- PostgreSQL persistence stores only HMAC-SHA256 bucket keys and rejects the sixth attempt for one stable identifier.
+- Concurrent consumers allow exactly five attempts, expired buckets are removed, and a rejected companion bucket rolls the complete `consumeAll()` transaction back.
 
-it("persists only HMAC buckets and rejects the sixth stable identifier attempt", async () => {
-  const limiter = new RateLimiter(harness.sql, "test-rate-limit-secret");
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await limiter.consume("SETUP_TOKEN", "setup-token-for-test", policy);
-  }
-  await expect(
-    limiter.consume("SETUP_TOKEN", "setup-token-for-test", policy),
-  ).rejects.toMatchObject({ status: 429, code: "RATE_LIMITED" });
-  expect(await harness.rawRateLimitKeys()).not.toContain(
-    "setup-token-for-test",
-  );
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Verify the initial tests fail for the intended missing behavior**
 
 Run: `npx vitest run tests/unit/security/client-address.test.ts tests/integration/auth/rate-limiter.test.ts --maxWorkers=1`
 
-Expected: FAIL because the address boundary and limiter modules do not exist.
+Expected before implementation: failure because the address-boundary and persistent limiter behavior does not exist.
 
-- [ ] **Step 3: Implement the explicit proxy boundary and HMAC rate limiter**
+- [x] **Step 3: Implement the explicit proxy boundary and persistent HMAC limiter**
 
-```ts
-import { isIP } from "node:net";
-import { createHmac } from "node:crypto";
-import type { Sql } from "postgres";
+`getClientAddress(request)` uses `process.env.TRUST_PROXY === "true"` as the only enable value and reads only `X-Real-IP`. It does not attempt to parse a proxy chain or trust multiple address headers.
 
-export type RateLimitPolicy = { limit: number; windowSeconds: number };
+`RateLimiter` uses the fixed `RATE_LIMIT_ATTEMPT_LIMIT = 5` and `RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000` policy. `consumeAll(buckets)` de-duplicates scope/identifier pairs with a NUL separator, derives hex HMAC-SHA256 keys from the auth secret, deletes expired rows, and conditionally upserts every bucket in one transaction. If any bucket is exhausted, it throws `429 RATE_LIMITED` and rolls the request's whole transaction back. Raw IPs, usernames, Setup Tokens, passwords, and synthetic emails must not enter the rate-limit table or logs.
 
-export function getTrustedClientAddress(
-  headers: Headers,
-  trustProxy: boolean,
-): string | undefined {
-  if (!trustProxy) return undefined;
-  const value = headers.get("x-real-ip")?.trim();
-  return value && !value.includes(",") && isIP(value) !== 0 ? value : undefined;
-}
+`SECURE_COOKIES` remains an optional exact `true` / `false` override. When it is absent or Compose provides `""`, Better Auth derives the secure-cookie setting from `BETTER_AUTH_URL` (`https:` true; `http:` false). Whitespace values remain invalid configuration. Do not add a proxy container, TLS certificate handling, or automatic forwarded-header detection.
 
-export class RateLimiter {
-  constructor(
-    private readonly sql: Sql,
-    private readonly secret: string,
-  ) {}
+- [x] **Step 4: Integrate before credential or complete-schema verification and verify routes**
 
-  async consume(
-    scope: string,
-    identifier: string,
-    policy: RateLimitPolicy,
-  ): Promise<void> {
-    const bucketKey = createHmac("sha256", this.secret)
-      .update(`${scope}:${identifier}`)
-      .digest("base64url");
-    const windowMs = policy.windowSeconds * 1000;
-    const windowStartedAt = new Date(
-      Math.floor(Date.now() / windowMs) * windowMs,
-    );
-    const expiresAt = new Date(windowStartedAt.getTime() + windowMs);
+- Registration consumes normalized `REGISTER_USERNAME` after valid JSON parsing and before complete registration-schema validation; it adds `REGISTER_IP` only when `getClientAddress()` returns an address.
+- Setup consumes `SETUP_TOKEN` once the raw token field has its valid string shape and length, before complete Setup validation; it adds `SETUP_IP` only when available.
+- Better Auth login consumes normalized `LOGIN_USERNAME` before password verification and adds `LOGIN_IP` only when available.
+- The Better Auth-native `sign-up/email` path, including all trailing-slash variants, remains disabled and cannot initialize the auth runtime.
+- Route tests prove stable identifiers stay rate-limited with `TRUST_PROXY=false`; trusted `X-Real-IP` creates the additional bucket with `TRUST_PROXY=true`; spoofed `Forwarded` / `X-Forwarded-For`, malformed and duplicate `X-Real-IP` cannot create an IP bucket.
 
-    await this.sql.begin(async (transaction) => {
-      const [row] = await transaction`
-        insert into security_rate_limit_buckets (bucket_key, window_started_at, attempts, expires_at)
-        values (${bucketKey}, ${windowStartedAt}, 1, ${expiresAt})
-        on conflict (bucket_key, window_started_at)
-        do update set attempts = security_rate_limit_buckets.attempts + 1
-        returning attempts
-      `;
-      if (Number(row.attempts) > policy.limit) {
-        throw new ApplicationError(
-          "RATE_LIMITED",
-          "尝试次数过多，请稍后再试。",
-          429,
-        );
-      }
-    });
-  }
-}
-```
+Run: `npx vitest run tests/unit/security/client-address.test.ts tests/integration/auth/rate-limiter.test.ts tests/unit/auth/catch-all-registration.test.ts tests/unit/auth/registration-route.test.ts --maxWorkers=1`
 
-Use `TRUST_PROXY === "true"` as the only enable value. Add `TRUST_PROXY` and `SECURE_COOKIES` as optional Compose/.env overrides, preserving HTTP defaults. Configure Better Auth Secure Cookie from `SECURE_COOKIES` when explicitly set; otherwise derive it from `BETTER_AUTH_URL` (`https:` true, `http:` false). Do not add a proxy container, TLS certificate handling or automatic forwarded-header detection.
+Expected: PASS with `429 RATE_LIMITED`, safe proxy behavior, and no raw identifier persistence.
 
-- [ ] **Step 4: Integrate before verification and write RED/GREEN route coverage**
-
-- Setup consumes `SETUP_TOKEN` before Setup Token validation and, only if available, `SETUP_IP`.
-- Registration consumes normalized `REGISTER_USERNAME` before credential creation and, only if available, `REGISTER_IP`.
-- Better Auth login hook consumes normalized `LOGIN_USERNAME` before password verification and, only if available, `LOGIN_IP`.
-- Route tests prove stable identifiers remain rate-limited with `TRUST_PROXY=false`; trusted `X-Real-IP` adds a second bucket when `TRUST_PROXY=true`; spoofed `Forwarded` / `X-Forwarded-For`, malformed and duplicate `X-Real-IP` do not create an IP bucket.
-
-Run: `npx vitest run tests/unit/security/client-address.test.ts tests/integration/auth/rate-limiter.test.ts tests/api/setup-route.test.ts tests/api/register-route.test.ts --maxWorkers=1`
-
-Expected: PASS with `429 RATE_LIMITED`, safe proxy handling, and no raw identifier stored.
-
-- [ ] **Step 5: Run full gates and commit**
+- [x] **Step 5: Run full Task 8 gates and commit**
 
 Run: `npm run test:unit && npm run test:integration && npm run lint && npm run typecheck && npm run build`
 
 Expected: PASS. If `npm run format:check` only flags the existing external untracked `pnpm-lock.yaml` and `pnpm-workspace.yaml`, record that limitation without editing either file.
 
 ```bash
-git add src/server/security src/server/auth/auth.ts src/app/api/setup/route.ts src/app/api/auth/register/route.ts compose.yaml .env.example tests/unit/security tests/integration/auth/rate-limiter.test.ts tests/api
+git add src/server/security src/server/auth/auth.ts 'src/app/api/auth/[...all]/route.ts' src/app/api/auth/register/route.ts src/app/api/setup/route.ts compose.yaml .env.example tests/unit/security tests/integration/auth/rate-limiter.test.ts tests/unit/auth
 git commit -m "feat: add persistent authentication rate limits"
 ```
 
