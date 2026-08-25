@@ -1348,53 +1348,101 @@ git add src/server/services/me-service.ts src/app/api/me tests/api/me-routes.tes
 git commit -m "feat: add authenticated account management api"
 ```
 
-### Task 8: Enforce PostgreSQL-backed rate limits for login, registration, Setup and invitations
+### Task 8: Enforce PostgreSQL-backed multi-identifier rate limits with an explicit proxy boundary
 
 **Files:**
 
+- Create: `src/server/security/client-address.ts`
 - Create: `src/server/security/rate-limiter.ts`
+- Modify: `src/server/auth/auth.ts`
 - Modify: `src/app/api/setup/route.ts`
 - Modify: `src/app/api/auth/register/route.ts`
-- Modify: Better Auth login route hooks in `src/server/auth/auth.ts`
+- Modify: `compose.yaml`
+- Modify: `.env.example`
+- Test: `tests/unit/security/client-address.test.ts`
 - Test: `tests/integration/auth/rate-limiter.test.ts`
+- Test: existing Setup / registration / login route tests
 
-- [ ] **Step 1: Write the failing persistent-window test**
+**Security contract:** `TRUST_PROXY=false` is the default. In that mode application code must ignore `Forwarded`, `X-Forwarded-For` and `X-Real-IP`; it must not invent a client IP. `TRUST_PROXY=true` is the deployer's explicit assertion that an operator-controlled reverse proxy strips client-supplied `X-Real-IP`, replaces it from the true connection, and the app port cannot be accessed directly by untrusted clients. V1 reads **only** `X-Real-IP` when that exact flag is enabled; duplicate values, malformed values and missing values do not yield an IP key. `TRUST_PROXY` has no HTTPS coupling.
+
+Authentication limits always consume a stable business identifier before verification: normalized username for login/registration, Setup Token for Setup, Invite Token for the future `INVITATION` scope. When a trusted IP is available, the route additionally consumes its IP bucket; each identifier is HMAC-hashed inside `RateLimiter`, so raw IPs, usernames and tokens never enter the rate-limit table or logs. Any exhausted bucket returns `429 RATE_LIMITED`.
+
+- [ ] **Step 1: Write failing address-boundary and persistent-window tests**
 
 ```ts
-it("returns 429 after the configured Setup attempts without storing the raw identifier", async () => {
+it("ignores every forwarded address header by default", () => {
+  expect(
+    getTrustedClientAddress(
+      new Headers({
+        "x-real-ip": "203.0.113.8",
+        "x-forwarded-for": "198.51.100.4",
+        forwarded: "for=192.0.2.9",
+      }),
+      false,
+    ),
+  ).toBeUndefined();
+});
+
+it("uses only one well-formed X-Real-IP value when TRUST_PROXY is true", () => {
+  expect(
+    getTrustedClientAddress(new Headers({ "x-real-ip": "203.0.113.8" }), true),
+  ).toBe("203.0.113.8");
+  expect(
+    getTrustedClientAddress(
+      new Headers({ "x-real-ip": "203.0.113.8, 198.51.100.4" }),
+      true,
+    ),
+  ).toBeUndefined();
+});
+
+it("persists only HMAC buckets and rejects the sixth stable identifier attempt", async () => {
   const limiter = new RateLimiter(harness.sql, "test-rate-limit-secret");
-  for (let attempt = 0; attempt < 5; attempt++)
-    await limiter.consume("SETUP", "203.0.113.8", {
-      limit: 5,
-      windowSeconds: 600,
-    });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await limiter.consume("SETUP_TOKEN", "setup-token-for-test", policy);
+  }
   await expect(
-    limiter.consume("SETUP", "203.0.113.8", { limit: 5, windowSeconds: 600 }),
+    limiter.consume("SETUP_TOKEN", "setup-token-for-test", policy),
   ).rejects.toMatchObject({ status: 429, code: "RATE_LIMITED" });
-  expect(await harness.rawRateLimitKeys()).not.toContain("203.0.113.8");
+  expect(await harness.rawRateLimitKeys()).not.toContain(
+    "setup-token-for-test",
+  );
 });
 ```
 
-- [ ] **Step 2: Run the test and verify the limiter is absent**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm run test:integration -- tests/integration/auth/rate-limiter.test.ts`
+Run: `npx vitest run tests/unit/security/client-address.test.ts tests/integration/auth/rate-limiter.test.ts --maxWorkers=1`
 
-Expected: FAIL because `RateLimiter` does not exist.
+Expected: FAIL because the address boundary and limiter modules do not exist.
 
-- [ ] **Step 3: Implement the transaction-safe window counter**
+- [ ] **Step 3: Implement the explicit proxy boundary and HMAC rate limiter**
 
 ```ts
+import { isIP } from "node:net";
+import { createHmac } from "node:crypto";
+import type { Sql } from "postgres";
+
+export type RateLimitPolicy = { limit: number; windowSeconds: number };
+
+export function getTrustedClientAddress(
+  headers: Headers,
+  trustProxy: boolean,
+): string | undefined {
+  if (!trustProxy) return undefined;
+  const value = headers.get("x-real-ip")?.trim();
+  return value && !value.includes(",") && isIP(value) !== 0 ? value : undefined;
+}
+
 export class RateLimiter {
   constructor(
-    private readonly sql: ReturnType<typeof postgres>,
+    private readonly sql: Sql,
     private readonly secret: string,
   ) {}
 
-  /** 标识符只保存服务端 HMAC 摘要；同一窗口的计数更新在行锁事务内完成。 */
   async consume(
     scope: string,
     identifier: string,
-    policy: { limit: number; windowSeconds: number },
+    policy: RateLimitPolicy,
   ): Promise<void> {
     const bucketKey = createHmac("sha256", this.secret)
       .update(`${scope}:${identifier}`)
@@ -1404,35 +1452,48 @@ export class RateLimiter {
       Math.floor(Date.now() / windowMs) * windowMs,
     );
     const expiresAt = new Date(windowStartedAt.getTime() + windowMs);
-    await this.sql.begin(async (tx) => {
-      const [row] =
-        await tx`insert into security_rate_limit_buckets (bucket_key,window_started_at,attempts,expires_at)
-        values (${bucketKey},${windowStartedAt},1,${expiresAt})
-        on conflict (bucket_key,window_started_at) do update set attempts=security_rate_limit_buckets.attempts+1
-        returning attempts`;
-      if (Number(row.attempts) > policy.limit)
+
+    await this.sql.begin(async (transaction) => {
+      const [row] = await transaction`
+        insert into security_rate_limit_buckets (bucket_key, window_started_at, attempts, expires_at)
+        values (${bucketKey}, ${windowStartedAt}, 1, ${expiresAt})
+        on conflict (bucket_key, window_started_at)
+        do update set attempts = security_rate_limit_buckets.attempts + 1
+        returning attempts
+      `;
+      if (Number(row.attempts) > policy.limit) {
         throw new ApplicationError(
           "RATE_LIMITED",
           "尝试次数过多，请稍后再试。",
           429,
         );
+      }
     });
   }
 }
 ```
 
-Login, registration and Setup call the limiter before credential/token verification. Phase 3 invitation-link verification and join requests reuse the same service and add an `INVITATION` scope. The request identifier comes only from the documented trusted-proxy client-address boundary; logs contain scope and request correlation ID, never raw password, Token, Synthetic Email or full identifier.
+Use `TRUST_PROXY === "true"` as the only enable value. Add `TRUST_PROXY` and `SECURE_COOKIES` as optional Compose/.env overrides, preserving HTTP defaults. Configure Better Auth Secure Cookie from `SECURE_COOKIES` when explicitly set; otherwise derive it from `BETTER_AUTH_URL` (`https:` true, `http:` false). Do not add a proxy container, TLS certificate handling or automatic forwarded-header detection.
 
-- [ ] **Step 4: Run rate-limit and route tests**
+- [ ] **Step 4: Integrate before verification and write RED/GREEN route coverage**
 
-Run: `npm run test:integration -- tests/integration/auth/rate-limiter.test.ts && npm run test:unit -- tests/api/setup-route.test.ts tests/api/register-route.test.ts`
+- Setup consumes `SETUP_TOKEN` before Setup Token validation and, only if available, `SETUP_IP`.
+- Registration consumes normalized `REGISTER_USERNAME` before credential creation and, only if available, `REGISTER_IP`.
+- Better Auth login hook consumes normalized `LOGIN_USERNAME` before password verification and, only if available, `LOGIN_IP`.
+- Route tests prove stable identifiers remain rate-limited with `TRUST_PROXY=false`; trusted `X-Real-IP` adds a second bucket when `TRUST_PROXY=true`; spoofed `Forwarded` / `X-Forwarded-For`, malformed and duplicate `X-Real-IP` do not create an IP bucket.
 
-Expected: PASS with stable `429 RATE_LIMITED` responses and no raw identifier in PostgreSQL.
+Run: `npx vitest run tests/unit/security/client-address.test.ts tests/integration/auth/rate-limiter.test.ts tests/api/setup-route.test.ts tests/api/register-route.test.ts --maxWorkers=1`
 
-- [ ] **Step 5: Commit**
+Expected: PASS with `429 RATE_LIMITED`, safe proxy handling, and no raw identifier stored.
+
+- [ ] **Step 5: Run full gates and commit**
+
+Run: `npm run test:unit && npm run test:integration && npm run lint && npm run typecheck && npm run build`
+
+Expected: PASS. If `npm run format:check` only flags the existing external untracked `pnpm-lock.yaml` and `pnpm-workspace.yaml`, record that limitation without editing either file.
 
 ```bash
-git add src/server/security/rate-limiter.ts src/server/auth/auth.ts src/app/api/setup/route.ts src/app/api/auth/register/route.ts tests/integration/auth/rate-limiter.test.ts tests/api
+git add src/server/security src/server/auth/auth.ts src/app/api/setup/route.ts src/app/api/auth/register/route.ts compose.yaml .env.example tests/unit/security tests/integration/auth/rate-limiter.test.ts tests/api
 git commit -m "feat: add persistent authentication rate limits"
 ```
 

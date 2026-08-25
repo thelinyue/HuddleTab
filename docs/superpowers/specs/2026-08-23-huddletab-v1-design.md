@@ -95,7 +95,7 @@ V1 不实现支付渠道连接、OCR、AI 分类、评论、聊天、好友系�
 
 ```mermaid
 graph TD
-    PWA[浏览器 / 安装后的 PWA] -->|HTTPS + HttpOnly Session Cookie| APP[Next.js app 容器]
+    PWA[浏览器 / 安装后的 PWA] -->|HTTP 或 HTTPS + HttpOnly Session Cookie| APP[Next.js app 容器]
     PWA --> IDB[IndexedDB]
     PWA --> SW[Service Worker: App Shell / 静态资源]
     APP --> API[Route Handlers]
@@ -115,6 +115,8 @@ graph TD
 - PostgreSQL、Uploads、Backups 与运行时配置均使用宿主机 `./data` 下相互隔离的 bind mount：`./data/postgres`、`./data/uploads`、`./data/backups`、`./data/config`；不得创建 Docker named volume，镜像升级不得覆盖这些数据。
 - 默认部署命令不依赖 `.env`。Compose 提供仅限内部网络的数据库默认凭据；`.env` 或进程环境仅用于覆盖。`BETTER_AUTH_SECRET` 不允许使用公开固定默认值，缺失时由 App 入口脚本首次生成、以私密文件持久化并在重启后复用，日志只说明生成结果而不输出明文。
 - Next.js 页面、API 和业务服务同源部署，避免 CORS、Cookie 和 PWA 跨域复杂度。
+- HuddleTab 不内置 TLS、证书或反向代理，且不强制 HTTPS 才能启动；默认 Docker 仅提供 HTTP，支持 localhost、LAN 和反向代理后的内部 HTTP。公网访问、完整 PWA 安全上下文及更安全的 Session 传输由部署者在应用外自行提供 HTTPS。
+- Secure Cookie 由部署配置决定：`SECURE_COOKIES` 未设置时随 `BETTER_AUTH_URL` 协议推导（`https:` 启用、`http:` 关闭），可显式设置 `true` 或 `false` 覆盖；`TRUST_PROXY` 与 HTTPS 无绑定关系。
 - V1 默认单 App 实例。
 - 不引入独立 Worker、Redis、Kafka、RabbitMQ 或复杂调度平台。
 - 同进程任务只处理回收站、孤立附件、过期 Session 和缓存清理。
@@ -927,7 +929,11 @@ backup_xxx.tar.gz
 
 ### 16.4 HTTPS 与代理
 
-核心 Compose 不内置代理，App 容器固定监听 `0.0.0.0:5660`，默认 Compose 映射为 `5660:5660`。部署文档至少提供一种 Caddy/Nginx/Traefik/Cloudflare Tunnel 的 HTTPS 反向代理方案，并说明代理目标端口为 `5660`。App 支持反向代理后的安全 Cookie、原始协议和客户端地址处理。
+核心 Compose 不内置 Caddy、Nginx、Traefik 或 TLS 证书管理；App 容器固定监听 `0.0.0.0:5660`，默认 Compose 映射为 `5660:5660`，HTTP 是受支持的启动和部署方式。公网访问、完整 PWA 能力及更安全的 Session 传输时，部署者应自行在外部反向代理提供 HTTPS，代理目标端口为 `5660`。
+
+客户端地址信任边界只支持一种显式模式：`TRUST_PROXY=true`。默认 `TRUST_PROXY=false`，此时应用必须忽略 `Forwarded`、`X-Forwarded-For`、`X-Real-IP` 等客户端可伪造 Header。启用 `TRUST_PROXY=true` 后，应用只读取 `X-Real-IP`；它是部署者作出的安全声明：应用位于自己控制的反向代理之后，代理会删除客户端传入的 `X-Real-IP`、根据真实连接重新生成该 Header，且不可信客户端不能绕过代理直接访问应用端口。若这些条件不成立，属于部署配置错误，IP 限流可能被伪造或绕过。V1 不自动猜测代理、不解析多种 Header，也不信任任意代理链。
+
+登录、注册、Setup 与后续邀请限流必须同时消费稳定业务标识（规范化用户名、Setup Token、Invite Token 等）和仅在 `TRUST_PROXY=true` 下可用的 IP 维度；IP 永远不是唯一限流边界。数据库和日志只保存/输出服务端 HMAC 派生的 bucket、scope 与请求关联信息，绝不保存原始 IP、密码、Token 或 Synthetic Email。
 
 ## 17. 安全设计
 
