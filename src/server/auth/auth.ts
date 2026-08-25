@@ -53,7 +53,7 @@ function readAuthBaseUrl(): string {
  * 显式配置的密钥按原始字符串传给 Better Auth，避免 trim 改变部署者约定的密钥字节；
  * 只用 trim 判断空白值，并在进入 Better Auth 前拒绝不足 32 字符的弱密钥。
  */
-function readAuthSecret(): string {
+export function readAuthSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET;
 
   if (!secret?.trim()) {
@@ -70,14 +70,34 @@ function readAuthSecret(): string {
 }
 
 /**
+ * SECURE_COOKIES 是唯一的部署者覆盖值。未设置时按照公开认证地址推导，保证 HTTP
+ * 默认可用且 HTTPS 不会遗漏 Secure；任何非精确 true/false 值都属于部署配置错误。
+ */
+function readUseSecureCookies(baseUrl: string): boolean {
+  const override = process.env.SECURE_COOKIES;
+
+  if (override === undefined) {
+    return new URL(baseUrl).protocol === "https:";
+  }
+
+  if (override === "true") return true;
+  if (override === "false") return false;
+
+  throw new Error("认证服务配置无效：SECURE_COOKIES 仅支持 true 或 false。");
+}
+
+/**
  * 认证实例延迟到首次实际使用时才创建：构建只需静态导入路由，而运行期仍强制要求
  * 部署入口提供真实密钥和公开地址，绝不生成、写死或记录临时认证密钥。
  */
 function createAuth() {
+  const baseUrl = readAuthBaseUrl();
+
   return betterAuth({
     database: drizzleAdapter(lazyDatabase, { provider: "pg", schema }),
-    baseURL: readAuthBaseUrl(),
+    baseURL: baseUrl,
     secret: readAuthSecret(),
+    advanced: { useSecureCookies: readUseSecureCookies(baseUrl) },
     emailAndPassword: { enabled: true, requireEmailVerification: false },
     plugins: [
       username({

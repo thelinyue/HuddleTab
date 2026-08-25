@@ -1,5 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+vi.mock("@/server/auth/auth", () => ({
+  readAuthSecret: () => "test-secret-with-at-least-thirty-two-characters",
+}));
+vi.mock("@/server/db", () => ({
+  getDatabaseClient: () => ({ sql: {} }),
+}));
+vi.mock("@/server/security/rate-limiter", () => ({
+  RateLimiter: class {
+    consumeAll = async () => undefined;
+  },
+}));
+
 import { ApplicationError } from "@/server/errors/application-error";
 import { registerInput } from "@/server/validation/auth";
 

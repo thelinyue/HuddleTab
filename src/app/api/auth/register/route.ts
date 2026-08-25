@@ -1,8 +1,15 @@
 import { ApplicationError } from "@/server/errors/application-error";
+import { normalizeUsername } from "@/server/auth/username";
+import { readAuthSecret } from "@/server/auth/auth";
+import { getDatabaseClient } from "@/server/db";
+import { getClientAddress } from "@/server/security/client-address";
+import {
+  RateLimiter,
+  type RateLimitBucket,
+} from "@/server/security/rate-limiter";
 import { RegistrationService } from "@/server/services/registration-service";
 import { registerInput } from "@/server/validation/auth";
 
-/** Phase 2 尚未接入邀请模块，因此默认验证器始终拒绝 INVITE_ONLY 注册。 */
 const rejectingInvitationVerifier = {
   verify: async () => false,
 };
@@ -25,6 +32,27 @@ function invalidInputResponse(): Response {
 }
 
 /**
+ * 在任何凭据创建前消费规范化用户名；可信代理模式下额外消费 IP bucket，但 IP 绝不
+ * 代替稳定业务标识。RateLimiter 只接收 HMAC secret，不会持久化这些原始值。
+ */
+async function consumeRegistrationRateLimit(
+  request: Request,
+  username: string,
+): Promise<void> {
+  const buckets: RateLimitBucket[] = [
+    { scope: "REGISTER_USERNAME", identifier: normalizeUsername(username) },
+  ];
+  const clientAddress = getClientAddress(request);
+  if (clientAddress) {
+    buckets.push({ scope: "REGISTER_IP", identifier: clientAddress });
+  }
+
+  await new RateLimiter(getDatabaseClient().sql, readAuthSecret()).consumeAll(
+    buckets,
+  );
+}
+
+/**
  * 产品注册入口负责把预期的校验与业务错误转换为稳定 JSON；密码、邀请码和内部邮箱
  * 均不会写入响应或日志。认证用户的创建与补偿由 RegistrationService 集中处理。
  */
@@ -42,6 +70,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
+    await consumeRegistrationRateLimit(request, parsed.data.username);
     const result = await new RegistrationService(
       rejectingInvitationVerifier,
     ).register(parsed.data);

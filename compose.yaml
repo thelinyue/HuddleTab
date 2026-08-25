@@ -29,6 +29,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-huddletab-local-db-password}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5660}
+      SECURE_COOKIES: ${SECURE_COOKIES:-}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
       DATA_DIR: /data
     ports:
