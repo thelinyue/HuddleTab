@@ -151,35 +151,28 @@ export function evaluateActivityOperation(
     );
   }
 
-  if (operation === "SETTLEMENT_CREATE") {
-    if (context.role === "MEMBER" && !context.payerIsSelf) {
-      throw new ApplicationError(
-        "SETTLEMENT_PAYER_MUST_BE_SELF",
-        "普通成员只能为自己登记结算付款。",
-        403,
-      );
-    }
-    return;
+  if (
+    settlementOperations.has(operation) &&
+    (context.memberStatus === "LEFT" || context.role === "MEMBER") &&
+    !context.payerIsSelf
+  ) {
+    throw new ApplicationError(
+      "SETTLEMENT_PAYER_MUST_BE_SELF",
+      "普通成员或已离开活动的成员只能处理由自己付款的结算。",
+      403,
+    );
   }
 
   if (
     context.memberStatus === "LEFT" &&
-    (operation === "SETTLEMENT_UPDATE" || operation === "SETTLEMENT_DELETE")
+    (operation === "SETTLEMENT_UPDATE" || operation === "SETTLEMENT_DELETE") &&
+    !context.createdBySelf
   ) {
-    if (!context.createdBySelf) {
-      throw new ApplicationError(
-        "RESOURCE_NOT_OWNED",
-        "只能操作自己创建的资源。",
-        403,
-      );
-    }
-    if (!context.payerIsSelf) {
-      throw new ApplicationError(
-        "SETTLEMENT_PAYER_MUST_BE_SELF",
-        "离开活动的成员只能处理由自己付款的结算。",
-        403,
-      );
-    }
+    throw new ApplicationError(
+      "RESOURCE_NOT_OWNED",
+      "只能操作自己创建的资源。",
+      403,
+    );
   }
 }
 
@@ -230,7 +223,7 @@ export async function authorizeActivityOperation(
       hasSession: true,
       membershipExists: Boolean(activity && member),
       lifecycle,
-      memberStatus: member?.status ?? "ACTIVE",
+      memberStatus: member?.status ?? "LEFT",
       role: member?.role ?? "MEMBER",
       ownsResource,
       payerIsSelf: input.settlementPayerMemberId === member?.id,
