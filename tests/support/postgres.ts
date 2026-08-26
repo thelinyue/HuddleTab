@@ -7,6 +7,7 @@ export interface PostgresHarness {
   readonly sql: ReturnType<typeof postgres>;
   readonly db: ReturnType<typeof createDatabaseClient>["db"];
   seedCredentialUser(userId: string, email: string): Promise<void>;
+  seedCredentialAdmin(userId: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -27,6 +28,18 @@ export async function startPostgres(): Promise<PostgresHarness> {
           values (${userId}, ${userId}, ${email}, false, now(), now())`;
         await transaction`insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
           values (${`${userId}-credential`}, ${userId}, 'credential', ${userId}, 'test-password-hash', now(), now())`;
+      });
+    },
+    async seedCredentialAdmin(userId) {
+      await sql.begin(async (transaction) => {
+        await transaction`insert into "user" (id, name, email, email_verified, created_at, updated_at)
+          values (${userId}, ${userId}, ${`${userId}@example.com`}, false, now(), now())`;
+        await transaction`insert into user_profiles (user_id, username_normalized, nickname, email_kind, created_at, updated_at)
+          values (${userId}, ${userId}, ${userId}, 'REAL', now(), now())`;
+        await transaction`insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
+          values (${`${userId}-credential`}, ${userId}, 'credential', ${userId}, 'test-password-hash', now(), now())`;
+        await transaction`insert into system_roles (user_id, role, granted_at)
+          values (${userId}, 'system_admin', now())`;
       });
     },
     async stop() {
