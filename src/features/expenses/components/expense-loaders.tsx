@@ -19,6 +19,7 @@ import {
   type ExpenseFeedFilters,
 } from "@/features/expenses/components/expense-feed";
 import { offlineSessionKey } from "@/features/expenses/components/offline-status";
+import { UpdateBanner } from "@/features/pwa/update-banner";
 import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 import { MutationRepository } from "@/pwa/indexed-db/mutation-repository";
 import { AttachmentRepository } from "@/pwa/indexed-db/attachment-repository";
@@ -228,10 +229,13 @@ export function ExpenseFeedLoader() {
         onExpenseQueued={onExpenseQueued}
       />
       {entryContext && (
-        <SyncTriggers
-          userId={entryContext.activity.currentUserId}
-          onCompleted={() => refresh()}
-        />
+        <>
+          <SyncTriggers
+            userId={entryContext.activity.currentUserId}
+            onCompleted={() => refresh()}
+          />
+          <UpdateBanner userId={entryContext.activity.currentUserId} />
+        </>
       )}
     </>
   );
