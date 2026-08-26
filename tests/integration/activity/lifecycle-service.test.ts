@@ -202,7 +202,7 @@ describe("ActivityLifecycleService.transition", () => {
       from activities
       where id = ${fixture.activityId}
     `;
-      const [audit] = await harness.sql<
+      const audits = await harness.sql<
         {
           actorUserId: string | null;
           actorMemberId: string | null;
@@ -225,14 +225,16 @@ describe("ActivityLifecycleService.transition", () => {
     `;
 
       expect(activity).toEqual({ status: "ACTIVE", revision: "2" });
-      expect(audit).toEqual({
-        actorUserId,
-        actorMemberId,
-        eventType: "ACTIVITY_REOPEN",
-        targetType: "ACTIVITY",
-        targetId: fixture.activityId,
-        metadata: {},
-      });
+      expect(audits).toEqual([
+        {
+          actorUserId,
+          actorMemberId,
+          eventType: "ACTIVITY_REOPEN",
+          targetType: "ACTIVITY",
+          targetId: fixture.activityId,
+          metadata: {},
+        },
+      ]);
     },
   );
 
@@ -259,7 +261,7 @@ describe("ActivityLifecycleService.transition", () => {
       from activities
       where id = ${fixture.activityId}
     `;
-    const [audit] = await harness.sql<
+    const audits = await harness.sql<
       {
         actorUserId: string | null;
         actorMemberId: string | null;
@@ -282,14 +284,16 @@ describe("ActivityLifecycleService.transition", () => {
     `;
 
     expect(activity).toEqual({ status: "ENDED", revision: "3" });
-    expect(audit).toEqual({
-      actorUserId: fixture.ownerUserId,
-      actorMemberId: fixture.ownerMemberId,
-      eventType: "ACTIVITY_UNARCHIVE",
-      targetType: "ACTIVITY",
-      targetId: fixture.activityId,
-      metadata: {},
-    });
+    expect(audits).toEqual([
+      {
+        actorUserId: fixture.ownerUserId,
+        actorMemberId: fixture.ownerMemberId,
+        eventType: "ACTIVITY_UNARCHIVE",
+        targetType: "ACTIVITY",
+        targetId: fixture.activityId,
+        metadata: {},
+      },
+    ]);
   });
 
   it("拒绝普通成员、LEFT 成员和非法状态转换，且不产生写入", async () => {
