@@ -177,6 +177,121 @@ describe("ActivityLifecycleService.transition", () => {
     ]);
   });
 
+  it.each([
+    ["Admin", "adminMemberId", "adminUserId"],
+    ["Owner", "ownerMemberId", "ownerUserId"],
+  ] as const)(
+    "允许 %s 将 ENDED 重开为 ACTIVE",
+    async (_, memberKey, userKey) => {
+      const fixture = await createLifecycleFixture();
+      const service = new ActivityLifecycleService(harness.sql);
+      const actorMemberId = fixture[memberKey];
+      const actorUserId = fixture[userKey];
+
+      await service.transition(
+        fixture.activityId,
+        fixture.ownerMemberId,
+        "END",
+      );
+      await service.transition(fixture.activityId, actorMemberId, "REOPEN");
+
+      const [activity] = await harness.sql<
+        { status: string; revision: string }[]
+      >`
+      select status, revision::text as revision
+      from activities
+      where id = ${fixture.activityId}
+    `;
+      const [audit] = await harness.sql<
+        {
+          actorUserId: string | null;
+          actorMemberId: string | null;
+          eventType: string;
+          targetType: string;
+          targetId: string;
+          metadata: Record<string, unknown>;
+        }[]
+      >`
+      select
+        actor_user_id as "actorUserId",
+        actor_member_id as "actorMemberId",
+        event_type as "eventType",
+        target_type as "targetType",
+        target_id as "targetId",
+        metadata
+      from activity_audit_logs
+      where activity_id = ${fixture.activityId}
+        and event_type = 'ACTIVITY_REOPEN'
+    `;
+
+      expect(activity).toEqual({ status: "ACTIVE", revision: "2" });
+      expect(audit).toEqual({
+        actorUserId,
+        actorMemberId,
+        eventType: "ACTIVITY_REOPEN",
+        targetType: "ACTIVITY",
+        targetId: fixture.activityId,
+        metadata: {},
+      });
+    },
+  );
+
+  it("允许 Owner 将 ARCHIVED 解归档为 ENDED", async () => {
+    const fixture = await createLifecycleFixture();
+    const service = new ActivityLifecycleService(harness.sql);
+
+    await service.transition(fixture.activityId, fixture.ownerMemberId, "END");
+    await service.transition(
+      fixture.activityId,
+      fixture.ownerMemberId,
+      "ARCHIVE",
+    );
+    await service.transition(
+      fixture.activityId,
+      fixture.ownerMemberId,
+      "UNARCHIVE",
+    );
+
+    const [activity] = await harness.sql<
+      { status: string; revision: string }[]
+    >`
+      select status, revision::text as revision
+      from activities
+      where id = ${fixture.activityId}
+    `;
+    const [audit] = await harness.sql<
+      {
+        actorUserId: string | null;
+        actorMemberId: string | null;
+        eventType: string;
+        targetType: string;
+        targetId: string;
+        metadata: Record<string, unknown>;
+      }[]
+    >`
+      select
+        actor_user_id as "actorUserId",
+        actor_member_id as "actorMemberId",
+        event_type as "eventType",
+        target_type as "targetType",
+        target_id as "targetId",
+        metadata
+      from activity_audit_logs
+      where activity_id = ${fixture.activityId}
+        and event_type = 'ACTIVITY_UNARCHIVE'
+    `;
+
+    expect(activity).toEqual({ status: "ENDED", revision: "3" });
+    expect(audit).toEqual({
+      actorUserId: fixture.ownerUserId,
+      actorMemberId: fixture.ownerMemberId,
+      eventType: "ACTIVITY_UNARCHIVE",
+      targetType: "ACTIVITY",
+      targetId: fixture.activityId,
+      metadata: {},
+    });
+  });
+
   it("拒绝普通成员、LEFT 成员和非法状态转换，且不产生写入", async () => {
     const fixture = await createLifecycleFixture();
     const service = new ActivityLifecycleService(harness.sql);
