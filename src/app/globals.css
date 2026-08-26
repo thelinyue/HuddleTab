@@ -1,26 +1,173 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+  --font-ui:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --background: #f6f8f7;
+  --foreground: #17211d;
+  --card: #ffffff;
+  --card-foreground: #17211d;
+  --popover: #ffffff;
+  --popover-foreground: #17211d;
+  --primary: #146b52;
+  --primary-foreground: #ffffff;
+  --secondary: #eaf2ee;
+  --secondary-foreground: #17211d;
+  --muted: #eaf2ee;
+  --muted-foreground: #56675f;
+  --accent: #eaf2ee;
+  --accent-foreground: #146b52;
+  --warning: #8a5510;
+  --destructive: #c93636;
+  --border: #dce5e0;
+  --input: #dce5e0;
+  --ring: #146b52;
+  --chart-1: #146b52;
+  --chart-2: #2f8066;
+  --chart-3: #8a5510;
+  --chart-4: #c93636;
+  --chart-5: #56675f;
+  --radius: 0.75rem;
 }
 
-* {
-  box-sizing: border-box;
+.dark {
+  color-scheme: dark;
+  --background: #0d1512;
+  --foreground: #f1f7f4;
+  --card: #14201b;
+  --card-foreground: #f1f7f4;
+  --popover: #14201b;
+  --popover-foreground: #f1f7f4;
+  --primary: #5dd6a7;
+  --primary-foreground: #062017;
+  --secondary: #1b2b24;
+  --secondary-foreground: #f1f7f4;
+  --muted: #1b2b24;
+  --muted-foreground: #a9bbb3;
+  --accent: #1b2b24;
+  --accent-foreground: #5dd6a7;
+  --warning: #f1b968;
+  --destructive: #ff7b7b;
+  --border: #2a3b34;
+  --input: #2a3b34;
+  --ring: #5dd6a7;
+  --chart-1: #5dd6a7;
+  --chart-2: #a9bbb3;
+  --chart-3: #f1b968;
+  --chart-4: #ff7b7b;
+  --chart-5: #f1f7f4;
 }
 
-html,
-body {
-  min-height: 100%;
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+    --background: #0d1512;
+    --foreground: #f1f7f4;
+    --card: #14201b;
+    --card-foreground: #f1f7f4;
+    --popover: #14201b;
+    --popover-foreground: #f1f7f4;
+    --primary: #5dd6a7;
+    --primary-foreground: #062017;
+    --secondary: #1b2b24;
+    --secondary-foreground: #f1f7f4;
+    --muted: #1b2b24;
+    --muted-foreground: #a9bbb3;
+    --accent: #1b2b24;
+    --accent-foreground: #5dd6a7;
+    --warning: #f1b968;
+    --destructive: #ff7b7b;
+    --border: #2a3b34;
+    --input: #2a3b34;
+    --ring: #5dd6a7;
+    --chart-1: #5dd6a7;
+    --chart-2: #a9bbb3;
+    --chart-3: #f1b968;
+    --chart-4: #ff7b7b;
+    --chart-5: #f1f7f4;
+  }
 }
 
-body {
-  margin: 0;
-  font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    "PingFang SC",
-    "Microsoft YaHei",
-    sans-serif;
+@theme inline {
+  --font-sans: var(--font-ui);
+  --color-warning: var(--warning);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.75);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.33);
+  --radius-xl: calc(var(--radius) * 2);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    @apply border-border;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .money {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
 }
