@@ -1,19 +1,33 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 describe("database migration foundation", () => {
   it("safely skips without a migration journal or database connection", () => {
-    const result = spawnSync(
-      process.execPath,
-      ["--import", "tsx", "src/server/db/migrate.ts"],
-      {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        env: { ...process.env, DATABASE_URL: "" },
-      },
-    );
+    const emptyWorkspace = mkdtempSync(join(tmpdir(), "huddletab-migrate-"));
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("当前版本尚无数据库迁移，已安全跳过");
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          pathToFileURL(resolve("node_modules/tsx/dist/loader.mjs")).href,
+          resolve("src/server/db/migrate.ts"),
+        ],
+        {
+          cwd: emptyWorkspace,
+          encoding: "utf8",
+          env: { ...process.env, DATABASE_URL: "" },
+        },
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("当前版本尚无数据库迁移，已安全跳过");
+    } finally {
+      rmSync(emptyWorkspace, { recursive: true, force: true });
+    }
   });
 });
