@@ -136,5 +136,5 @@ it("更新时拒绝引用其他活动的成员", async () => {
 
   const [persisted] =
     await harness.sql`select version from expenses where id = ${created.expense.id}`;
-  expect(persisted?.version).toBe(1);
+  expect(persisted?.version).toBe("1");
 });

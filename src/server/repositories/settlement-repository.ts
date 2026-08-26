@@ -49,7 +49,7 @@ export class SettlementRepository {
   ) {
     const [settlement] =
       await transaction`insert into settlements (id, activity_id, payer_member_id, receiver_member_id, amount_minor, currency, occurred_at, note, created_by_member_id, version)
-        values (${randomUUID()}, ${input.activityId}, ${input.payerMemberId}, ${input.receiverMemberId}, ${input.amountMinor}, ${input.currency}, ${new Date(input.occurredAt)}, ${input.note ?? null}, ${input.createdByMemberId}, 1)
+        values (${randomUUID()}, ${input.activityId}, ${input.payerMemberId}, ${input.receiverMemberId}, ${input.amountMinor}, ${input.currency}, ${input.occurredAt}, ${input.note ?? null}, ${input.createdByMemberId}, 1)
         returning *`;
     return settlement!;
   }
@@ -105,7 +105,7 @@ export class SettlementRepository {
     },
   ) {
     const [settlement] =
-      await transaction`update settlements set payer_member_id = ${input.payerMemberId}, receiver_member_id = ${input.receiverMemberId}, amount_minor = ${input.amountMinor}, occurred_at = ${new Date(input.occurredAt)}, note = ${input.note ?? null}, version = version + 1, updated_at = now() where id = ${settlementId} and version = ${input.version} and deleted_at is null returning *`;
+      await transaction`update settlements set payer_member_id = ${input.payerMemberId}, receiver_member_id = ${input.receiverMemberId}, amount_minor = ${input.amountMinor}, occurred_at = ${input.occurredAt}, note = ${input.note ?? null}, version = version + 1, updated_at = now() where id = ${settlementId} and version = ${input.version} and deleted_at is null returning *`;
     return settlement ?? null;
   }
 

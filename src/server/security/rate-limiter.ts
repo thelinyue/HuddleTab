@@ -33,7 +33,7 @@ export class RateLimiter {
     await this.sql.begin(async (transaction) => {
       const [bucket] = await transaction`
         insert into security_rate_limit_buckets (bucket_key, window_started_at, attempts, expires_at)
-        values (${bucketKey}, ${windowStartedAt}, 1, ${expiresAt})
+        values (${bucketKey}, ${windowStartedAt.toISOString()}, 1, ${expiresAt.toISOString()})
         on conflict (bucket_key, window_started_at)
         do update set attempts = security_rate_limit_buckets.attempts + 1
         returning attempts`;

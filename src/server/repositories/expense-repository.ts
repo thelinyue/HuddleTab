@@ -113,7 +113,7 @@ export class ExpenseRepository {
     const splitMode = input.request.split.mode;
     const [expense] =
       await transaction`insert into expenses (id, activity_id, title, category, original_currency, original_amount_minor, base_currency, base_amount_minor, exchange_rate, exchange_rate_source, exchange_rate_at, split_mode, occurred_at, note, created_by_member_id, created_by_user_id, client_mutation_id, version)
-        values (${id}, ${input.activityId}, ${input.request.title}, ${input.request.category}, ${input.request.originalCurrency}, ${input.request.originalAmountMinor}, ${input.baseCurrency}, ${input.prepared.baseAmountMinor.toString()}, ${input.request.exchangeRate}, ${input.request.exchangeRateSource}, ${new Date(input.request.exchangeRateAt)}, ${splitMode}, ${new Date(input.request.occurredAt)}, ${input.request.note ?? null}, ${input.createdByMemberId}, ${input.createdByUserId}, ${input.request.clientMutationId}, 1)
+        values (${id}, ${input.activityId}, ${input.request.title}, ${input.request.category}, ${input.request.originalCurrency}, ${input.request.originalAmountMinor}, ${input.baseCurrency}, ${input.prepared.baseAmountMinor.toString()}, ${input.request.exchangeRate}, ${input.request.exchangeRateSource}, ${input.request.exchangeRateAt}, ${splitMode}, ${input.request.occurredAt}, ${input.request.note ?? null}, ${input.createdByMemberId}, ${input.createdByUserId}, ${input.request.clientMutationId}, 1)
         on conflict (created_by_user_id, client_mutation_id) do nothing
         returning *`;
     if (!expense) return null;
@@ -177,7 +177,7 @@ export class ExpenseRepository {
     },
   ) {
     const [expense] =
-      await transaction`update expenses set title = ${input.request.title}, category = ${input.request.category}, original_currency = ${input.request.originalCurrency}, original_amount_minor = ${input.request.originalAmountMinor}, base_currency = ${input.baseCurrency}, base_amount_minor = ${input.prepared.baseAmountMinor.toString()}, exchange_rate = ${input.request.exchangeRate}, exchange_rate_source = ${input.request.exchangeRateSource}, exchange_rate_at = ${new Date(input.request.exchangeRateAt)}, split_mode = ${input.request.split.mode}, occurred_at = ${new Date(input.request.occurredAt)}, note = ${input.request.note ?? null}, version = version + 1, updated_at = now() where id = ${input.expenseId} and version = ${input.version} and deleted_at is null returning *`;
+      await transaction`update expenses set title = ${input.request.title}, category = ${input.request.category}, original_currency = ${input.request.originalCurrency}, original_amount_minor = ${input.request.originalAmountMinor}, base_currency = ${input.baseCurrency}, base_amount_minor = ${input.prepared.baseAmountMinor.toString()}, exchange_rate = ${input.request.exchangeRate}, exchange_rate_source = ${input.request.exchangeRateSource}, exchange_rate_at = ${input.request.exchangeRateAt}, split_mode = ${input.request.split.mode}, occurred_at = ${input.request.occurredAt}, note = ${input.request.note ?? null}, version = version + 1, updated_at = now() where id = ${input.expenseId} and version = ${input.version} and deleted_at is null returning *`;
     return expense ?? null;
   }
 

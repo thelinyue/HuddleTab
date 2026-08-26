@@ -17,13 +17,17 @@ let secondLeftMemberId: string;
 const ownerSession = { user: { id: "settlement-owner" } };
 const leftSession = { user: { id: "settlement-left" } };
 
-function request(payerMemberId: string, receiverMemberId: string) {
+function request(
+  payerMemberId: string,
+  receiverMemberId: string,
+  confirmOverSettlement = false,
+) {
   return {
     payerMemberId,
     receiverMemberId,
     amountMinor: "100",
     occurredAt: "2026-08-23T08:00:00.000Z",
-    confirmOverSettlement: false,
+    confirmOverSettlement,
   };
 }
 
@@ -77,7 +81,7 @@ it("LEFT 只能以自己为付款人，收款人可以是 LEFT 账务成员", as
     service.create(
       leftSession,
       activityId,
-      request(leftMemberId, secondLeftMemberId),
+      request(leftMemberId, secondLeftMemberId, true),
     ),
   ).resolves.toMatchObject({
     settlement: {

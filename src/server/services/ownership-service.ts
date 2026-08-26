@@ -15,8 +15,9 @@ export interface TransferOwnershipInput {
 }
 
 /**
- * 所有权转让以活动锁为事务边界。成员角色使用单条 CASE 更新，避免部分唯一
- * Owner 索引观察到短暂的零 Owner 或双 Owner 状态。
+ * 所有权转让以活动锁为事务边界。PostgreSQL 会在每行更新时检查部分唯一 Owner
+ * 索引，因此必须先降级旧 Owner，再升级新 Owner；两步始终由同一事务和活动行锁
+ * 包裹，其他事务不会观察到未提交的中间状态。
  */
 export class OwnershipService {
   constructor(private readonly sql: ReturnType<typeof postgres>) {}
@@ -55,8 +56,11 @@ export class OwnershipService {
       }
 
       await transaction`update activity_members
-        set role = case when id = ${input.newOwnerMemberId} then 'OWNER'::activity_role else 'ADMIN'::activity_role end
-        where id in (${input.newOwnerMemberId}, ${actor.member.id}) and activity_id = ${input.activityId}`;
+        set role = 'ADMIN'::activity_role
+        where id = ${actor.member.id} and activity_id = ${input.activityId}`;
+      await transaction`update activity_members
+        set role = 'OWNER'::activity_role
+        where id = ${input.newOwnerMemberId} and activity_id = ${input.activityId}`;
       await transaction`update activities
         set owner_member_id = ${input.newOwnerMemberId}, revision = revision + 1, updated_at = now()
         where id = ${input.activityId}`;
