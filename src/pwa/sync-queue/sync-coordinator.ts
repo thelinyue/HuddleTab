@@ -12,6 +12,7 @@ type AttachmentSync = {
     expenseId: string,
   ): Promise<{ pendingCount: number }>;
 };
+type SnapshotRefresh = { refresh(activityId: string): Promise<void> };
 /** 前台唯一同步 worker；网络故障有限重试，权限/状态/校验拒绝保留本地输入。 */
 export class SyncCoordinator {
   private running: Promise<void> | null = null;
@@ -36,6 +37,7 @@ export class SyncCoordinator {
     },
     private readonly now: () => number = Date.now,
     private readonly attachments?: AttachmentSync,
+    private readonly snapshots?: SnapshotRefresh,
   ) {}
   run() {
     if (this.running) return this.running;
@@ -76,6 +78,17 @@ export class SyncCoordinator {
           await this.queue.setInfo?.(item.id, {
             code: "ATTACHMENTS_PENDING",
             message: "账单已同步，附件待同步。",
+          });
+        }
+      }
+      if (this.snapshots) {
+        try {
+          await this.snapshots.refresh(item.activityId);
+        } catch {
+          // 快照刷新不影响已被幂等确认的账单，后续联网时仍可重新拉取权威数据。
+          await this.queue.setInfo?.(item.id, {
+            code: "SNAPSHOT_REFRESH_PENDING",
+            message: "账单已同步，活动数据待刷新。",
           });
         }
       }
