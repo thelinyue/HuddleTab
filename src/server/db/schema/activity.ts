@@ -44,7 +44,9 @@ export const activities = pgTable("activities", {
   status: activityStatus("status").notNull().default("ACTIVE"),
   ownerMemberId: text("owner_member_id").notNull(),
   inviteMode: inviteMode("invite_mode").notNull().default("DIRECT_JOIN"),
-  revision: bigint("revision", { mode: "bigint" }).notNull().default(0n),
+  revision: bigint("revision", { mode: "bigint" })
+    .notNull()
+    .default(sql`0`),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
