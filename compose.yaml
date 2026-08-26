@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-huddletab}
+      POSTGRES_USER: ${POSTGRES_USER:-huddletab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-huddletab}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-huddletab}:${POSTGRES_PASSWORD:-huddletab}@postgres:5432/${POSTGRES_DB:-huddletab}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5660}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
+      DATA_DIR: /data
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+    ports:
+      - "5660:5660"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5660/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
