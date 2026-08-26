@@ -94,7 +94,7 @@ V1 不实现支付渠道连接、OCR、AI 分类、评论、聊天、好友系�
 
 ```mermaid
 graph TD
-    PWA[浏览器 / 安装后的 PWA] -->|HTTPS + HttpOnly Session Cookie| APP[Next.js app 容器]
+    PWA[浏览器 / 安装后的 PWA] -->|HTTP 或 HTTPS + HttpOnly Session Cookie| APP[Next.js app 容器]
     PWA --> IDB[IndexedDB]
     PWA --> SW[Service Worker: App Shell / 静态资源]
     APP --> API[Route Handlers]
@@ -111,7 +111,7 @@ graph TD
 运行约束：
 
 - Docker Compose 仅包含 `app` 和 `postgres`。`app` 容器监听 `0.0.0.0:5660`，默认端口映射为 `5660:5660`。
-- PostgreSQL 使用独立 Volume；App 持久化挂载 `/data/uploads` 与 `/data/backups`，镜像升级不得覆盖这些数据。
+- Compose 不使用 Docker named volume；PostgreSQL 与 App 数据均绑定宿主机 `./data` 路径，镜像升级不得覆盖这些数据。
 - Next.js 页面、API 和业务服务同源部署，避免 CORS、Cookie 和 PWA 跨域复杂度。
 - V1 默认单 App 实例。
 - 不引入独立 Worker、Redis、Kafka、RabbitMQ 或复杂调度平台。
@@ -925,7 +925,17 @@ backup_xxx.tar.gz
 
 ### 16.4 HTTPS 与代理
 
-核心 Compose 不内置代理，App 容器固定监听 `0.0.0.0:5660`，默认 Compose 映射为 `5660:5660`。部署文档至少提供一种 Caddy/Nginx/Traefik/Cloudflare Tunnel 的 HTTPS 反向代理方案，并说明代理目标端口为 `5660`。App 支持反向代理后的安全 Cookie、原始协议和客户端地址处理。
+HuddleTab 默认直接提供 HTTP 服务，核心 Compose 不内置 Caddy、Nginx、Traefik 或任何 TLS 证书管理。App 容器固定监听 `0.0.0.0:5660`，默认 Compose 映射为 `5660:5660`，适用于 localhost、LAN 和外部反向代理后的内部通信。
+
+公网访问、完整 PWA 安全上下文及更安全的 Session 传输推荐由部署者自行配置 HTTPS、域名和反向代理；这些均不是应用启动依赖。Secure Cookie 根据实际部署环境配置：HTTPS 正式环境启用，HTTP 开发或 LAN 环境允许关闭。
+
+`TRUST_PROXY` 与 HTTPS 无绑定关系，默认值为 `false`：
+
+- `TRUST_PROXY=false` 时，应用不读取 `Forwarded`、`X-Forwarded-For`、`X-Real-IP` 等客户端可伪造 Header；限流使用直连边界和用户名、Setup Token、Invite Token 等稳定标识的组合。
+- `TRUST_PROXY=true` 是部署者的显式信任声明：应用位于受控反向代理之后，代理会删除客户端传入的地址 Header、根据真实连接重设地址，且客户端不能绕过代理直连 App 端口。部署错误可能使 IP 限流被伪造或绕过。
+- V1 只读取一个由可信代理覆盖后的单值 `X-Real-IP`，拒绝缺失、无效或重复/逗号分隔的 Header；不解析代理链，也不自动猜测或同时信任多种 Header。
+
+登录、注册、Setup 和邀请限流始终同时结合客户端地址维度与稳定标识。客户端 IP 不是唯一限流依据，密码、Setup Token、Invite Token、Synthetic Email 和完整标识都不得写入日志。
 
 ## 17. 安全设计
 

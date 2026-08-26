@@ -21,11 +21,40 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const [{ createSetupService }, { normalizeUsername }] = await Promise.all([
+  const [
+    { createSetupService },
+    { normalizeUsername },
+    { sql },
+    { RateLimiter },
+    { authRuntimeConfig },
+    { resolveClientIp },
+    { applicationErrorResponse },
+  ] = await Promise.all([
     import("@/server/bootstrap/initialize-setup"),
     import("@/server/auth/username"),
+    import("@/server/db/client"),
+    import("@/server/security/rate-limiter"),
+    import("@/server/auth/runtime-config"),
+    import("@/server/security/client-ip"),
+    import("@/server/http/application-error-response"),
   ]);
   const body = setupInput.parse(await request.json());
+  try {
+    const clientIp = resolveClientIp({
+      trustedProxy: process.env.TRUST_PROXY === "true",
+      connectionIp: "direct-connection",
+      headers: request.headers,
+    });
+    await new RateLimiter(sql, authRuntimeConfig.secret).consume(
+      "SETUP",
+      `${clientIp}:${body.setupToken}`,
+      { limit: 5, windowSeconds: 600 },
+    );
+  } catch (error) {
+    const response = applicationErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
   await createSetupService().claim(body.setupToken, {
     ...body,
     username: normalizeUsername(body.username),
