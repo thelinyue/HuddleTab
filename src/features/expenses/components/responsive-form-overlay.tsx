@@ -32,6 +32,7 @@ export function ResponsiveFormOverlay({
 }) {
   const [wide, setWide] = useState(false);
   useEffect(() => {
+    if (!window.matchMedia) return;
     const query = window.matchMedia("(min-width: 768px)");
     const update = () => setWide(query.matches);
     update();

@@ -1,6 +1,7 @@
 import type postgres from "postgres";
 
 import { calculateLedger, type LedgerBalance } from "@/domain/ledger/ledger";
+import { recommendSettlements } from "@/domain/settlement/recommendation";
 import { formatMoney } from "@/domain/money/money";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import type {
@@ -33,6 +34,55 @@ export class SettlementService {
         operation: "LEDGER_READ",
       });
       return this.repository.list(transaction, activityId);
+    });
+  }
+
+  /**
+   * 结算页的最小只读快照。成员姓名属于 ActivityMember 账务身份，不读取用户邮箱；
+   * 推荐由本次 Ledger 事实即时计算，绝不作为可写入或持久化的权威记录。
+   */
+  async getPageContext(
+    session: { readonly user: { readonly id: string } } | null,
+    activityId: string,
+  ) {
+    return this.sql.begin(async (transaction) => {
+      const authorization = await authorizeActivityOperation(transaction, {
+        session,
+        activityId,
+        operation: "LEDGER_READ",
+      });
+      const [activity] =
+        await transaction`select name from activities where id = ${activityId}`;
+      const members =
+        await transaction`select id, display_name, status from activity_members where activity_id = ${activityId} order by id`;
+      const balances = calculateLedger(
+        await this.ledgerRepository.loadFacts(transaction, activityId),
+      );
+      return {
+        activity: {
+          id: activityId,
+          name: activity!.name,
+          currency: authorization.activity.baseCurrency,
+          status: authorization.activity.status,
+          currentMemberId: authorization.member.id,
+          currentMemberStatus: authorization.member.status,
+          currentMemberRole: authorization.member.role,
+        },
+        members: members.map((member) => ({
+          id: member.id,
+          displayName: member.display_name,
+          status: member.status,
+        })),
+        balances: balances.map((balance) => ({
+          memberId: balance.memberId,
+          netMinor: balance.netMinor.toString(),
+        })),
+        recommendations: recommendSettlements(balances).map((row) => ({
+          payerMemberId: row.payerMemberId,
+          receiverMemberId: row.receiverMemberId,
+          amountMinor: row.amountMinor.toString(),
+        })),
+      };
     });
   }
 
