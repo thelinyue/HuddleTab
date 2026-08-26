@@ -1,4 +1,5 @@
 import type { DBSchema } from "idb";
+import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 
 export type MutationStatus =
   "PENDING" | "SYNCING" | "RETRYABLE" | "REJECTED" | "SYNCED";
@@ -7,7 +8,7 @@ export interface PendingExpenseMutation {
   userId: string;
   activityId: string;
   kind: "CREATE_EXPENSE";
-  payload: unknown;
+  payload: CreateExpenseRequest;
   status: MutationStatus;
   attemptCount: number;
   nextAttemptAt: number;

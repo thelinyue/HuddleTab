@@ -16,7 +16,7 @@ test("不同登录用户使用隔离数据库，遗留 SYNCING 恢复为 RETRYAB
     userId: "u1",
     activityId: "a1",
     kind: "CREATE_EXPENSE",
-    payload: {},
+    payload: {} as never,
     status: "SYNCING",
     attemptCount: 1,
     nextAttemptAt: 0,
