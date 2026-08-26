@@ -6,6 +6,14 @@ import { ApplicationError } from "@/server/errors/application-error";
 
 /** Settlement 事实写入边界；成员同活动与状态校验在事务内完成。 */
 export class SettlementRepository {
+  /** 串行化同一活动的结算写入，确保超额判断基于提交时仍有效的事实。 */
+  async lockActivity(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+  ): Promise<void> {
+    await transaction`select id from activities where id = ${activityId} for update`;
+  }
+
   async requireAccountingMember(
     transaction: postgres.TransactionSql,
     activityId: string,
