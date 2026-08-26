@@ -2,10 +2,8 @@ import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { ApplicationError } from "@/server/errors/application-error";
 import { ActivityService } from "@/server/services/activity-service";
 import { InvitationService } from "@/server/services/invitation-service";
-import { OwnershipService } from "@/server/services/ownership-service";
 import { startPostgres, type PostgresHarness } from "../../support/postgres";
 
 let harness: PostgresHarness;
@@ -35,13 +33,17 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-function hasPostgresCode(error: unknown, code: string): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === code
-  );
+async function waitForPendingLock(pid: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const [lock] = await harness.sql<{ waiting: boolean }[]>`
+      select exists (
+        select 1 from pg_locks where pid = ${pid} and granted = false
+      ) as waiting
+    `;
+    if (lock?.waiting) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return false;
 }
 
 /**
@@ -115,58 +117,76 @@ describe("InvitationService", () => {
     expect(disabledAudits).toEqual([{ count: "1" }]);
   });
 
-  it("与所有权转让并发时遵守成员再活动的统一锁排序，不产生死锁", async () => {
+  it("重置邀请先锁管理成员，未取得成员锁时不会提前锁活动", async () => {
     const fixture = await createFixture();
-    const nextOwnerUserId = await seedUser();
-    const nextOwnerMemberId = randomUUID();
-    await harness.sql`
-      insert into activity_members (
-        id, activity_id, user_id, display_name, member_type, role, status
-      ) values (
-        ${nextOwnerMemberId}, ${fixture.id}, ${nextOwnerUserId}, '候选 Owner', 'USER', 'MEMBER', 'ACTIVE'
-      )
-    `;
-
-    const ownershipClient = postgres(harness.connectionUri, { max: 1 });
+    const blockerClient = postgres(harness.connectionUri, { max: 1 });
     const invitationClient = postgres(harness.connectionUri, { max: 1 });
-    let results: PromiseSettledResult<void | string>[];
-    try {
-      // 两个独立连接并发：转让锁候选成员后锁活动，邀请重置也必须先锁候选成员再锁活动。
-      results = await Promise.allSettled([
-        new OwnershipService(ownershipClient).transferOwnership(
-          fixture.id,
-          fixture.ownerMemberId,
-          nextOwnerMemberId,
-        ),
-        new InvitationService(invitationClient).resetLink(
-          fixture.id,
-          nextOwnerMemberId,
-        ),
-      ]);
-    } finally {
-      await Promise.all([ownershipClient.end(), invitationClient.end()]);
-    }
+    const probeClient = postgres(harness.connectionUri, { max: 1 });
+    let signalBlockerReady!: () => void;
+    const blockerReady = new Promise<void>((resolve) => {
+      signalBlockerReady = resolve;
+    });
+    let gateReleased = false;
+    let releaseBlocker!: () => void;
+    const blockerGate = new Promise<void>((resolve) => {
+      releaseBlocker = () => {
+        if (gateReleased) return;
+        gateReleased = true;
+        resolve();
+      };
+    });
+    const blockerTransaction = blockerClient.begin(async (transaction) => {
+      await transaction`
+        select id from activity_members
+        where id = ${fixture.ownerMemberId}
+        for update
+      `;
+      signalBlockerReady();
+      await blockerGate;
+    });
+    let resetPromise = Promise.resolve("");
 
-    const rejected = results.filter(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    expect(
-      rejected.some((result) => hasPostgresCode(result.reason, "40P01")),
-    ).toBe(false);
-    expect(
-      rejected.every(
-        (result) =>
-          result.reason instanceof ApplicationError &&
-          result.reason.status === 403,
-      ),
-    ).toBe(true);
+    try {
+      await blockerReady;
+      const [backend] = await invitationClient<{ pid: number }[]>`
+        select pg_backend_pid() as pid
+      `;
+      resetPromise = new InvitationService(invitationClient).resetLink(
+        fixture.id,
+        fixture.ownerMemberId,
+      );
+
+      // blocker 固定占有 Owner 成员行；正确排序下 reset 只能等待成员，尚未锁住活动行。
+      expect(await waitForPendingLock(backend.pid)).toBe(true);
+      await expect(probeClient`
+        select id from activities where id = ${fixture.id} for update nowait
+      `).resolves.toHaveLength(1);
+
+      releaseBlocker();
+      await blockerTransaction;
+      await expect(resetPromise).resolves.toEqual(expect.any(String));
+    } finally {
+      releaseBlocker();
+      await blockerTransaction.catch(() => undefined);
+      await resetPromise.catch(() => undefined);
+      await Promise.all([
+        blockerClient.end(),
+        invitationClient.end(),
+        probeClient.end(),
+      ]);
+    }
 
     const [ownerCount] = await harness.sql<{ count: string }[]>`
       select count(*)::text as count
       from activity_members
       where activity_id = ${fixture.id} and role = 'OWNER'
     `;
+    const [activity] = await harness.sql<{ ownerMemberId: string }[]>`
+      select owner_member_id as "ownerMemberId"
+      from activities where id = ${fixture.id}
+    `;
     expect(ownerCount).toEqual({ count: "1" });
+    expect(activity).toEqual({ ownerMemberId: fixture.ownerMemberId });
   });
 
   it("直接加入在同一事务创建 ACTIVE USER 成员、审计和 revision", async () => {
