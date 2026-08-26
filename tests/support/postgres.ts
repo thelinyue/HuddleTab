@@ -6,7 +6,11 @@ import { createDatabaseClient } from "@/server/db/factory";
 export interface PostgresHarness {
   readonly sql: ReturnType<typeof postgres>;
   readonly db: ReturnType<typeof createDatabaseClient>["db"];
-  seedCredentialUser(userId: string, email: string): Promise<void>;
+  seedCredentialUser(
+    userId: string,
+    email: string,
+    includeProfile?: boolean,
+  ): Promise<void>;
   seedCredentialAdmin(userId: string): Promise<void>;
   stop(): Promise<void>;
 }
@@ -22,12 +26,18 @@ export async function startPostgres(): Promise<PostgresHarness> {
   return {
     sql,
     db,
-    async seedCredentialUser(userId, email) {
+    async seedCredentialUser(userId, email, includeProfile = true) {
       await sql.begin(async (transaction) => {
         await transaction`insert into "user" (id, name, email, email_verified, created_at, updated_at)
-          values (${userId}, ${userId}, ${email}, false, now(), now())`;
+          values (${userId}, ${userId}, ${email}, false, now(), now()) on conflict (id) do nothing`;
+        if (includeProfile) {
+          await transaction`insert into user_profiles (user_id, username_normalized, nickname, email_kind, created_at, updated_at)
+            values (${userId}, ${userId}, ${userId}, ${email.endsWith("@local.invalid") ? "SYNTHETIC" : "REAL"}, now(), now())
+            on conflict (user_id) do nothing`;
+        }
         await transaction`insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
-          values (${`${userId}-credential`}, ${userId}, 'credential', ${userId}, 'test-password-hash', now(), now())`;
+          values (${`${userId}-credential`}, ${userId}, 'credential', ${userId}, 'test-password-hash', now(), now())
+          on conflict (id) do nothing`;
       });
     },
     async seedCredentialAdmin(userId) {

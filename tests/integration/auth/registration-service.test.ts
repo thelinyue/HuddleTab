@@ -15,6 +15,7 @@ describe("注册服务", () => {
     await harness.seedCredentialUser(
       "new-user",
       "u_018f1f675b1e7f41b0d13a013d9c9001@local.invalid",
+      false,
     );
   });
 
