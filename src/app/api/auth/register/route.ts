@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const rejectingVerifier = {
-  verify: async () => false,
-};
-
-/** Phase 3 注入活动邀请验证器前，INVITE_ONLY 始终拒绝普通注册。 */
+/** 注册统一经过活动邀请验证器；原始邀请 proof 不进入日志或数据库。 */
 export async function POST(request: Request) {
   const [
     { auth },
@@ -17,6 +13,7 @@ export async function POST(request: Request) {
     { authRuntimeConfig },
     { resolveClientIp },
     { applicationErrorResponse },
+    { InvitationService },
   ] = await Promise.all([
     import("@/server/auth/auth"),
     import("@/server/services/registration-service"),
@@ -26,6 +23,7 @@ export async function POST(request: Request) {
     import("@/server/auth/runtime-config"),
     import("@/server/security/client-ip"),
     import("@/server/http/application-error-response"),
+    import("@/server/services/invitation-service"),
   ]);
   const input = registerInput.parse(await request.json());
   try {
@@ -44,10 +42,18 @@ export async function POST(request: Request) {
     if (response) return response;
     throw error;
   }
-  const data = await new RegistrationService(rejectingVerifier, {
-    database: db,
-    credentials: auth.api,
-  }).register(input);
-
-  return NextResponse.json({ data }, { status: 201 });
+  try {
+    const data = await new RegistrationService(
+      new InvitationService(db.$client),
+      {
+        database: db,
+        credentials: auth.api,
+      },
+    ).register(input);
+    return NextResponse.json({ data }, { status: 201 });
+  } catch (error) {
+    const response = applicationErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
 }

@@ -96,6 +96,38 @@ export const activityInviteTokens = pgTable("activity_invite_tokens", {
     .defaultNow(),
 });
 
+export const activityUserInvitations = pgTable("activity_user_invitations", {
+  id: text("id").primaryKey(),
+  activityId: text("activity_id")
+    .notNull()
+    .references(() => activities.id, { onDelete: "cascade" }),
+  targetUserId: text("target_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  senderMemberId: text("sender_member_id").notNull(),
+  status: text("status").notNull().default("PENDING"),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const activityJoinRequests = pgTable("activity_join_requests", {
+  id: text("id").primaryKey(),
+  activityId: text("activity_id")
+    .notNull()
+    .references(() => activities.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("PENDING"),
+  decidedByMemberId: text("decided_by_member_id"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const userActivityPreferences = pgTable(
   "user_activity_preferences",
   {

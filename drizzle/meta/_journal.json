@@ -15,6 +15,13 @@
       "when": 1787732849050,
       "tag": "0001_ambitious_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787733463532,
+      "tag": "0002_many_colossus",
+      "breakpoints": true
     }
   ]
 }
