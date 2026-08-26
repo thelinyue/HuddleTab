@@ -73,7 +73,10 @@ export async function GET(request: Request, context: ItemContext) {
           height: attachment.height,
           byteSize: String(attachment.byte_size),
           sha256: attachment.sha256,
-          createdAt: attachment.created_at.toISOString(),
+          createdAt:
+            attachment.created_at instanceof Date
+              ? attachment.created_at.toISOString()
+              : String(attachment.created_at),
         })),
         permissions: data.permissions,
       },

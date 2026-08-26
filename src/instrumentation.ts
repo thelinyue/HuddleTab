@@ -1,12 +1,11 @@
-import { initializeContainerRuntime } from "@/server/bootstrap/container-start";
-
 /**
- * Next.js Node 运行时的容器启动钩子。
- * 这里执行首次 Setup 检查和后台清理任务，确保 server-only 模块始终由 Next.js 加载。
+ * 根 instrumentation 不能静态导入 Node 专用模块：Next.js 也会为非 Node 运行时分析本文件。
+ * 仅在 Node 生产运行时加载专用入口，避免 server-only 与 node:crypto 进入错误的编译目标。
  */
 export async function register(): Promise<void> {
-  if (process.env.NODE_ENV !== "production") return;
-  if (process.env.NEXT_RUNTIME !== "nodejs") return;
-
-  await initializeContainerRuntime();
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { registerContainerInstrumentation } =
+      await import("./instrumentation.node");
+    await registerContainerInstrumentation();
+  }
 }

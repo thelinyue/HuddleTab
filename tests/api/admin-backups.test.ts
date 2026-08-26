@@ -71,6 +71,30 @@ it("仅系统管理员可列出和创建显式确认的备份", async () => {
   });
 });
 
+it("数据库驱动返回时间字符串时仍可序列化备份记录", async () => {
+  mocks.requireAdmin.mockResolvedValue("admin-1");
+  mocks.create.mockResolvedValueOnce({
+    id: "backup-created-at-string",
+    filename: "backup_3_test.tar.gz",
+    sizeBytes: 300n,
+    checksum: "ghi",
+    createdAt: "2026-08-27T00:00:00.000Z",
+    status: "READY",
+  });
+
+  const create = await POST(
+    new Request("http://localhost/api/admin/backups", {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true }),
+    }),
+  );
+
+  expect(create.status).toBe(201);
+  await expect(create.json()).resolves.toMatchObject({
+    data: { createdAt: "2026-08-27T00:00:00.000Z" },
+  });
+});
+
 it("拒绝未经明确确认的创建与恢复", async () => {
   mocks.requireAdmin.mockResolvedValue("admin-1");
 

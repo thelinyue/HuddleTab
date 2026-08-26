@@ -120,7 +120,18 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
     expense,
     payments: [],
     shares: [],
-    attachments: [],
+    attachments: [
+      {
+        id: "attachment-1",
+        safe_filename: "receipt.webp",
+        mime_type: "image/webp",
+        width: 1,
+        height: 1,
+        byte_size: 44n,
+        sha256: "a".repeat(64),
+        created_at: "2026-08-23T08:00:00.000Z",
+      },
+    ],
     permissions: { canUpdate: false, canDelete: false },
   });
 
@@ -150,6 +161,9 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
   });
   expect(detailBody.data).toMatchObject({
     permissions: { canUpdate: false, canDelete: false },
+    attachments: [
+      { id: "attachment-1", createdAt: "2026-08-23T08:00:00.000Z" },
+    ],
   });
   expect(mocks.list).toHaveBeenCalledWith(
     { user: { id: "user-1" } },

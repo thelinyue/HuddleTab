@@ -87,7 +87,7 @@ function serializeBackup(record: {
   readonly filename: string;
   readonly sizeBytes: bigint;
   readonly checksum: string;
-  readonly createdAt?: Date;
+  readonly createdAt?: Date | string;
   readonly status?: string;
 }) {
   return {
@@ -96,6 +96,13 @@ function serializeBackup(record: {
     sizeBytes: record.sizeBytes.toString(),
     checksum: record.checksum,
     status: record.status ?? "READY",
-    ...(record.createdAt ? { createdAt: record.createdAt.toISOString() } : {}),
+    ...(record.createdAt
+      ? {
+          createdAt:
+            record.createdAt instanceof Date
+              ? record.createdAt.toISOString()
+              : new Date(record.createdAt).toISOString(),
+        }
+      : {}),
   };
 }

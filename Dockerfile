@@ -21,7 +21,14 @@ COPY --from=build /app/src/server ./src/server
 COPY --from=build /app/docker/entrypoint.sh ./docker/entrypoint.sh
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends postgresql-client \
+  && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+  && install -d -m 0755 /usr/share/keyrings \
+  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg \
+  && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends postgresql-client-18 \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /data/uploads /data/backups \
   && chmod +x ./docker/entrypoint.sh

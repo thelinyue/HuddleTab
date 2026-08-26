@@ -18,6 +18,9 @@
     "test:integration": "vitest run tests/integration --maxWorkers=1",
     "test:e2e": "playwright test",
     "pwa:icons": "node scripts/generate-pwa-icons.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "verify:backup-restore": "node scripts/verify-backup-restore.mjs",
+    "verify:upgrade": "powershell -ExecutionPolicy Bypass -File scripts/verify-upgrade.ps1",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/server/db/migrate.ts",
     "format:check": "prettier --check ."
