@@ -14,7 +14,8 @@ export type ActivityOperation =
   | "ATTACHMENT_READ"
   | "ATTACHMENT_WRITE"
   | "MEMBER_MANAGE"
-  | "OWNER_TRANSFER";
+  | "OWNER_TRANSFER"
+  | "ACTIVITY_LIFECYCLE";
 
 export interface ActivityPermissionContext {
   readonly hasSession: boolean;
@@ -43,6 +44,9 @@ const resourceWriteOperations: readonly ActivityOperation[] = [
   "SETTLEMENT_UPDATE",
   "SETTLEMENT_DELETE",
 ];
+const lifecycleOperations: readonly ActivityOperation[] = [
+  "ACTIVITY_LIFECYCLE",
+];
 
 /**
  * 固定顺序是安全边界：调用者只能提供事实，不能跳过活动生命周期或 LEFT 状态
@@ -67,8 +71,11 @@ export function evaluateActivityOperation(
     );
   }
   if (
-    context.lifecycle === "DELETED" ||
-    (context.lifecycle === "ARCHIVED" && !readOperations.includes(operation))
+    (context.lifecycle === "DELETED" &&
+      !lifecycleOperations.includes(operation)) ||
+    (context.lifecycle === "ARCHIVED" &&
+      !readOperations.includes(operation) &&
+      !lifecycleOperations.includes(operation))
   ) {
     throw new ApplicationError(
       "ACTIVITY_READ_ONLY",
@@ -79,7 +86,8 @@ export function evaluateActivityOperation(
   if (
     context.lifecycle === "ENDED" &&
     !readOperations.includes(operation) &&
-    !settlementOperations.includes(operation)
+    !settlementOperations.includes(operation) &&
+    !lifecycleOperations.includes(operation)
   ) {
     throw new ApplicationError(
       "ACTIVITY_READ_ONLY",
