@@ -2,4 +2,5 @@
 export * from "./auth";
 export * from "./activity";
 export * from "./expenses";
+export * from "./exchange-rates";
 export * from "./system";
