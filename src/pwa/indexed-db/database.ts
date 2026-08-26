@@ -21,14 +21,23 @@ export async function openHuddleTabDb(userId: string) {
       attachments.createIndex("by-status-next", ["status", "nextAttemptAt"]);
     },
   });
-  const transaction = db.transaction("pending_mutations", "readwrite");
-  for await (const cursor of transaction.store) {
-    if (cursor.value.status === "SYNCING")
-      await cursor.update({
-        ...cursor.value,
-        status: "RETRYABLE",
-        updatedAt: Date.now(),
-      });
+  const transaction = db.transaction(
+    ["pending_mutations", "pending_attachments"],
+    "readwrite",
+  );
+  for (const storeName of [
+    "pending_mutations",
+    "pending_attachments",
+  ] as const) {
+    const store = transaction.objectStore(storeName);
+    for await (const cursor of store) {
+      if (cursor.value.status === "SYNCING")
+        await cursor.update({
+          ...cursor.value,
+          status: "RETRYABLE",
+          updatedAt: Date.now(),
+        });
+    }
   }
   await transaction.done;
   return db;

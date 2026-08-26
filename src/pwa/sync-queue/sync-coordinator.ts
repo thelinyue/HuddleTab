@@ -6,6 +6,12 @@ type Item = {
   attemptCount?: number;
 };
 type Failure = { code: string; message: string };
+type AttachmentSync = {
+  syncFor(
+    mutationId: string,
+    expenseId: string,
+  ): Promise<{ pendingCount: number }>;
+};
 /** 前台唯一同步 worker；网络故障有限重试，权限/状态/校验拒绝保留本地输入。 */
 export class SyncCoordinator {
   private running: Promise<void> | null = null;
@@ -20,6 +26,7 @@ export class SyncCoordinator {
       ): Promise<void> | void;
       markRejected(id: string, failure: Failure): Promise<void> | void;
       markSynced(id: string, serverId?: string): Promise<void> | void;
+      setInfo?(id: string, info: Failure): Promise<void> | void;
     },
     private readonly api: {
       createExpense(
@@ -28,6 +35,7 @@ export class SyncCoordinator {
       ): Promise<{ expense?: { id?: string } }>;
     },
     private readonly now: () => number = Date.now,
+    private readonly attachments?: AttachmentSync,
   ) {}
   run() {
     if (this.running) return this.running;
@@ -52,6 +60,25 @@ export class SyncCoordinator {
         item.payload,
       );
       await this.queue.markSynced(item.id, result.expense?.id);
+      if (result.expense?.id && this.attachments) {
+        try {
+          const attachmentResult = await this.attachments.syncFor(
+            item.id,
+            result.expense.id,
+          );
+          if (attachmentResult.pendingCount)
+            await this.queue.setInfo?.(item.id, {
+              code: "ATTACHMENTS_PENDING",
+              message: "账单已同步，附件待同步。",
+            });
+        } catch {
+          // 账单已得到服务端确认，附件本地异常也不能触发账单的第二次创建。
+          await this.queue.setInfo?.(item.id, {
+            code: "ATTACHMENTS_PENDING",
+            message: "账单已同步，附件待同步。",
+          });
+        }
+      }
     } catch (error) {
       const value = error as {
         status?: number;

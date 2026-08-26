@@ -13,7 +13,26 @@ export interface PendingExpenseMutation {
   attemptCount: number;
   nextAttemptAt: number;
   lastError?: { code: string; message: string };
+  syncInfo?: { code: string; message: string };
   serverExpenseId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+/** 附件与账单分开保存同步状态，避免附件网络故障导致账单重复创建。 */
+export interface PendingAttachment {
+  id: string;
+  userId: string;
+  activityId: string;
+  mutationId: string;
+  clientAttachmentId: string;
+  fileName: string;
+  mimeType: string;
+  blob: Blob;
+  status: MutationStatus;
+  attemptCount: number;
+  nextAttemptAt: number;
+  lastError?: { code: string; message: string };
+  serverAttachmentId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -42,21 +61,7 @@ export interface HuddleTabDb extends DBSchema {
   };
   pending_attachments: {
     key: string;
-    value: {
-      id: string;
-      userId: string;
-      activityId: string;
-      mutationId: string;
-      clientAttachmentId: string;
-      fileName: string;
-      mimeType: string;
-      blob: Blob;
-      status: MutationStatus;
-      attemptCount: number;
-      nextAttemptAt: number;
-      createdAt: number;
-      updatedAt: number;
-    };
+    value: PendingAttachment;
     indexes: {
       "by-mutation": string;
       "by-status-next": [MutationStatus, number];
