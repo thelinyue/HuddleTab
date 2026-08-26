@@ -90,18 +90,68 @@ export const activityMembers = pgTable(
 );
 
 /** 活动邀请码只保存不可逆的哈希值，原始令牌不会落库。 */
-export const activityInviteTokens = pgTable("activity_invite_tokens", {
+export const activityInviteTokens = pgTable(
+  "activity_invite_tokens",
+  {
+    id: text("id").primaryKey(),
+    activityId: text("activity_id")
+      .notNull()
+      .references(() => activities.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdByMemberId: text("created_by_member_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("activity_invite_tokens_one_enabled_uq")
+      .on(table.activityId)
+      .where(sql`${table.enabled}`),
+  ],
+);
+
+/** 预留的点对点邀请记录只定义 V1 数据形状，不在本任务暴露发送或接受接口。 */
+export const activityUserInvitations = pgTable("activity_user_invitations", {
   id: text("id").primaryKey(),
   activityId: text("activity_id")
     .notNull()
     .references(() => activities.id, { onDelete: "cascade" }),
-  tokenHash: text("token_hash").notNull().unique(),
-  enabled: boolean("enabled").notNull().default(true),
-  createdByMemberId: text("created_by_member_id").notNull(),
+  targetUserId: text("target_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  senderMemberId: text("sender_member_id").notNull(),
+  status: text("status").notNull().default("PENDING"),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
+
+/** 审批模式的加入请求以用户账户为主体，处理人保留活动成员身份。 */
+export const activityJoinRequests = pgTable(
+  "activity_join_requests",
+  {
+    id: text("id").primaryKey(),
+    activityId: text("activity_id")
+      .notNull()
+      .references(() => activities.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("PENDING"),
+    decidedByMemberId: text("decided_by_member_id"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("activity_join_requests_pending_uq")
+      .on(table.activityId, table.userId)
+      .where(sql`${table.status} = 'PENDING'`),
+  ],
+);
 
 export const userActivityPreferences = pgTable(
   "user_activity_preferences",

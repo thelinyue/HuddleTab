@@ -7,12 +7,9 @@ import {
   RateLimiter,
   type RateLimitBucket,
 } from "@/server/security/rate-limiter";
+import { InvitationService } from "@/server/services/invitation-service";
 import { RegistrationService } from "@/server/services/registration-service";
 import { registerInput } from "@/server/validation/auth";
-
-const rejectingInvitationVerifier = {
-  verify: async () => false,
-};
 
 /** 当前路由的预期业务错误统一保持 V1 固定错误信封，避免客户端按端点分支解析。 */
 function errorResponse(
@@ -69,6 +66,29 @@ async function consumeRegistrationRateLimit(
 }
 
 /**
+ * 邀请证明的限流发生在 schema 校验之后、数据库令牌查询之前。可信 IP 仅在部署者显式
+ * 启用 TRUST_PROXY 时加入，令牌 bucket 始终是主要稳定标识。
+ */
+async function consumeInvitationRateLimit(
+  request: Request,
+  inviteProof: string | undefined,
+): Promise<void> {
+  if (!inviteProof) return;
+
+  const buckets: RateLimitBucket[] = [
+    { scope: "INVITATION_TOKEN", identifier: inviteProof },
+  ];
+  const clientAddress = getClientAddress(request);
+  if (clientAddress) {
+    buckets.push({ scope: "INVITATION_IP", identifier: clientAddress });
+  }
+
+  await new RateLimiter(getDatabaseClient().sql, readAuthSecret()).consumeAll(
+    buckets,
+  );
+}
+
+/**
  * 产品注册入口负责把预期的校验与业务错误转换为稳定 JSON；密码、邀请码和内部邮箱
  * 均不会写入响应或日志。认证用户的创建与补偿由 RegistrationService 集中处理。
  */
@@ -91,8 +111,10 @@ export async function POST(request: Request): Promise<Response> {
       return invalidInputResponse();
     }
 
+    await consumeInvitationRateLimit(request, parsed.data.inviteProof);
+
     const result = await new RegistrationService(
-      rejectingInvitationVerifier,
+      new InvitationService(getDatabaseClient().sql),
     ).register(parsed.data);
     const response = Response.json({ data: result.user }, { status: 201 });
 

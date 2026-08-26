@@ -9,7 +9,7 @@ export const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * 每种认证入口使用独立 scope，避免同一标识在不同攻击面共享错误的计数器。
- * INVITATION_TOKEN 为后续邀请入口预留；本阶段不接入任何邀请路由。
+ * 邀请令牌与可信代理地址分开计数，地址只作为稳定令牌标识的补充维度。
  */
 export type RateLimitScope =
   | "LOGIN_USERNAME"
@@ -18,7 +18,8 @@ export type RateLimitScope =
   | "REGISTER_IP"
   | "SETUP_TOKEN"
   | "SETUP_IP"
-  | "INVITATION_TOKEN";
+  | "INVITATION_TOKEN"
+  | "INVITATION_IP";
 
 export type RateLimitBucket = {
   scope: RateLimitScope;

@@ -42,6 +42,16 @@ CREATE TABLE "activity_invite_tokens" (
 	CONSTRAINT "activity_invite_tokens_token_hash_unique" UNIQUE("token_hash")
 );
 --> statement-breakpoint
+CREATE TABLE "activity_join_requests" (
+	"id" text PRIMARY KEY NOT NULL,
+	"activity_id" text NOT NULL,
+	"user_id" text NOT NULL,
+	"status" text DEFAULT 'PENDING' NOT NULL,
+	"decided_by_member_id" text,
+	"decided_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "activity_members" (
 	"id" text PRIMARY KEY NOT NULL,
 	"activity_id" text NOT NULL,
@@ -52,6 +62,16 @@ CREATE TABLE "activity_members" (
 	"status" "member_status" DEFAULT 'ACTIVE' NOT NULL,
 	"joined_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"left_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "activity_user_invitations" (
+	"id" text PRIMARY KEY NOT NULL,
+	"activity_id" text NOT NULL,
+	"target_user_id" text NOT NULL,
+	"sender_member_id" text NOT NULL,
+	"status" text DEFAULT 'PENDING' NOT NULL,
+	"responded_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "notifications" (
@@ -78,13 +98,19 @@ CREATE TABLE "user_activity_preferences" (
 ALTER TABLE "activity_audit_logs" ADD CONSTRAINT "activity_audit_logs_activity_id_activities_id_fk" FOREIGN KEY ("activity_id") REFERENCES "public"."activities"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "activity_audit_logs" ADD CONSTRAINT "activity_audit_logs_actor_user_id_user_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "activity_invite_tokens" ADD CONSTRAINT "activity_invite_tokens_activity_id_activities_id_fk" FOREIGN KEY ("activity_id") REFERENCES "public"."activities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "activity_join_requests" ADD CONSTRAINT "activity_join_requests_activity_id_activities_id_fk" FOREIGN KEY ("activity_id") REFERENCES "public"."activities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "activity_join_requests" ADD CONSTRAINT "activity_join_requests_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "activity_members" ADD CONSTRAINT "activity_members_activity_id_activities_id_fk" FOREIGN KEY ("activity_id") REFERENCES "public"."activities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "activity_members" ADD CONSTRAINT "activity_members_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "activity_user_invitations" ADD CONSTRAINT "activity_user_invitations_activity_id_activities_id_fk" FOREIGN KEY ("activity_id") REFERENCES "public"."activities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "activity_user_invitations" ADD CONSTRAINT "activity_user_invitations_target_user_id_user_id_fk" FOREIGN KEY ("target_user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "notifications" ADD CONSTRAINT "notifications_recipient_user_id_user_id_fk" FOREIGN KEY ("recipient_user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_activity_preferences" ADD CONSTRAINT "user_activity_preferences_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_activity_preferences" ADD CONSTRAINT "user_activity_preferences_activity_id_activities_id_fk" FOREIGN KEY ("activity_id") REFERENCES "public"."activities"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "activity_members_activity_user_uq" ON "activity_members" USING btree ("activity_id","user_id");--> statement-breakpoint
 CREATE INDEX "activity_members_activity_idx" ON "activity_members" USING btree ("activity_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "activity_invite_tokens_one_enabled_uq" ON "activity_invite_tokens" USING btree ("activity_id") WHERE "activity_invite_tokens"."enabled";--> statement-breakpoint
+CREATE UNIQUE INDEX "activity_join_requests_pending_uq" ON "activity_join_requests" USING btree ("activity_id","user_id") WHERE "activity_join_requests"."status" = 'PENDING';--> statement-breakpoint
 CREATE UNIQUE INDEX "user_activity_preferences_user_activity_uq" ON "user_activity_preferences" USING btree ("user_id","activity_id");--> statement-breakpoint
 alter table activity_members add constraint activity_members_type_ck
   check ((member_type='USER' and user_id is not null) or (member_type='GUEST' and user_id is null));--> statement-breakpoint
