@@ -20,6 +20,7 @@ import {
 } from "@/features/expenses/components/expense-feed";
 import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 import { MutationRepository } from "@/pwa/indexed-db/mutation-repository";
+import { SyncTriggers } from "@/pwa/sync-queue/sync-triggers";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "数据加载失败，请稍后重试。";
@@ -94,30 +95,40 @@ export function ExpenseFeedLoader() {
     );
   if (!summary)
     return <p className="py-8 text-muted-foreground">正在加载流水…</p>;
+  const refresh = (expenseId?: string) => {
+    if (expenseId) setHighlightedExpenseId(expenseId);
+    setRefreshToken((value) => value + 1);
+    if (expenseId)
+      window.setTimeout(() => setHighlightedExpenseId(null), 3_000);
+  };
   return (
-    <ExpenseFeed
-      activity={{ id: activityId, name: summary.activityName, ...summary }}
-      expenses={expenses}
-      onFiltersChange={setFilters}
-      entryContext={entryContext}
-      pendingMutations={pendingMutations}
-      onDiscardPending={(mutationId) => {
-        if (!entryContext) return;
-        void new MutationRepository(entryContext.activity.currentUserId)
-          .discard(mutationId)
-          .then(() =>
-            setPendingMutations((current) =>
-              current.filter((mutation) => mutation.id !== mutationId),
-            ),
-          );
-      }}
-      highlightedExpenseId={highlightedExpenseId}
-      onExpenseSaved={(expenseId) => {
-        setHighlightedExpenseId(expenseId);
-        setRefreshToken((value) => value + 1);
-        window.setTimeout(() => setHighlightedExpenseId(null), 3_000);
-      }}
-    />
+    <>
+      <ExpenseFeed
+        activity={{ id: activityId, name: summary.activityName, ...summary }}
+        expenses={expenses}
+        onFiltersChange={setFilters}
+        entryContext={entryContext}
+        pendingMutations={pendingMutations}
+        onDiscardPending={(mutationId) => {
+          if (!entryContext) return;
+          void new MutationRepository(entryContext.activity.currentUserId)
+            .discard(mutationId)
+            .then(() =>
+              setPendingMutations((current) =>
+                current.filter((mutation) => mutation.id !== mutationId),
+              ),
+            );
+        }}
+        highlightedExpenseId={highlightedExpenseId}
+        onExpenseSaved={refresh}
+      />
+      {entryContext && (
+        <SyncTriggers
+          userId={entryContext.activity.currentUserId}
+          onCompleted={() => refresh()}
+        />
+      )}
+    </>
   );
 }
 

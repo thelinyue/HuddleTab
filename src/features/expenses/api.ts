@@ -74,6 +74,17 @@ export interface ExpenseDetailResponse {
   };
 }
 
+/** 保留 HTTP 状态给离线协调器，以区分可重试服务故障和最终业务拒绝。 */
+export class ExpenseRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ExpenseRequestError";
+  }
+}
+
 async function readJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error("数据加载失败，请稍后重试。");
@@ -116,7 +127,10 @@ export async function createExpense(
   });
   if (!response.ok) {
     const body = (await response.json()) as { error?: { message?: string } };
-    throw new Error(body.error?.message ?? "消费保存失败，请稍后重试。");
+    throw new ExpenseRequestError(
+      body.error?.message ?? "消费保存失败，请稍后重试。",
+      response.status,
+    );
   }
   return (await response.json()).data as {
     readonly expense: ExpenseDetailDto;
