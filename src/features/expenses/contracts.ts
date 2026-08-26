@@ -25,3 +25,7 @@ export interface CreateExpenseRequest {
   }[];
   readonly split: ExpenseSplitInput;
 }
+
+export interface UpdateExpenseRequest extends CreateExpenseRequest {
+  readonly version: number;
+}

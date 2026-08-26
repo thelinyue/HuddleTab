@@ -4,9 +4,14 @@ import type postgres from "postgres";
 
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 import type { prepareExpense } from "@/domain/expenses/prepare-expense";
+import { ApplicationError } from "@/server/errors/application-error";
 
 type PreparedExpense = ReturnType<typeof prepareExpense>;
 
+/**
+ * 消费事实的持久化边界。所有方法只负责同一事务内的数据库读写；成员、权限和
+ * 账务计算由调用方和 Domain 层决定，但写入前仍要守住活动账务身份不能跨活动的约束。
+ */
 export class ExpenseRepository {
   async findByCreatorMutation(
     transaction: postgres.TransactionSql,
@@ -65,10 +70,11 @@ export class ExpenseRepository {
       actorUserId: string;
       actorMemberId: string;
       targetId: string;
+      eventType?: "EXPENSE_CREATED" | "EXPENSE_UPDATED" | "EXPENSE_DELETED";
     },
   ): Promise<void> {
     await transaction`insert into activity_audit_logs (id, activity_id, actor_user_id, actor_member_id, event_type, target_type, target_id, metadata)
-      values (${randomUUID()}, ${input.activityId}, ${input.actorUserId}, ${input.actorMemberId}, 'EXPENSE_CREATED', 'EXPENSE', ${input.targetId}, '{}'::jsonb)`;
+      values (${randomUUID()}, ${input.activityId}, ${input.actorUserId}, ${input.actorMemberId}, ${input.eventType ?? "EXPENSE_CREATED"}, 'EXPENSE', ${input.targetId}, '{}'::jsonb)`;
   }
 
   async incrementRevision(
@@ -76,5 +82,90 @@ export class ExpenseRepository {
     activityId: string,
   ) {
     await transaction`update activities set revision = revision + 1, updated_at = now() where id = ${activityId}`;
+  }
+
+  async requireAggregate(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+    expenseId: string,
+  ) {
+    const [expense] =
+      await transaction`select * from expenses where id = ${expenseId} and activity_id = ${activityId} and deleted_at is null`;
+    if (!expense) {
+      throw new ApplicationError(
+        "EXPENSE_NOT_FOUND",
+        "消费不存在或你无权查看。",
+        404,
+      );
+    }
+    return expense;
+  }
+
+  async updateWhereVersion(
+    transaction: postgres.TransactionSql,
+    input: {
+      expenseId: string;
+      version: number;
+      request: CreateExpenseRequest;
+      baseCurrency: string;
+      prepared: PreparedExpense;
+    },
+  ) {
+    const [expense] =
+      await transaction`update expenses set title = ${input.request.title}, category = ${input.request.category}, original_currency = ${input.request.originalCurrency}, original_amount_minor = ${input.request.originalAmountMinor}, base_currency = ${input.baseCurrency}, base_amount_minor = ${input.prepared.baseAmountMinor.toString()}, exchange_rate = ${input.request.exchangeRate}, exchange_rate_source = ${input.request.exchangeRateSource}, exchange_rate_at = ${new Date(input.request.exchangeRateAt)}, split_mode = ${input.request.split.mode}, occurred_at = ${new Date(input.request.occurredAt)}, note = ${input.request.note ?? null}, version = version + 1, updated_at = now() where id = ${input.expenseId} and version = ${input.version} and deleted_at is null returning *`;
+    return expense ?? null;
+  }
+
+  async replacePaymentsAndShares(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+    expenseId: string,
+    prepared: PreparedExpense,
+  ) {
+    await this.requireActiveMembers(transaction, activityId, prepared);
+    await transaction`delete from expense_payments where expense_id = ${expenseId}`;
+    await transaction`delete from expense_shares where expense_id = ${expenseId}`;
+    for (const payment of prepared.payments) {
+      await transaction`insert into expense_payments (expense_id, activity_member_id, original_amount_minor, base_amount_minor)
+        values (${expenseId}, ${payment.memberId}, ${payment.originalAmountMinor.toString()}, ${payment.baseAmountMinor.toString()})`;
+    }
+    for (const share of prepared.shares) {
+      await transaction`insert into expense_shares (expense_id, activity_member_id, split_input_minor, original_amount_minor, base_amount_minor)
+        values (${expenseId}, ${share.memberId}, ${share.splitInputMinor?.toString() ?? null}, ${share.originalAmountMinor.toString()}, ${share.baseAmountMinor.toString()})`;
+    }
+  }
+
+  /** 更新前重查全部账务身份，避免仅有外键时把其他活动或已退出成员写入子表。 */
+  private async requireActiveMembers(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+    prepared: PreparedExpense,
+  ): Promise<void> {
+    const memberIds = new Set([
+      ...prepared.payments.map((row) => row.memberId),
+      ...prepared.shares.map((row) => row.memberId),
+    ]);
+    for (const memberId of memberIds) {
+      const [member] =
+        await transaction`select id from activity_members where id = ${memberId} and activity_id = ${activityId} and status = 'ACTIVE'`;
+      if (!member) {
+        throw new ApplicationError(
+          "INVALID_EXPENSE_MEMBER",
+          "付款人和承担人必须是活动中的有效成员。",
+          422,
+        );
+      }
+    }
+  }
+
+  async softDeleteWhereVersion(
+    transaction: postgres.TransactionSql,
+    expenseId: string,
+    version: number,
+    memberId: string,
+  ) {
+    const [expense] =
+      await transaction`update expenses set deleted_at = now(), deleted_by_member_id = ${memberId}, version = version + 1, updated_at = now() where id = ${expenseId} and version = ${version} and deleted_at is null returning *`;
+    return expense ?? null;
   }
 }
