@@ -36,7 +36,9 @@ describe("活动权限固定判断顺序", () => {
         { ...base, memberStatus: "LEFT" },
         "EXPENSE_CREATE",
       ),
-    ).toThrowError(expect.objectContaining({ code: "LEFT_MEMBER_READ_ONLY" }));
+    ).toThrowError(
+      expect.objectContaining({ code: "EXPENSE_READ_ONLY_FOR_LEFT" }),
+    );
   });
 
   it("仅允许 LEFT 成员记录付款人为本人且由本人创建的结算", () => {
@@ -65,5 +67,16 @@ describe("活动权限固定判断顺序", () => {
         "SETTLEMENT_UPDATE",
       ),
     ).toThrowError(expect.objectContaining({ code: "RESOURCE_NOT_OWNED" }));
+  });
+
+  it("LEFT 成员不能创建、修改或删除历史消费", () => {
+    expect(() =>
+      evaluateActivityOperation(
+        { ...base, memberStatus: "LEFT" },
+        "EXPENSE_DELETE",
+      ),
+    ).toThrowError(
+      expect.objectContaining({ code: "EXPENSE_READ_ONLY_FOR_LEFT" }),
+    );
   });
 });

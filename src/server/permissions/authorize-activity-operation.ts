@@ -101,7 +101,9 @@ export function evaluateActivityOperation(
     !settlementOperations.includes(operation)
   ) {
     throw new ApplicationError(
-      "LEFT_MEMBER_READ_ONLY",
+      operation.startsWith("EXPENSE_")
+        ? "EXPENSE_READ_ONLY_FOR_LEFT"
+        : "LEFT_MEMBER_READ_ONLY",
       "你已退出活动，历史消费仅可查看。",
       403,
     );
