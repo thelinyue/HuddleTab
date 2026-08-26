@@ -3,6 +3,7 @@
 import { BellIcon, UserRoundIcon, UsersRoundIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 type TopLevelDestination = "activities" | "notifications" | "me";
 
@@ -67,11 +68,25 @@ export function ProductNavigation({
 }) {
   const pathname = usePathname();
   const isInsideActivity = /^\/activities\/[^/]+(?:\/|$)/.test(pathname);
+  const [currentUnreadCount, setCurrentUnreadCount] = useState(unreadCount);
+  useEffect(() => {
+    if (isInsideActivity) return;
+    void fetch("/api/notifications", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json()) as {
+          data?: { unreadCount?: number };
+        };
+        if (typeof body.data?.unreadCount === "number")
+          setCurrentUnreadCount(body.data.unreadCount);
+      })
+      .catch(() => undefined);
+  }, [isInsideActivity]);
   if (isInsideActivity) return null;
   return (
     <BottomNavigation
       current={currentDestination(pathname)}
-      unreadCount={unreadCount}
+      unreadCount={currentUnreadCount}
     />
   );
 }

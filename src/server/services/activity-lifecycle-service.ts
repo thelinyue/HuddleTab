@@ -7,6 +7,7 @@ import {
   authorizeActivityOperation,
   type ActivityAuthorizationInput,
 } from "@/server/permissions/authorize-activity-operation";
+import { NotificationService } from "@/server/services/notification-service";
 
 export type LifecycleAction =
   "END" | "REOPEN" | "ARCHIVE" | "UNARCHIVE" | "DELETE" | "RESTORE";
@@ -38,6 +39,7 @@ export class ActivityLifecycleService {
     readonly action: LifecycleAction;
   }): Promise<void> {
     await this.sql.begin(async (transaction) => {
+      const notifications = new NotificationService(this.sql);
       const actor = await authorizeActivityOperation(transaction, {
         session: input.session,
         activityId: input.activityId,
@@ -69,9 +71,11 @@ export class ActivityLifecycleService {
         );
       }
 
+      let notificationStatus: string;
       if (input.action === "DELETE") {
         if (activity.deleted_at) this.invalidTransition();
         await transaction`update activities set deleted_at = now(), purge_after = now() + interval '30 days', revision = revision + 1, updated_at = now() where id = ${input.activityId}`;
+        notificationStatus = "DELETED";
       } else if (input.action === "RESTORE") {
         if (
           !activity.deleted_at ||
@@ -85,19 +89,26 @@ export class ActivityLifecycleService {
           );
         }
         await transaction`update activities set deleted_at = null, purge_after = null, revision = revision + 1, updated_at = now() where id = ${input.activityId}`;
+        notificationStatus = "RESTORED";
       } else {
         const [from, to] = transitions[input.action];
         if (activity.deleted_at || activity.status !== from)
           this.invalidTransition();
         await transaction`update activities set status = ${to}, revision = revision + 1, updated_at = now() where id = ${input.activityId}`;
+        notificationStatus = to;
       }
       await transaction`insert into activity_audit_logs (id, activity_id, actor_user_id, actor_member_id, event_type, target_type, target_id, metadata)
         values (${randomUUID()}, ${input.activityId}, ${actor.userId}, ${actor.member.id}, ${`ACTIVITY_${input.action}`}, 'ACTIVITY', ${input.activityId}, '{}'::jsonb)`;
       const recipients =
         await transaction`select user_id from activity_members where activity_id = ${input.activityId} and user_id is not null and user_id <> ${actor.userId}`;
       for (const recipient of recipients) {
-        await transaction`insert into notifications (id, recipient_user_id, type, target_type, target_id, payload)
-          values (${randomUUID()}, ${recipient.user_id}, ${`ACTIVITY_${input.action}`}, 'ACTIVITY', ${input.activityId}, ${JSON.stringify({ activityId: input.activityId })}::jsonb)`;
+        await notifications.create(transaction, {
+          recipientUserId: recipient.user_id,
+          type: "ACTIVITY_STATUS_CHANGED",
+          targetType: "ACTIVITY",
+          targetId: input.activityId,
+          payload: { status: notificationStatus },
+        });
       }
     });
   }

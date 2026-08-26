@@ -12,6 +12,7 @@ import { ApplicationError } from "@/server/errors/application-error";
 import { authorizeActivityOperation } from "@/server/permissions/authorize-activity-operation";
 import { LedgerRepository } from "@/server/repositories/ledger-repository";
 import { SettlementRepository } from "@/server/repositories/settlement-repository";
+import { NotificationService } from "@/server/services/notification-service";
 
 /**
  * 真实结算的唯一写入口。权限判断始终先于成员事实写入；后续超额确认和版本更新
@@ -20,8 +21,11 @@ import { SettlementRepository } from "@/server/repositories/settlement-repositor
 export class SettlementService {
   private readonly repository = new SettlementRepository();
   private readonly ledgerRepository = new LedgerRepository();
+  private readonly notifications: NotificationService;
 
-  constructor(private readonly sql: ReturnType<typeof postgres>) {}
+  constructor(private readonly sql: ReturnType<typeof postgres>) {
+    this.notifications = new NotificationService(sql);
+  }
 
   async list(
     session: { readonly user: { readonly id: string } } | null,
@@ -118,6 +122,14 @@ export class SettlementService {
         actorMemberId: authorization.member.id,
         targetId: settlement.id,
       });
+      await this.createReceiverNotification(
+        transaction,
+        authorization.userId,
+        settlement.id,
+        input.receiverMemberId,
+        input.amountMinor,
+        authorization.activity.baseCurrency,
+      );
       await this.repository.incrementRevision(transaction, activityId);
       return { settlement };
     });
@@ -274,6 +286,27 @@ export class SettlementService {
         overAmountMinor: overAmount.toString(),
       },
     );
+  }
+
+  /** 收款人可能是无账号临时成员；这类账务身份没有应用内通知接收地址。 */
+  private async createReceiverNotification(
+    transaction: postgres.TransactionSql,
+    actorUserId: string,
+    settlementId: string,
+    receiverMemberId: string,
+    amountMinor: string,
+    currency: string,
+  ): Promise<void> {
+    const [receiver] = await transaction<{ user_id: string | null }[]>`
+      select user_id from activity_members where id = ${receiverMemberId}`;
+    if (!receiver?.user_id || receiver.user_id === actorUserId) return;
+    await this.notifications.create(transaction, {
+      recipientUserId: receiver.user_id,
+      type: "SETTLEMENT_RECEIVED",
+      targetType: "SETTLEMENT",
+      targetId: settlementId,
+      payload: { amountMinor, currency },
+    });
   }
 }
 

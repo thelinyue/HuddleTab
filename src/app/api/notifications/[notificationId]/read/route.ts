@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-/** 通知只读取当前账号的服务器记录；未实现更多通知类型时自然返回空列表。 */
-export async function GET(request: Request) {
+/** 已读更新按当前 Session 用户收窄，避免枚举或修改其他人的通知。 */
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ notificationId: string }> },
+) {
   const [
     { requireSession, sessionUserId },
     { sql },
@@ -16,10 +19,15 @@ export async function GET(request: Request) {
     import("@/server/http/application-error-response"),
   ]);
   try {
-    const userId = sessionUserId(await requireSession(request.headers));
-    return NextResponse.json({
-      data: await new NotificationService(sql).list(userId, 50),
-    });
+    const [session, params] = await Promise.all([
+      requireSession(request.headers),
+      context.params,
+    ]);
+    await new NotificationService(sql).markRead(
+      sessionUserId(session),
+      params.notificationId,
+    );
+    return NextResponse.json({ data: { read: true } });
   } catch (error) {
     const response = applicationErrorResponse(error);
     if (response) return response;

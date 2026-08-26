@@ -8,6 +8,7 @@ import {
   authorizeActivityOperation,
   type ActivityAuthorizationInput,
 } from "@/server/permissions/authorize-activity-operation";
+import { NotificationService } from "@/server/services/notification-service";
 
 const tokenHash = (token: string): string =>
   createHash("sha256").update(token, "utf8").digest("base64url");
@@ -91,6 +92,7 @@ export class InvitationService implements InvitationRegistrationVerifier {
     }
     const joiningUserId = input.session.user.id;
     return this.sql.begin(async (transaction) => {
+      const notifications = new NotificationService(this.sql);
       const [activity] =
         await transaction`select activity.id, activity.invite_mode from activities activity
           join activity_invite_tokens token on token.activity_id = activity.id
@@ -126,6 +128,18 @@ export class InvitationService implements InvitationRegistrationVerifier {
         }
         await transaction`insert into activity_join_requests (id, activity_id, user_id, status)
           values (${id}, ${input.activityId}, ${joiningUserId}, 'PENDING')`;
+        const reviewers =
+          await transaction`select user_id from activity_members where activity_id = ${input.activityId}
+            and role in ('OWNER', 'ADMIN') and status = 'ACTIVE' and user_id is not null`;
+        for (const reviewer of reviewers) {
+          await notifications.create(transaction, {
+            recipientUserId: reviewer.user_id,
+            type: "JOIN_APPROVAL_REQUESTED",
+            targetType: "ACTIVITY",
+            targetId: input.activityId,
+            payload: {},
+          });
+        }
         await this.auditAndRevise(
           transaction,
           input.activityId,
@@ -159,6 +173,7 @@ export class InvitationService implements InvitationRegistrationVerifier {
     },
   ): Promise<void> {
     await this.sql.begin(async (transaction) => {
+      const notifications = new NotificationService(this.sql);
       const [request] =
         await transaction`select id, activity_id, user_id, status from activity_join_requests where id = ${input.requestId} for update`;
       if (!request || request.status !== "PENDING") {
@@ -186,8 +201,13 @@ export class InvitationService implements InvitationRegistrationVerifier {
       }
       const status = input.decision === "APPROVE" ? "APPROVED" : "REJECTED";
       await transaction`update activity_join_requests set status = ${status}, decided_by_member_id = ${actor.member.id}, decided_at = now() where id = ${input.requestId}`;
-      await transaction`insert into notifications (id, recipient_user_id, type, target_type, target_id, payload)
-        values (${randomUUID()}, ${request.user_id}, ${`JOIN_REQUEST_${status}`}, 'ACTIVITY', ${request.activity_id}, ${JSON.stringify({ activityId: request.activity_id })}::jsonb)`;
+      await notifications.create(transaction, {
+        recipientUserId: request.user_id,
+        type: "JOIN_APPROVAL_RESOLVED",
+        targetType: "ACTIVITY",
+        targetId: request.activity_id,
+        payload: { decision: input.decision },
+      });
       await this.auditAndRevise(
         transaction,
         request.activity_id,

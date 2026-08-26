@@ -7,6 +7,7 @@ import {
   type ActivityAuthorizationInput,
 } from "@/server/permissions/authorize-activity-operation";
 import { ApplicationError } from "@/server/errors/application-error";
+import { NotificationService } from "@/server/services/notification-service";
 
 export interface TransferOwnershipInput {
   readonly session: ActivityAuthorizationInput["session"];
@@ -24,6 +25,7 @@ export class OwnershipService {
 
   async transferOwnership(input: TransferOwnershipInput): Promise<void> {
     await this.sql.begin(async (transaction) => {
+      const notifications = new NotificationService(this.sql);
       const actor = await authorizeActivityOperation(transaction, {
         session: input.session,
         activityId: input.activityId,
@@ -67,8 +69,13 @@ export class OwnershipService {
       await transaction`insert into activity_audit_logs (id, activity_id, actor_user_id, actor_member_id, event_type, target_type, target_id, metadata)
         values (${randomUUID()}, ${input.activityId}, ${actor.userId}, ${actor.member.id}, 'OWNER_TRANSFERRED', 'ACTIVITY_MEMBER', ${input.newOwnerMemberId}, ${JSON.stringify({ from: actor.member.id, to: input.newOwnerMemberId })}::jsonb)`;
       if (nextOwner.user_id) {
-        await transaction`insert into notifications (id, recipient_user_id, type, target_type, target_id, payload)
-          values (${randomUUID()}, ${nextOwner.user_id}, 'OWNER_TRANSFERRED', 'ACTIVITY', ${input.activityId}, ${JSON.stringify({ activityId: input.activityId })}::jsonb)`;
+        await notifications.create(transaction, {
+          recipientUserId: nextOwner.user_id,
+          type: "OWNERSHIP_CHANGED",
+          targetType: "ACTIVITY",
+          targetId: input.activityId,
+          payload: {},
+        });
       }
     });
   }

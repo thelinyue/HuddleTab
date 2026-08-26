@@ -12,6 +12,7 @@ import {
   evaluateActivityOperation,
 } from "@/server/permissions/authorize-activity-operation";
 import { ExpenseRepository } from "@/server/repositories/expense-repository";
+import { NotificationService } from "@/server/services/notification-service";
 
 function stringIds(value: unknown): string[] {
   return Array.isArray(value)
@@ -25,8 +26,11 @@ function stringIds(value: unknown): string[] {
  */
 export class ExpenseService {
   private readonly repository = new ExpenseRepository();
+  private readonly notifications: NotificationService;
 
-  constructor(private readonly sql: ReturnType<typeof postgres>) {}
+  constructor(private readonly sql: ReturnType<typeof postgres>) {
+    this.notifications = new NotificationService(sql);
+  }
 
   async list(
     session: { readonly user: { readonly id: string } } | null,
@@ -245,6 +249,13 @@ export class ExpenseService {
         operation: "EXPENSE_UPDATE",
         resourceOwnerMemberId: current.created_by_member_id,
       });
+      // 通知对象按修改前的账务参与关系确定，使本次更新移除的参与者仍能获知历史消费变化。
+      const recipientUserIds = await this.findParticipantUserIds(
+        transaction,
+        activityId,
+        expenseId,
+        authorization.userId,
+      );
       const prepared = this.prepare(
         request,
         authorization.activity.baseCurrency,
@@ -275,6 +286,13 @@ export class ExpenseService {
         targetId: expenseId,
         eventType: "EXPENSE_UPDATED",
       });
+      await this.createExpenseNotifications(
+        transaction,
+        recipientUserIds,
+        "PARTICIPATING_EXPENSE_CHANGED",
+        expenseId,
+        current.title,
+      );
       await this.repository.incrementRevision(transaction, activityId);
       return updated;
     });
@@ -298,6 +316,12 @@ export class ExpenseService {
         operation: "EXPENSE_DELETE",
         resourceOwnerMemberId: current.created_by_member_id,
       });
+      const recipientUserIds = await this.findParticipantUserIds(
+        transaction,
+        activityId,
+        expenseId,
+        authorization.userId,
+      );
       const removed = await this.repository.softDeleteWhereVersion(
         transaction,
         expenseId,
@@ -317,6 +341,13 @@ export class ExpenseService {
         targetId: expenseId,
         eventType: "EXPENSE_DELETED",
       });
+      await this.createExpenseNotifications(
+        transaction,
+        recipientUserIds,
+        "PARTICIPATING_EXPENSE_DELETED",
+        expenseId,
+        current.title,
+      );
       await this.repository.incrementRevision(transaction, activityId);
     });
   }
@@ -358,5 +389,54 @@ export class ExpenseService {
     await transaction`insert into user_activity_preferences (user_id, activity_id, last_category, recent_participant_ids, recent_payer_ids, recent_currency, updated_at)
       values (${userId}, ${activityId}, ${request.category}, ${JSON.stringify(participantIds)}::jsonb, ${JSON.stringify(request.payments.map((payment) => payment.memberId))}::jsonb, ${request.originalCurrency}, now())
       on conflict (user_id, activity_id) do update set last_category = excluded.last_category, recent_participant_ids = excluded.recent_participant_ids, recent_payer_ids = excluded.recent_payer_ids, recent_currency = excluded.recent_currency, updated_at = now()`;
+  }
+
+  /**
+   * 消费参与者由付款与分摊事实共同决定，不能从前端请求推断。查询发生在更新子表前，
+   * 并排除操作者账号和无账号的临时成员，确保一名成员同时付款、分摊也只收到一条通知。
+   */
+  private async findParticipantUserIds(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+    expenseId: string,
+    actorUserId: string,
+  ): Promise<string[]> {
+    const rows = await transaction<{ user_id: string }[]>`
+      select distinct member.user_id
+      from activity_members member
+      where member.activity_id = ${activityId}
+        and member.user_id is not null
+        and member.user_id <> ${actorUserId}
+        and (
+          exists (
+            select 1 from expense_payments payment
+            where payment.expense_id = ${expenseId}
+              and payment.activity_member_id = member.id
+          )
+          or exists (
+            select 1 from expense_shares share
+            where share.expense_id = ${expenseId}
+              and share.activity_member_id = member.id
+          )
+        )`;
+    return rows.map((row) => row.user_id);
+  }
+
+  private async createExpenseNotifications(
+    transaction: postgres.TransactionSql,
+    recipientUserIds: readonly string[],
+    type: "PARTICIPATING_EXPENSE_CHANGED" | "PARTICIPATING_EXPENSE_DELETED",
+    expenseId: string,
+    title: string,
+  ): Promise<void> {
+    for (const recipientUserId of recipientUserIds) {
+      await this.notifications.create(transaction, {
+        recipientUserId,
+        type,
+        targetType: "EXPENSE",
+        targetId: expenseId,
+        payload: { title },
+      });
+    }
   }
 }
