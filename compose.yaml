@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-huddletab}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-huddletab}
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ${DATA_HOST_DIR:-./data}/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
@@ -25,9 +25,9 @@ services:
       DATA_DIR: /data
       TRUST_PROXY: ${TRUST_PROXY:-false}
     ports:
-      - "5660:5660"
+      - "${APP_PORT:-5660}:5660"
     volumes:
-      - ./data:/data
+      - ${DATA_HOST_DIR:-./data}:/data
     healthcheck:
       test:
         [

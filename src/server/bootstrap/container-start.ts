@@ -1,32 +1,32 @@
-import { spawn } from "node:child_process";
-
 import { initializeSetup } from "./initialize-setup";
 import { sql } from "../db/client";
 import { startOrphanAttachmentCleanup } from "../jobs/orphan-attachment-cleanup";
 
-/** 容器启动在迁移后先检查初始化状态，再以固定 5660 端口启动 Next.js。 */
-async function startNext(): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        "node_modules/next/dist/bin/next",
-        "start",
-        "-H",
-        "0.0.0.0",
-        "-p",
-        "5660",
-      ],
-      { stdio: "inherit", env: process.env },
-    );
-    child.once("error", reject);
-    child.once("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Next.js 进程异常退出，退出码：${code ?? 1}`));
-    });
-  });
+interface ContainerStartDependencies {
+  initializeSetup(): Promise<void>;
+  startNext(): Promise<void>;
 }
 
-await initializeSetup();
-startOrphanAttachmentCleanup(sql);
-await startNext();
+/**
+ * 生产启动只编排迁移后的初始化检查与 Next.js 启动。
+ * Setup Token 的生成、Hash 替换和一次性中文日志仍由 Phase 2 initializeSetup() 唯一负责。
+ */
+export async function prepareContainerStart(
+  dependencies: ContainerStartDependencies,
+): Promise<void> {
+  await dependencies.initializeSetup();
+  await dependencies.startNext();
+}
+
+/**
+ * Next.js 自己负责监听 5660 端口；此函数只能从 instrumentation 运行时调用，
+ * 避免使用 tsx 直接加载 server-only 模块而绕过 Next.js 的服务端边界。
+ */
+export async function initializeContainerRuntime(): Promise<void> {
+  await prepareContainerStart({
+    initializeSetup,
+    async startNext() {
+      startOrphanAttachmentCleanup(sql);
+    },
+  });
+}

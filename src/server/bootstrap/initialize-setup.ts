@@ -57,7 +57,7 @@ export async function initializeSetup(): Promise<void> {
 
   if (token) {
     console.warn(
-      "伙记尚未初始化。Setup Token 仅在本次容器启动输出一次，请仅由部署管理员查看：%s",
+      "伙记尚未初始化。Setup Token 仅在本次容器启动输出一次；容器日志仅应向部署管理员开放：%s",
       token,
     );
   }

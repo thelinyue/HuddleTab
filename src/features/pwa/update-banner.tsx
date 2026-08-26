@@ -110,10 +110,18 @@ export function UpdateBanner({
   }, [controller, waitingOverride]);
 
   useEffect(() => {
-    void refreshPendingState();
-    if (!userId || pendingOverride) return;
-    const timer = window.setInterval(() => void refreshPendingState(), 1_000);
-    return () => window.clearInterval(timer);
+    const initialRefresh = window.setTimeout(
+      () => void refreshPendingState(),
+      0,
+    );
+    const timer =
+      !userId || pendingOverride
+        ? undefined
+        : window.setInterval(() => void refreshPendingState(), 1_000);
+    return () => {
+      window.clearTimeout(initialRefresh);
+      if (timer) window.clearInterval(timer);
+    };
   }, [pendingOverride, refreshPendingState, userId]);
 
   const visible = waitingOverride || waiting;

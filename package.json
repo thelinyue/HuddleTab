@@ -7,10 +7,10 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "next dev -p 5660",
+    "dev": "next dev --webpack -p 5660",
     "build": "next build --webpack",
     "start": "next start -H 0.0.0.0 -p 5660",
-    "start:container": "tsx src/server/bootstrap/container-start.ts",
+    "start:container": "next start -H 0.0.0.0 -p 5660",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
