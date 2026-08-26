@@ -2,7 +2,11 @@ import type postgres from "postgres";
 
 /** 读取总账的原始事实，绝不查询或写入可编辑余额。 */
 export class LedgerRepository {
-  async loadFacts(transaction: postgres.TransactionSql, activityId: string) {
+  async loadFacts(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+    excludeSettlementId?: string,
+  ) {
     const members =
       await transaction`select id from activity_members where activity_id = ${activityId} and status in ('ACTIVE', 'LEFT') order by id`;
     const payments =
@@ -15,7 +19,8 @@ export class LedgerRepository {
         where expense.activity_id = ${activityId} and expense.deleted_at is null`;
     const settlements =
       await transaction`select payer_member_id, receiver_member_id, amount_minor from settlements
-        where activity_id = ${activityId} and deleted_at is null`;
+        where activity_id = ${activityId} and deleted_at is null
+          and (${excludeSettlementId ?? null}::uuid is null or id <> ${excludeSettlementId ?? null}::uuid)`;
     return {
       memberIds: members.map((row) => row.id),
       payments: payments.map((row) => ({

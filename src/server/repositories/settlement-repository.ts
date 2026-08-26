@@ -57,10 +57,12 @@ export class SettlementRepository {
       readonly actorUserId: string;
       readonly actorMemberId: string;
       readonly targetId: string;
+      readonly eventType?:
+        "SETTLEMENT_CREATED" | "SETTLEMENT_UPDATED" | "SETTLEMENT_DELETED";
     },
   ): Promise<void> {
     await transaction`insert into activity_audit_logs (id, activity_id, actor_user_id, actor_member_id, event_type, target_type, target_id, metadata)
-      values (${randomUUID()}, ${input.activityId}, ${input.actorUserId}, ${input.actorMemberId}, 'SETTLEMENT_CREATED', 'SETTLEMENT', ${input.targetId}, '{}'::jsonb)`;
+      values (${randomUUID()}, ${input.activityId}, ${input.actorUserId}, ${input.actorMemberId}, ${input.eventType ?? "SETTLEMENT_CREATED"}, 'SETTLEMENT', ${input.targetId}, '{}'::jsonb)`;
   }
 
   async incrementRevision(
@@ -68,5 +70,49 @@ export class SettlementRepository {
     activityId: string,
   ): Promise<void> {
     await transaction`update activities set revision = revision + 1, updated_at = now() where id = ${activityId}`;
+  }
+
+  async requireCurrent(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+    settlementId: string,
+  ) {
+    const [settlement] =
+      await transaction`select * from settlements where id = ${settlementId} and activity_id = ${activityId} and deleted_at is null`;
+    if (!settlement)
+      throw new ApplicationError(
+        "SETTLEMENT_NOT_FOUND",
+        "结算记录不存在或你无权查看。",
+        404,
+      );
+    return settlement;
+  }
+
+  async updateWhereVersion(
+    transaction: postgres.TransactionSql,
+    settlementId: string,
+    input: {
+      version: number;
+      payerMemberId: string;
+      receiverMemberId: string;
+      amountMinor: string;
+      occurredAt: string;
+      note?: string;
+    },
+  ) {
+    const [settlement] =
+      await transaction`update settlements set payer_member_id = ${input.payerMemberId}, receiver_member_id = ${input.receiverMemberId}, amount_minor = ${input.amountMinor}, occurred_at = ${new Date(input.occurredAt)}, note = ${input.note ?? null}, version = version + 1, updated_at = now() where id = ${settlementId} and version = ${input.version} and deleted_at is null returning *`;
+    return settlement ?? null;
+  }
+
+  async softDeleteWhereVersion(
+    transaction: postgres.TransactionSql,
+    settlementId: string,
+    version: number,
+    memberId: string,
+  ) {
+    const [settlement] =
+      await transaction`update settlements set deleted_at = now(), deleted_by_member_id = ${memberId}, version = version + 1, updated_at = now() where id = ${settlementId} and version = ${version} and deleted_at is null returning *`;
+    return settlement ?? null;
   }
 }

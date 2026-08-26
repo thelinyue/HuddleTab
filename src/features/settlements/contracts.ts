@@ -32,3 +32,7 @@ export interface CreateSettlementRequest {
   readonly note?: string;
   readonly confirmOverSettlement: boolean;
 }
+
+export interface UpdateSettlementRequest extends CreateSettlementRequest {
+  readonly version: number;
+}
