@@ -64,20 +64,23 @@ export async function POST(
   const [
     { requireSession, sessionUserId },
     { sql },
+    { MaintenanceMode },
     { SettlementService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
+    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/settlement-service"),
     import("@/server/http/application-error-response"),
   ]);
   try {
-    const [params, session, input] = await Promise.all([
+    const [params, session] = await Promise.all([
       context.params,
       requireSession(request.headers),
-      createSettlementInput.parseAsync(await request.json()),
     ]);
+    await new MaintenanceMode(sql).assertWritesAllowed();
+    const input = await createSettlementInput.parseAsync(await request.json());
     const result = await new SettlementService(sql).create(
       { user: { id: sessionUserId(session) } },
       params.activityId,

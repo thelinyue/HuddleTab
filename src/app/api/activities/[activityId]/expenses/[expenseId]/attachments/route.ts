@@ -52,11 +52,13 @@ export async function POST(
   const [
     { requireSession, sessionUserId },
     { sql },
+    { MaintenanceMode },
     { AttachmentService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
+    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/attachment-service"),
     import("@/server/http/application-error-response"),
   ]);
@@ -65,6 +67,7 @@ export async function POST(
       context.params,
       requireSession(request.headers),
     ]);
+    await new MaintenanceMode(sql).assertWritesAllowed();
     const formData = await parseAttachmentFormData(request);
     const file = formData.get("file");
     const clientAttachmentId = clientAttachmentIdSchema.parse(

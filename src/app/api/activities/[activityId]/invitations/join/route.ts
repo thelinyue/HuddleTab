@@ -17,6 +17,7 @@ export async function POST(
     { requireSession, sessionUserId },
     { InvitationService },
     { sql },
+    { MaintenanceMode },
     { RateLimiter },
     { authRuntimeConfig },
     { resolveClientIp },
@@ -25,17 +26,19 @@ export async function POST(
     import("@/server/auth/session"),
     import("@/server/services/invitation-service"),
     import("@/server/db/client"),
+    import("@/server/maintenance/maintenance-mode"),
     import("@/server/security/rate-limiter"),
     import("@/server/auth/runtime-config"),
     import("@/server/security/client-ip"),
     import("@/server/http/application-error-response"),
   ]);
   try {
-    const [params, body, session] = await Promise.all([
+    const [params, session] = await Promise.all([
       context.params,
-      joinInput.parseAsync(await request.json()),
       requireSession(request.headers),
     ]);
+    await new MaintenanceMode(sql).assertWritesAllowed();
+    const body = await joinInput.parseAsync(await request.json());
     const userId = sessionUserId(session);
     const clientIp = resolveClientIp({
       trustedProxy: process.env.TRUST_PROXY === "true",

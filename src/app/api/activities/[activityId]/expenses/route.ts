@@ -73,20 +73,23 @@ export async function POST(
   const [
     { requireSession, sessionUserId },
     { sql },
+    { MaintenanceMode },
     { ExpenseService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
+    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/expense-service"),
     import("@/server/http/application-error-response"),
   ]);
   try {
-    const [params, session, input] = await Promise.all([
+    const [params, session] = await Promise.all([
       context.params,
       requireSession(request.headers),
-      createExpenseInput.parseAsync(await request.json()),
     ]);
+    await new MaintenanceMode(sql).assertWritesAllowed();
+    const input = await createExpenseInput.parseAsync(await request.json());
     const result = await new ExpenseService(sql).create(
       { user: { id: sessionUserId(session) } },
       params.activityId,

@@ -4,6 +4,8 @@ import { join, relative, resolve, sep } from "node:path";
 
 import type postgres from "postgres";
 
+import { MaintenanceMode } from "@/server/maintenance/maintenance-mode";
+
 type CleanupLogger = Pick<Console, "info">;
 
 type OrphanAttachmentCleanupOptions = {
@@ -128,12 +130,7 @@ export function startOrphanAttachmentCleanup(
   sql: ReturnType<typeof postgres>,
   options: ScheduleOptions = {},
 ) {
-  const isMaintenanceActive = async () => {
-    const [settings] = await sql<{ maintenance_mode: boolean }[]>`
-      select maintenance_mode from system_settings where id = 'singleton'
-    `;
-    return Boolean(settings?.maintenance_mode);
-  };
+  const isMaintenanceActive = () => new MaintenanceMode(sql).isActive();
   const cleanup =
     options.createCleanup?.(isMaintenanceActive) ??
     new OrphanAttachmentCleanup(sql, { isMaintenanceActive });

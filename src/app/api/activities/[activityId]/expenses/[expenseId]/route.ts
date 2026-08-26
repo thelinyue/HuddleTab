@@ -89,20 +89,23 @@ export async function PUT(request: Request, context: ItemContext) {
   const [
     { requireSession, sessionUserId },
     { sql },
+    { MaintenanceMode },
     { ExpenseService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
+    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/expense-service"),
     import("@/server/http/application-error-response"),
   ]);
   try {
-    const [params, session, input] = await Promise.all([
+    const [params, session] = await Promise.all([
       context.params,
       requireSession(request.headers),
-      updateExpenseInput.parseAsync(await request.json()),
     ]);
+    await new MaintenanceMode(sql).assertWritesAllowed();
+    const input = await updateExpenseInput.parseAsync(await request.json());
     const data = await new ExpenseService(sql).update(
       { user: { id: sessionUserId(session) } },
       params.activityId,
@@ -121,20 +124,23 @@ export async function DELETE(request: Request, context: ItemContext) {
   const [
     { requireSession, sessionUserId },
     { sql },
+    { MaintenanceMode },
     { ExpenseService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
+    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/expense-service"),
     import("@/server/http/application-error-response"),
   ]);
   try {
-    const [params, session, input] = await Promise.all([
+    const [params, session] = await Promise.all([
       context.params,
       requireSession(request.headers),
-      deleteExpenseInput.parseAsync(await request.json()),
     ]);
+    await new MaintenanceMode(sql).assertWritesAllowed();
+    const input = await deleteExpenseInput.parseAsync(await request.json());
     await new ExpenseService(sql).remove(
       { user: { id: sessionUserId(session) } },
       params.activityId,

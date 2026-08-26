@@ -5,7 +5,7 @@ import { startOrphanAttachmentCleanup } from "@/server/jobs/orphan-attachment-cl
 it("启动任务使用数据库维护状态决定是否运行，并注册 24 小时间隔", async () => {
   const run = vi.fn().mockResolvedValue(undefined);
   const setInterval = vi.fn().mockReturnValue({ unref: vi.fn() });
-  const sql = vi.fn().mockResolvedValue([{ maintenance_mode: true }]);
+  const sql = vi.fn().mockResolvedValue([{ active: true }]);
   let isMaintenanceActive: (() => Promise<boolean>) | undefined;
 
   const stop = startOrphanAttachmentCleanup(sql as never, {

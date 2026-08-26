@@ -64,6 +64,20 @@
       "when": 1787762586452,
       "tag": "0008_natural_robin_chapel",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787768159449,
+      "tag": "0009_loving_veda",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787770270329,
+      "tag": "0010_cuddly_boomerang",
+      "breakpoints": true
     }
   ]
 }

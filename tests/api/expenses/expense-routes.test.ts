@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   get: vi.fn(),
   getEntryContext: vi.fn(),
+  assertWritesAllowed: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/server/auth/session", () => ({
@@ -16,6 +17,11 @@ vi.mock("@/server/auth/session", () => ({
   sessionUserId: vi.fn().mockReturnValue("user-1"),
 }));
 vi.mock("@/server/db/client", () => ({ sql: {} }));
+vi.mock("@/server/maintenance/maintenance-mode", () => ({
+  MaintenanceMode: class {
+    assertWritesAllowed = mocks.assertWritesAllowed;
+  },
+}));
 vi.mock("@/server/services/expense-service", () => ({
   ExpenseService: class {
     create = mocks.create;
