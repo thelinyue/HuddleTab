@@ -1,0 +1,64 @@
+import type { DBSchema } from "idb";
+
+export type MutationStatus =
+  "PENDING" | "SYNCING" | "RETRYABLE" | "REJECTED" | "SYNCED";
+export interface PendingExpenseMutation {
+  id: string;
+  userId: string;
+  activityId: string;
+  kind: "CREATE_EXPENSE";
+  payload: unknown;
+  status: MutationStatus;
+  attemptCount: number;
+  nextAttemptAt: number;
+  lastError?: { code: string; message: string };
+  serverExpenseId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface HuddleTabDb extends DBSchema {
+  activity_snapshots: {
+    key: string;
+    value: {
+      activityId: string;
+      userId: string;
+      revision: string;
+      fetchedAt: number;
+      snapshot: unknown;
+    };
+  };
+  activity_preferences: {
+    key: string;
+    value: { key: string; userId: string; activityId: string; value: unknown };
+  };
+  pending_mutations: {
+    key: string;
+    value: PendingExpenseMutation;
+    indexes: {
+      "by-status-next": [MutationStatus, number];
+      "by-activity": string;
+    };
+  };
+  pending_attachments: {
+    key: string;
+    value: {
+      id: string;
+      userId: string;
+      activityId: string;
+      mutationId: string;
+      clientAttachmentId: string;
+      fileName: string;
+      mimeType: string;
+      blob: Blob;
+      status: MutationStatus;
+      attemptCount: number;
+      nextAttemptAt: number;
+      createdAt: number;
+      updatedAt: number;
+    };
+    indexes: {
+      "by-mutation": string;
+      "by-status-next": [MutationStatus, number];
+    };
+  };
+}
