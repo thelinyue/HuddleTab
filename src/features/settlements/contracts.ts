@@ -10,3 +10,16 @@ export interface ActivityLedgerDto {
   readonly revision: string;
   readonly balances: readonly LedgerBalanceDto[];
 }
+
+export interface SettlementRecommendationDto {
+  readonly payerMemberId: string;
+  readonly receiverMemberId: string;
+  readonly amountMinor: string;
+}
+
+export interface SettlementRecommendationResult {
+  readonly activityId: string;
+  readonly currency: string;
+  readonly revision: string;
+  readonly recommendations: readonly SettlementRecommendationDto[];
+}

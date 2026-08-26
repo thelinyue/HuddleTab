@@ -1,7 +1,11 @@
 import type postgres from "postgres";
 
 import { calculateLedger } from "@/domain/ledger/ledger";
-import type { ActivityLedgerDto } from "@/features/settlements/contracts";
+import { recommendSettlements } from "@/domain/settlement/recommendation";
+import type {
+  ActivityLedgerDto,
+  SettlementRecommendationResult,
+} from "@/features/settlements/contracts";
 import { authorizeActivityOperation } from "@/server/permissions/authorize-activity-operation";
 import { LedgerRepository } from "@/server/repositories/ledger-repository";
 
@@ -38,5 +42,28 @@ export class LedgerService {
         })),
       };
     });
+  }
+
+  /** 推荐永远由刚读取的权威余额产生，不落库也不表示已经完成实际结算。 */
+  async getRecommendations(
+    session: { readonly user: { readonly id: string } } | null,
+    activityId: string,
+  ): Promise<SettlementRecommendationResult> {
+    const ledger = await this.getBalances(session, activityId);
+    return {
+      activityId: ledger.activityId,
+      currency: ledger.currency,
+      revision: ledger.revision,
+      recommendations: recommendSettlements(
+        ledger.balances.map((row) => ({
+          memberId: row.memberId,
+          netMinor: BigInt(row.netMinor),
+        })),
+      ).map((row) => ({
+        payerMemberId: row.payerMemberId,
+        receiverMemberId: row.receiverMemberId,
+        amountMinor: row.amountMinor.toString(),
+      })),
+    };
   }
 }
