@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { ThemeProvider } from "@/components/design-system/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { AppShellCache } from "@/pwa/service-worker/app-shell-cache";
 
 import "./globals.css";
 
@@ -31,6 +32,7 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <Toaster />
+          <AppShellCache />
         </ThemeProvider>
       </body>
     </html>

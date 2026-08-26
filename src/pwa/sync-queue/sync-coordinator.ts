@@ -104,7 +104,8 @@ export class SyncCoordinator {
         message: value.message ?? "同步失败，请检查后重试。",
       };
       if (
-        (value.kind === "network" ||
+        (error instanceof TypeError ||
+          value.kind === "network" ||
           (value.status !== undefined && value.status >= 500)) &&
         (item.attemptCount ?? 0) < RETRY_MS.length
       )

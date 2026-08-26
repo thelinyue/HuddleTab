@@ -35,6 +35,7 @@ export function ExpenseFeed({
   onFiltersChange,
   entryContext,
   onExpenseSaved,
+  onExpenseQueued,
   highlightedExpenseId,
   pendingMutations = [],
   onDiscardPending,
@@ -44,6 +45,7 @@ export function ExpenseFeed({
   readonly onFiltersChange?: (filters: ExpenseFeedFilters) => void;
   readonly entryContext?: QuickExpenseContextDto | null;
   readonly onExpenseSaved?: (expenseId: string) => void;
+  readonly onExpenseQueued?: (mutationId: string) => void;
   readonly highlightedExpenseId?: string | null;
   readonly pendingMutations?: readonly PendingExpenseMutation[];
   readonly onDiscardPending?: (mutationId: string) => void;
@@ -83,7 +85,7 @@ export function ExpenseFeed({
           <QuickExpenseTrigger
             context={entryContext}
             onSaved={onExpenseSaved}
-            onQueued={onExpenseSaved}
+            onQueued={onExpenseQueued}
           />
         )}
       </header>

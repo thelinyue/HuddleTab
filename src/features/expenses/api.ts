@@ -25,6 +25,7 @@ export interface ExpenseDetailDto extends ExpenseListItemDto {
 export interface ExpenseFeedSummaryDto {
   readonly activityName: string;
   readonly currency: string;
+  readonly revision: string;
   readonly totalExpenseMinor: string;
   readonly originalCurrencyTotals: readonly {
     readonly currency: string;

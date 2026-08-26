@@ -7,14 +7,22 @@ import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
 import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 
+export const offlineSessionKey = "huddletab:offline";
+
 /** 浏览器在线状态只决定客户端是否可发起请求，服务端权限与活动状态仍是最终权威。 */
 export function useOnlineStatus() {
   const [online, setOnline] = useState(
     () => typeof navigator === "undefined" || navigator.onLine,
   );
   useEffect(() => {
-    const updateOnline = () => setOnline(true);
-    const updateOffline = () => setOnline(false);
+    const updateOnline = () => {
+      sessionStorage.removeItem(offlineSessionKey);
+      setOnline(true);
+    };
+    const updateOffline = () => {
+      sessionStorage.setItem(offlineSessionKey, "true");
+      setOnline(false);
+    };
     window.addEventListener("online", updateOnline);
     window.addEventListener("offline", updateOffline);
     return () => {

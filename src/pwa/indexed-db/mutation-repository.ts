@@ -92,6 +92,28 @@ export class MutationRepository {
     }
   }
 
+  /** 浏览器恢复联网时立即唤醒当前用户的可重试账单，不必等待离线退避窗口结束。 */
+  async retryNow() {
+    const db = await openHuddleTabDb(this.userId);
+    try {
+      const records = await db.getAll("pending_mutations");
+      const now = this.now();
+      await Promise.all(
+        records
+          .filter((record) => record.status === "RETRYABLE")
+          .map((record) =>
+            db.put("pending_mutations", {
+              ...record,
+              nextAttemptAt: now,
+              updatedAt: now,
+            }),
+          ),
+      );
+    } finally {
+      db.close();
+    }
+  }
+
   async markSyncing(id: string) {
     await this.update(id, { status: "SYNCING" });
   }

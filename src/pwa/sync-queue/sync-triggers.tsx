@@ -13,8 +13,10 @@ type CreateExpense = typeof createExpense;
 export async function syncForegroundQueue(
   userId: string,
   create: CreateExpense = createExpense,
+  retryNow = false,
 ) {
   const queue = new MutationRepository(userId);
+  if (retryNow) await queue.retryNow();
   await new SyncCoordinator(queue, {
     createExpense: (activityId, payload) =>
       create(activityId, payload as CreateExpenseRequest),
@@ -54,9 +56,10 @@ export function SyncTriggers({
   }, [userId]);
   useEffect(() => {
     let mounted = true;
-    const runAutomatically = async () => {
+    const runAutomatically = async (retryNow = false) => {
+      if (!navigator.onLine) return;
       try {
-        await syncForegroundQueue(userId);
+        await syncForegroundQueue(userId, createExpense, retryNow);
         if (mounted) onCompletedRef.current?.();
       } catch (reason) {
         if (mounted)
@@ -68,7 +71,7 @@ export function SyncTriggers({
       }
     };
     void runAutomatically();
-    const onOnline = () => void runAutomatically();
+    const onOnline = () => void runAutomatically(true);
     window.addEventListener("online", onOnline);
     return () => {
       mounted = false;
