@@ -38,8 +38,8 @@ export async function startPostgres(): Promise<PostgresHarness> {
             values (${userId}, ${userId}, ${userId}, ${email.endsWith("@local.invalid") ? "SYNTHETIC" : "REAL"}, now(), now())
             on conflict (user_id) do nothing`;
         }
-        await transaction`insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
-          values (${`${userId}-credential`}, ${userId}, 'credential', ${userId}, 'test-password-hash', now(), now())
+        await transaction`insert into account (id, account_id, provider_id, issuer, user_id, password, created_at, updated_at)
+          values (${`${userId}-credential`}, ${userId}, 'credential', 'local:credential', ${userId}, 'test-password-hash', now(), now())
           on conflict (id) do nothing`;
       });
     },
@@ -49,8 +49,8 @@ export async function startPostgres(): Promise<PostgresHarness> {
           values (${userId}, ${userId}, ${`${userId}@example.com`}, false, now(), now())`;
         await transaction`insert into user_profiles (user_id, username_normalized, nickname, email_kind, created_at, updated_at)
           values (${userId}, ${userId}, ${userId}, 'REAL', now(), now())`;
-        await transaction`insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
-          values (${`${userId}-credential`}, ${userId}, 'credential', ${userId}, 'test-password-hash', now(), now())`;
+        await transaction`insert into account (id, account_id, provider_id, issuer, user_id, password, created_at, updated_at)
+          values (${`${userId}-credential`}, ${userId}, 'credential', 'local:credential', ${userId}, 'test-password-hash', now(), now())`;
         await transaction`insert into system_roles (user_id, role, granted_at)
           values (${userId}, 'system_admin', now())`;
       });

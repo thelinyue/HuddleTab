@@ -16,6 +16,14 @@ import { normalizeUsername } from "./username";
 
 const rateLimiter = new RateLimiter(sql, authRuntimeConfig.secret);
 
+/** Better Auth 按模型名查找表；项目 schema 使用复数导出名，需在适配层明确转换。 */
+const betterAuthSchema = {
+  user: schema.users,
+  session: schema.sessions,
+  account: schema.accounts,
+  verification: schema.verifications,
+};
+
 /**
  * Better Auth 的登录端点在密码校验之前执行本 Hook。Route Handler 无法取得
  * 直连 TCP 对端地址，因此未启用可信代理时使用固定直连边界；用户名或邮箱
@@ -65,7 +73,7 @@ const loginRateLimitHook = createAuthMiddleware(async (context) => {
  * 产品注册服务先写入规范化用户名；此处再次校验，防止配置入口产生不同的唯一键。
  */
 export const auth = betterAuth({
-  database: drizzleAdapter(db, { provider: "pg", schema }),
+  database: drizzleAdapter(db, { provider: "pg", schema: betterAuthSchema }),
   baseURL: authRuntimeConfig.baseURL,
   secret: authRuntimeConfig.secret,
   emailAndPassword: {
@@ -76,6 +84,9 @@ export const auth = betterAuth({
     // 反向代理信任由 HuddleTab 的显式部署配置控制，认证框架不自动采信转发 Host/Proto。
     trustedProxyHeaders: false,
   },
+  // Better Auth 默认仅按 IP 进行登录限流；项目的持久限流同时包含 IP 与用户名，
+  // 才能满足部署边界并避免同一 NAT 下的正常用户互相阻塞。
+  rateLimit: { enabled: false },
   hooks: { before: loginRateLimitHook },
   plugins: [
     username({

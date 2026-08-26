@@ -36,12 +36,21 @@ import { auth } from "@/server/auth/auth";
 
 interface AuthOptions {
   readonly hooks: { readonly before: (context: unknown) => Promise<void> };
+  readonly rateLimit: { readonly enabled: boolean };
 }
 
 const beforeHook = (auth as unknown as { options: AuthOptions }).options.hooks
   .before;
 
 describe("登录限流 Hook", () => {
+  it("关闭 Better Auth 仅按 IP 的内置限流，统一由组合标识限流执行", () => {
+    expect(
+      (auth as unknown as { options: AuthOptions }).options.rateLimit,
+    ).toEqual({
+      enabled: false,
+    });
+  });
+
   it("在用户名密码验证前按直连边界和用户名消耗窗口", async () => {
     await beforeHook({
       path: "/sign-in/username",
