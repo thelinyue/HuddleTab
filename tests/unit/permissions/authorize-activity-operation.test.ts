@@ -247,6 +247,42 @@ it("MEMBER 的资源、角色与普通读取权限遵循既有边界", () => {
   expect(() => evaluateActivityOperation(context(), "READ")).not.toThrow();
 });
 
+it("生命周期操作只接受冻结的状态路径，并优先于 LEFT 与角色判断", () => {
+  expect(() =>
+    evaluateActivityOperation(context({ role: "ADMIN" }), "ACTIVITY_END"),
+  ).not.toThrow();
+  expect(() =>
+    evaluateActivityOperation(context({ role: "ADMIN" }), "ACTIVITY_REOPEN"),
+  ).toThrowError(
+    expect.objectContaining({ code: "INVALID_ACTIVITY_TRANSITION" }),
+  );
+  expect(() =>
+    evaluateActivityOperation(
+      context({ lifecycle: "ENDED", role: "OWNER" }),
+      "ACTIVITY_ARCHIVE",
+    ),
+  ).not.toThrow();
+  expectDenied(
+    { lifecycle: "ARCHIVED", memberStatus: "LEFT", role: "OWNER" },
+    "ACTIVITY_ARCHIVE",
+    "INVALID_ACTIVITY_TRANSITION",
+    409,
+  );
+  expectDenied(
+    { memberStatus: "LEFT", role: "OWNER" },
+    "ACTIVITY_END",
+    "LEFT_MEMBER_READ_ONLY",
+    403,
+  );
+  expectDenied({}, "ACTIVITY_DELETE", "ROLE_FORBIDDEN", 403);
+  expect(() =>
+    evaluateActivityOperation(
+      context({ lifecycle: "DELETED", role: "OWNER" }),
+      "ACTIVITY_RESTORE",
+    ),
+  ).not.toThrow();
+});
+
 it("授权器查询活动与当前成员后返回已授权的类型事实", async () => {
   const activity = {
     id: "activity-1",

@@ -3,8 +3,10 @@ import type { Sql } from "postgres";
 
 export type CreateActivityInput = {
   name: string;
+  location?: string;
   baseCurrency: string;
   startDate: string;
+  endDate?: string;
   ownerUserId: string;
   ownerDisplayName: string;
 };
@@ -26,10 +28,11 @@ export class ActivityService {
     await this.sql.begin(async (transaction) => {
       await transaction`
         insert into activities (
-          id, name, base_currency, start_date, status, owner_member_id, invite_mode, revision
+          id, name, location, base_currency, start_date, end_date, status, owner_member_id, invite_mode, revision
         )
         values (
-          ${activityId}, ${input.name}, ${input.baseCurrency}, ${input.startDate}, 'ACTIVE',
+          ${activityId}, ${input.name}, ${input.location ?? null}, ${input.baseCurrency}, ${input.startDate},
+          ${input.endDate ?? null}, 'ACTIVE',
           ${ownerMemberId}, 'DIRECT_JOIN', 0
         )
       `;

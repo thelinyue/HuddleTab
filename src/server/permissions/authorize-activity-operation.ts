@@ -13,7 +13,13 @@ export type ActivityOperation =
   | "ATTACHMENT_READ"
   | "ATTACHMENT_WRITE"
   | "MEMBER_MANAGE"
-  | "OWNER_TRANSFER";
+  | "OWNER_TRANSFER"
+  | "ACTIVITY_END"
+  | "ACTIVITY_REOPEN"
+  | "ACTIVITY_ARCHIVE"
+  | "ACTIVITY_UNARCHIVE"
+  | "ACTIVITY_DELETE"
+  | "ACTIVITY_RESTORE";
 
 type ActivityLifecycle = "ACTIVE" | "ENDED" | "ARCHIVED" | "DELETED";
 type ActivityRole = "OWNER" | "ADMIN" | "MEMBER";
@@ -74,6 +80,25 @@ const readOperations = new Set<ActivityOperation>([
   "LEDGER_READ",
   "ATTACHMENT_READ",
 ]);
+const lifecycleOperations = new Set<ActivityOperation>([
+  "ACTIVITY_END",
+  "ACTIVITY_REOPEN",
+  "ACTIVITY_ARCHIVE",
+  "ACTIVITY_UNARCHIVE",
+  "ACTIVITY_DELETE",
+  "ACTIVITY_RESTORE",
+]);
+const lifecycleAllowedStates: Record<
+  Extract<ActivityOperation, `ACTIVITY_${string}`>,
+  ActivityLifecycle[]
+> = {
+  ACTIVITY_END: ["ACTIVE"],
+  ACTIVITY_REOPEN: ["ENDED"],
+  ACTIVITY_ARCHIVE: ["ENDED"],
+  ACTIVITY_UNARCHIVE: ["ARCHIVED"],
+  ACTIVITY_DELETE: ["ACTIVE", "ENDED", "ARCHIVED"],
+  ACTIVITY_RESTORE: ["DELETED"],
+};
 
 function isWrite(operation: ActivityOperation): boolean {
   return !readOperations.has(operation);
@@ -106,7 +131,19 @@ export function evaluateActivityOperation(
     );
   }
 
-  if (
+  if (lifecycleOperations.has(operation)) {
+    const allowedStates =
+      lifecycleAllowedStates[
+        operation as Extract<ActivityOperation, `ACTIVITY_${string}`>
+      ];
+    if (!allowedStates.includes(context.lifecycle)) {
+      throw new ApplicationError(
+        "INVALID_ACTIVITY_TRANSITION",
+        "当前活动状态不能执行此转换。",
+        409,
+      );
+    }
+  } else if (
     context.lifecycle === "DELETED" ||
     (context.lifecycle === "ARCHIVED" && isWrite(operation)) ||
     (context.lifecycle === "ENDED" &&
@@ -124,6 +161,19 @@ export function evaluateActivityOperation(
     throw new ApplicationError(
       "LEFT_MEMBER_READ_ONLY",
       "您已离开活动，不能执行此操作。",
+      403,
+    );
+  }
+
+  if (
+    lifecycleOperations.has(operation) &&
+    (operation === "ACTIVITY_END" || operation === "ACTIVITY_REOPEN"
+      ? context.role === "MEMBER"
+      : context.role !== "OWNER")
+  ) {
+    throw new ApplicationError(
+      "ROLE_FORBIDDEN",
+      "当前成员角色无权执行此操作。",
       403,
     );
   }
