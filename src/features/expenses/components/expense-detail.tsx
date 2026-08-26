@@ -1,0 +1,141 @@
+import { asCurrencyCode } from "@/domain/currency/currency";
+import { formatMoney } from "@/domain/money/money";
+import {
+  expenseCategoryLabels,
+  type ExpenseCategory,
+} from "@/features/expenses/categories";
+import type { ExpenseDetailResponse } from "@/features/expenses/api";
+
+function MoneyLine({
+  currency,
+  amountMinor,
+}: {
+  readonly currency: string;
+  readonly amountMinor: string;
+}) {
+  return (
+    <span className="money">
+      {formatMoney(
+        {
+          currency: asCurrencyCode(currency),
+          amountMinor: BigInt(amountMinor),
+        },
+        "zh-CN",
+      )}
+    </span>
+  );
+}
+
+/** 详情只展示服务端返回的不可变快照与权限结果，LEFT 成员不会得到编辑或删除命令。 */
+export function ExpenseDetail({
+  data,
+}: {
+  readonly data: ExpenseDetailResponse;
+}) {
+  const { expense } = data;
+  return (
+    <article className="py-5">
+      <header className="border-b pb-4">
+        <p className="text-sm text-muted-foreground">
+          {expenseCategoryLabels[expense.category as ExpenseCategory]}
+        </p>
+        <h1 className="mt-1 text-2xl font-bold">{expense.title}</h1>
+        <p className="money mt-2 text-xl font-semibold">
+          <MoneyLine
+            currency={expense.baseCurrency}
+            amountMinor={expense.baseAmountMinor}
+          />
+        </p>
+      </header>
+      <dl className="divide-y">
+        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <dt className="text-muted-foreground">消费时间</dt>
+          <dd>
+            {new Intl.DateTimeFormat("zh-CN", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(expense.occurredAt))}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <dt className="text-muted-foreground">原币金额</dt>
+          <dd>
+            <MoneyLine
+              currency={expense.originalCurrency}
+              amountMinor={expense.originalAmountMinor}
+            />
+          </dd>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <dt className="text-muted-foreground">汇率</dt>
+          <dd>
+            {expense.exchangeRate}（{expense.exchangeRateSource}）
+          </dd>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <dt className="text-muted-foreground">分摊方式</dt>
+          <dd>{expense.splitMode}</dd>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <dt className="text-muted-foreground">创建人</dt>
+          <dd>{expense.createdByDisplayName ?? "-"}</dd>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <dt className="text-muted-foreground">创建时间</dt>
+          <dd>
+            {new Intl.DateTimeFormat("zh-CN", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(expense.createdAt))}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <dt className="text-muted-foreground">最后修改</dt>
+          <dd>
+            {new Intl.DateTimeFormat("zh-CN", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(expense.updatedAt))}
+          </dd>
+        </div>
+      </dl>
+      <section className="mt-6">
+        <h2 className="text-lg font-semibold">付款明细</h2>
+        <ul className="mt-2 divide-y">
+          {data.payments.map((payment) => (
+            <li key={payment.memberId} className="flex justify-between py-2">
+              <span>{payment.memberDisplayName}</span>
+              <MoneyLine
+                currency={expense.baseCurrency}
+                amountMinor={payment.baseAmountMinor}
+              />
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section className="mt-6">
+        <h2 className="text-lg font-semibold">成员承担</h2>
+        <ul className="mt-2 divide-y">
+          {data.shares.map((share) => (
+            <li key={share.memberId} className="flex justify-between py-2">
+              <span>{share.memberDisplayName}</span>
+              <MoneyLine
+                currency={expense.baseCurrency}
+                amountMinor={share.baseAmountMinor}
+              />
+            </li>
+          ))}
+        </ul>
+      </section>
+      {expense.note && (
+        <section className="mt-6">
+          <h2 className="text-lg font-semibold">备注</h2>
+          <p className="mt-2 whitespace-pre-wrap">{expense.note}</p>
+        </section>
+      )}
+      {(data.permissions.canUpdate || data.permissions.canDelete) && (
+        <p className="mt-6 text-sm text-muted-foreground">此消费可由你管理。</p>
+      )}
+    </article>
+  );
+}

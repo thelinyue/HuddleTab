@@ -25,7 +25,12 @@ export class ExpenseRepository {
   ) {
     const titleQuery = input.query ? `%${input.query}%` : null;
     const category = input.category ?? null;
-    return transaction`select expense.* from expenses expense
+    return transaction`select expense.*,
+        coalesce((select string_agg(member.display_name, '、' order by payment.activity_member_id)
+          from expense_payments payment join activity_members member on member.id = payment.activity_member_id
+          where payment.expense_id = expense.id), '') as payer_summary,
+        (select count(*)::int from expense_shares share where share.expense_id = expense.id) as participant_count
+      from expenses expense
       where expense.activity_id = ${input.activityId}
         and expense.deleted_at is null
         and (${titleQuery}::text is null or expense.title ilike ${titleQuery})

@@ -7,7 +7,10 @@ import type {
   UpdateExpenseRequest,
 } from "@/features/expenses/contracts";
 import { ApplicationError } from "@/server/errors/application-error";
-import { authorizeActivityOperation } from "@/server/permissions/authorize-activity-operation";
+import {
+  authorizeActivityOperation,
+  evaluateActivityOperation,
+} from "@/server/permissions/authorize-activity-operation";
 import { ExpenseRepository } from "@/server/repositories/expense-repository";
 
 /**
@@ -44,12 +47,41 @@ export class ExpenseService {
     expenseId: string,
   ) {
     return this.sql.begin(async (transaction) => {
-      await authorizeActivityOperation(transaction, {
+      const authorization = await authorizeActivityOperation(transaction, {
         session,
         activityId,
         operation: "LEDGER_READ",
       });
-      return this.repository.findDetail(transaction, activityId, expenseId);
+      const detail = await this.repository.findDetail(
+        transaction,
+        activityId,
+        expenseId,
+      );
+      const canMutate = (() => {
+        try {
+          evaluateActivityOperation(
+            {
+              hasSession: true,
+              membershipExists: true,
+              lifecycle: authorization.activity.status,
+              memberStatus: authorization.member.status,
+              role: authorization.member.role,
+              ownsResource:
+                (detail.expense as Record<string, unknown>)
+                  .created_by_member_id === authorization.member.id,
+            },
+            "EXPENSE_UPDATE",
+          );
+          return true;
+        } catch (error) {
+          if (error instanceof ApplicationError) return false;
+          throw error;
+        }
+      })();
+      return {
+        ...detail,
+        permissions: { canUpdate: canMutate, canDelete: canMutate },
+      };
     });
   }
 

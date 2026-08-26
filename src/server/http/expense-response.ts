@@ -35,6 +35,12 @@ export function serializeExpense(row: Row) {
     version: Number(row.version),
     createdAt: asIsoTime(row.created_at),
     updatedAt: asIsoTime(row.updated_at),
+    payerSummary:
+      row.payer_summary === undefined ? null : asString(row.payer_summary),
+    participantCount:
+      row.participant_count === undefined
+        ? null
+        : Number(row.participant_count),
   };
 }
 

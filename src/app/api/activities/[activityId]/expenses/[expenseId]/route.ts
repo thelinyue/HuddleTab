@@ -65,6 +65,7 @@ export async function GET(request: Request, context: ItemContext) {
         expense: serializeExpense(data.expense),
         payments: data.payments.map(serializeExpensePayment),
         shares: data.shares.map(serializeExpenseShare),
+        permissions: data.permissions,
       },
     });
   } catch (error) {

@@ -107,7 +107,12 @@ it("POST 返回 JSON 安全金额，幂等重放返回 200", async () => {
 
 it("列表与详情只返回 JSON 安全的费用事实", async () => {
   mocks.list.mockResolvedValue([expense]);
-  mocks.get.mockResolvedValue({ expense, payments: [], shares: [] });
+  mocks.get.mockResolvedValue({
+    expense,
+    payments: [],
+    shares: [],
+    permissions: { canUpdate: false, canDelete: false },
+  });
 
   const list = await listExpenses(
     new Request(
@@ -128,9 +133,13 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
     version: 1,
   });
   expect(detail.status).toBe(200);
-  expect((await detail.json()).data.expense).toMatchObject({
+  const detailBody = await detail.json();
+  expect(detailBody.data.expense).toMatchObject({
     id: "expense-1",
     createdByDisplayName: "小李",
+  });
+  expect(detailBody.data).toMatchObject({
+    permissions: { canUpdate: false, canDelete: false },
   });
   expect(mocks.list).toHaveBeenCalledWith(
     { user: { id: "user-1" } },
