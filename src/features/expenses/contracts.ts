@@ -29,3 +29,9 @@ export interface CreateExpenseRequest {
 export interface UpdateExpenseRequest extends CreateExpenseRequest {
   readonly version: number;
 }
+
+export interface ExpenseListQuery {
+  readonly query?: string;
+  readonly category?: string;
+  readonly mine: boolean;
+}

@@ -32,52 +32,79 @@ function hasDuplicate(ids: readonly string[]): boolean {
   return new Set(ids).size !== ids.length;
 }
 
-/** 仅校验 JSON 边界；换汇、分摊和成员归属仍由纯 Domain 与服务事务重新验证。 */
-export const createExpenseInput = z
-  .object({
-    clientMutationId: z.string().trim().min(1).max(128),
-    title: z.string().trim().min(1).max(120),
-    category: z.enum(expenseCategories),
-    originalCurrency: currency,
-    originalAmountMinor: positiveMinor,
-    exchangeRate: z.string().trim().min(1).max(64),
-    exchangeRateSource: z.enum(["IDENTITY", "PROVIDER", "CACHE", "MANUAL"]),
-    exchangeRateAt: z.iso.datetime(),
-    occurredAt: z.iso.datetime(),
-    note: z.string().trim().max(2000).optional(),
-    payments: z.array(payment).min(1),
-    split,
-  })
-  .superRefine((input, context) => {
-    if (hasDuplicate(input.payments.map((row) => row.memberId))) {
-      context.addIssue({
-        code: "custom",
-        path: ["payments"],
-        message: "付款成员不能重复",
-      });
-    }
-    const participantIds =
-      input.split.mode === "EQUAL"
-        ? input.split.members
-        : input.split.entries.map((row) => row.memberId);
-    if (hasDuplicate(participantIds)) {
+const expenseFields = z.object({
+  clientMutationId: z.string().trim().min(1).max(128),
+  title: z.string().trim().min(1).max(120),
+  category: z.enum(expenseCategories),
+  originalCurrency: currency,
+  originalAmountMinor: positiveMinor,
+  exchangeRate: z.string().trim().min(1).max(64),
+  exchangeRateSource: z.enum(["IDENTITY", "PROVIDER", "CACHE", "MANUAL"]),
+  exchangeRateAt: z.iso.datetime(),
+  occurredAt: z.iso.datetime(),
+  note: z.string().trim().max(2000).optional(),
+  payments: z.array(payment).min(1),
+  split,
+});
+
+function validateParticipants(
+  input: z.infer<typeof expenseFields>,
+  context: z.RefinementCtx,
+): void {
+  if (hasDuplicate(input.payments.map((row) => row.memberId))) {
+    context.addIssue({
+      code: "custom",
+      path: ["payments"],
+      message: "付款成员不能重复",
+    });
+  }
+  const participantIds =
+    input.split.mode === "EQUAL"
+      ? input.split.members
+      : input.split.entries.map((row) => row.memberId);
+  if (hasDuplicate(participantIds)) {
+    context.addIssue({
+      code: "custom",
+      path: ["split"],
+      message: "分摊成员不能重复",
+    });
+  }
+  if (input.split.mode === "PERCENTAGE") {
+    const total = input.split.entries.reduce(
+      (sum, row) => sum + BigInt(row.value),
+      0n,
+    );
+    if (total !== 10_000n) {
       context.addIssue({
         code: "custom",
         path: ["split"],
-        message: "分摊成员不能重复",
+        message: "比例合计必须等于 100.00%",
       });
     }
-    if (input.split.mode === "PERCENTAGE") {
-      const total = input.split.entries.reduce(
-        (sum, row) => sum + BigInt(row.value),
-        0n,
-      );
-      if (total !== 10_000n) {
-        context.addIssue({
-          code: "custom",
-          path: ["split"],
-          message: "比例合计必须等于 100.00%",
-        });
-      }
-    }
-  });
+  }
+}
+
+/** 仅校验 JSON 边界；换汇、分摊和成员归属仍由纯 Domain 与服务事务重新验证。 */
+export const createExpenseInput =
+  expenseFields.superRefine(validateParticipants);
+export const updateExpenseInput = expenseFields
+  .extend({ version: z.number().int().positive() })
+  .superRefine(validateParticipants);
+export const deleteExpenseInput = z.object({
+  version: z.number().int().positive(),
+});
+export const listExpenseInput = z
+  .object({
+    query: z
+      .string()
+      .trim()
+      .max(120)
+      .optional()
+      .transform((value) => value || undefined),
+    category: z.enum(expenseCategories).optional(),
+    mine: z
+      .enum(["true"])
+      .optional()
+      .transform((value) => value === "true"),
+  })
+  .strict();

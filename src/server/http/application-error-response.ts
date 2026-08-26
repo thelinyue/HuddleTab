@@ -8,7 +8,14 @@ export function applicationErrorResponse(error: unknown): Response | undefined {
   if (!(error instanceof ApplicationError)) return undefined;
 
   return Response.json(
-    { error: { code: error.code, message: error.message } },
+    {
+      error: {
+        code: error.code,
+        message: error.message,
+        fieldErrors: {},
+        details: error.details,
+      },
+    },
     { status: error.status },
   );
 }

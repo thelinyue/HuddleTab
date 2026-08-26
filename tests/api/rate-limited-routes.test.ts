@@ -47,7 +47,12 @@ it("注册限流返回稳定的 429 错误响应", async () => {
 
   expect(response.status).toBe(429);
   expect(await response.json()).toEqual({
-    error: { code: "RATE_LIMITED", message: "尝试次数过多，请稍后再试。" },
+    error: {
+      code: "RATE_LIMITED",
+      message: "尝试次数过多，请稍后再试。",
+      fieldErrors: {},
+      details: {},
+    },
   });
 });
 
@@ -70,6 +75,11 @@ it("初始化限流返回稳定的 429 错误响应", async () => {
 
   expect(response.status).toBe(429);
   expect(await response.json()).toEqual({
-    error: { code: "RATE_LIMITED", message: "尝试次数过多，请稍后再试。" },
+    error: {
+      code: "RATE_LIMITED",
+      message: "尝试次数过多，请稍后再试。",
+      fieldErrors: {},
+      details: {},
+    },
   });
 });

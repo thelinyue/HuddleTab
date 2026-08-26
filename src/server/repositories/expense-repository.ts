@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import type postgres from "postgres";
 
-import type { CreateExpenseRequest } from "@/features/expenses/contracts";
+import type {
+  CreateExpenseRequest,
+  ExpenseListQuery,
+} from "@/features/expenses/contracts";
 import type { prepareExpense } from "@/domain/expenses/prepare-expense";
 import { ApplicationError } from "@/server/errors/application-error";
 
@@ -13,6 +16,63 @@ type PreparedExpense = ReturnType<typeof prepareExpense>;
  * 账务计算由调用方和 Domain 层决定，但写入前仍要守住活动账务身份不能跨活动的约束。
  */
 export class ExpenseRepository {
+  async list(
+    transaction: postgres.TransactionSql,
+    input: ExpenseListQuery & {
+      readonly activityId: string;
+      readonly memberId: string;
+    },
+  ) {
+    const titleQuery = input.query ? `%${input.query}%` : null;
+    const category = input.category ?? null;
+    return transaction`select expense.* from expenses expense
+      where expense.activity_id = ${input.activityId}
+        and expense.deleted_at is null
+        and (${titleQuery}::text is null or expense.title ilike ${titleQuery})
+        and (${category}::expense_category is null or expense.category = ${category}::expense_category)
+        and (
+          ${input.mine} = false
+          or exists (
+            select 1 from expense_payments payment
+            where payment.expense_id = expense.id and payment.activity_member_id = ${input.memberId}
+          )
+          or exists (
+            select 1 from expense_shares share
+            where share.expense_id = expense.id and share.activity_member_id = ${input.memberId}
+          )
+        )
+      order by expense.occurred_at desc, expense.id desc`;
+  }
+
+  async findDetail(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+    expenseId: string,
+  ) {
+    const expense = await this.requireAggregate(
+      transaction,
+      activityId,
+      expenseId,
+    );
+    const [creator] =
+      await transaction`select display_name from activity_members where id = ${expense.created_by_member_id}`;
+    const payments =
+      await transaction`select payment.*, member.display_name as member_display_name
+      from expense_payments payment join activity_members member on member.id = payment.activity_member_id
+      where payment.expense_id = ${expenseId}
+      order by payment.activity_member_id`;
+    const shares =
+      await transaction`select share.*, member.display_name as member_display_name
+      from expense_shares share join activity_members member on member.id = share.activity_member_id
+      where share.expense_id = ${expenseId}
+      order by share.activity_member_id`;
+    return {
+      expense: { ...expense, created_by_display_name: creator?.display_name },
+      payments,
+      shares,
+    };
+  }
+
   async findByCreatorMutation(
     transaction: postgres.TransactionSql,
     userId: string,

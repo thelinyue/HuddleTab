@@ -3,6 +3,7 @@ import type postgres from "postgres";
 import { prepareExpense } from "@/domain/expenses/prepare-expense";
 import type {
   CreateExpenseRequest,
+  ExpenseListQuery,
   UpdateExpenseRequest,
 } from "@/features/expenses/contracts";
 import { ApplicationError } from "@/server/errors/application-error";
@@ -17,6 +18,40 @@ export class ExpenseService {
   private readonly repository = new ExpenseRepository();
 
   constructor(private readonly sql: ReturnType<typeof postgres>) {}
+
+  async list(
+    session: { readonly user: { readonly id: string } } | null,
+    activityId: string,
+    query: ExpenseListQuery,
+  ) {
+    return this.sql.begin(async (transaction) => {
+      const authorization = await authorizeActivityOperation(transaction, {
+        session,
+        activityId,
+        operation: "LEDGER_READ",
+      });
+      return this.repository.list(transaction, {
+        ...query,
+        activityId,
+        memberId: authorization.member.id,
+      });
+    });
+  }
+
+  async get(
+    session: { readonly user: { readonly id: string } } | null,
+    activityId: string,
+    expenseId: string,
+  ) {
+    return this.sql.begin(async (transaction) => {
+      await authorizeActivityOperation(transaction, {
+        session,
+        activityId,
+        operation: "LEDGER_READ",
+      });
+      return this.repository.findDetail(transaction, activityId, expenseId);
+    });
+  }
 
   async create(
     session: { readonly user: { readonly id: string } } | null,
