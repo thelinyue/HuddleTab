@@ -22,6 +22,20 @@ export class SettlementService {
 
   constructor(private readonly sql: ReturnType<typeof postgres>) {}
 
+  async list(
+    session: { readonly user: { readonly id: string } } | null,
+    activityId: string,
+  ) {
+    return this.sql.begin(async (transaction) => {
+      await authorizeActivityOperation(transaction, {
+        session,
+        activityId,
+        operation: "LEDGER_READ",
+      });
+      return this.repository.list(transaction, activityId);
+    });
+  }
+
   async create(
     session: { readonly user: { readonly id: string } } | null,
     activityId: string,

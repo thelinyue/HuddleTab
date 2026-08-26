@@ -18,3 +18,10 @@ export const createSettlementInput = z
     path: ["receiverMemberId"],
     message: "付款人和收款人不能相同",
   });
+
+export const updateSettlementInput = createSettlementInput.extend({
+  version: z.number().int().positive(),
+});
+export const deleteSettlementInput = z.object({
+  version: z.number().int().positive(),
+});

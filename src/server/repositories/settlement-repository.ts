@@ -6,6 +6,10 @@ import { ApplicationError } from "@/server/errors/application-error";
 
 /** Settlement 事实写入边界；成员同活动与状态校验在事务内完成。 */
 export class SettlementRepository {
+  async list(transaction: postgres.TransactionSql, activityId: string) {
+    return transaction`select * from settlements where activity_id = ${activityId} and deleted_at is null order by occurred_at desc, id desc`;
+  }
+
   /** 串行化同一活动的结算写入，确保超额判断基于提交时仍有效的事实。 */
   async lockActivity(
     transaction: postgres.TransactionSql,
