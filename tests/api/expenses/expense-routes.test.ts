@@ -157,6 +157,7 @@ it("快速记账上下文只返回活动身份与当前用户偏好", async () =
       id: "activity-1",
       baseCurrency: "CNY",
       currentMemberId: "member-1",
+      currentUserId: "user-1",
     },
     members: [{ id: "member-1", displayName: "小李", status: "ACTIVE" }],
     preference: {
@@ -179,7 +180,7 @@ it("快速记账上下文只返回活动身份与当前用户偏好", async () =
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({
     data: {
-      activity: { currentMemberId: "member-1" },
+      activity: { currentMemberId: "member-1", currentUserId: "user-1" },
       members: [{ displayName: "小李" }],
       permissions: { canCreateExpense: true },
     },

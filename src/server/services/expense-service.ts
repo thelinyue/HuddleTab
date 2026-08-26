@@ -92,8 +92,9 @@ export class ExpenseService {
   }
 
   /**
-   * 表单上下文遵循普通账务读取授权，且仅返回 ACTIVE 成员的账务身份和当前用户
-   * 的活动偏好。这里不关联 User，防止快速记账入口无意暴露邮箱或系统角色。
+   * 表单上下文遵循普通账务读取授权，且仅返回 ACTIVE 成员身份、当前认证用户 ID
+   * 与活动偏好。认证用户 ID 仅用于隔离浏览器离线数据库，不关联 User 资料，避免
+   * 快速记账入口无意暴露邮箱或系统角色。
    */
   async getEntryContext(
     session: { readonly user: { readonly id: string } } | null,
@@ -135,6 +136,7 @@ export class ExpenseService {
           id: activityId,
           baseCurrency: authorization.activity.baseCurrency,
           currentMemberId: authorization.member.id,
+          currentUserId: authorization.userId,
         },
         members: members.map((member) => ({
           id: member.id,

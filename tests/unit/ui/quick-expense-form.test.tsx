@@ -19,7 +19,12 @@ afterEach(() => {
   mocks.createExpense.mockReset();
 });
 
-const activity = { id: "a1", baseCurrency: "CNY", currentMemberId: "m1" };
+const activity = {
+  id: "a1",
+  baseCurrency: "CNY",
+  currentMemberId: "m1",
+  currentUserId: "u1",
+};
 const members = [
   { id: "m1", displayName: "小王", status: "ACTIVE" as const },
   { id: "m2", displayName: "小李", status: "ACTIVE" as const },

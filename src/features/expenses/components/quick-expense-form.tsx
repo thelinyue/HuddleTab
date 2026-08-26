@@ -12,6 +12,8 @@ import {
 } from "@/features/expenses/categories";
 import { PaymentEditor } from "@/features/expenses/components/payment-editor";
 import { SplitEditor } from "@/features/expenses/components/split-editor";
+import type { CreateExpenseRequest } from "@/features/expenses/contracts";
+import { enqueueExpense } from "@/pwa/sync-queue/enqueue-expense";
 
 type SplitMode = "EQUAL" | "EXACT" | "PERCENTAGE" | "WEIGHT";
 type FormValues = {
@@ -82,27 +84,34 @@ export function QuickExpenseForm({
   activity,
   members,
   preference,
+  online = true,
   onSaved,
+  onQueued,
 }: {
   readonly activity: {
     readonly id: string;
     readonly baseCurrency: string;
     readonly currentMemberId: string;
+    readonly currentUserId: string;
   };
   readonly members: readonly QuickExpenseMember[];
   readonly preference: QuickExpensePreference;
+  readonly online?: boolean;
   readonly onSaved: (expense: {
     readonly id: string;
     readonly title: string;
     readonly baseAmountMinor?: string;
     readonly baseCurrency?: string;
   }) => void;
+  readonly onQueued?: (mutationId: string) => void;
 }) {
   const [advanced, setAdvanced] = useState(false);
   const [multiplePayers, setMultiplePayers] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
+  const [files, setFiles] = useState<readonly File[]>([]);
   const [clientMutationId] = useState(() => crypto.randomUUID());
   const activeMembers = members.filter((member) => member.status === "ACTIVE");
   const preferredParticipants = preference.recentParticipantIds.filter((id) =>
@@ -145,6 +154,7 @@ export function QuickExpenseForm({
   async function submit(next: FormValues) {
     setSubmitError(null);
     setFieldErrors({});
+    setQueuedMessage(null);
     try {
       if (!next.amount.trim())
         return showError("金额不能为空。", "quick-expense-amount");
@@ -197,7 +207,7 @@ export function QuickExpenseForm({
         throw new Error("汇率时间格式不正确。");
       if (Number.isNaN(occurredAt.valueOf()))
         throw new Error("消费时间格式不正确。");
-      const result = await createExpense(activity.id, {
+      const request: CreateExpenseRequest = {
         clientMutationId,
         title: next.title.trim(),
         category: next.category,
@@ -213,13 +223,37 @@ export function QuickExpenseForm({
         note: next.note.trim() || undefined,
         payments,
         split,
-      });
-      onSaved(result.expense);
+      };
+      if (!online) {
+        await queueExpense(request);
+        return;
+      }
+      try {
+        const result = await createExpense(activity.id, request);
+        onSaved(result.expense);
+      } catch (error) {
+        if (error instanceof TypeError) {
+          await queueExpense(request);
+          return;
+        }
+        throw error;
+      }
     } catch (error) {
       showError(
         error instanceof Error ? error.message : "消费保存失败，请稍后重试。",
       );
     }
+  }
+  async function queueExpense(request: CreateExpenseRequest) {
+    const queued = await enqueueExpense({
+      userId: activity.currentUserId,
+      activityId: activity.id,
+      baseCurrency: activity.baseCurrency,
+      input: request,
+      files,
+    });
+    setQueuedMessage("已保存到本机，联网后自动同步。");
+    onQueued?.(queued.mutation.id);
   }
   const textInput = "mt-1 min-h-11 w-full border bg-background px-3";
   return (
@@ -541,13 +575,13 @@ export function QuickExpenseForm({
               accept="image/*"
               multiple
               className="mt-1 block min-h-11 w-full"
-              onChange={(event) =>
+              onChange={(event) => {
+                const selected = Array.from(event.target.files ?? []);
                 setAttachmentError(
-                  (event.target.files?.length ?? 0) > 3
-                    ? "每笔消费最多选择三张附件。"
-                    : null,
-                )
-              }
+                  selected.length > 3 ? "每笔消费最多选择三张附件。" : null,
+                );
+                setFiles(selected.length > 3 ? [] : selected);
+              }}
             />
             <p className="mt-1 text-xs text-muted-foreground">
               账单保存后可上传附件。
@@ -580,6 +614,11 @@ export function QuickExpenseForm({
       >
         保存
       </button>
+      {queuedMessage && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {queuedMessage}
+        </p>
+      )}
     </form>
   );
 }

@@ -7,16 +7,20 @@ import { toast } from "sonner";
 import type { QuickExpenseContextDto } from "@/features/expenses/api";
 import { QuickExpenseForm } from "@/features/expenses/components/quick-expense-form";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { useOnlineStatus } from "@/features/expenses/components/offline-status";
 
 /** 快速记账入口仅管理弹层和保存后的反馈，账单表单本身可被离线流程复用。 */
 export function QuickExpenseTrigger({
   context,
   onSaved,
+  onQueued,
 }: {
   readonly context: QuickExpenseContextDto;
   readonly onSaved: (expenseId: string) => void;
+  readonly onQueued?: (mutationId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const online = useOnlineStatus();
   return (
     <>
       <button
@@ -43,10 +47,16 @@ export function QuickExpenseTrigger({
             recentCurrency: context.preference.recentCurrency,
             recentTitles: context.preference.recentTitles,
           }}
+          online={online}
           onSaved={(expense) => {
             setOpen(false);
             onSaved(expense.id);
             toast.success(`已记录「${expense.title}」金额`);
+          }}
+          onQueued={(mutationId) => {
+            setOpen(false);
+            toast.success("已保存到本机，联网后自动同步。");
+            onQueued?.(mutationId);
           }}
         />
       </ResponsiveFormOverlay>

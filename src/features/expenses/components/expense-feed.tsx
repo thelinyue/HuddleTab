@@ -15,6 +15,8 @@ import type {
 } from "@/features/expenses/api";
 import { ExpenseListItem } from "@/features/expenses/components/expense-list-item";
 import { QuickExpenseTrigger } from "@/features/expenses/components/quick-expense-trigger";
+import { OfflineExpenseStatus } from "@/features/expenses/components/offline-status";
+import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 
 type FeedActivity = Pick<
   ExpenseFeedSummaryDto,
@@ -34,6 +36,8 @@ export function ExpenseFeed({
   entryContext,
   onExpenseSaved,
   highlightedExpenseId,
+  pendingMutations = [],
+  onDiscardPending,
 }: {
   readonly activity: FeedActivity;
   readonly expenses: readonly ExpenseListItemDto[];
@@ -41,6 +45,8 @@ export function ExpenseFeed({
   readonly entryContext?: QuickExpenseContextDto | null;
   readonly onExpenseSaved?: (expenseId: string) => void;
   readonly highlightedExpenseId?: string | null;
+  readonly pendingMutations?: readonly PendingExpenseMutation[];
+  readonly onDiscardPending?: (mutationId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
@@ -77,6 +83,7 @@ export function ExpenseFeed({
           <QuickExpenseTrigger
             context={entryContext}
             onSaved={onExpenseSaved}
+            onQueued={onExpenseSaved}
           />
         )}
       </header>
@@ -126,6 +133,13 @@ export function ExpenseFeed({
         </label>
       </div>
       <section aria-label="消费流水" className="mt-3">
+        {pendingMutations.map((mutation) => (
+          <OfflineExpenseStatus
+            key={mutation.id}
+            mutation={mutation}
+            onDiscard={onDiscardPending ?? (() => undefined)}
+          />
+        ))}
         {expenses.map((expense) => (
           <ExpenseListItem
             key={expense.id}

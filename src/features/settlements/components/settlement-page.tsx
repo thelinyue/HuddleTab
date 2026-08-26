@@ -6,6 +6,10 @@ import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
 import {
+  OfflineStatus,
+  useOnlineStatus,
+} from "@/features/expenses/components/offline-status";
+import {
   minorToInput,
   type SettlementDto,
   type SettlementPageContextDto,
@@ -54,6 +58,7 @@ export function SettlementPage({
     null,
   );
   const currency = asCurrencyCode(data.activity.currency);
+  const online = useOnlineStatus();
   const writable =
     data.activity.status === "ACTIVE" || data.activity.status === "ENDED";
   const execute = async (
@@ -99,6 +104,7 @@ export function SettlementPage({
         {writable && (
           <button
             type="button"
+            disabled={!online}
             onClick={() => openForm()}
             className="min-h-11 bg-primary px-3 font-medium text-primary-foreground"
           >
@@ -106,6 +112,9 @@ export function SettlementPage({
           </button>
         )}
       </header>
+      {writable && !online && (
+        <OfflineStatus>结算必须联网后记录。</OfflineStatus>
+      )}
       <section aria-labelledby="balance-heading" className="border-y py-4">
         <h2 id="balance-heading" className="text-base font-semibold">
           当前余额
@@ -154,6 +163,7 @@ export function SettlementPage({
                 {writable && (
                   <button
                     type="button"
+                    disabled={!online}
                     className="min-h-11 border px-3 text-sm"
                     onClick={() => openForm(recommendation)}
                   >
@@ -210,7 +220,12 @@ export function SettlementPage({
         onOpenChange={setFormOpen}
         title="记录结算"
       >
-        <SettlementForm context={data} initial={initial} onSubmit={execute} />
+        <SettlementForm
+          context={data}
+          initial={initial}
+          online={online}
+          onSubmit={execute}
+        />
       </ResponsiveFormOverlay>
       {overSettlement && (
         <OverSettlementDialog

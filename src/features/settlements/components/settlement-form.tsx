@@ -8,6 +8,7 @@ import {
   type SettlementPageContextDto,
 } from "@/features/settlements/api";
 import type { CreateSettlementRequest } from "@/features/settlements/contracts";
+import { OfflineStatus } from "@/features/expenses/components/offline-status";
 
 export interface SettlementFormInitial {
   readonly payerMemberId: string;
@@ -42,10 +43,12 @@ function currentLocalDateTime(): string {
 export function SettlementForm({
   context,
   initial,
+  online = true,
   onSubmit,
 }: {
   readonly context: SettlementPageContextDto;
   readonly initial?: SettlementFormInitial;
+  readonly online?: boolean;
   readonly onSubmit: (
     request: CreateSettlementRequest,
     amountText: string,
@@ -73,6 +76,7 @@ export function SettlementForm({
     event.preventDefault();
     setError(null);
     try {
+      if (!online) return;
       if (!receiverMemberId) throw new Error("请选择收款人。");
       if (payerMemberId === receiverMemberId)
         throw new Error("付款人和收款人不能相同。");
@@ -197,10 +201,17 @@ export function SettlementForm({
       )}
       <button
         type="submit"
+        disabled={!online}
+        aria-describedby={online ? undefined : "settlement-offline-help"}
         className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
       >
         确认已支付
       </button>
+      {!online && (
+        <div id="settlement-offline-help">
+          <OfflineStatus>结算必须联网后记录。</OfflineStatus>
+        </div>
+      )}
     </form>
   );
 }

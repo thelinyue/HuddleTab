@@ -18,6 +18,8 @@ import {
   ExpenseFeed,
   type ExpenseFeedFilters,
 } from "@/features/expenses/components/expense-feed";
+import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
+import { MutationRepository } from "@/pwa/indexed-db/mutation-repository";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "数据加载失败，请稍后重试。";
@@ -34,6 +36,9 @@ export function ExpenseFeedLoader() {
   const [highlightedExpenseId, setHighlightedExpenseId] = useState<
     string | null
   >(null);
+  const [pendingMutations, setPendingMutations] = useState<
+    readonly PendingExpenseMutation[]
+  >([]);
   const [filters, setFilters] = useState<ExpenseFeedFilters>({
     query: "",
     category: null,
@@ -51,13 +56,29 @@ export function ExpenseFeedLoader() {
       getExpenseFeed(activityId, params.size ? `?${params}` : ""),
       getQuickExpenseContext(activityId),
     ])
-      .then(([nextSummary, nextExpenses, nextEntryContext]) => {
-        if (cancelled) return;
-        setSummary(nextSummary);
-        setExpenses(nextExpenses);
-        setEntryContext(nextEntryContext);
-        setError(null);
-      })
+      .then(async ([nextSummary, nextExpenses, nextEntryContext]) => ({
+        nextSummary,
+        nextExpenses,
+        nextEntryContext,
+        nextPendingMutations: await new MutationRepository(
+          nextEntryContext.activity.currentUserId,
+        ).listByActivity(activityId),
+      }))
+      .then(
+        ({
+          nextSummary,
+          nextExpenses,
+          nextEntryContext,
+          nextPendingMutations,
+        }) => {
+          if (cancelled) return;
+          setSummary(nextSummary);
+          setExpenses(nextExpenses);
+          setEntryContext(nextEntryContext);
+          setPendingMutations(nextPendingMutations);
+          setError(null);
+        },
+      )
       .catch((reason: unknown) => {
         if (!cancelled) setError(errorMessage(reason));
       });
@@ -79,6 +100,17 @@ export function ExpenseFeedLoader() {
       expenses={expenses}
       onFiltersChange={setFilters}
       entryContext={entryContext}
+      pendingMutations={pendingMutations}
+      onDiscardPending={(mutationId) => {
+        if (!entryContext) return;
+        void new MutationRepository(entryContext.activity.currentUserId)
+          .discard(mutationId)
+          .then(() =>
+            setPendingMutations((current) =>
+              current.filter((mutation) => mutation.id !== mutationId),
+            ),
+          );
+      }}
       highlightedExpenseId={highlightedExpenseId}
       onExpenseSaved={(expenseId) => {
         setHighlightedExpenseId(expenseId);

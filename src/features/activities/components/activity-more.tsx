@@ -2,6 +2,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import {
+  OfflineStatus,
+  useOnlineStatus,
+} from "@/features/expenses/components/offline-status";
 type Context = {
   activity: {
     status: "ACTIVE" | "ENDED" | "ARCHIVED";
@@ -24,6 +28,7 @@ export function ActivityMore() {
   const { activityId } = useParams<{ activityId: string }>();
   const [context, setContext] = useState<Context | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const online = useOnlineStatus();
   useEffect(() => {
     void fetch(`/api/activities/${activityId}/settlements/context`, {
       cache: "no-store",
@@ -42,6 +47,7 @@ export function ActivityMore() {
       );
   }, [activityId]);
   const run = async (action: keyof typeof labels) => {
+    if (!online) return;
     setMessage(null);
     const response = await fetch(`/api/activities/${activityId}/${action}`, {
       method: "POST",
@@ -80,6 +86,7 @@ export function ActivityMore() {
               <button
                 key={action}
                 type="button"
+                disabled={!online}
                 className="min-h-11 border px-3"
                 onClick={() => void run(action)}
               >
@@ -87,6 +94,7 @@ export function ActivityMore() {
               </button>
             ))}
           </div>
+          {!online && <OfflineStatus>活动操作必须联网后执行。</OfflineStatus>}
         </section>
       )}
       {message && (

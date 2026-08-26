@@ -37,6 +37,7 @@ export interface QuickExpenseContextDto {
     readonly id: string;
     readonly baseCurrency: string;
     readonly currentMemberId: string;
+    readonly currentUserId: string;
   };
   readonly members: readonly {
     readonly id: string;
