@@ -23,3 +23,12 @@ export interface SettlementRecommendationResult {
   readonly revision: string;
   readonly recommendations: readonly SettlementRecommendationDto[];
 }
+
+export interface CreateSettlementRequest {
+  readonly payerMemberId: string;
+  readonly receiverMemberId: string;
+  readonly amountMinor: string;
+  readonly occurredAt: string;
+  readonly note?: string;
+  readonly confirmOverSettlement: boolean;
+}
