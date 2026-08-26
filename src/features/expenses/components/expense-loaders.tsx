@@ -21,6 +21,7 @@ import {
 import { offlineSessionKey } from "@/features/expenses/components/offline-status";
 import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 import { MutationRepository } from "@/pwa/indexed-db/mutation-repository";
+import { AttachmentRepository } from "@/pwa/indexed-db/attachment-repository";
 import { SnapshotRepository } from "@/pwa/indexed-db/snapshot-repository";
 import { SyncTriggers } from "@/pwa/sync-queue/sync-triggers";
 
@@ -203,6 +204,22 @@ export function ExpenseFeedLoader() {
             .then(() =>
               setPendingMutations((current) =>
                 current.filter((mutation) => mutation.id !== mutationId),
+              ),
+            );
+        }}
+        onRemoveRejectedAttachments={(mutationId) => {
+          if (!entryContext) return;
+          const userId = entryContext.activity.currentUserId;
+          void new AttachmentRepository(userId, async () => ({}))
+            .removeRejectedForMutation(mutationId)
+            .then(() => new MutationRepository(userId).clearInfo(mutationId))
+            .then(() =>
+              setPendingMutations((current) =>
+                current.map((mutation) =>
+                  mutation.id === mutationId
+                    ? { ...mutation, syncInfo: undefined }
+                    : mutation,
+                ),
               ),
             );
         }}

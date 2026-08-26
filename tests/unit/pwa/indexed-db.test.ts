@@ -3,13 +3,16 @@ import "fake-indexeddb/auto";
 import { afterEach, expect, test } from "vitest";
 import { deleteDB } from "idb";
 
-import { openHuddleTabDb } from "@/pwa/indexed-db/database";
+import {
+  openHuddleTabDb,
+  recoverInterruptedSyncing,
+} from "@/pwa/indexed-db/database";
 
 afterEach(async () => {
   await Promise.all([deleteDB("huddletab:u1"), deleteDB("huddletab:u2")]);
 });
 
-test("不同登录用户使用隔离数据库，遗留 SYNCING 任务恢复为 RETRYABLE", async () => {
+test("不同登录用户使用隔离数据库，且只在显式恢复时重置遗留 SYNCING 任务", async () => {
   const first = await openHuddleTabDb("u1");
   await first.put("pending_mutations", {
     id: "m1",
@@ -43,14 +46,26 @@ test("不同登录用户使用隔离数据库，遗留 SYNCING 任务恢复为 R
   const second = await openHuddleTabDb("u2");
   try {
     expect((await reopened.get("pending_mutations", "m1"))?.status).toBe(
-      "RETRYABLE",
+      "SYNCING",
     );
     expect(
       (await reopened.get("pending_attachments", "attachment-1"))?.status,
-    ).toBe("RETRYABLE");
+    ).toBe("SYNCING");
     expect(second.objectStoreNames.contains("pending_mutations")).toBe(true);
   } finally {
     reopened.close();
     second.close();
+  }
+  await recoverInterruptedSyncing("u1");
+  const recovered = await openHuddleTabDb("u1");
+  try {
+    expect((await recovered.get("pending_mutations", "m1"))?.status).toBe(
+      "RETRYABLE",
+    );
+    expect(
+      (await recovered.get("pending_attachments", "attachment-1"))?.status,
+    ).toBe("RETRYABLE");
+  } finally {
+    recovered.close();
   }
 });

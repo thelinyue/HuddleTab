@@ -64,6 +64,51 @@ export class AttachmentRepository {
     }
   }
 
+  /** 用户明确要求重试时立即解除网络退避，但不改变已被服务端拒绝的附件。 */
+  async retryNow(now = this.now()) {
+    const db = await openHuddleTabDb(this.userId);
+    try {
+      const attachments = await db.getAll("pending_attachments");
+      await Promise.all(
+        attachments
+          .filter((attachment) => attachment.status === "RETRYABLE")
+          .map((attachment) =>
+            db.put("pending_attachments", {
+              ...attachment,
+              nextAttemptAt: now,
+              updatedAt: now,
+            }),
+          ),
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  /** 仅移除已经被服务端最终拒绝的本地 Blob，已确认账单和成功附件保持不变。 */
+  async removeRejectedForMutation(mutationId: string): Promise<number> {
+    const db = await openHuddleTabDb(this.userId);
+    try {
+      const transaction = db.transaction("pending_attachments", "readwrite");
+      const attachments = await transaction
+        .objectStore("pending_attachments")
+        .index("by-mutation")
+        .getAll(mutationId);
+      const rejected = attachments.filter(
+        (attachment) => attachment.status === "REJECTED",
+      );
+      await Promise.all(
+        rejected.map((attachment) =>
+          transaction.objectStore("pending_attachments").delete(attachment.id),
+        ),
+      );
+      await transaction.done;
+      return rejected.length;
+    } finally {
+      db.close();
+    }
+  }
+
   async syncFor(mutationId: string, expenseId: string, now = this.now()) {
     const attachments = await this.listByMutation(mutationId);
     for (const attachment of attachments) {
@@ -83,6 +128,8 @@ export class AttachmentRepository {
     const remaining = await this.listByMutation(mutationId);
     return {
       pendingCount: remaining.filter(({ status }) => status !== "SYNCED")
+        .length,
+      rejectedCount: remaining.filter(({ status }) => status === "REJECTED")
         .length,
     };
   }
@@ -130,7 +177,8 @@ export class AttachmentRepository {
       message: value.message ?? "附件同步失败，请检查网络后重试。",
     };
     const retryable =
-      (value.kind === "network" ||
+      (error instanceof TypeError ||
+        value.kind === "network" ||
         (value.status !== undefined && value.status >= 500)) &&
       attachment.attemptCount < RETRY_MS.length;
     await this.update(attachment.id, {

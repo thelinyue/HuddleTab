@@ -14,6 +14,7 @@ import { PaymentEditor } from "@/features/expenses/components/payment-editor";
 import { SplitEditor } from "@/features/expenses/components/split-editor";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 import { enqueueExpense } from "@/pwa/sync-queue/enqueue-expense";
+import { requestForegroundSync } from "@/pwa/sync-queue/sync-events";
 
 type SplitMode = "EQUAL" | "EXACT" | "PERCENTAGE" | "WEIGHT";
 type FormValues = {
@@ -224,7 +225,7 @@ export function QuickExpenseForm({
         payments,
         split,
       };
-      if (!online) {
+      if (!online || files.length) {
         await queueExpense(request);
         return;
       }
@@ -253,6 +254,7 @@ export function QuickExpenseForm({
       files,
     });
     setQueuedMessage("已保存到本机，联网后自动同步。");
+    requestForegroundSync();
     onQueued?.(queued.mutation.id);
   }
   const textInput = "mt-1 min-h-11 w-full border bg-background px-3";

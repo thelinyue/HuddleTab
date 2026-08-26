@@ -71,10 +71,14 @@ export class ExpenseRepository {
       from expense_shares share join activity_members member on member.id = share.activity_member_id
       where share.expense_id = ${expenseId}
       order by share.activity_member_id`;
+    const attachments =
+      await transaction`select id, safe_filename, mime_type, width, height, byte_size, sha256, created_at
+      from expense_attachments where expense_id = ${expenseId} order by created_at asc, id asc`;
     return {
       expense: { ...expense, created_by_display_name: creator?.display_name },
       payments,
       shares,
+      attachments,
     };
   }
 

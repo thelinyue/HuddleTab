@@ -65,6 +65,16 @@ export async function GET(request: Request, context: ItemContext) {
         expense: serializeExpense(data.expense),
         payments: data.payments.map(serializeExpensePayment),
         shares: data.shares.map(serializeExpenseShare),
+        attachments: data.attachments.map((attachment) => ({
+          id: attachment.id,
+          filename: attachment.safe_filename,
+          mimeType: attachment.mime_type,
+          width: attachment.width,
+          height: attachment.height,
+          byteSize: String(attachment.byte_size),
+          sha256: attachment.sha256,
+          createdAt: attachment.created_at.toISOString(),
+        })),
         permissions: data.permissions,
       },
     });

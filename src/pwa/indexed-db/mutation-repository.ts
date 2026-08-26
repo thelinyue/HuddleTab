@@ -149,6 +149,28 @@ export class MutationRepository {
     await this.update(id, { syncInfo });
   }
 
+  async clearInfo(id: string) {
+    await this.update(id, { syncInfo: undefined });
+  }
+
+  /** 账单确认后仍可能遗留网络失败的附件，供下一次前台同步单独重试。 */
+  async listSyncedWithServerId() {
+    const db = await openHuddleTabDb(this.userId);
+    try {
+      const records = await db.getAll("pending_mutations");
+      return records
+        .filter(
+          (
+            record,
+          ): record is PendingExpenseMutation & { serverExpenseId: string } =>
+            record.status === "SYNCED" && Boolean(record.serverExpenseId),
+        )
+        .map(({ id, serverExpenseId }) => ({ id, serverExpenseId }));
+    } finally {
+      db.close();
+    }
+  }
+
   async discard(id: string) {
     const db = await openHuddleTabDb(this.userId);
     try {

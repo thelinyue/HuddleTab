@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 
 import { initializeSetup } from "./initialize-setup";
+import { sql } from "../db/client";
+import { startOrphanAttachmentCleanup } from "../jobs/orphan-attachment-cleanup";
 
 /** 容器启动在迁移后先检查初始化状态，再以固定 5660 端口启动 Next.js。 */
 async function startNext(): Promise<void> {
@@ -26,4 +28,5 @@ async function startNext(): Promise<void> {
 }
 
 await initializeSetup();
+startOrphanAttachmentCleanup(sql);
 await startNext();

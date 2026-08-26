@@ -10,7 +10,7 @@ type AttachmentSync = {
   syncFor(
     mutationId: string,
     expenseId: string,
-  ): Promise<{ pendingCount: number }>;
+  ): Promise<{ pendingCount: number; rejectedCount?: number }>;
 };
 type SnapshotRefresh = { refresh(activityId: string): Promise<void> };
 /** 前台唯一同步 worker；网络故障有限重试，权限/状态/校验拒绝保留本地输入。 */
@@ -28,6 +28,10 @@ export class SyncCoordinator {
       markRejected(id: string, failure: Failure): Promise<void> | void;
       markSynced(id: string, serverId?: string): Promise<void> | void;
       setInfo?(id: string, info: Failure): Promise<void> | void;
+      clearInfo?(id: string): Promise<void> | void;
+      listSyncedWithServerId?(): Promise<
+        readonly { id: string; serverExpenseId: string }[]
+      >;
     },
     private readonly api: {
       createExpense(
@@ -53,6 +57,7 @@ export class SyncCoordinator {
       item = await this.queue.nextReady()
     )
       await this.syncOne(item);
+    await this.retrySyncedAttachments();
   }
   private async syncOne(item: Item) {
     await this.queue.markSyncing(item.id);
@@ -68,11 +73,17 @@ export class SyncCoordinator {
             item.id,
             result.expense.id,
           );
-          if (attachmentResult.pendingCount)
+          if (attachmentResult.rejectedCount)
+            await this.queue.setInfo?.(item.id, {
+              code: "ATTACHMENTS_REJECTED",
+              message: "有附件被服务器拒绝，请移除后继续。",
+            });
+          else if (attachmentResult.pendingCount)
             await this.queue.setInfo?.(item.id, {
               code: "ATTACHMENTS_PENDING",
               message: "账单已同步，附件待同步。",
             });
+          else await this.queue.clearInfo?.(item.id);
         } catch {
           // 账单已得到服务端确认，附件本地异常也不能触发账单的第二次创建。
           await this.queue.setInfo?.(item.id, {
@@ -115,6 +126,28 @@ export class SyncCoordinator {
           failure,
         );
       else await this.queue.markRejected(item.id, failure);
+    }
+  }
+
+  /** 已确认的账单不应因附件失败重新创建；后续同步只重试其持久化附件队列。 */
+  private async retrySyncedAttachments() {
+    if (!this.attachments || !this.queue.listSyncedWithServerId) return;
+    for (const mutation of await this.queue.listSyncedWithServerId()) {
+      const result = await this.attachments.syncFor(
+        mutation.id,
+        mutation.serverExpenseId,
+      );
+      if (result.rejectedCount)
+        await this.queue.setInfo?.(mutation.id, {
+          code: "ATTACHMENTS_REJECTED",
+          message: "有附件被服务器拒绝，请移除后继续。",
+        });
+      else if (result.pendingCount)
+        await this.queue.setInfo?.(mutation.id, {
+          code: "ATTACHMENTS_PENDING",
+          message: "账单已同步，附件待同步。",
+        });
+      else await this.queue.clearInfo?.(mutation.id);
     }
   }
 }

@@ -39,6 +39,7 @@ export function ExpenseFeed({
   highlightedExpenseId,
   pendingMutations = [],
   onDiscardPending,
+  onRemoveRejectedAttachments,
 }: {
   readonly activity: FeedActivity;
   readonly expenses: readonly ExpenseListItemDto[];
@@ -49,6 +50,7 @@ export function ExpenseFeed({
   readonly highlightedExpenseId?: string | null;
   readonly pendingMutations?: readonly PendingExpenseMutation[];
   readonly onDiscardPending?: (mutationId: string) => void;
+  readonly onRemoveRejectedAttachments?: (mutationId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
@@ -140,6 +142,7 @@ export function ExpenseFeed({
             key={mutation.id}
             mutation={mutation}
             onDiscard={onDiscardPending ?? (() => undefined)}
+            onRemoveRejectedAttachments={onRemoveRejectedAttachments}
           />
         ))}
         {expenses.map((expense) => (

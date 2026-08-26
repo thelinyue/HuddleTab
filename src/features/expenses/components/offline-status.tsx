@@ -47,9 +47,11 @@ export function OfflineStatus({ children }: { readonly children: string }) {
 export function OfflineExpenseStatus({
   mutation,
   onDiscard,
+  onRemoveRejectedAttachments,
 }: {
   readonly mutation: PendingExpenseMutation;
   readonly onDiscard: (id: string) => void;
+  readonly onRemoveRejectedAttachments?: (id: string) => void;
 }) {
   const status = describeMutation(mutation);
   return (
@@ -81,6 +83,17 @@ export function OfflineExpenseStatus({
           丢弃本地记录
         </button>
       )}
+      {mutation.status === "SYNCED" &&
+        mutation.syncInfo?.code === "ATTACHMENTS_REJECTED" &&
+        onRemoveRejectedAttachments && (
+          <button
+            type="button"
+            className="mt-2 min-h-11 border px-3 text-sm"
+            onClick={() => onRemoveRejectedAttachments(mutation.id)}
+          >
+            移除被拒绝的附件
+          </button>
+        )}
     </article>
   );
 }

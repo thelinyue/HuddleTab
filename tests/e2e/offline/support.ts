@@ -64,6 +64,21 @@ export async function countExpenses(page: Page, activityId: string) {
   }, activityId);
 }
 
+/** E2E 仅通过真实数据库核验附件元数据数量，不伪造上传成功响应。 */
+export async function countAttachments(activityId: string) {
+  const sql = postgres(databaseUrl());
+  try {
+    const [{ count }] = await sql<{ count: string }[]>`
+      select count(*) from expense_attachments attachment
+      join expenses expense on expense.id = attachment.expense_id
+      where expense.activity_id = ${activityId}
+    `;
+    return Number(count);
+  } finally {
+    await sql.end();
+  }
+}
+
 /** 直接变更真实活动生命周期，用于验证客户端缓存不能越过服务端最终权限边界。 */
 export async function setActivityStatus(
   activityId: string,

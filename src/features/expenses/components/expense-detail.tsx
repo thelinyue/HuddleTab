@@ -5,6 +5,7 @@ import {
   type ExpenseCategory,
 } from "@/features/expenses/categories";
 import type { ExpenseDetailResponse } from "@/features/expenses/api";
+import { ExpenseAttachments } from "@/features/attachments/expense-attachments";
 
 function MoneyLine({
   currency,
@@ -113,6 +114,11 @@ export function ExpenseDetail({
           ))}
         </ul>
       </section>
+      <ExpenseAttachments
+        activityId={expense.activityId}
+        expenseId={expense.id}
+        attachments={data.attachments}
+      />
       <section className="mt-6">
         <h2 className="text-lg font-semibold">成员承担</h2>
         <ul className="mt-2 divide-y">

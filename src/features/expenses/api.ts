@@ -12,6 +12,7 @@ export interface ExpenseListItemDto {
 }
 
 export interface ExpenseDetailDto extends ExpenseListItemDto {
+  readonly activityId: string;
   readonly exchangeRate: string;
   readonly exchangeRateSource: string;
   readonly exchangeRateAt: string;
@@ -68,6 +69,16 @@ export interface ExpenseDetailResponse {
     readonly memberDisplayName: string;
     readonly originalAmountMinor: string;
     readonly baseAmountMinor: string;
+  }[];
+  readonly attachments: readonly {
+    readonly id: string;
+    readonly filename: string;
+    readonly mimeType: string;
+    readonly width: number;
+    readonly height: number;
+    readonly byteSize: string;
+    readonly sha256: string;
+    readonly createdAt: string;
   }[];
   readonly permissions: {
     readonly canUpdate: boolean;

@@ -114,6 +114,7 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
     expense,
     payments: [],
     shares: [],
+    attachments: [],
     permissions: { canUpdate: false, canDelete: false },
   });
 

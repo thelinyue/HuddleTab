@@ -113,6 +113,42 @@ test("在线请求发生网络故障时沿用同一账单进入本地队列", as
   );
 });
 
+test("在线时选择附件也先进入原子本地队列，避免账单与附件脱节", async () => {
+  const user = userEvent.setup();
+  const onSyncRequested = vi.fn();
+  window.addEventListener("huddletab:foreground-sync", onSyncRequested);
+  mocks.enqueueExpense.mockResolvedValueOnce({
+    mutation: { id: "mutation-with-attachment" },
+  });
+  render(
+    <QuickExpenseForm
+      activity={activity}
+      members={members}
+      preference={{
+        recentParticipantIds: ["member-1"],
+        recentPayerIds: ["member-1"],
+      }}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.type(screen.getByLabelText("金额"), "88");
+  await user.type(screen.getByLabelText("用途"), "带附件午餐");
+  await user.click(screen.getByRole("button", { name: "更多设置" }));
+  await user.upload(
+    screen.getByLabelText("附件（最多三张）"),
+    new File(["image"], "receipt.png", { type: "image/png" }),
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(mocks.createExpense).not.toHaveBeenCalled();
+  expect(mocks.enqueueExpense).toHaveBeenCalledWith(
+    expect.objectContaining({ files: [expect.any(File)] }),
+  );
+  expect(onSyncRequested).toHaveBeenCalledOnce();
+  window.removeEventListener("huddletab:foreground-sync", onSyncRequested);
+});
+
 test("本地入队失败仍显示可读错误", async () => {
   const user = userEvent.setup();
   mocks.enqueueExpense.mockRejectedValueOnce(new Error("本地存储空间不足。"));
@@ -173,6 +209,40 @@ test("服务端拒绝的本地消费保留原因，并可明确丢弃本地记�
   expect(confirm).toHaveBeenCalledOnce();
   expect(onDiscard).toHaveBeenCalledWith("mutation-1");
   confirm.mockRestore();
+});
+
+test("已同步账单可以移除被服务端拒绝的附件", async () => {
+  const user = userEvent.setup();
+  const onRemoveRejectedAttachments = vi.fn();
+  render(
+    <OfflineExpenseStatus
+      mutation={{
+        id: "mutation-1",
+        userId: "user-1",
+        activityId: "activity-1",
+        kind: "CREATE_EXPENSE",
+        payload: {
+          title: "附件被拒绝的午餐",
+          originalAmountMinor: "8800",
+          originalCurrency: "CNY",
+        } as never,
+        status: "SYNCED",
+        attemptCount: 0,
+        nextAttemptAt: 0,
+        syncInfo: {
+          code: "ATTACHMENTS_REJECTED",
+          message: "有附件被服务器拒绝，请移除后继续。",
+        },
+        createdAt: 0,
+        updatedAt: 0,
+      }}
+      onDiscard={vi.fn()}
+      onRemoveRejectedAttachments={onRemoveRejectedAttachments}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "移除被拒绝的附件" }));
+  expect(onRemoveRejectedAttachments).toHaveBeenCalledWith("mutation-1");
 });
 
 test("离线时不允许记录 Settlement，并明确说明原因", () => {
