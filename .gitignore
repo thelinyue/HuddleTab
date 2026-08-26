@@ -4,6 +4,7 @@ node_modules/
 test-results/
 playwright-report/
 artifacts/
+data/
 tsconfig.tsbuildinfo
 .env
 .env.*
