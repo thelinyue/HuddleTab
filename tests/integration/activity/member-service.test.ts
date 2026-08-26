@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { TransactionSql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ActivityService } from "@/server/services/activity-service";
@@ -11,7 +12,13 @@ import { startPostgres, type PostgresHarness } from "../../support/postgres";
 let harness: PostgresHarness;
 
 function createUsageReader(hasFacts: boolean): AccountingIdentityUsageReader {
-  return { hasFacts: vi.fn().mockResolvedValue(hasFacts) };
+  return {
+    hasFacts: vi.fn(async (transaction: TransactionSql, memberId: string) => {
+      void transaction;
+      void memberId;
+      return hasFacts;
+    }),
+  };
 }
 
 async function createActivity(ownerUserId: string) {
@@ -124,6 +131,34 @@ describe("activity member services", () => {
     });
   });
 
+  it("rolls back activity creation when the owner user does not exist", async () => {
+    const activityName = `rollback-${randomUUID()}`;
+    const missingOwnerUserId = `missing-owner-${randomUUID()}`;
+    const service = new ActivityService(harness.sql);
+
+    await expect(
+      service.create({
+        name: activityName,
+        baseCurrency: "CNY",
+        startDate: "2026-08-26",
+        ownerUserId: missingOwnerUserId,
+        ownerDisplayName: "不存在的用户",
+      }),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    const [activityCount] = await harness.sql<{ count: number }[]>`
+      select count(*)::int as count from activities where name = ${activityName}
+    `;
+    const [auditCount] = await harness.sql<{ count: number }[]>`
+      select count(*)::int as count
+      from activity_audit_logs audit
+      join activities activity on activity.id = audit.activity_id
+      where activity.name = ${activityName}
+    `;
+
+    expect(activityCount.count).toBe(0);
+    expect(auditCount.count).toBe(0);
+  });
   it("binds a guest to a user without changing the member ID and records the mutation", async () => {
     const ownerUserId = `owner-${randomUUID()}`;
     const guestUserId = `guest-user-${randomUUID()}`;
@@ -237,7 +272,15 @@ describe("activity member services", () => {
     `;
     expect(deleted).toHaveLength(0);
 
-    const factsUsage = createUsageReader(true);
+    let receivedTransaction: TransactionSql | undefined;
+    let receivedMemberId: string | undefined;
+    const factsUsage = {
+      hasFacts: vi.fn(async (transaction: TransactionSql, memberId: string) => {
+        receivedTransaction = transaction;
+        receivedMemberId = memberId;
+        return true;
+      }),
+    } satisfies AccountingIdentityUsageReader;
     const preservingService = new MemberService(harness.sql, factsUsage);
     const { id: historicalMemberId } = await preservingService.addGuest(
       activityId,
@@ -278,7 +321,14 @@ describe("activity member services", () => {
       order by event_type
     `;
 
-    expect(factsUsage.hasFacts).toHaveBeenCalledWith(historicalMemberId);
+    expect(factsUsage.hasFacts).toHaveBeenCalledTimes(1);
+    expect(factsUsage.hasFacts).toHaveBeenCalledWith(
+      receivedTransaction,
+      historicalMemberId,
+    );
+    expect(receivedTransaction).toBeDefined();
+    expect(receivedTransaction).not.toBe(harness.sql);
+    expect(receivedMemberId).toBe(historicalMemberId);
     expect(preserved).toMatchObject({
       id: historicalMemberId,
       status: "LEFT",

@@ -5,10 +5,10 @@ import { ApplicationError } from "@/server/errors/application-error";
 
 /**
  * 用于判断成员是否已经被账目、分摊等不可变事实引用。
- * 有历史事实的成员不可删除，必须保留原 ID 并标记为 LEFT。
+ * 有历史事实的成员不可删除，必须在当前事务中查询并保留原 ID 为 LEFT。
  */
 export interface AccountingIdentityUsageReader {
-  hasFacts(memberId: string): Promise<boolean>;
+  hasFacts(transaction: TransactionSql, memberId: string): Promise<boolean>;
 }
 
 export type ActivityMemberActor = {
@@ -116,7 +116,7 @@ export class MemberService {
       const member = await this.lockActivityMember(transaction, memberId);
       this.assertNotOwner(member);
 
-      if (await this.usage.hasFacts(memberId)) {
+      if (await this.usage.hasFacts(transaction, memberId)) {
         await transaction`
           update activity_members
           set status = 'LEFT', left_at = now()
