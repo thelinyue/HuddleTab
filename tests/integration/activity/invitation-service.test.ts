@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
+import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { ApplicationError } from "@/server/errors/application-error";
 import { ActivityService } from "@/server/services/activity-service";
 import { InvitationService } from "@/server/services/invitation-service";
+import { OwnershipService } from "@/server/services/ownership-service";
 import { startPostgres, type PostgresHarness } from "../../support/postgres";
 
 let harness: PostgresHarness;
@@ -30,6 +33,15 @@ async function seedUser(): Promise<string> {
   const userId = `user-${randomUUID()}`;
   await harness.seedCredentialUser(userId, `${userId}@local.invalid`);
   return userId;
+}
+
+function hasPostgresCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
 }
 
 /**
@@ -101,6 +113,60 @@ describe("InvitationService", () => {
     `;
     expect(disabledActivity.revision).toBe("3");
     expect(disabledAudits).toEqual([{ count: "1" }]);
+  });
+
+  it("与所有权转让并发时遵守成员再活动的统一锁排序，不产生死锁", async () => {
+    const fixture = await createFixture();
+    const nextOwnerUserId = await seedUser();
+    const nextOwnerMemberId = randomUUID();
+    await harness.sql`
+      insert into activity_members (
+        id, activity_id, user_id, display_name, member_type, role, status
+      ) values (
+        ${nextOwnerMemberId}, ${fixture.id}, ${nextOwnerUserId}, '候选 Owner', 'USER', 'MEMBER', 'ACTIVE'
+      )
+    `;
+
+    const ownershipClient = postgres(harness.connectionUri, { max: 1 });
+    const invitationClient = postgres(harness.connectionUri, { max: 1 });
+    let results: PromiseSettledResult<void | string>[];
+    try {
+      // 两个独立连接并发：转让锁候选成员后锁活动，邀请重置也必须先锁候选成员再锁活动。
+      results = await Promise.allSettled([
+        new OwnershipService(ownershipClient).transferOwnership(
+          fixture.id,
+          fixture.ownerMemberId,
+          nextOwnerMemberId,
+        ),
+        new InvitationService(invitationClient).resetLink(
+          fixture.id,
+          nextOwnerMemberId,
+        ),
+      ]);
+    } finally {
+      await Promise.all([ownershipClient.end(), invitationClient.end()]);
+    }
+
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    expect(
+      rejected.some((result) => hasPostgresCode(result.reason, "40P01")),
+    ).toBe(false);
+    expect(
+      rejected.every(
+        (result) =>
+          result.reason instanceof ApplicationError &&
+          result.reason.status === 403,
+      ),
+    ).toBe(true);
+
+    const [ownerCount] = await harness.sql<{ count: string }[]>`
+      select count(*)::text as count
+      from activity_members
+      where activity_id = ${fixture.id} and role = 'OWNER'
+    `;
+    expect(ownerCount).toEqual({ count: "1" });
   });
 
   it("直接加入在同一事务创建 ACTIVE USER 成员、审计和 revision", async () => {

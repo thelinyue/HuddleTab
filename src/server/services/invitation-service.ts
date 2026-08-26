@@ -120,15 +120,15 @@ export class InvitationService {
   ): Promise<{ memberId?: string; requestId?: string }> {
     try {
       return await this.withTransaction(async (transaction) => {
-        const activity = await this.lockActivity(transaction, activityId);
-        this.assertActiveActivity(activity);
-
+        // 与 Owner 转让统一先锁成员；没有成员行时仍继续锁活动，以保持活动不存在优先。
         const existingMembers = await transaction`
           select id from activity_members
           where activity_id = ${activityId} and user_id = ${userId}
           limit 1
           for update
         `;
+        const activity = await this.lockActivity(transaction, activityId);
+        this.assertActiveActivity(activity);
         if (existingMembers.length !== 0) {
           throw new ApplicationError(
             "ALREADY_ACTIVITY_MEMBER",
@@ -220,6 +220,11 @@ export class InvitationService {
     try {
       await this.withTransaction(async (transaction) => {
         const request = await this.lockJoinRequest(transaction, requestId);
+        const manager = await this.lockManager(
+          transaction,
+          request.activityId,
+          actorMemberId,
+        );
         const activity = await this.lockActivity(
           transaction,
           request.activityId,
@@ -232,11 +237,6 @@ export class InvitationService {
           );
         }
         this.assertActiveActivity(activity);
-        const manager = await this.lockManager(
-          transaction,
-          activity.id,
-          actorMemberId,
-        );
         this.assertManager(manager);
 
         if (decision === "APPROVE") {
@@ -320,7 +320,7 @@ export class InvitationService {
     return callback(this.sql);
   }
 
-  /** 活动行先锁定，令牌/申请写入与 revision、审计始终处于同一事务边界。 */
+  /** 锁定后的活动事实只在同一事务中用于生命周期、审计和 revision 写入。 */
   private async lockActivity(
     transaction: TransactionSql,
     activityId: string,
@@ -350,13 +350,14 @@ export class InvitationService {
     activityId: string,
     actorMemberId: string,
   ): Promise<LockedManager> {
-    const activity = await this.lockActivity(transaction, activityId);
-    this.assertActiveActivity(activity);
+    // 邀请管理与 Owner 转让统一为成员再活动；缺失成员也必须继续锁活动，避免掩盖 404。
     const manager = await this.lockManager(
       transaction,
       activityId,
       actorMemberId,
     );
+    const activity = await this.lockActivity(transaction, activityId);
+    this.assertActiveActivity(activity);
     this.assertManager(manager);
     return manager;
   }
@@ -365,7 +366,7 @@ export class InvitationService {
     transaction: TransactionSql,
     activityId: string,
     actorMemberId: string,
-  ): Promise<LockedManager> {
+  ): Promise<LockedManager | undefined> {
     const [manager] = await transaction<LockedManager[]>`
       select
         id,
@@ -376,13 +377,6 @@ export class InvitationService {
       where id = ${actorMemberId} and activity_id = ${activityId}
       for update
     `;
-    if (!manager) {
-      throw new ApplicationError(
-        "ROLE_FORBIDDEN",
-        "当前成员无权管理活动邀请。",
-        403,
-      );
-    }
     return manager;
   }
 
@@ -420,8 +414,11 @@ export class InvitationService {
     }
   }
 
-  private assertManager(manager: LockedManager): void {
+  private assertManager(
+    manager: LockedManager | undefined,
+  ): asserts manager is LockedManager {
     if (
+      !manager ||
       manager.status !== "ACTIVE" ||
       (manager.role !== "OWNER" && manager.role !== "ADMIN")
     ) {
