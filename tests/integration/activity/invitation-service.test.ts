@@ -147,7 +147,8 @@ describe("InvitationService", () => {
     let resetPromise = Promise.resolve("");
 
     try {
-      await blockerReady;
+      // blocker 在发出就绪信号前失败时也必须进入 finally，不能让测试永久等待 gate。
+      await Promise.race([blockerReady, blockerTransaction]);
       const [backend] = await invitationClient<{ pid: number }[]>`
         select pg_backend_pid() as pid
       `;
