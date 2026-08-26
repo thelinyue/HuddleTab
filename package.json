@@ -10,6 +10,7 @@
     "dev": "next dev -p 5660",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 5660",
+    "start:container": "tsx src/server/bootstrap/container-start.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest",

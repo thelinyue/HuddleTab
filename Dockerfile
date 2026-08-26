@@ -16,10 +16,10 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
-COPY --from=build /app/src/server/db ./src/server/db
+COPY --from=build /app/src/server ./src/server
 
 RUN mkdir -p /data/uploads /data/backups
 
 EXPOSE 5660
 
-CMD ["sh", "-c", "npm run db:migrate && npm run start"]
+CMD ["sh", "-c", "npm run db:migrate && npm run start:container"]
