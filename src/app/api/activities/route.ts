@@ -8,17 +8,19 @@ export async function GET(request: Request) {
   const [
     { requireSession, sessionUserId },
     { sql },
+    { ActivityHomeService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
+    import("@/server/services/activity-home-service"),
     import("@/server/http/application-error-response"),
   ]);
   try {
     const session = await requireSession(request.headers);
-    const data =
-      await sql`select activity.* from activities activity join activity_members member on member.activity_id = activity.id
-        where member.user_id = ${sessionUserId(session)} and activity.deleted_at is null order by activity.updated_at desc`;
+    const data = await new ActivityHomeService(sql).get({
+      user: { id: sessionUserId(session) },
+    });
     return NextResponse.json({ data });
   } catch (error) {
     const response = applicationErrorResponse(error);
