@@ -13,6 +13,12 @@ import {
 } from "@/server/permissions/authorize-activity-operation";
 import { ExpenseRepository } from "@/server/repositories/expense-repository";
 
+function stringIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 /**
  * Expense 创建的唯一写入口。幂等键在授权之后、所有副作用之前查询；唯一冲突后
  * 再次读取，以覆盖并发请求同时通过首次查询的竞争窗口。
@@ -85,6 +91,68 @@ export class ExpenseService {
     });
   }
 
+  /**
+   * 表单上下文遵循普通账务读取授权，且仅返回 ACTIVE 成员的账务身份和当前用户
+   * 的活动偏好。这里不关联 User，防止快速记账入口无意暴露邮箱或系统角色。
+   */
+  async getEntryContext(
+    session: { readonly user: { readonly id: string } } | null,
+    activityId: string,
+  ) {
+    return this.sql.begin(async (transaction) => {
+      const authorization = await authorizeActivityOperation(transaction, {
+        session,
+        activityId,
+        operation: "READ",
+      });
+      const [preference] =
+        await transaction`select last_category, recent_participant_ids, recent_payer_ids, recent_currency from user_activity_preferences where user_id = ${authorization.userId} and activity_id = ${activityId}`;
+      const members =
+        await transaction`select id, display_name, status from activity_members where activity_id = ${activityId} and status = 'ACTIVE' order by id`;
+      const recentTitles =
+        await transaction`select title from expenses where activity_id = ${activityId} and deleted_at is null group by title order by max(created_at) desc, title asc limit 6`;
+      const canCreateExpense = (() => {
+        try {
+          evaluateActivityOperation(
+            {
+              hasSession: true,
+              membershipExists: true,
+              lifecycle: authorization.activity.status,
+              memberStatus: authorization.member.status,
+              role: authorization.member.role,
+              ownsResource: true,
+            },
+            "EXPENSE_CREATE",
+          );
+          return true;
+        } catch (error) {
+          if (error instanceof ApplicationError) return false;
+          throw error;
+        }
+      })();
+      return {
+        activity: {
+          id: activityId,
+          baseCurrency: authorization.activity.baseCurrency,
+          currentMemberId: authorization.member.id,
+        },
+        members: members.map((member) => ({
+          id: member.id,
+          displayName: member.display_name,
+          status: member.status,
+        })),
+        preference: {
+          lastCategory: preference?.last_category ?? null,
+          recentParticipantIds: stringIds(preference?.recent_participant_ids),
+          recentPayerIds: stringIds(preference?.recent_payer_ids),
+          recentCurrency: preference?.recent_currency ?? null,
+          recentTitles: recentTitles.map((row) => row.title),
+        },
+        permissions: { canCreateExpense },
+      };
+    });
+  }
+
   async create(
     session: { readonly user: { readonly id: string } } | null,
     activityId: string,
@@ -147,6 +215,12 @@ export class ExpenseService {
         targetId: expense.id,
       });
       await this.repository.incrementRevision(transaction, activityId);
+      await this.saveQuickEntryPreference(
+        transaction,
+        authorization.userId,
+        activityId,
+        request,
+      );
       return { expense, idempotentReplay: false };
     });
   }
@@ -266,5 +340,21 @@ export class ExpenseService {
               })),
             },
     });
+  }
+
+  /** 只在新的成功写入后更新偏好；幂等重放不能倒退或重复写入用户的最近选择。 */
+  private async saveQuickEntryPreference(
+    transaction: postgres.TransactionSql,
+    userId: string,
+    activityId: string,
+    request: CreateExpenseRequest,
+  ): Promise<void> {
+    const participantIds =
+      request.split.mode === "EQUAL"
+        ? request.split.members
+        : request.split.entries.map((entry) => entry.memberId);
+    await transaction`insert into user_activity_preferences (user_id, activity_id, last_category, recent_participant_ids, recent_payer_ids, recent_currency, updated_at)
+      values (${userId}, ${activityId}, ${request.category}, ${JSON.stringify(participantIds)}::jsonb, ${JSON.stringify(request.payments.map((payment) => payment.memberId))}::jsonb, ${request.originalCurrency}, now())
+      on conflict (user_id, activity_id) do update set last_category = excluded.last_category, recent_participant_ids = excluded.recent_participant_ids, recent_payer_ids = excluded.recent_payer_ids, recent_currency = excluded.recent_currency, updated_at = now()`;
   }
 }

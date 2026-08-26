@@ -11,8 +11,10 @@ import {
 import type {
   ExpenseFeedSummaryDto,
   ExpenseListItemDto,
+  QuickExpenseContextDto,
 } from "@/features/expenses/api";
 import { ExpenseListItem } from "@/features/expenses/components/expense-list-item";
+import { QuickExpenseTrigger } from "@/features/expenses/components/quick-expense-trigger";
 
 type FeedActivity = Pick<
   ExpenseFeedSummaryDto,
@@ -29,10 +31,16 @@ export function ExpenseFeed({
   activity,
   expenses,
   onFiltersChange,
+  entryContext,
+  onExpenseSaved,
+  highlightedExpenseId,
 }: {
   readonly activity: FeedActivity;
   readonly expenses: readonly ExpenseListItemDto[];
   readonly onFiltersChange?: (filters: ExpenseFeedFilters) => void;
+  readonly entryContext?: QuickExpenseContextDto | null;
+  readonly onExpenseSaved?: (expenseId: string) => void;
+  readonly highlightedExpenseId?: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
@@ -47,22 +55,30 @@ export function ExpenseFeed({
   );
   return (
     <>
-      <header className="py-5">
-        <p className="text-sm text-muted-foreground">{activity.name}</p>
-        <h1 className="money mt-1 text-2xl font-bold">总支出 {total}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {activity.originalCurrencyTotals
-            .map((item) =>
-              formatMoney(
-                {
-                  currency: asCurrencyCode(item.currency),
-                  amountMinor: BigInt(item.amountMinor),
-                },
-                "zh-CN",
-              ),
-            )
-            .join(" · ")}
-        </p>
+      <header className="flex items-start justify-between gap-4 py-5">
+        <div>
+          <p className="text-sm text-muted-foreground">{activity.name}</p>
+          <h1 className="money mt-1 text-2xl font-bold">总支出 {total}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {activity.originalCurrencyTotals
+              .map((item) =>
+                formatMoney(
+                  {
+                    currency: asCurrencyCode(item.currency),
+                    amountMinor: BigInt(item.amountMinor),
+                  },
+                  "zh-CN",
+                ),
+              )
+              .join(" · ")}
+          </p>
+        </div>
+        {entryContext?.permissions.canCreateExpense && onExpenseSaved && (
+          <QuickExpenseTrigger
+            context={entryContext}
+            onSaved={onExpenseSaved}
+          />
+        )}
       </header>
       <div className="space-y-3 border-y py-4">
         <label className="block">
@@ -111,7 +127,11 @@ export function ExpenseFeed({
       </div>
       <section aria-label="消费流水" className="mt-3">
         {expenses.map((expense) => (
-          <ExpenseListItem key={expense.id} expense={expense} />
+          <ExpenseListItem
+            key={expense.id}
+            expense={expense}
+            highlighted={highlightedExpenseId === expense.id}
+          />
         ))}
         {expenses.length === 0 && (
           <p className="py-8 text-center text-muted-foreground">

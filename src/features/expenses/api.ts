@@ -32,6 +32,27 @@ export interface ExpenseFeedSummaryDto {
   }[];
 }
 
+export interface QuickExpenseContextDto {
+  readonly activity: {
+    readonly id: string;
+    readonly baseCurrency: string;
+    readonly currentMemberId: string;
+  };
+  readonly members: readonly {
+    readonly id: string;
+    readonly displayName: string;
+    readonly status: "ACTIVE" | "LEFT";
+  }[];
+  readonly preference: {
+    readonly lastCategory: string | null;
+    readonly recentParticipantIds: readonly string[];
+    readonly recentPayerIds: readonly string[];
+    readonly recentCurrency: string | null;
+    readonly recentTitles: readonly string[];
+  };
+  readonly permissions: { readonly canCreateExpense: boolean };
+}
+
 export interface ExpenseDetailResponse {
   readonly expense: ExpenseDetailDto;
   readonly payments: readonly {
@@ -74,4 +95,30 @@ export function getExpenseDetail(activityId: string, expenseId: string) {
   return readJson<ExpenseDetailResponse>(
     `/api/activities/${activityId}/expenses/${expenseId}`,
   );
+}
+
+/** 快速记账只读取必要的活动身份和当前用户偏好，不传输邮箱等账号资料。 */
+export function getQuickExpenseContext(activityId: string) {
+  return readJson<QuickExpenseContextDto>(
+    `/api/activities/${activityId}/expenses/entry-context`,
+  );
+}
+
+export async function createExpense(
+  activityId: string,
+  input: import("@/features/expenses/contracts").CreateExpenseRequest,
+) {
+  const response = await fetch(`/api/activities/${activityId}/expenses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = (await response.json()) as { error?: { message?: string } };
+    throw new Error(body.error?.message ?? "消费保存失败，请稍后重试。");
+  }
+  return (await response.json()).data as {
+    readonly expense: ExpenseDetailDto;
+    readonly idempotentReplay: boolean;
+  };
 }

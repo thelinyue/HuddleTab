@@ -11,8 +11,10 @@ import type { ExpenseListItemDto } from "@/features/expenses/api";
 /** 消费行保持两到三层扫描信息；转账不会进入此列表或消费总额。 */
 export function ExpenseListItem({
   expense,
+  highlighted = false,
 }: {
   readonly expense: ExpenseListItemDto;
+  readonly highlighted?: boolean;
 }) {
   const baseAmount = formatMoney(
     {
@@ -31,7 +33,7 @@ export function ExpenseListItem({
   return (
     <Link
       href={`expenses/${expense.id}`}
-      className="block min-h-20 border-b py-3 transition-colors hover:bg-muted/60 focus-visible:rounded-md"
+      className={`block min-h-20 border-b py-3 transition-colors hover:bg-muted/60 focus-visible:rounded-md ${highlighted ? "bg-primary/10" : ""}`}
     >
       <div className="flex items-start justify-between gap-4">
         <strong className="min-w-0 [overflow-wrap:anywhere]">

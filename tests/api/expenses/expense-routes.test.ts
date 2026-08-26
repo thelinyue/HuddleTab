@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
+  getEntryContext: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({
@@ -22,6 +23,7 @@ vi.mock("@/server/services/expense-service", () => ({
     remove = mocks.remove;
     list = mocks.list;
     get = mocks.get;
+    getEntryContext = mocks.getEntryContext;
   },
 }));
 
@@ -34,6 +36,7 @@ import {
   GET as getExpense,
   PUT,
 } from "@/app/api/activities/[activityId]/expenses/[expenseId]/route";
+import { GET as getEntryContext } from "@/app/api/activities/[activityId]/expenses/entry-context/route";
 
 const context = { params: Promise.resolve({ activityId: "activity-1" }) };
 const itemContext = {
@@ -145,6 +148,45 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
     { user: { id: "user-1" } },
     "activity-1",
     { query: "晚", category: "FOOD", mine: true },
+  );
+});
+
+it("快速记账上下文只返回活动身份与当前用户偏好", async () => {
+  mocks.getEntryContext.mockResolvedValue({
+    activity: {
+      id: "activity-1",
+      baseCurrency: "CNY",
+      currentMemberId: "member-1",
+    },
+    members: [{ id: "member-1", displayName: "小李", status: "ACTIVE" }],
+    preference: {
+      lastCategory: "FOOD",
+      recentParticipantIds: ["member-1"],
+      recentPayerIds: ["member-1"],
+      recentCurrency: "CNY",
+      recentTitles: ["晚餐"],
+    },
+    permissions: { canCreateExpense: true },
+  });
+
+  const response = await getEntryContext(
+    new Request(
+      "http://localhost/api/activities/activity-1/expenses/entry-context",
+    ),
+    context,
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    data: {
+      activity: { currentMemberId: "member-1" },
+      members: [{ displayName: "小李" }],
+      permissions: { canCreateExpense: true },
+    },
+  });
+  expect(mocks.getEntryContext).toHaveBeenCalledWith(
+    { user: { id: "user-1" } },
+    "activity-1",
   );
 });
 

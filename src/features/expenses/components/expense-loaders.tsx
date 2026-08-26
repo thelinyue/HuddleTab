@@ -7,9 +7,11 @@ import {
   getExpenseDetail,
   getExpenseFeed,
   getExpenseFeedSummary,
+  getQuickExpenseContext,
   type ExpenseDetailResponse,
   type ExpenseFeedSummaryDto,
   type ExpenseListItemDto,
+  type QuickExpenseContextDto,
 } from "@/features/expenses/api";
 import { ExpenseDetail } from "@/features/expenses/components/expense-detail";
 import {
@@ -26,6 +28,12 @@ export function ExpenseFeedLoader() {
   const { activityId } = useParams<{ activityId: string }>();
   const [summary, setSummary] = useState<ExpenseFeedSummaryDto | null>(null);
   const [expenses, setExpenses] = useState<readonly ExpenseListItemDto[]>([]);
+  const [entryContext, setEntryContext] =
+    useState<QuickExpenseContextDto | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [highlightedExpenseId, setHighlightedExpenseId] = useState<
+    string | null
+  >(null);
   const [filters, setFilters] = useState<ExpenseFeedFilters>({
     query: "",
     category: null,
@@ -41,11 +49,13 @@ export function ExpenseFeedLoader() {
     void Promise.all([
       getExpenseFeedSummary(activityId),
       getExpenseFeed(activityId, params.size ? `?${params}` : ""),
+      getQuickExpenseContext(activityId),
     ])
-      .then(([nextSummary, nextExpenses]) => {
+      .then(([nextSummary, nextExpenses, nextEntryContext]) => {
         if (cancelled) return;
         setSummary(nextSummary);
         setExpenses(nextExpenses);
+        setEntryContext(nextEntryContext);
         setError(null);
       })
       .catch((reason: unknown) => {
@@ -54,7 +64,7 @@ export function ExpenseFeedLoader() {
     return () => {
       cancelled = true;
     };
-  }, [activityId, filters]);
+  }, [activityId, filters, refreshToken]);
   if (error)
     return (
       <p role="alert" className="py-8 text-destructive">
@@ -68,6 +78,13 @@ export function ExpenseFeedLoader() {
       activity={{ id: activityId, name: summary.activityName, ...summary }}
       expenses={expenses}
       onFiltersChange={setFilters}
+      entryContext={entryContext}
+      highlightedExpenseId={highlightedExpenseId}
+      onExpenseSaved={(expenseId) => {
+        setHighlightedExpenseId(expenseId);
+        setRefreshToken((value) => value + 1);
+        window.setTimeout(() => setHighlightedExpenseId(null), 3_000);
+      }}
     />
   );
 }
