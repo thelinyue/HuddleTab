@@ -217,6 +217,90 @@ describe("OwnershipService.transferOwnership", () => {
     expect(notificationCount).toEqual([{ count: "0" }]);
   });
 
+  it("通知写入失败时回滚此前的所有权转让写入", async () => {
+    const fixture = await createOwnershipFixture();
+
+    try {
+      // 此触发器仅用于验证通知这个后段写入失败时，整个转让事务都会回滚。
+      await harness.sql`
+        create function fail_owner_transfer_notification()
+        returns trigger
+        language plpgsql
+        as $$
+        begin
+          raise exception '所有权转让通知失败' using errcode = 'P0001';
+          return new;
+        end;
+        $$
+      `;
+      await harness.sql`
+        create trigger ownership_transfer_notification_failure
+        before insert on notifications
+        for each row
+        when (new.type = 'OWNER_TRANSFERRED')
+        execute function fail_owner_transfer_notification()
+      `;
+      await harness.sql`
+        comment on trigger ownership_transfer_notification_failure on notifications is
+          '仅用于测试 Owner 转让后段通知失败时的事务回滚。'
+      `;
+      await expect(
+        new OwnershipService(harness.sql).transferOwnership(
+          fixture.activityId,
+          fixture.ownerMemberId,
+          fixture.nextOwnerMemberId,
+        ),
+      ).rejects.toMatchObject({
+        code: "P0001",
+        message: expect.stringContaining("所有权转让通知失败"),
+      });
+    } finally {
+      await harness.sql`
+        drop trigger if exists ownership_transfer_notification_failure on notifications
+      `;
+      await harness.sql`drop function if exists fail_owner_transfer_notification()`;
+    }
+
+    const members = await harness.sql<
+      { id: string; role: string; status: string }[]
+    >`
+      select id, role, status
+      from activity_members
+      where id in (${fixture.ownerMemberId}, ${fixture.nextOwnerMemberId})
+      order by case when id = ${fixture.ownerMemberId} then 0 else 1 end
+    `;
+    const [activity] = await harness.sql<
+      { ownerMemberId: string; revision: string }[]
+    >`
+      select owner_member_id as "ownerMemberId", revision::text as revision
+      from activities
+      where id = ${fixture.activityId}
+    `;
+    const auditCount = await harness.sql<{ count: string }[]>`
+      select count(*)::text as count
+      from activity_audit_logs
+      where activity_id = ${fixture.activityId}
+        and event_type = 'OWNER_TRANSFERRED'
+    `;
+    const notificationCount = await harness.sql<{ count: string }[]>`
+      select count(*)::text as count
+      from notifications
+      where recipient_user_id = ${fixture.nextOwnerUserId}
+        and type = 'OWNER_TRANSFERRED'
+    `;
+
+    expect(members).toEqual([
+      { id: fixture.ownerMemberId, role: "OWNER", status: "ACTIVE" },
+      { id: fixture.nextOwnerMemberId, role: "MEMBER", status: "ACTIVE" },
+    ]);
+    expect(activity).toEqual({
+      ownerMemberId: fixture.ownerMemberId,
+      revision: "0",
+    });
+    expect(auditCount).toEqual([{ count: "0" }]);
+    expect(notificationCount).toEqual([{ count: "0" }]);
+  });
+
   it("拒绝非当前 Owner 发起的转让", async () => {
     const fixture = await createOwnershipFixture();
 
