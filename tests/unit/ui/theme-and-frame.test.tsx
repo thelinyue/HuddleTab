@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/design-system/status-badge";
 import { SyncStatus } from "@/components/design-system/sync-status";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { QuickExpenseTrigger } from "@/features/expenses/components/quick-expense-trigger";
 
 test("核心容器在中等屏幕增加边距，并保持单列与底部安全区", () => {
   render(
@@ -102,4 +103,37 @@ test("共享标题允许合法的长无空格文本在窄屏内断行", () => {
   for (const element of screen.getAllByText(longTitle)) {
     expect(element).toHaveClass("[overflow-wrap:anywhere]");
   }
+});
+
+test("移动端记一笔按钮固定在活动导航和安全区上方", () => {
+  render(
+    <QuickExpenseTrigger
+      context={{
+        activity: {
+          id: "activity-1",
+          baseCurrency: "CNY",
+          status: "ACTIVE",
+          currentMemberId: "member-1",
+          currentUserId: "user-1",
+        },
+        members: [
+          { id: "member-1", displayName: "小王", status: "ACTIVE" },
+        ],
+        preference: {
+          lastCategory: null,
+          recentParticipantIds: ["member-1"],
+          recentPayerIds: ["member-1"],
+          recentCurrency: "CNY",
+          recentTitles: [],
+        },
+        permissions: { canCreateExpense: true },
+      }}
+      onSaved={() => undefined}
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "记一笔" })).toHaveClass(
+    "bottom-[calc(4rem+env(safe-area-inset-bottom))]",
+    "min-[768px]:static",
+  );
 });
