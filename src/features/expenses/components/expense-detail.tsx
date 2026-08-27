@@ -1,3 +1,8 @@
+import { FileTextIcon, ReceiptTextIcon, UsersIcon } from "lucide-react";
+
+import { AppHeader } from "@/components/design-system/app-header";
+import { EmptyState } from "@/components/design-system/empty-state";
+import { MoneyAmount } from "@/components/design-system/money-amount";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
 import {
@@ -34,20 +39,45 @@ export function ExpenseDetail({
   readonly data: ExpenseDetailResponse;
 }) {
   const { expense } = data;
+  const memberAmounts = new Map<
+    string,
+    {
+      displayName: string;
+      paidMinor: bigint;
+      shareMinor: bigint;
+    }
+  >();
+  for (const payment of data.payments) {
+    const current = memberAmounts.get(payment.memberId) ?? {
+      displayName: payment.memberDisplayName,
+      paidMinor: 0n,
+      shareMinor: 0n,
+    };
+    current.paidMinor += BigInt(payment.baseAmountMinor);
+    memberAmounts.set(payment.memberId, current);
+  }
+  for (const share of data.shares) {
+    const current = memberAmounts.get(share.memberId) ?? {
+      displayName: share.memberDisplayName,
+      paidMinor: 0n,
+      shareMinor: 0n,
+    };
+    current.shareMinor += BigInt(share.baseAmountMinor);
+    memberAmounts.set(share.memberId, current);
+  }
   return (
     <article className="py-5">
-      <header className="border-b pb-4">
-        <p className="text-sm text-muted-foreground">
-          {expenseCategoryLabels[expense.category as ExpenseCategory]}
-        </p>
-        <h1 className="mt-1 text-2xl font-bold">{expense.title}</h1>
-        <p className="money mt-2 text-xl font-semibold">
-          <MoneyLine
-            currency={expense.baseCurrency}
-            amountMinor={expense.baseAmountMinor}
-          />
-        </p>
-      </header>
+      <AppHeader
+        eyebrow={expenseCategoryLabels[expense.category as ExpenseCategory]}
+        title={expense.title}
+      />
+      <p className="mt-3 border-b pb-4">
+        <MoneyAmount
+          currency={expense.baseCurrency}
+          amountMinor={BigInt(expense.baseAmountMinor)}
+          size="lg"
+        />
+      </p>
       <dl className="divide-y">
         <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
           <dt className="text-muted-foreground">消费时间</dt>
@@ -102,36 +132,95 @@ export function ExpenseDetail({
       </dl>
       <section className="mt-6">
         <h2 className="text-lg font-semibold">付款明细</h2>
-        <ul className="mt-2 divide-y">
-          {data.payments.map((payment) => (
-            <li key={payment.memberId} className="flex justify-between py-2">
-              <span>{payment.memberDisplayName}</span>
-              <MoneyLine
-                currency={expense.baseCurrency}
-                amountMinor={payment.baseAmountMinor}
-              />
-            </li>
-          ))}
-        </ul>
+        {data.payments.length ? (
+          <ul className="mt-2 divide-y">
+            {data.payments.map((payment) => (
+              <li key={payment.memberId} className="flex justify-between py-2">
+                <span>{payment.memberDisplayName}</span>
+                <MoneyLine
+                  currency={expense.baseCurrency}
+                  amountMinor={payment.baseAmountMinor}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState
+            icon={ReceiptTextIcon}
+            title="没有付款明细"
+            description="这笔消费尚未记录付款成员。"
+          />
+        )}
       </section>
-      <ExpenseAttachments
-        activityId={expense.activityId}
-        expenseId={expense.id}
-        attachments={data.attachments}
-      />
-      <section className="mt-6">
-        <h2 className="text-lg font-semibold">成员承担</h2>
-        <ul className="mt-2 divide-y">
-          {data.shares.map((share) => (
-            <li key={share.memberId} className="flex justify-between py-2">
-              <span>{share.memberDisplayName}</span>
-              <MoneyLine
-                currency={expense.baseCurrency}
-                amountMinor={share.baseAmountMinor}
-              />
-            </li>
-          ))}
-        </ul>
+      {data.attachments.length ? (
+        <ExpenseAttachments
+          activityId={expense.activityId}
+          expenseId={expense.id}
+          attachments={data.attachments}
+        />
+      ) : (
+        <section className="mt-6" aria-labelledby="attachment-heading">
+          <h2 id="attachment-heading" className="text-lg font-semibold">
+            附件
+          </h2>
+          <EmptyState
+            icon={FileTextIcon}
+            title="没有附件"
+            description="这笔消费没有可查看的附件。"
+          />
+        </section>
+      )}
+      <section className="mt-6" aria-labelledby="member-summary-heading">
+        <h2 id="member-summary-heading" className="text-lg font-semibold">
+          成员收支
+        </h2>
+        {memberAmounts.size ? (
+          <ul className="mt-2 divide-y">
+            {[...memberAmounts.entries()].map(([memberId, member]) => (
+              <li key={memberId} className="py-3">
+                <strong>{member.displayName}</strong>
+                <dl className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <dt className="text-muted-foreground">已付</dt>
+                    <dd>
+                      <MoneyAmount
+                        currency={expense.baseCurrency}
+                        amountMinor={member.paidMinor}
+                        size="sm"
+                      />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">承担</dt>
+                    <dd>
+                      <MoneyAmount
+                        currency={expense.baseCurrency}
+                        amountMinor={member.shareMinor}
+                        size="sm"
+                      />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">净额</dt>
+                    <dd>
+                      <MoneyAmount
+                        currency={expense.baseCurrency}
+                        amountMinor={member.paidMinor - member.shareMinor}
+                        size="sm"
+                      />
+                    </dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState
+            icon={UsersIcon}
+            title="没有成员收支"
+            description="这笔消费尚未记录成员付款或承担。"
+          />
+        )}
       </section>
       {expense.note && (
         <section className="mt-6">

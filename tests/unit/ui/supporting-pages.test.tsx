@@ -9,10 +9,18 @@ import { expect, test, vi } from "vitest";
 import { MemberList } from "@/features/members/components/member-list";
 import { ThemeSelector } from "@/features/me/components/theme-selector";
 
-test("成员列表同时显示角色、账务身份和 LEFT 文本状态", () => {
+test("成员列表按状态分组，并显示角色、账务身份和头像", () => {
   render(
     <MemberList
       members={[
+        {
+          id: "m0",
+          displayName: "小李",
+          role: "OWNER",
+          status: "ACTIVE",
+          memberType: "USER",
+          permissions: { canManage: false },
+        },
         {
           id: "m1",
           displayName: "小王",
@@ -24,9 +32,16 @@ test("成员列表同时显示角色、账务身份和 LEFT 文本状态", () =>
       ]}
     />,
   );
-  expect(screen.getByText("成员")).toBeVisible();
-  expect(screen.getByText("已退出")).toBeVisible();
-  expect(screen.getByText("正式账号")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "活动中" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "已退出" })).toBeVisible();
+  expect(screen.getAllByText("正式账号")).toHaveLength(2);
+  expect(screen.getByRole("img", { name: "小王的头像" })).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "添加临时成员" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: /移除/ }),
+  ).not.toBeInTheDocument();
 });
 
 test("活动管理者可以从成员页添加临时成员和移除普通成员", () => {

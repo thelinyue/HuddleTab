@@ -4,11 +4,25 @@ import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { SettlementPage } from "@/features/settlements/components/settlement-page";
 
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const data = {
   activity: {
@@ -33,6 +47,52 @@ const data = {
   ],
   settlements: [],
 };
+
+test("结算总览显示本人结果，并在记录页签中单独展示实际历史", async () => {
+  const user = userEvent.setup();
+  render(
+    <SettlementPage
+      data={{
+        ...data,
+        settlements: [
+          {
+            id: "s1",
+            payerMemberId: "m1",
+            receiverMemberId: "m2",
+            amountMinor: "32650",
+            currency: "CNY",
+            occurredAt: "2026-08-27T08:00:00.000Z",
+            note: "已转账",
+          },
+        ],
+      }}
+      createSettlement={vi.fn()}
+    />,
+  );
+
+  const overviewTab = screen.getByRole("tab", { name: "总览" });
+  const historyTab = screen.getByRole("tab", { name: "记录" });
+  expect(overviewTab).toHaveAttribute("aria-selected", "true");
+  expect(
+    document.getElementById(overviewTab.getAttribute("aria-controls")!),
+  ).toBeInTheDocument();
+  expect(
+    document.getElementById(historyTab.getAttribute("aria-controls")!),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "我的结算结果" })).toBeVisible();
+  expect(screen.getAllByText("-¥326.50")[0]).toBeVisible();
+  expect(screen.getByText(/已转账/)).not.toBeVisible();
+
+  await user.click(screen.getByRole("tab", { name: "记录" }));
+  expect(screen.getByRole("tab", { name: "记录" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByText(/已转账/)).toBeVisible();
+  expect(
+    screen.queryByRole("heading", { name: "我的结算结果" }),
+  ).not.toBeInTheDocument();
+});
 
 test("推荐只预填表单，超额需要明确二次确认", async () => {
   const user = userEvent.setup();
