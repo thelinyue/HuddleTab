@@ -11,6 +11,7 @@ import {
 type Context = {
   activity: {
     status: "ACTIVE" | "ENDED" | "ARCHIVED";
+    currentMemberStatus: "ACTIVE" | "LEFT";
     currentMemberRole: "OWNER" | "ADMIN" | "MEMBER";
   };
 };
@@ -25,12 +26,21 @@ const labels = {
   archive: "归档活动",
   unarchive: "解除归档",
 } as const;
+const nextStatus = {
+  end: "ENDED",
+  reopen: "ACTIVE",
+  archive: "ARCHIVED",
+  unarchive: "ENDED",
+} as const;
 const statusContent = {
   ACTIVE: { label: "进行中", tone: "success", icon: "success" },
   ENDED: { label: "已结束", tone: "warning", icon: "warning" },
   ARCHIVED: { label: "已归档", tone: "neutral", icon: "info" },
 } as const;
-/** 更多页只显示与服务器状态一致的生命周期命令，服务端仍是最终权限与状态权威。 */
+/**
+ * 命令可见性复用服务端生命周期矩阵：离开活动的成员不可操作，结束/恢复由管理者执行，
+ * 归档/解除归档只由 Owner 执行。客户端只改善可见性，服务端仍是最终权限权威。
+ */
 export function ActivityMore() {
   const { activityId } = useParams<{ activityId: string }>();
   const [context, setContext] = useState<Context | null>(null);
@@ -70,6 +80,17 @@ export function ActivityMore() {
         return;
       }
       setMessage({ text: "活动状态已更新。", level: "status" });
+      setContext((current) =>
+        current
+          ? {
+              ...current,
+              activity: {
+                ...current.activity,
+                status: nextStatus[action],
+              },
+            }
+          : current,
+      );
     } catch {
       setMessage({
         text: "活动操作未完成，请检查网络后重试。",
@@ -77,9 +98,15 @@ export function ActivityMore() {
       });
     }
   };
-  const canManage =
-    context?.activity.currentMemberRole === "OWNER" ||
-    context?.activity.currentMemberRole === "ADMIN";
+  const lifecycleActions = (() => {
+    if (!context || context.activity.currentMemberStatus !== "ACTIVE")
+      return [];
+    const role = context.activity.currentMemberRole;
+    if (role === "MEMBER") return [];
+    return actions[context.activity.status].filter(
+      (action) => action === "end" || action === "reopen" || role === "OWNER",
+    );
+  })();
   return (
     <section className="py-5">
       <AppHeader
@@ -110,11 +137,11 @@ export function ActivityMore() {
           导出 CSV
         </a>
       </div>
-      {canManage && context && (
+      {lifecycleActions.length > 0 && (
         <section className="mt-8 border-t pt-4">
           <h2 className="font-semibold">活动操作</h2>
           <div className="mt-3 flex flex-wrap gap-2">
-            {actions[context.activity.status].map((action) => (
+            {lifecycleActions.map((action) => (
               <button
                 key={action}
                 type="button"
