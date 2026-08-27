@@ -94,6 +94,32 @@ test("结算总览显示本人结果，并在记录页签中单独展示实际�
   ).not.toBeInTheDocument();
 });
 
+test("结算页签使用 roving tabIndex，并支持键盘切换和聚焦", async () => {
+  const user = userEvent.setup();
+  render(<SettlementPage data={data} createSettlement={vi.fn()} />);
+
+  const overviewTab = screen.getByRole("tab", { name: "总览" });
+  const historyTab = screen.getByRole("tab", { name: "记录" });
+  expect(overviewTab).toHaveAttribute("tabindex", "0");
+  expect(historyTab).toHaveAttribute("tabindex", "-1");
+
+  overviewTab.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(historyTab).toHaveFocus();
+  expect(historyTab).toHaveAttribute("aria-selected", "true");
+  expect(historyTab).toHaveAttribute("tabindex", "0");
+  expect(overviewTab).toHaveAttribute("tabindex", "-1");
+
+  await user.keyboard("{Home}");
+  expect(overviewTab).toHaveFocus();
+  expect(overviewTab).toHaveAttribute("aria-selected", "true");
+
+  await user.keyboard("{End}");
+  expect(historyTab).toHaveFocus();
+  await user.keyboard("{ArrowLeft}");
+  expect(overviewTab).toHaveFocus();
+});
+
 test("推荐只预填表单，超额需要明确二次确认", async () => {
   const user = userEvent.setup();
   const createSettlement = vi

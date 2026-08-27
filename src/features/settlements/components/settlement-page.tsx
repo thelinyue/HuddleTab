@@ -2,7 +2,7 @@
 
 import { useGSAP } from "@gsap/react";
 import { ReceiptTextIcon, ScaleIcon, WalletCardsIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { type KeyboardEvent, useRef, useState } from "react";
 import { gsap } from "gsap";
 
 import { AppHeader } from "@/components/design-system/app-header";
@@ -36,6 +36,10 @@ type OverSettlement = {
   readonly message: string;
 };
 type SettlementTab = "OVERVIEW" | "HISTORY";
+const settlementTabs = [
+  ["OVERVIEW", "总览"],
+  ["HISTORY", "记录"],
+] as const;
 
 gsap.registerPlugin(useGSAP);
 
@@ -68,6 +72,10 @@ export function SettlementPage({
   );
   const [tab, setTab] = useState<SettlementTab>("OVERVIEW");
   const tabScope = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Record<SettlementTab, HTMLButtonElement | null>>({
+    OVERVIEW: null,
+    HISTORY: null,
+  });
   const currency = asCurrencyCode(data.activity.currency);
   const online = useOnlineStatus();
   const writable =
@@ -140,6 +148,31 @@ export function SettlementPage({
     setInitial(next);
     setFormOpen(true);
   };
+  const selectTab = (next: SettlementTab, focus = false) => {
+    setTab(next);
+    if (focus) tabRefs.current[next]?.focus();
+  };
+  const onTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: SettlementTab,
+  ) => {
+    const currentIndex = settlementTabs.findIndex(
+      ([value]) => value === current,
+    );
+    const nextIndex =
+      event.key === "ArrowRight"
+        ? (currentIndex + 1) % settlementTabs.length
+        : event.key === "ArrowLeft"
+          ? (currentIndex - 1 + settlementTabs.length) % settlementTabs.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? settlementTabs.length - 1
+              : null;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    selectTab(settlementTabs[nextIndex]![0], true);
+  };
   return (
     <>
       <AppHeader
@@ -166,12 +199,7 @@ export function SettlementPage({
         aria-label="结算内容"
         className="mt-5 grid grid-cols-2 overflow-hidden border"
       >
-        {(
-          [
-            ["OVERVIEW", "总览"],
-            ["HISTORY", "记录"],
-          ] as const
-        ).map(([value, label]) => (
+        {settlementTabs.map(([value, label]) => (
           <button
             key={value}
             id={`settlement-tab-${value}`}
@@ -179,8 +207,13 @@ export function SettlementPage({
             role="tab"
             aria-selected={tab === value}
             aria-controls={`settlement-panel-${value}`}
+            tabIndex={tab === value ? 0 : -1}
             className="min-h-11 border-r text-sm font-medium last:border-r-0 aria-selected:bg-primary aria-selected:text-primary-foreground"
-            onClick={() => setTab(value)}
+            ref={(element) => {
+              tabRefs.current[value] = element;
+            }}
+            onClick={() => selectTab(value)}
+            onKeyDown={(event) => onTabKeyDown(event, value)}
           >
             {label}
           </button>
