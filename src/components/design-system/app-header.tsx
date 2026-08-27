@@ -19,12 +19,12 @@ export function AppHeader({
       {leading ? <div className="shrink-0">{leading}</div> : null}
       <div className="min-w-0 flex-1">
         {eyebrow ? (
-          <p className="mb-0.5 text-xs font-medium text-muted-foreground">
+          <p className="mb-0.5 text-xs font-medium text-muted-foreground [overflow-wrap:anywhere]">
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="text-2xl font-bold text-foreground">{title}</h1>
-        {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
+        <h1 className="text-2xl font-bold text-foreground [overflow-wrap:anywhere]">{title}</h1>
+        {subtitle ? <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>

@@ -74,6 +74,32 @@ test("分摊设置在同一表单内前进和返回，并保留快速录入值",
   expect(screen.getByLabelText("汇率")).toBeVisible();
 });
 
+test("分摊设置完成后可直接保存，无需返回快速记账", async () => {
+  const user = userEvent.setup();
+  mocks.createExpense.mockResolvedValue({ expense: { id: "expense-1" } });
+  render(
+    <QuickExpenseForm
+      activity={activity}
+      members={members}
+      preference={preference}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.type(screen.getByLabelText("金额"), "88.5");
+  await user.type(screen.getByLabelText("用途"), "晚餐");
+  await user.click(screen.getByRole("button", { name: "分摊设置" }));
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(mocks.createExpense).toHaveBeenCalledWith(
+    "a1",
+    expect.objectContaining({
+      originalAmountMinor: "8850",
+      split: { mode: "EQUAL", members: ["m1", "m2"] },
+    }),
+  );
+});
+
 test("多人付款和精确分摊转换为最小金额，并在付款不守恒时阻止保存", async () => {
   const user = userEvent.setup();
   mocks.createExpense.mockResolvedValue({ expense: { id: "expense-1" } });

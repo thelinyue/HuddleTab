@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { cn } from "@/lib/utils";
 
 import { stableVisualIndex } from "./visual-index";
@@ -43,7 +45,15 @@ export function MemberAvatar({
       )}
     >
       {imageUrl ? (
-        <img src={imageUrl} alt="" className="size-full object-cover" />
+        // 未来头像可能来自需鉴权的任意地址，因此保留原始 src，不走服务端图片代理。
+        <Image
+          src={imageUrl}
+          alt=""
+          width={40}
+          height={40}
+          unoptimized
+          className="size-full object-cover"
+        />
       ) : (
         initial
       )}

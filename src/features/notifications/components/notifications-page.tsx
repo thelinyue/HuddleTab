@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ActivityCover } from "@/components/design-system/activity-cover";
 import { AppHeader } from "@/components/design-system/app-header";
+import { publishNotificationUnreadCount } from "@/lib/notification-unread-count";
 
 type Row = {
   readonly id: string;
@@ -129,6 +130,9 @@ export function NotificationsPage() {
         ),
       );
   }, []);
+  useEffect(() => {
+    if (data) publishNotificationUnreadCount(data.unreadCount);
+  }, [data]);
 
   const visibleItems = useMemo(
     () =>

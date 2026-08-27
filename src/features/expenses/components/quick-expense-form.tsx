@@ -725,6 +725,12 @@ export function QuickExpenseForm({
                 <strong className="money">{perPersonPreview}</strong>
               </p>
             </div>
+            <button
+              type="submit"
+              className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
+            >
+              保存
+            </button>
           </section>
         )}
       </div>

@@ -10,6 +10,7 @@ import {
   notificationHref,
   NotificationsPage,
 } from "@/features/notifications/components/notifications-page";
+import { NOTIFICATION_UNREAD_COUNT_EVENT } from "@/lib/notification-unread-count";
 
 afterEach(() => {
   cleanup();
@@ -142,6 +143,11 @@ test("通知按现有业务类型在本地筛选，且没有受控目标时不�
 });
 
 test("全部已读仅提交未读通知，并保留请求失败的未读状态", async () => {
+  const unreadCounts: number[] = [];
+  const recordUnreadCount = (event: Event) => {
+    unreadCounts.push((event as CustomEvent<number>).detail);
+  };
+  window.addEventListener(NOTIFICATION_UNREAD_COUNT_EVENT, recordUnreadCount);
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     if (input === "/api/notifications") {
       return Promise.resolve({
@@ -211,4 +217,6 @@ test("全部已读仅提交未读通知，并保留请求失败的未读状态",
     { method: "POST" },
   );
   expect(await screen.findAllByText("未读")).toHaveLength(1);
+  expect(unreadCounts).toContain(1);
+  window.removeEventListener(NOTIFICATION_UNREAD_COUNT_EVENT, recordUnreadCount);
 });

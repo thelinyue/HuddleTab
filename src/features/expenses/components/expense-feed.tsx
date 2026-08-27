@@ -86,6 +86,8 @@ export function ExpenseFeed({
   const balance = BigInt(activity.currentUserBalanceMinor);
   const balanceTone =
     balance < 0n ? "payable" : balance > 0n ? "receivable" : "settled";
+  const balanceDirection =
+    balance < 0n ? "应付" : balance > 0n ? "应收" : "已结清";
   const status = entryContext?.activity.status;
   return (
     <>
@@ -141,7 +143,9 @@ export function ExpenseFeed({
           />
         </div>
         <div>
-          <span className="block text-xs text-muted-foreground">我的余额</span>
+          <span className="block text-xs text-muted-foreground">
+            我的余额{balanceDirection}
+          </span>
           <MoneyAmount
             currency={activity.currency}
             amountMinor={balance < 0n ? -balance : balance}

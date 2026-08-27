@@ -83,3 +83,23 @@ test("共享展示原语保留标题、金额语义和同步状态文本", () =>
   );
   expect(screen.getByText("等待同步")).toBeVisible();
 });
+
+test("共享标题允许合法的长无空格文本在窄屏内断行", () => {
+  const longTitle = "一次很长很长且没有空格的活动标题用于验证移动端不会溢出容器";
+  render(
+    <AppHeader
+      eyebrow={longTitle}
+      title={longTitle}
+      subtitle={longTitle}
+      actions={<button type="button">更多</button>}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: longTitle })).toHaveClass(
+    "[overflow-wrap:anywhere]",
+  );
+  expect(screen.getAllByText(longTitle)).toHaveLength(3);
+  for (const element of screen.getAllByText(longTitle)) {
+    expect(element).toHaveClass("[overflow-wrap:anywhere]");
+  }
+});

@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { cn } from "@/lib/utils";
 
 import { stableVisualIndex } from "./visual-index";
@@ -30,11 +32,15 @@ export function ActivityCover({
   const isDecorative = Boolean(activityName?.trim());
 
   return (
-    <img
+    <Image
       src={source}
       alt={isDecorative ? "" : "活动封面"}
       role={isDecorative ? "presentation" : undefined}
       data-cover-index={imageUrl ? undefined : stableVisualIndex(activityId, coverPaths.length)}
+      width={1200}
+      height={900}
+      sizes="(max-width: 767px) 96px, 160px"
+      unoptimized
       className={cn("aspect-[4/3] w-full object-cover", className)}
     />
   );

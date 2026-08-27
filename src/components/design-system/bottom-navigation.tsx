@@ -3,7 +3,9 @@
 import { BellIcon, UserRoundIcon, UsersRoundIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { NOTIFICATION_UNREAD_COUNT_EVENT } from "@/lib/notification-unread-count";
 
 type TopLevelDestination = "activities" | "notifications" | "me";
 
@@ -69,15 +71,36 @@ export function ProductNavigation({
   const pathname = usePathname();
   const isInsideActivity = /^\/activities\/[^/]+(?:\/|$)/.test(pathname);
   const [currentUnreadCount, setCurrentUnreadCount] = useState(unreadCount);
+  const unreadCountVersion = useRef(0);
+  useEffect(() => {
+    const syncUnreadCount = (event: Event) => {
+      const nextCount = (event as CustomEvent<number>).detail;
+      if (Number.isInteger(nextCount) && nextCount >= 0) {
+        unreadCountVersion.current += 1;
+        setCurrentUnreadCount(nextCount);
+      }
+    };
+    window.addEventListener(NOTIFICATION_UNREAD_COUNT_EVENT, syncUnreadCount);
+    return () =>
+      window.removeEventListener(
+        NOTIFICATION_UNREAD_COUNT_EVENT,
+        syncUnreadCount,
+      );
+  }, []);
   useEffect(() => {
     if (isInsideActivity) return;
+    const requestVersion = unreadCountVersion.current + 1;
+    unreadCountVersion.current = requestVersion;
     void fetch("/api/notifications", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) return;
         const body = (await response.json()) as {
           data?: { unreadCount?: number };
         };
-        if (typeof body.data?.unreadCount === "number")
+        if (
+          typeof body.data?.unreadCount === "number" &&
+          unreadCountVersion.current === requestVersion
+        )
           setCurrentUnreadCount(body.data.unreadCount);
       })
       .catch(() => undefined);

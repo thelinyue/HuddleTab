@@ -83,7 +83,7 @@ test("流水消费摘要只展示权威总额派生的人均和当前余额", ()
 
   expect(screen.getByText("2026-08-20 至 2026-08-24 · 3 人")).toBeVisible();
   expect(screen.getByLabelText("消费摘要")).toHaveTextContent("人均¥20.00");
-  expect(screen.getByLabelText("消费摘要")).toHaveTextContent("我的余额¥12.00");
+  expect(screen.getByLabelText("消费摘要")).toHaveTextContent("我的余额应付¥12.00");
 });
 
 test("消费链接保留所属活动并按发生日期分组", () => {
