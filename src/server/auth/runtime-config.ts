@@ -18,6 +18,28 @@ export interface AuthRuntimeConfigInput {
 export interface AuthRuntimeConfig {
   readonly baseURL: string;
   readonly secret: string;
+  readonly trustedOrigins: readonly string[];
+}
+
+/**
+ * 本机容器常由浏览器通过 localhost 或 127.0.0.1 访问。两者不共享 Cookie，
+ * 但都指向同一回环服务；因此仅在部署地址本身为回环地址时补充另一种写法。
+ * 其他部署地址保持精确匹配，不能借此扩大跨站认证请求的信任范围。
+ */
+function resolveTrustedOrigins(baseURL: string): readonly string[] {
+  const url = new URL(baseURL);
+  const origin = url.origin;
+  if (url.hostname === "localhost") {
+    const loopbackUrl = new URL(origin);
+    loopbackUrl.hostname = "127.0.0.1";
+    return [origin, loopbackUrl.origin];
+  }
+  if (url.hostname === "127.0.0.1") {
+    const localhostUrl = new URL(origin);
+    localhostUrl.hostname = "localhost";
+    return [origin, localhostUrl.origin];
+  }
+  return [origin];
 }
 
 function readOrCreateSecret(dataDir: string): string {
@@ -74,10 +96,12 @@ function readOrCreateSecret(dataDir: string): string {
 export function resolveAuthRuntimeConfig(
   input: AuthRuntimeConfigInput,
 ): AuthRuntimeConfig {
+  const baseURL =
+    input.env.BETTER_AUTH_URL ?? input.env.APP_BASE_URL ?? defaultBaseURL;
   return {
-    baseURL:
-      input.env.BETTER_AUTH_URL ?? input.env.APP_BASE_URL ?? defaultBaseURL,
+    baseURL,
     secret: input.env.BETTER_AUTH_SECRET ?? readOrCreateSecret(input.dataDir),
+    trustedOrigins: resolveTrustedOrigins(baseURL),
   };
 }
 

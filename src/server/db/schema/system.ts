@@ -89,8 +89,6 @@ export const systemSettings = pgTable("system_settings", {
 
 export const systemBootstrap = pgTable("system_bootstrap", {
   id: text("id").primaryKey().default("singleton"),
-  setupTokenHash: text("setup_token_hash"),
-  generatedAt: timestamp("generated_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 

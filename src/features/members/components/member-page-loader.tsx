@@ -9,7 +9,7 @@ export function MemberPageLoader() {
   const { activityId } = useParams<{ activityId: string }>();
   const [members, setMembers] = useState<readonly Member[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  const load = () => {
     void fetch(`/api/activities/${activityId}/members`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("成员列表加载失败，请稍后重试。");
@@ -23,7 +23,8 @@ export function MemberPageLoader() {
             : "成员列表加载失败，请稍后重试。",
         ),
       );
-  }, [activityId]);
+  };
+  useEffect(load, [activityId]);
   if (error)
     return (
       <p role="alert" className="py-8 text-destructive">
@@ -32,5 +33,11 @@ export function MemberPageLoader() {
     );
   if (!members)
     return <p className="py-8 text-muted-foreground">正在加载成员…</p>;
-  return <MemberList members={members} />;
+  const request = async (url: string, init: RequestInit) => {
+    const response = await fetch(url, init);
+    if (response.ok) return;
+    const body = (await response.json().catch(() => undefined)) as { error?: { message?: string } } | undefined;
+    throw new Error(body?.error?.message ?? "成员操作失败，请稍后重试。");
+  };
+  return <MemberList members={members} onAddGuest={async (displayName) => { await request(`/api/activities/${activityId}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName }) }); load(); }} onRemove={async (memberId) => { await request(`/api/activities/${activityId}/members/${encodeURIComponent(memberId)}`, { method: "DELETE" }); load(); }} />;
 }

@@ -4,19 +4,17 @@ import { z } from "zod";
 export const dynamic = "force-dynamic";
 
 const setupInput = z.object({
-  setupToken: z.string().min(20),
   username: z.string(),
   password: z.string().min(8).max(128),
   nickname: z.string().trim().min(1).max(40),
 });
 
 export async function GET() {
-  const { sql } = await import("@/server/db/client");
-  const [bootstrap] =
-    await sql`select completed_at from system_bootstrap where id = 'singleton'`;
+  const { isSetupRequired } =
+    await import("@/server/services/setup-status-service");
 
   return NextResponse.json({
-    data: { setupRequired: !bootstrap?.completed_at },
+    data: { setupRequired: await isSetupRequired() },
   });
 }
 
@@ -40,6 +38,7 @@ export async function POST(request: Request) {
   ]);
   const body = setupInput.parse(await request.json());
   try {
+    const username = normalizeUsername(body.username);
     const clientIp = resolveClientIp({
       trustedProxy: process.env.TRUST_PROXY === "true",
       connectionIp: "direct-connection",
@@ -47,18 +46,15 @@ export async function POST(request: Request) {
     });
     await new RateLimiter(sql, authRuntimeConfig.secret).consume(
       "SETUP",
-      `${clientIp}:${body.setupToken}`,
+      `${clientIp}:${username}`,
       { limit: 5, windowSeconds: 600 },
     );
+    await createSetupService().claim({ ...body, username });
   } catch (error) {
     const response = applicationErrorResponse(error);
     if (response) return response;
     throw error;
   }
-  await createSetupService().claim(body.setupToken, {
-    ...body,
-    username: normalizeUsername(body.username),
-  });
 
   return NextResponse.json({ data: { initialized: true } }, { status: 201 });
 }

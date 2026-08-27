@@ -42,3 +42,46 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
   await user.type(screen.getByRole("searchbox"), "拉面");
   expect(screen.getByText("一兰拉面")).toBeVisible();
 });
+
+test("消费链接保留所属活动并按发生日期分组", () => {
+  render(
+    <ExpenseFeed
+      activity={{
+        id: "activity-1",
+        name: "大阪",
+        currency: "CNY",
+        totalExpenseMinor: "6000",
+        originalCurrencyTotals: [],
+      }}
+      expenses={[
+        {
+          id: "expense-1",
+          title: "午餐",
+          category: "FOOD",
+          originalAmountMinor: "6000",
+          originalCurrency: "CNY",
+          baseAmountMinor: "6000",
+          baseCurrency: "CNY",
+          occurredAt: "2026-08-23T08:00:00.000Z",
+        },
+        {
+          id: "expense-2",
+          title: "早餐",
+          category: "FOOD",
+          originalAmountMinor: "2000",
+          originalCurrency: "CNY",
+          baseAmountMinor: "2000",
+          baseCurrency: "CNY",
+          occurredAt: "2026-08-22T08:00:00.000Z",
+        },
+      ]}
+    />,
+  );
+
+  expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute(
+    "href",
+    "/activities/activity-1/expenses/expense-1",
+  );
+  expect(screen.getAllByRole("heading", { name: "2026年8月23日" })).not.toHaveLength(0);
+  expect(screen.getByRole("heading", { name: "2026年8月22日" })).toBeVisible();
+});

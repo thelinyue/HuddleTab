@@ -30,8 +30,9 @@ export class MeService {
 
   async getProfile(userId: string) {
     const [profile] = await this.sql`
-      select username_normalized, nickname, email_kind, theme_preference
-      from user_profiles where user_id = ${userId}`;
+      select profile.username_normalized, profile.nickname, profile.email_kind, profile.theme_preference,
+        exists(select 1 from system_roles role where role.user_id = profile.user_id and role.role = 'system_admin') as is_system_admin
+      from user_profiles profile where profile.user_id = ${userId}`;
 
     if (!profile) {
       throw new ApplicationError("PROFILE_NOT_FOUND", "用户资料不存在。", 404);
@@ -42,6 +43,7 @@ export class MeService {
       nickname: profile.nickname,
       emailBound: profile.email_kind === "REAL",
       themePreference: profile.theme_preference as ThemePreference,
+      isSystemAdmin: profile.is_system_admin,
     };
   }
 

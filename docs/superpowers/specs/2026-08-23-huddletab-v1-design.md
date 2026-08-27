@@ -33,7 +33,7 @@
 3. LEFT 成员保留历史账务读取权；消费侧完全只读；仅可处理付款人为本人的 Settlement，并始终受 Activity 生命周期约束。
 4. V1 同时实现亮色与暗色主题，主题只改变语义 Token 映射，不改变信息架构。
 5. 桌面端沿用移动端信息架构，仅做居中加宽的响应式适配。
-6. 首次启动在尚无 System Admin 时自动生成 Setup Token；数据库仅保存 Hash，明文只在容器日志中输出一次；每次未初始化重启都会使旧 Token 失效。
+6. 私人部署首次启动时，所有页面进入管理员初始化界面；成功创建首位 System Admin 后永久关闭初始化入口，不输出 Setup Token。
 7. 设计文档采用“完整 V1 总纲 + 分阶段实施计划”的组织方式。`app` 容器固定监听 `5660`，默认 Compose 映射为 `5660:5660`。
 8. Activity Owner 与 System Admin 的“最后一个有效管理主体”约束提升为 V1 核心权限不变量，由 Service/Transaction 在写入前强制校验，不依赖 UI。
 
@@ -335,8 +335,6 @@ SMTP 密码等秘密不以明文普通字段暴露给 UI 或日志。
 
 #### `system_bootstrap`
 
-- `setup_token_hash` nullable。
-- `generated_at` nullable。
 - `completed_at` nullable。
 
 无 System Admin 时，每次 App 启动生成新的高强度 Token、替换 Hash，并仅在本次容器日志中输出一次明文。初始化成功后清除 Hash 并永久关闭写入口。
@@ -931,11 +929,11 @@ HuddleTab 默认直接提供 HTTP 服务，核心 Compose 不内置 Caddy、Ngin
 
 `TRUST_PROXY` 与 HTTPS 无绑定关系，默认值为 `false`：
 
-- `TRUST_PROXY=false` 时，应用不读取 `Forwarded`、`X-Forwarded-For`、`X-Real-IP` 等客户端可伪造 Header；限流使用直连边界和用户名、Setup Token、Invite Token 等稳定标识的组合。
+- `TRUST_PROXY=false` 时，应用不读取 `Forwarded`、`X-Forwarded-For`、`X-Real-IP` 等客户端可伪造 Header；限流使用直连边界和用户名、Invite Token 等稳定标识的组合。
 - `TRUST_PROXY=true` 是部署者的显式信任声明：应用位于受控反向代理之后，代理会删除客户端传入的地址 Header、根据真实连接重设地址，且客户端不能绕过代理直连 App 端口。部署错误可能使 IP 限流被伪造或绕过。
 - V1 只读取一个由可信代理覆盖后的单值 `X-Real-IP`，拒绝缺失、无效或重复/逗号分隔的 Header；不解析代理链，也不自动猜测或同时信任多种 Header。
 
-登录、注册、Setup 和邀请限流始终同时结合客户端地址维度与稳定标识。客户端 IP 不是唯一限流依据，密码、Setup Token、Invite Token、Synthetic Email 和完整标识都不得写入日志。
+登录、注册、Setup 和邀请限流始终同时结合客户端地址维度与稳定标识。客户端 IP 不是唯一限流依据，密码、Invite Token、Synthetic Email 和完整标识都不得写入日志。
 
 ## 17. 安全设计
 
@@ -950,7 +948,7 @@ HuddleTab 默认直接提供 HTTP 服务，核心 Compose 不内置 Caddy、Ngin
 - CSP、X-Content-Type-Options 和 Clickjacking Protection。
 - 敏感日志脱敏和请求关联 ID。
 - 所有活动 API 的服务器权限复验。
-- Setup Token 除已确认的一次性启动日志外不得进入普通日志、错误响应或追踪系统。
+- 首次初始化不记录密码、Session 或用户名等敏感输入，也不输出 Setup Token。
 
 认证、权限、不可逆清理、备份恢复和生产 Migration 属于高风险边界，不能因简化原则删除已有安全措施。
 
@@ -960,7 +958,7 @@ HuddleTab 默认直接提供 HTTP 服务，核心 Compose 不内置 Caddy、Ngin
 - 注释说明不变量、选择原因、边界和失败语义，不重复翻译显而易见的代码。
 - 用户可见错误和部署日志优先输出可理解的中文说明，同时携带稳定错误代码。
 - 日志禁止输出密码、Session、邀请 Token、附件内容和 Synthetic Email。
-- Setup Token 的启动日志是唯一显式例外，只在尚未初始化时输出一次并附带安全警告。
+- 私人部署首次初始化不输出任何 Token；部署者应确保首次开放站点前的网络访问边界可信。
 
 ## 19. 测试策略与验收证据
 
@@ -1012,7 +1010,7 @@ Domain Tests
 | P0 | 金额或尾差错误 | bigint、DecimalRate、稳定分配、纯 Domain | 示例、边界和属性测试 |
 | P0 | 权限越界 | 固定服务器判断顺序、平台/活动角色隔离 | 权限矩阵 API 测试 |
 | P0 | 重复离线账单 | 幂等唯一键、重复请求返回原资源 | 响应丢失 E2E |
-| P0 | Setup 被抢占 | 高强度 Token、Hash、限流、初始化后永久关闭 | 安全集成测试 |
+| P0 | Setup 并发重复创建 | 事务锁、初始化后永久关闭、限流 | 安全集成测试 |
 | P0 | 备份恢复破坏数据 | DB + Uploads 同包、Maintenance Mode | 恢复演练 |
 | P1 | 并发静默覆盖 | Version 条件更新、409、不自动合并 | 并发集成测试 |
 | P1 | 汇率服务故障阻塞记账 | Provider 隔离、缓存、手工输入 | Provider 故障测试 |

@@ -10,6 +10,9 @@ import {
   type ActivityHomeItem,
 } from "@/features/activities/api";
 import { ActivityListItem } from "@/features/activities/components/activity-list-item";
+import { CreateActivityForm } from "@/features/activities/components/create-activity-form";
+import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { Button } from "@/components/ui/button";
 
 function ActivityGroup({
   title,
@@ -35,12 +38,14 @@ function ActivityGroup({
 
 /** 首页只格式化服务器返回的汇总；跨活动应收、应付保留为两个独立数字。 */
 export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
+  const [creating, setCreating] = useState(false);
   return (
     <>
-      <header className="mb-8">
-        <p className="text-sm text-muted-foreground">一起花，清楚分。</p>
-        <h1 className="mt-1 text-3xl font-bold">活动</h1>
+      <header className="mb-8 flex items-end justify-between gap-4">
+        <div><p className="text-sm text-muted-foreground">一起花，清楚分。</p><h1 className="mt-1 text-3xl font-bold">活动</h1></div>
+        <Button onClick={() => setCreating(true)}>创建活动</Button>
       </header>
+      <ResponsiveFormOverlay open={creating} onOpenChange={setCreating} title="创建活动"><CreateActivityForm /></ResponsiveFormOverlay>
       <section
         aria-label="跨活动账务摘要"
         className="grid grid-cols-2 gap-3 bg-surface-muted p-4"

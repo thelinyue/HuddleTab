@@ -14,6 +14,10 @@ describe("认证运行时配置", () => {
       const second = resolveAuthRuntimeConfig({ dataDir, env: {} });
 
       expect(first.baseURL).toBe("http://localhost:5660");
+      expect(first.trustedOrigins).toEqual([
+        "http://localhost:5660",
+        "http://127.0.0.1:5660",
+      ]);
       expect(first.secret).toHaveLength(43);
       expect(second.secret).toBe(first.secret);
       expect(readFileSync(join(dataDir, "auth-secret"), "utf8").trim()).toBe(
@@ -36,7 +40,28 @@ describe("认证运行时配置", () => {
     ).toEqual({
       baseURL: "https://tab.example.com",
       secret: "provided-secret",
+      trustedOrigins: ["https://tab.example.com"],
     });
+  });
+
+  it("本机回环部署同时信任同端口的 localhost 与 IP 地址", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "huddletab-auth-config-"));
+
+    try {
+      expect(
+        resolveAuthRuntimeConfig({
+          dataDir,
+          env: { BETTER_AUTH_URL: "http://127.0.0.1:49267" },
+        }),
+      ).toMatchObject({
+        trustedOrigins: [
+          "http://127.0.0.1:49267",
+          "http://localhost:49267",
+        ],
+      });
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
   it("拒绝已经存在但为空的持久化 Secret 文件", () => {

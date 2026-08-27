@@ -28,6 +28,12 @@ export interface ExpenseFeedFilters {
   readonly mine: boolean;
 }
 
+function expenseDateLabel(occurredAt: string) {
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "long" }).format(
+    new Date(occurredAt),
+  );
+}
+
 /** 流水筛选只保留冻结的三种条件，显示的总额与原币种摘要来自服务端 summary。 */
 export function ExpenseFeed({
   activity,
@@ -145,12 +151,25 @@ export function ExpenseFeed({
             onRemoveRejectedAttachments={onRemoveRejectedAttachments}
           />
         ))}
-        {expenses.map((expense) => (
-          <ExpenseListItem
-            key={expense.id}
-            expense={expense}
-            highlighted={highlightedExpenseId === expense.id}
-          />
+        {Object.entries(
+          Object.groupBy(expenses, (expense) => expenseDateLabel(expense.occurredAt)),
+        ).map(([date, rows]) => (
+          <section key={date} aria-labelledby={`expense-date-${date}`}>
+            <h2
+              id={`expense-date-${date}`}
+              className="sticky top-0 z-10 border-b bg-background py-2 text-sm font-medium text-muted-foreground"
+            >
+              {date}
+            </h2>
+            {rows?.map((expense) => (
+              <ExpenseListItem
+                key={expense.id}
+                activityId={activity.id}
+                expense={expense}
+                highlighted={highlightedExpenseId === expense.id}
+              />
+            ))}
+          </section>
         ))}
         {expenses.length === 0 && (
           <p className="py-8 text-center text-muted-foreground">

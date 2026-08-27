@@ -11,12 +11,16 @@ const runCompose = process.env.RUN_PRODUCTION_COMPOSE === "true";
 
 test.skip(!runCompose, "仅在 WSL Docker 环境执行生产 Compose 演练");
 
-test("首次启动仅在容器日志输出一次 Setup Token", async () => {
+test("首次启动进入初始化页面并自动登录管理员", async ({ page }, testInfo) => {
   const dataRoot = await mkdtemp(join(tmpdir(), "huddletab-compose-"));
-  const project = `huddletab-phase10-${Date.now()}`;
+  const port = 5661 + testInfo.parallelIndex;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const project = `huddletab-phase10-${testInfo.parallelIndex}-${Date.now()}`;
   const environment = {
     ...process.env,
-    APP_PORT: "5661",
+    APP_PORT: String(port),
+    APP_BASE_URL: baseUrl,
+    BETTER_AUTH_URL: baseUrl,
     DATA_HOST_DIR: dataRoot,
   };
   const compose = (args: readonly string[]) =>
@@ -28,42 +32,29 @@ test("首次启动仅在容器日志输出一次 Setup Token", async () => {
   try {
     await compose(["up", "--build", "-d"]);
     const deadline = Date.now() + 90_000;
-    let logs = "";
     while (Date.now() < deadline) {
-      logs = (await compose(["logs", "app"])).stdout;
-      if (logs.includes("Setup Token")) break;
+      const health = await fetch(`${baseUrl}/api/health`).catch(
+        () => undefined,
+      );
+      if (health?.ok) break;
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
-    const warnings = logs
-      .split("\n")
-      .filter(
-        (line) =>
-          line.includes("Setup Token") &&
-          line.includes("容器日志仅应向部署管理员开放"),
-      );
-    expect(warnings).toHaveLength(1);
-    const token = warnings[0]!.match(/：([^\s]+)/)?.[1];
-    expect(token).toBeTruthy();
+    const logs = (await compose(["logs", "app"])).stdout;
+    expect(logs).not.toContain("Setup Token");
 
-    const setup = await fetch("http://127.0.0.1:5661/api/setup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        setupToken: token,
-        username: "phase10admin",
-        password: "phase10-compose-password",
-        nickname: "Phase 10 管理员",
-      }),
-    });
-    expect(setup.status).toBe(201);
-
-    const restartedAt = new Date().toISOString();
-    await compose(["restart", "app"]);
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    const restartedLogs = (
-      await compose(["logs", "--since", restartedAt, "app"])
-    ).stdout;
-    expect(restartedLogs).not.toContain("Setup Token");
+    await page.goto(`${baseUrl}/activities`);
+    await expect(page).toHaveURL(`${baseUrl}/setup`);
+    await page.getByLabel("管理员昵称").fill("Phase 10 管理员");
+    await page.getByLabel("用户名").fill("phase10admin");
+    await page
+      .getByLabel("密码", { exact: true })
+      .fill("phase10-compose-password");
+    await page.getByLabel("确认密码").fill("phase10-compose-password");
+    await page.getByRole("button", { name: "完成初始化" }).click();
+    await expect(page).toHaveURL(`${baseUrl}/activities`);
+    expect(
+      await page.evaluate(async () => (await fetch("/api/activities")).status),
+    ).toBe(200);
   } finally {
     await compose(["down", "--volumes", "--remove-orphans"]).catch(
       () => undefined,

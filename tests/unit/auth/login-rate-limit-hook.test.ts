@@ -23,6 +23,7 @@ vi.mock("@/server/auth/runtime-config", () => ({
   authRuntimeConfig: {
     baseURL: "http://localhost:5660",
     secret: "test-secret",
+    trustedOrigins: ["http://localhost:5660", "http://127.0.0.1:5660"],
   },
 }));
 vi.mock("@/server/db/client", () => ({ db: {}, sql: {} }));

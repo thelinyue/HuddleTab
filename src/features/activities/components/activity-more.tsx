@@ -66,7 +66,7 @@ export function ActivityMore() {
       <h1 className="text-2xl font-bold">更多</h1>
       <div className="mt-5 divide-y border-y">
         <Link
-          href={`/api/activities/${activityId}/summary`}
+          href={`/activities/${activityId}/summary`}
           className="flex min-h-11 items-center"
         >
           结算摘要

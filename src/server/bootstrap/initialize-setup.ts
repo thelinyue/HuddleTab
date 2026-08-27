@@ -50,15 +50,3 @@ const setupCredentials: SetupCredentialCreator = {
 export function createSetupService(): SetupService {
   return new SetupService(sql, setupCredentials);
 }
-
-/** 仅在容器启动阶段调用；明文 Setup Token 只会输出到当前容器日志一次。 */
-export async function initializeSetup(): Promise<void> {
-  const token = await createSetupService().rotateForUninitializedStartup();
-
-  if (token) {
-    console.warn(
-      "伙记尚未初始化。Setup Token 仅在本次容器启动输出一次；容器日志仅应向部署管理员开放：%s",
-      token,
-    );
-  }
-}

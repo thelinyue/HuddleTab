@@ -65,7 +65,6 @@ it("初始化限流返回稳定的 429 错误响应", async () => {
     new Request("http://localhost/api/setup", {
       method: "POST",
       body: JSON.stringify({
-        setupToken: "a".repeat(20),
         username: "admin",
         password: "password123",
         nickname: "管理员",

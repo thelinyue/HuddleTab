@@ -43,7 +43,7 @@ HTTP 部署可以继续使用 `http://` 地址；HTTPS 不是应用启动前提�
 3. 代理会按真实连接重新设置唯一可信的 `X-Real-IP`。
 4. 不可信客户端不能绕过代理直接访问应用端口。
 
-启用后，V1 只读取 `X-Real-IP`，不解析或混合信任 `Forwarded`、`X-Forwarded-For`、`CF-Connecting-IP` 等 Header。`TRUST_PROXY` 与 HTTPS 没有绑定关系；错误启用它会使 IP 限流可能被伪造或绕过。登录、注册、初始化和邀请限流还会结合用户名、Setup Token 或 Invite Token 等稳定标识，不能只依赖 IP。
+启用后，V1 只读取 `X-Real-IP`，不解析或混合信任 `Forwarded`、`X-Forwarded-For`、`CF-Connecting-IP` 等 Header。`TRUST_PROXY` 与 HTTPS 没有绑定关系；错误启用它会使 IP 限流可能被伪造或绕过。登录、注册、初始化和邀请限流还会结合用户名或 Invite Token 等稳定标识，不能只依赖 IP。
 
 部署者仅在满足上述边界并设置 `TRUST_PROXY=true` 时，才应在 Caddy 的 `reverse_proxy` 中删除客户端提交的 Header 并按直接连接重设它：
 
