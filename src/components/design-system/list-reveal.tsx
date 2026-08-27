@@ -39,3 +39,18 @@ export function ListReveal({ children, className }: { readonly children: ReactNo
 
   return <div ref={container} className={cn(className)}>{children}</div>;
 }
+
+/** 调用方用此项包装每一行，无需了解内部动画选择器。 */
+export function ListRevealItem({
+  children,
+  className,
+}: {
+  readonly children: ReactNode;
+  readonly className?: string;
+}) {
+  return (
+    <div data-list-reveal className={cn(className)}>
+      {children}
+    </div>
+  );
+}
