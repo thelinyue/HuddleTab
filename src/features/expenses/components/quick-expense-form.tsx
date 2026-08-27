@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import { ArrowLeftIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
+import { gsap } from "gsap";
 
-import { getCurrencyMinorUnits } from "@/domain/currency/currency";
+import {
+  asCurrencyCode,
+  getCurrencyMinorUnits,
+} from "@/domain/currency/currency";
+import { formatMoney } from "@/domain/money/money";
+import { MemberAvatar } from "@/components/design-system/member-avatar";
 import { createExpense } from "@/features/expenses/api";
 import {
   expenseCategories,
@@ -35,6 +43,10 @@ type FormValues = {
   splitEntries: Record<string, string>;
 };
 
+type QuickExpenseStep = "ENTRY" | "SPLIT";
+
+gsap.registerPlugin(useGSAP);
+
 function amountToMinor(value: string, currency: string): string {
   const precision = getCurrencyMinorUnits(currency.trim().toUpperCase());
   const match = value.trim().match(/^(0|[1-9]\d*)(?:\.(\d+))?$/);
@@ -62,6 +74,23 @@ function currentLocalDateTime(): string {
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
     .toISOString()
     .slice(0, 16);
+}
+
+/** 预览沿用提交前的最小单位转换，避免把浮点数带入分摊设置界面。 */
+function previewMoney(amount: string, currency: string, memberCount = 1) {
+  if (!memberCount) return "待选择成员";
+  try {
+    return formatMoney(
+      {
+        currency: asCurrencyCode(currency.trim().toUpperCase()),
+        amountMinor:
+          BigInt(amountToMinor(amount, currency)) / BigInt(memberCount),
+      },
+      "zh-CN",
+    );
+  } catch {
+    return "待填写金额";
+  }
 }
 
 export interface QuickExpenseMember {
@@ -108,12 +137,14 @@ export function QuickExpenseForm({
 }) {
   const [advanced, setAdvanced] = useState(false);
   const [multiplePayers, setMultiplePayers] = useState(false);
+  const [step, setStep] = useState<QuickExpenseStep>("ENTRY");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
   const [files, setFiles] = useState<readonly File[]>([]);
   const [clientMutationId] = useState(() => crypto.randomUUID());
+  const stepScope = useRef<HTMLDivElement>(null);
   const activeMembers = members.filter((member) => member.status === "ACTIVE");
   const preferredParticipants = preference.recentParticipantIds.filter((id) =>
     activeMembers.some((member) => member.id === id),
@@ -144,6 +175,37 @@ export function QuickExpenseForm({
     },
   });
   const values = useWatch({ control: form.control }) as FormValues;
+  const totalPreview = previewMoney(values.amount, values.currency);
+  const perPersonPreview = previewMoney(
+    values.amount,
+    values.currency,
+    values.participantIds.length,
+  );
+  useGSAP(
+    () => {
+      const target = stepScope.current;
+      if (!target) return;
+      if (
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      ) {
+        gsap.set(target, { autoAlpha: 1, x: 0 });
+        return;
+      }
+      gsap.fromTo(
+        target,
+        { autoAlpha: 0, x: 12 },
+        {
+          autoAlpha: 1,
+          duration: 0.22,
+          ease: "power1.out",
+          overwrite: "auto",
+          x: 0,
+        },
+      );
+    },
+    { dependencies: [step], revertOnUpdate: true, scope: stepScope },
+  );
   useEffect(() => {
     if (submitError)
       document.getElementById("quick-expense-error-summary")?.focus();
@@ -284,338 +346,388 @@ export function QuickExpenseForm({
           )}
         </div>
       )}
-      <div>
-        <label
-          htmlFor="quick-expense-amount"
-          className="block text-sm font-medium"
-        >
-          金额
-        </label>
-        <input
-          id="quick-expense-amount"
-          inputMode="decimal"
-          className={textInput}
-          aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
-          aria-describedby={
-            fieldErrors["quick-expense-amount"]
-              ? "quick-expense-amount-error"
-              : undefined
-          }
-          {...form.register("amount")}
-        />
-        {fieldErrors["quick-expense-amount"] && (
-          <p
-            id="quick-expense-amount-error"
-            className="mt-1 text-sm text-destructive"
-          >
-            {fieldErrors["quick-expense-amount"]}
-          </p>
-        )}
-      </div>
-      <div>
-        <label
-          htmlFor="quick-expense-title"
-          className="block text-sm font-medium"
-        >
-          用途
-        </label>
-        <input
-          id="quick-expense-title"
-          className={textInput}
-          list="quick-expense-recent-titles"
-          aria-invalid={Boolean(fieldErrors["quick-expense-title"])}
-          aria-describedby={
-            fieldErrors["quick-expense-title"]
-              ? "quick-expense-title-error"
-              : undefined
-          }
-          {...form.register("title")}
-        />
-        <datalist id="quick-expense-recent-titles">
-          {(preference.recentTitles ?? []).slice(0, 6).map((title) => (
-            <option key={title} value={title} />
-          ))}
-        </datalist>
-        {fieldErrors["quick-expense-title"] && (
-          <p
-            id="quick-expense-title-error"
-            className="mt-1 text-sm text-destructive"
-          >
-            {fieldErrors["quick-expense-title"]}
-          </p>
-        )}
-      </div>
-      <fieldset>
-        <legend className="text-sm font-medium">谁付款</legend>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {activeMembers.map((member) => (
-            <label
-              key={member.id}
-              className="flex min-h-11 items-center gap-2 border px-3"
-            >
-              <input
-                type="radio"
-                value={member.id}
-                {...form.register("payerId")}
-              />
-              {member.displayName}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset id="quick-expense-participants">
-        <legend className="text-sm font-medium">谁参与</legend>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {activeMembers.map((member) => (
-            <label
-              key={member.id}
-              className="flex min-h-11 items-center gap-2 border px-3"
-            >
-              <input
-                type="checkbox"
-                checked={values.participantIds.includes(member.id)}
-                onChange={(event) =>
-                  form.setValue(
-                    "participantIds",
-                    event.target.checked
-                      ? [...values.participantIds, member.id]
-                      : values.participantIds.filter((id) => id !== member.id),
-                  )
-                }
-              />
-              {member.displayName}
-            </label>
-          ))}
-        </div>
-        {fieldErrors["quick-expense-participants"] && (
-          <p className="mt-1 text-sm text-destructive">
-            {fieldErrors["quick-expense-participants"]}
-          </p>
-        )}
-      </fieldset>
-      <button
-        type="button"
-        className="min-h-11 text-primary underline"
-        aria-expanded={advanced}
-        onClick={() => setAdvanced((value) => !value)}
-      >
-        更多设置
-      </button>
-      {advanced && (
-        <section className="space-y-4 border-t pt-4">
-          <fieldset>
-            <legend className="text-sm font-medium">分类</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {expenseCategories.map((category) => (
-                <label
-                  key={category}
-                  className="flex min-h-11 items-center gap-2 border px-3"
-                >
-                  <input
-                    type="radio"
-                    value={category}
-                    {...form.register("category")}
-                  />
-                  {expenseCategoryLabels[category]}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <button
-            type="button"
-            className="min-h-11 border px-3"
-            aria-pressed={multiplePayers}
-            onClick={() => {
-              const enabling = !multiplePayers;
-              setMultiplePayers(enabling);
-              if (enabling && values.payerIds.length === 1) {
-                form.setValue("paymentEntries", {
-                  [values.payerId]: values.amount,
-                });
-              }
-            }}
-          >
-            多人付款
-          </button>
-          {multiplePayers && (
-            <PaymentEditor
-              members={activeMembers}
-              payerIds={values.payerIds}
-              values={values.paymentEntries}
-              onPayerIdsChange={(payerIds) =>
-                form.setValue("payerIds", payerIds)
-              }
-              onValueChange={(memberId, value) =>
-                form.setValue("paymentEntries", {
-                  ...values.paymentEntries,
-                  [memberId]: value,
-                })
-              }
-            />
-          )}
-          <fieldset role="radiogroup" aria-label="分摊方式">
-            <legend className="text-sm font-medium">分摊方式</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {(
-                [
-                  ["EQUAL", "均摊"],
-                  ["EXACT", "按金额"],
-                  ["PERCENTAGE", "按比例"],
-                  ["WEIGHT", "按权重"],
-                ] as const
-              ).map(([mode, label]) => (
-                <label
-                  key={mode}
-                  className="flex min-h-11 items-center gap-2 border px-3"
-                >
-                  <input
-                    type="radio"
-                    value={mode}
-                    {...form.register("splitMode")}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <SplitEditor
-            members={activeMembers}
-            participantIds={values.participantIds}
-            mode={values.splitMode}
-            values={values.splitEntries}
-            onValueChange={(memberId, value) =>
-              form.setValue("splitEntries", {
-                ...values.splitEntries,
-                [memberId]: value,
-              })
-            }
-          />
+      <div ref={stepScope} data-quick-expense-step={step}>
+        <div hidden={step !== "ENTRY"} className="space-y-5">
           <div>
             <label
-              htmlFor="quick-expense-currency"
+              htmlFor="quick-expense-amount"
               className="block text-sm font-medium"
             >
-              币种
+              金额
             </label>
             <input
-              id="quick-expense-currency"
-              className={textInput}
-              {...form.register("currency")}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="quick-expense-rate"
-              className="block text-sm font-medium"
-            >
-              汇率
-            </label>
-            <input
-              id="quick-expense-rate"
+              id="quick-expense-amount"
               inputMode="decimal"
               className={textInput}
-              {...form.register("exchangeRate")}
+              aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
+              aria-describedby={
+                fieldErrors["quick-expense-amount"]
+                  ? "quick-expense-amount-error"
+                  : undefined
+              }
+              {...form.register("amount")}
             />
-          </div>
-          <div>
-            <label
-              htmlFor="quick-expense-rate-at"
-              className="block text-sm font-medium"
-            >
-              汇率时间
-            </label>
-            <input
-              id="quick-expense-rate-at"
-              type="datetime-local"
-              className={textInput}
-              {...form.register("exchangeRateAt")}
-            />
-          </div>
-          <fieldset>
-            <legend className="text-sm font-medium">汇率来源</legend>
-            <label className="mt-2 flex min-h-11 items-center gap-2">
-              <input
-                type="radio"
-                value="IDENTITY"
-                {...form.register("exchangeRateSource")}
-              />
-              主币种
-            </label>
-            <label className="flex min-h-11 items-center gap-2">
-              <input
-                type="radio"
-                value="MANUAL"
-                {...form.register("exchangeRateSource")}
-              />
-              手动输入
-            </label>
-          </fieldset>
-          <div>
-            <label
-              htmlFor="quick-expense-occurred-at"
-              className="block text-sm font-medium"
-            >
-              消费时间
-            </label>
-            <input
-              id="quick-expense-occurred-at"
-              type="datetime-local"
-              className={textInput}
-              {...form.register("occurredAt")}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="quick-expense-attachments"
-              className="block text-sm font-medium"
-            >
-              附件（最多三张）
-            </label>
-            <input
-              id="quick-expense-attachments"
-              type="file"
-              accept="image/*"
-              multiple
-              className="mt-1 block min-h-11 w-full"
-              onChange={(event) => {
-                const selected = Array.from(event.target.files ?? []);
-                setAttachmentError(
-                  selected.length > 3 ? "每笔消费最多选择三张附件。" : null,
-                );
-                setFiles(selected.length > 3 ? [] : selected);
-              }}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              账单保存后可上传附件。
-            </p>
-            {attachmentError && (
-              <p role="alert" className="mt-1 text-sm text-destructive">
-                {attachmentError}
+            {fieldErrors["quick-expense-amount"] && (
+              <p
+                id="quick-expense-amount-error"
+                className="mt-1 text-sm text-destructive"
+              >
+                {fieldErrors["quick-expense-amount"]}
               </p>
             )}
           </div>
           <div>
             <label
-              htmlFor="quick-expense-note"
+              htmlFor="quick-expense-title"
               className="block text-sm font-medium"
             >
-              备注
+              用途
             </label>
-            <textarea
-              id="quick-expense-note"
+            <input
+              id="quick-expense-title"
               className={textInput}
-              rows={3}
-              {...form.register("note")}
+              list="quick-expense-recent-titles"
+              aria-invalid={Boolean(fieldErrors["quick-expense-title"])}
+              aria-describedby={
+                fieldErrors["quick-expense-title"]
+                  ? "quick-expense-title-error"
+                  : undefined
+              }
+              {...form.register("title")}
             />
+            <datalist id="quick-expense-recent-titles">
+              {(preference.recentTitles ?? []).slice(0, 6).map((title) => (
+                <option key={title} value={title} />
+              ))}
+            </datalist>
+            {fieldErrors["quick-expense-title"] && (
+              <p
+                id="quick-expense-title-error"
+                className="mt-1 text-sm text-destructive"
+              >
+                {fieldErrors["quick-expense-title"]}
+              </p>
+            )}
           </div>
-        </section>
-      )}
-      <button
-        type="submit"
-        className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
-      >
-        保存
-      </button>
+          <fieldset>
+            <legend className="text-sm font-medium">谁付款</legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {activeMembers.map((member) => (
+                <label
+                  key={member.id}
+                  className="flex min-h-11 items-center gap-2 border px-3"
+                >
+                  <input
+                    type="radio"
+                    value={member.id}
+                    {...form.register("payerId")}
+                  />
+                  {member.displayName}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset id="quick-expense-participants">
+            <legend className="text-sm font-medium">谁参与</legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {activeMembers.map((member) => (
+                <label
+                  key={member.id}
+                  className="flex min-h-11 items-center gap-2 border px-3"
+                >
+                  <input
+                    type="checkbox"
+                    checked={values.participantIds.includes(member.id)}
+                    onChange={(event) =>
+                      form.setValue(
+                        "participantIds",
+                        event.target.checked
+                          ? [...values.participantIds, member.id]
+                          : values.participantIds.filter(
+                              (id) => id !== member.id,
+                            ),
+                      )
+                    }
+                  />
+                  <MemberAvatar
+                    memberId={member.id}
+                    displayName={member.displayName}
+                    className="size-8"
+                  />
+                  <span>{member.displayName}</span>
+                </label>
+              ))}
+            </div>
+            {fieldErrors["quick-expense-participants"] && (
+              <p className="mt-1 text-sm text-destructive">
+                {fieldErrors["quick-expense-participants"]}
+              </p>
+            )}
+          </fieldset>
+          <button
+            type="button"
+            className="min-h-11 w-full border px-3 text-left font-medium"
+            onClick={() => setStep("SPLIT")}
+          >
+            分摊设置
+          </button>
+          <button
+            type="button"
+            className="min-h-11 text-primary underline"
+            aria-expanded={advanced}
+            onClick={() => setAdvanced((value) => !value)}
+          >
+            更多设置
+          </button>
+          {advanced && (
+            <section className="space-y-4 border-t pt-4">
+              <fieldset>
+                <legend className="text-sm font-medium">分类</legend>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {expenseCategories.map((category) => (
+                    <label
+                      key={category}
+                      className="flex min-h-11 items-center gap-2 border px-3"
+                    >
+                      <input
+                        type="radio"
+                        value={category}
+                        {...form.register("category")}
+                      />
+                      {expenseCategoryLabels[category]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <button
+                type="button"
+                className="min-h-11 border px-3"
+                aria-pressed={multiplePayers}
+                onClick={() => {
+                  const enabling = !multiplePayers;
+                  setMultiplePayers(enabling);
+                  if (enabling && values.payerIds.length === 1) {
+                    form.setValue("paymentEntries", {
+                      [values.payerId]: values.amount,
+                    });
+                  }
+                }}
+              >
+                多人付款
+              </button>
+              {multiplePayers && (
+                <PaymentEditor
+                  members={activeMembers}
+                  payerIds={values.payerIds}
+                  values={values.paymentEntries}
+                  onPayerIdsChange={(payerIds) =>
+                    form.setValue("payerIds", payerIds)
+                  }
+                  onValueChange={(memberId, value) =>
+                    form.setValue("paymentEntries", {
+                      ...values.paymentEntries,
+                      [memberId]: value,
+                    })
+                  }
+                />
+              )}
+              <div>
+                <label
+                  htmlFor="quick-expense-currency"
+                  className="block text-sm font-medium"
+                >
+                  币种
+                </label>
+                <input
+                  id="quick-expense-currency"
+                  className={textInput}
+                  {...form.register("currency")}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="quick-expense-rate"
+                  className="block text-sm font-medium"
+                >
+                  汇率
+                </label>
+                <input
+                  id="quick-expense-rate"
+                  inputMode="decimal"
+                  className={textInput}
+                  {...form.register("exchangeRate")}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="quick-expense-rate-at"
+                  className="block text-sm font-medium"
+                >
+                  汇率时间
+                </label>
+                <input
+                  id="quick-expense-rate-at"
+                  type="datetime-local"
+                  className={textInput}
+                  {...form.register("exchangeRateAt")}
+                />
+              </div>
+              <fieldset>
+                <legend className="text-sm font-medium">汇率来源</legend>
+                <label className="mt-2 flex min-h-11 items-center gap-2">
+                  <input
+                    type="radio"
+                    value="IDENTITY"
+                    {...form.register("exchangeRateSource")}
+                  />
+                  主币种
+                </label>
+                <label className="flex min-h-11 items-center gap-2">
+                  <input
+                    type="radio"
+                    value="MANUAL"
+                    {...form.register("exchangeRateSource")}
+                  />
+                  手动输入
+                </label>
+              </fieldset>
+              <div>
+                <label
+                  htmlFor="quick-expense-occurred-at"
+                  className="block text-sm font-medium"
+                >
+                  消费时间
+                </label>
+                <input
+                  id="quick-expense-occurred-at"
+                  type="datetime-local"
+                  className={textInput}
+                  {...form.register("occurredAt")}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="quick-expense-attachments"
+                  className="block text-sm font-medium"
+                >
+                  附件（最多三张）
+                </label>
+                <input
+                  id="quick-expense-attachments"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="mt-1 block min-h-11 w-full"
+                  onChange={(event) => {
+                    const selected = Array.from(event.target.files ?? []);
+                    setAttachmentError(
+                      selected.length > 3 ? "每笔消费最多选择三张附件。" : null,
+                    );
+                    setFiles(selected.length > 3 ? [] : selected);
+                  }}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  账单保存后可上传附件。
+                </p>
+                {attachmentError && (
+                  <p role="alert" className="mt-1 text-sm text-destructive">
+                    {attachmentError}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="quick-expense-note"
+                  className="block text-sm font-medium"
+                >
+                  备注
+                </label>
+                <textarea
+                  id="quick-expense-note"
+                  className={textInput}
+                  rows={3}
+                  {...form.register("note")}
+                />
+              </div>
+            </section>
+          )}
+          <button
+            type="submit"
+            className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
+          >
+            保存
+          </button>
+        </div>
+        {step === "SPLIT" && (
+          <section className="space-y-5" aria-labelledby="split-settings-title">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center gap-1 text-primary"
+                onClick={() => setStep("ENTRY")}
+              >
+                <ArrowLeftIcon aria-hidden="true" className="size-4" />
+                返回快速记账
+              </button>
+              <h2 id="split-settings-title" className="text-lg font-semibold">
+                分摊设置
+              </h2>
+            </div>
+            <fieldset role="radiogroup" aria-label="分摊方式">
+              <legend className="text-sm font-medium">分摊方式</legend>
+              <div className="mt-2 grid grid-cols-2 overflow-hidden border">
+                {(
+                  [
+                    ["EQUAL", "均摊"],
+                    ["EXACT", "按金额"],
+                    ["PERCENTAGE", "按比例"],
+                    ["WEIGHT", "按份数"],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <label
+                    key={mode}
+                    className="flex min-h-11 items-center justify-center border-r border-b px-3 text-sm has-[:checked]:bg-primary has-[:checked]:text-primary-foreground"
+                  >
+                    <input
+                      type="radio"
+                      value={mode}
+                      className="sr-only"
+                      {...form.register("splitMode")}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <SplitEditor
+              members={activeMembers}
+              participantIds={values.participantIds}
+              mode={values.splitMode}
+              values={values.splitEntries}
+              equalPreview={perPersonPreview}
+              onValueChange={(memberId, value) =>
+                form.setValue("splitEntries", {
+                  ...values.splitEntries,
+                  [memberId]: value,
+                })
+              }
+            />
+            <div
+              aria-label="分摊摘要"
+              className="grid grid-cols-2 gap-3 border bg-surface-muted p-3 text-sm"
+            >
+              <p>
+                <span className="block text-muted-foreground">总额</span>
+                <strong className="money">{totalPreview}</strong>
+              </p>
+              <p>
+                <span className="block text-muted-foreground">人均</span>
+                <strong className="money">{perPersonPreview}</strong>
+              </p>
+            </div>
+          </section>
+        )}
+      </div>
       {queuedMessage && (
         <p role="status" className="text-sm text-muted-foreground">
           {queuedMessage}
