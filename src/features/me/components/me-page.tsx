@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { AppHeader } from "@/components/design-system/app-header";
+import { MemberAvatar } from "@/components/design-system/member-avatar";
 import { useThemePreference } from "@/components/design-system/theme-provider";
 import {
   ThemeSelector,
@@ -45,24 +47,15 @@ export function MePage() {
       </p>
     );
   if (!profile)
-    return <p className="py-8 text-muted-foreground">正在加载个人资料…</p>;
+    return <p role="status" className="py-8 text-muted-foreground">正在加载个人资料…</p>;
   return (
     <section className="py-5">
-      <h1 className="text-2xl font-bold">我的</h1>
-      <dl className="mt-5 space-y-3 border-y py-4 text-sm">
-        <div>
-          <dt className="text-muted-foreground">昵称</dt>
-          <dd>{profile.nickname}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">用户名</dt>
-          <dd>{profile.username}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">邮箱</dt>
-          <dd>{profile.emailBound ? "已绑定" : "未绑定"}</dd>
-        </div>
-      </dl>
+      <AppHeader
+        eyebrow={`@${profile.username}`}
+        title={profile.nickname}
+        subtitle={`邮箱${profile.emailBound ? "已绑定" : "未绑定"}`}
+        leading={<MemberAvatar memberId={profile.username} displayName={profile.nickname} className="size-14 text-lg" />}
+      />
       <section className="mt-6 space-y-4 border-t pt-5" aria-labelledby="account-heading">
         <h2 id="account-heading" className="text-base font-semibold">账户</h2>
         <form className="grid gap-2" onSubmit={(event) => { event.preventDefault(); void fetch("/api/me/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname }) }).then(async (response) => { if (!response.ok) throw new Error("昵称保存失败，请稍后重试。"); setProfile({ ...profile, nickname }); }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "昵称保存失败，请稍后重试。")); }}><label htmlFor="profile-nickname" className="text-sm font-medium">昵称</label><div className="flex gap-2"><input id="profile-nickname" value={nickname} onChange={(event) => setNickname(event.target.value)} className="min-h-11 min-w-0 flex-1 border bg-background px-3" required maxLength={40} /><button type="submit" className="min-h-11 border px-3 text-sm">保存</button></div></form>

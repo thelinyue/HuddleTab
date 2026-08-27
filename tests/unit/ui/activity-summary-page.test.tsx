@@ -27,7 +27,9 @@ test("结算摘要展示账务信息并可复制", async () => {
         currency: "CNY",
         currentUserBalanceMinor: "6966",
         originalCurrencyTotals: [{ currency: "CNY", amountMinor: "50050" }],
-        balances: [{ memberId: "m1", displayName: "王管理员", netMinor: "6966" }],
+        balances: [
+          { memberId: "m1", displayName: "王管理员", netMinor: "6966" },
+        ],
         recommendations: [],
         categoryTotals: [{ category: "FOOD", amountMinor: "50050" }],
       }}
@@ -36,6 +38,19 @@ test("结算摘要展示账务信息并可复制", async () => {
 
   expect(screen.getByRole("heading", { name: "结算摘要" })).toBeVisible();
   expect(screen.getByText("杭州周末露营")).toBeVisible();
+  expect(screen.getByText("¥500.50")).toHaveAttribute(
+    "data-money-tone",
+    "neutral",
+  );
+  expect(
+    screen
+      .getAllByText("¥69.66")
+      .some(
+        (element) => element.getAttribute("data-money-tone") === "receivable",
+      ),
+  ).toBe(true);
   await user.click(screen.getByRole("button", { name: "复制摘要" }));
-  expect(writeText).toHaveBeenCalledWith(expect.stringContaining("杭州周末露营"));
+  expect(writeText).toHaveBeenCalledWith(
+    expect.stringContaining("杭州周末露营"),
+  );
 });

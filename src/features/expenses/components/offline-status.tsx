@@ -36,7 +36,10 @@ export function useOnlineStatus() {
 /** 离线时保留不可排队操作的可见原因，避免禁用命令没有解释。 */
 export function OfflineStatus({ children }: { readonly children: string }) {
   return (
-    <p className="mt-2 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+    <p
+      role="status"
+      className="mt-2 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"
+    >
       <WifiOffIcon aria-hidden="true" className="size-4 shrink-0" />
       {children}
     </p>
