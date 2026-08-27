@@ -55,15 +55,13 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
         eyebrow="一起花，清楚分。"
         title="活动"
         actions={
-          hasActivities ? (
-            <Button
-              size="icon"
-              aria-label="创建活动"
-              onClick={() => setCreating(true)}
-            >
-              <PlusIcon aria-hidden="true" />
-            </Button>
-          ) : undefined
+          <Button
+            size="icon"
+            aria-label="创建活动"
+            onClick={() => setCreating(true)}
+          >
+            <PlusIcon aria-hidden="true" />
+          </Button>
         }
       />
       <ResponsiveFormOverlay

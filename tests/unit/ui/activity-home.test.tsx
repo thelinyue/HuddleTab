@@ -68,5 +68,12 @@ test("没有活动时显示可恢复的空状态", () => {
   );
 
   expect(screen.getByRole("heading", { name: "还没有活动" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "创建活动" })).toBeVisible();
+  const createActions = screen.getAllByRole("button", { name: "创建活动" });
+  expect(createActions).toHaveLength(2);
+  expect(
+    createActions.find((button) => button.dataset.size === "icon"),
+  ).toBeDefined();
+  expect(
+    createActions.find((button) => button.dataset.size === "default"),
+  ).toHaveTextContent("创建活动");
 });
