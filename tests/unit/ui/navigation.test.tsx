@@ -53,6 +53,15 @@ test("一级导航加载服务器未读通知数", async () => {
   ).toBeVisible();
 });
 
+test("活动详情路径下隐藏一级导航", () => {
+  navigation.pathname = "/activities/activity-42";
+  render(<ProductNavigation />);
+
+  expect(
+    screen.queryByRole("navigation", { name: "主导航" }),
+  ).not.toBeInTheDocument();
+});
+
 test("活动导航保留四个带图标的深链接和当前项语义", () => {
   navigation.pathname = "/activities/activity-42/members";
   render(<ActivityNavigation />);
@@ -74,5 +83,7 @@ test("活动导航保留四个带图标的深链接和当前项语义", () => {
     "href",
     "/activities/activity-42/more",
   );
-  expect(document.querySelectorAll('[aria-label="活动导航"] svg')).toHaveLength(4);
+  expect(document.querySelectorAll('[aria-label="活动导航"] svg')).toHaveLength(
+    4,
+  );
 });
