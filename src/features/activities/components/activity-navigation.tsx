@@ -30,7 +30,10 @@ export function ActivityNavigation() {
   const { activityId } = useParams<{ activityId: string }>();
   const basePath = `/activities/${activityId}`;
   return (
-    <nav aria-label="活动导航" className="border-b">
+    <nav
+      aria-label="活动导航"
+      className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[800px] border-t border-border/80 bg-surface pb-[env(safe-area-inset-bottom)]"
+    >
       <ul className="grid grid-cols-4">
         {sections.map(({ id, suffix, label, Icon }) => {
           const href = `${basePath}${suffix}`;

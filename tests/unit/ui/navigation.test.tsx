@@ -154,7 +154,13 @@ test("活动导航保留四个带图标的深链接和当前项语义", () => {
     "href",
     "/activities/activity-42/more",
   );
-  expect(document.querySelectorAll('[aria-label="活动导航"] svg')).toHaveLength(
-    4,
+  const activityNavigation = screen.getByRole("navigation", {
+    name: "活动导航",
+  });
+  expect(activityNavigation).toHaveClass(
+    "fixed",
+    "bottom-0",
+    "pb-[env(safe-area-inset-bottom)]",
   );
+  expect(activityNavigation.querySelectorAll("svg")).toHaveLength(4);
 });
