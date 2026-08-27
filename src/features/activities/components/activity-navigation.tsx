@@ -1,13 +1,24 @@
 "use client";
 
+import {
+  HandCoinsIcon,
+  MoreHorizontalIcon,
+  ReceiptTextIcon,
+  UsersRoundIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 
 const sections = [
-  { id: "feed", suffix: "", label: "流水" },
-  { id: "settlements", suffix: "/settlements", label: "结算" },
-  { id: "members", suffix: "/members", label: "成员" },
-  { id: "more", suffix: "/more", label: "更多" },
+  { id: "feed", suffix: "", label: "流水", Icon: ReceiptTextIcon },
+  {
+    id: "settlements",
+    suffix: "/settlements",
+    label: "结算",
+    Icon: HandCoinsIcon,
+  },
+  { id: "members", suffix: "/members", label: "成员", Icon: UsersRoundIcon },
+  { id: "more", suffix: "/more", label: "更多", Icon: MoreHorizontalIcon },
 ] as const;
 
 /**
@@ -21,18 +32,19 @@ export function ActivityNavigation() {
   return (
     <nav aria-label="活动导航" className="border-b">
       <ul className="grid grid-cols-4">
-        {sections.map((section) => {
-          const href = `${basePath}${section.suffix}`;
+        {sections.map(({ id, suffix, label, Icon }) => {
+          const href = `${basePath}${suffix}`;
           const active =
-            section.suffix === "" ? pathname === basePath : pathname === href;
+            suffix === "" ? pathname === basePath : pathname === href;
           return (
-            <li key={section.id}>
+            <li key={id}>
               <Link
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className="flex min-h-11 items-center justify-center border-b-2 border-transparent px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground aria-[current=page]:border-primary aria-[current=page]:text-primary"
+                className="flex min-h-11 flex-col items-center justify-center gap-0.5 border-b-2 border-transparent px-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground aria-[current=page]:border-primary aria-[current=page]:text-primary"
               >
-                {section.label}
+                <Icon aria-hidden="true" className="size-4" />
+                <span>{label}</span>
               </Link>
             </li>
           );

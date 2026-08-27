@@ -45,7 +45,7 @@
   --motion-fast: 160ms;
   --motion-normal: 220ms;
   --motion-overlay: 280ms;
-  --radius: 0.75rem;
+  --radius: 0.5rem;
 }
 
 .dark {
@@ -158,7 +158,7 @@
   --color-background: var(--background);
   --radius-sm: calc(var(--radius) * 0.75);
   --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) * 1.33);
+  --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 2);
 }
 

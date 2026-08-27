@@ -14,7 +14,7 @@ export function AppFrame({
   return (
     <main
       data-testid="app-frame"
-      className={`mx-auto min-h-dvh w-full px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(5rem+env(safe-area-inset-bottom))] sm:px-6 ${wide ? "max-w-[960px]" : "max-w-3xl"}`}
+      className={`mx-auto min-h-dvh w-full max-w-[800px] px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(5rem+env(safe-area-inset-bottom))] min-[481px]:px-6 ${wide ? "min-[768px]:max-w-[840px]" : ""}`}
     >
       {children}
     </main>

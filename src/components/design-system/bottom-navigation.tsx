@@ -33,7 +33,7 @@ export function BottomNavigation({
   return (
     <nav
       aria-label="主导航"
-      className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-t bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm"
+      className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[800px] border-t border-border/80 bg-surface pb-[env(safe-area-inset-bottom)]"
     >
       <ul className="grid grid-cols-3">
         {items.map(({ id, href, label, Icon }) => {
@@ -47,7 +47,7 @@ export function BottomNavigation({
                 href={href}
                 aria-current={current === id ? "page" : undefined}
                 aria-label={notificationLabel}
-                className="flex min-h-14 flex-col items-center justify-center gap-0.5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground aria-[current=page]:text-primary"
+                className="flex min-h-14 flex-col items-center justify-center gap-0.5 border-t-2 border-transparent px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground aria-[current=page]:border-primary aria-[current=page]:bg-primary/5 aria-[current=page]:text-primary"
               >
                 <Icon aria-hidden="true" className="size-5" />
                 <span>{label}</span>

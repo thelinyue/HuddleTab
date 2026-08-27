@@ -2,6 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
+import { readFileSync } from "node:fs";
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 
@@ -10,8 +11,10 @@ import { AppHeader } from "@/components/design-system/app-header";
 import { MoneyAmount } from "@/components/design-system/money-amount";
 import { StatusBadge } from "@/components/design-system/status-badge";
 import { SyncStatus } from "@/components/design-system/sync-status";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-test("核心容器居中加宽且状态不只依赖颜色", () => {
+test("核心容器在中等屏幕增加边距，并保持单列与底部安全区", () => {
   render(
     <AppFrame>
       <StatusBadge tone="warning" icon="sync">
@@ -20,9 +23,38 @@ test("核心容器居中加宽且状态不只依赖颜色", () => {
     </AppFrame>,
   );
 
-  expect(screen.getByTestId("app-frame")).toHaveClass("max-w-3xl", "mx-auto");
+  expect(screen.getByTestId("app-frame")).toHaveClass(
+    "max-w-[800px]",
+    "mx-auto",
+    "min-[481px]:px-6",
+    "pb-[calc(5rem+env(safe-area-inset-bottom))]",
+  );
   expect(screen.getByText("待同步")).toBeVisible();
   expect(screen.getByRole("img", { name: "同步状态" })).toBeVisible();
+});
+
+test("共享输入和标签控件保留 44px 触控目标", () => {
+  render(
+    <>
+      <Input aria-label="金额" />
+      <Tabs defaultValue="feed">
+        <TabsList>
+          <TabsTrigger value="feed">流水</TabsTrigger>
+          <TabsTrigger value="members">成员</TabsTrigger>
+        </TabsList>
+      </Tabs>
+    </>,
+  );
+
+  expect(screen.getByRole("textbox", { name: "金额" })).toHaveClass("min-h-11");
+  expect(screen.getByRole("tab", { name: "流水" })).toHaveClass("min-h-11");
+});
+
+test("共享控件将 rounded-lg 限制为 8px", () => {
+  const css = readFileSync("src/app/globals.css", "utf8");
+
+  expect(css).toContain("--radius: 0.5rem;");
+  expect(css).toContain("--radius-lg: var(--radius);");
 });
 
 test("共享展示原语保留标题、金额语义和同步状态文本", () => {
