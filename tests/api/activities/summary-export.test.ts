@@ -20,6 +20,9 @@ it("summary 返回授权账务摘要且不包含私有字段", async () => {
   mocks.get.mockResolvedValue({
     activityName: "大阪",
     memberCount: 3,
+    startDate: "2026-08-20",
+    endDate: "2026-08-24",
+    currentUserBalanceMinor: "-1200",
     currency: "CNY",
     revision: "2",
     balances: [],
@@ -30,7 +33,13 @@ it("summary 返回授权账务摘要且不包含私有字段", async () => {
   );
   expect(response.status).toBe(200);
   const body = await response.json();
-  expect(body.data).toMatchObject({ activityName: "大阪", memberCount: 3 });
+  expect(body.data).toMatchObject({
+    activityName: "大阪",
+    memberCount: 3,
+    startDate: "2026-08-20",
+    endDate: "2026-08-24",
+    currentUserBalanceMinor: "-1200",
+  });
   expect(JSON.stringify(body)).not.toMatch(/email|attachment|audit/i);
 });
 

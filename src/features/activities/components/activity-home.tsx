@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { asCurrencyCode } from "@/domain/currency/currency";
-import { formatMoney } from "@/domain/money/money";
+import { PlusIcon } from "lucide-react";
 import {
   getActivityHome,
   type ActivityHomeDto,
@@ -12,6 +11,13 @@ import {
 import { ActivityListItem } from "@/features/activities/components/activity-list-item";
 import { CreateActivityForm } from "@/features/activities/components/create-activity-form";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { AppHeader } from "@/components/design-system/app-header";
+import { EmptyState } from "@/components/design-system/empty-state";
+import {
+  ListReveal,
+  ListRevealItem,
+} from "@/components/design-system/list-reveal";
+import { MoneyAmount } from "@/components/design-system/money-amount";
 import { Button } from "@/components/ui/button";
 
 function ActivityGroup({
@@ -27,11 +33,13 @@ function ActivityGroup({
       <h2 id={`${title}-heading`} className="text-lg font-semibold">
         {title}
       </h2>
-      <div className="mt-2">
+      <ListReveal className="mt-2">
         {items.map((item) => (
-          <ActivityListItem key={item.id} item={item} />
+          <ListRevealItem key={item.id}>
+            <ActivityListItem item={item} />
+          </ListRevealItem>
         ))}
-      </div>
+      </ListReveal>
     </section>
   );
 }
@@ -39,45 +47,74 @@ function ActivityGroup({
 /** 首页只格式化服务器返回的汇总；跨活动应收、应付保留为两个独立数字。 */
 export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
   const [creating, setCreating] = useState(false);
+  const hasActivities =
+    data.active.length + data.ended.length + data.archived.length > 0;
   return (
     <>
-      <header className="mb-8 flex items-end justify-between gap-4">
-        <div><p className="text-sm text-muted-foreground">一起花，清楚分。</p><h1 className="mt-1 text-3xl font-bold">活动</h1></div>
-        <Button onClick={() => setCreating(true)}>创建活动</Button>
-      </header>
-      <ResponsiveFormOverlay open={creating} onOpenChange={setCreating} title="创建活动"><CreateActivityForm /></ResponsiveFormOverlay>
+      <AppHeader
+        eyebrow="一起花，清楚分。"
+        title="活动"
+        actions={
+          hasActivities ? (
+            <Button
+              size="icon"
+              aria-label="创建活动"
+              onClick={() => setCreating(true)}
+            >
+              <PlusIcon aria-hidden="true" />
+            </Button>
+          ) : undefined
+        }
+      />
+      <ResponsiveFormOverlay
+        open={creating}
+        onOpenChange={setCreating}
+        title="创建活动"
+      >
+        <CreateActivityForm />
+      </ResponsiveFormOverlay>
       <section
         aria-label="跨活动账务摘要"
-        className="grid grid-cols-2 gap-3 bg-surface-muted p-4"
+        className="mt-5 grid grid-cols-2 gap-3"
       >
         {data.summaries.flatMap((summary) => {
-          const currency = asCurrencyCode(summary.currency);
           return [
-            <p key={`${summary.currency}-payable`}>
+            <p key={`${summary.currency}-payable`} className="bg-orange/10 p-3">
               <span className="block text-sm text-muted-foreground">
                 待支付
               </span>
-              <strong className="money text-xl">
-                {formatMoney(
-                  { currency, amountMinor: BigInt(summary.payableMinor) },
-                  "zh-CN",
-                )}
-              </strong>
+              <MoneyAmount
+                currency={summary.currency}
+                amountMinor={BigInt(summary.payableMinor)}
+                tone="payable"
+                size="lg"
+              />
             </p>,
-            <p key={`${summary.currency}-receivable`}>
+            <p
+              key={`${summary.currency}-receivable`}
+              className="bg-primary/10 p-3"
+            >
               <span className="block text-sm text-muted-foreground">
                 待收款
               </span>
-              <strong className="money text-xl">
-                {formatMoney(
-                  { currency, amountMinor: BigInt(summary.receivableMinor) },
-                  "zh-CN",
-                )}
-              </strong>
+              <MoneyAmount
+                currency={summary.currency}
+                amountMinor={BigInt(summary.receivableMinor)}
+                tone="receivable"
+                size="lg"
+              />
             </p>,
           ];
         })}
       </section>
+      {!hasActivities && (
+        <EmptyState
+          icon={PlusIcon}
+          title="还没有活动"
+          description="创建第一个活动后，就可以开始记录消费。"
+          action={<Button onClick={() => setCreating(true)}>创建活动</Button>}
+        />
+      )}
       <ActivityGroup title="进行中" items={data.active} />
       <ActivityGroup title="最近结束" items={data.ended} />
       {data.archived.length > 0 && (

@@ -2,9 +2,9 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 vi.mock("@/features/expenses/components/quick-expense-trigger", () => ({
   QuickExpenseTrigger: ({
@@ -20,6 +20,22 @@ vi.mock("@/features/expenses/components/quick-expense-trigger", () => ({
 
 import { ExpenseFeed } from "@/features/expenses/components/expense-feed";
 
+beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
 test("离线入队不触发服务端流水刷新", async () => {
   const user = userEvent.setup();
   const onExpenseSaved = vi.fn();
@@ -32,10 +48,15 @@ test("离线入队不触发服务端流水刷新", async () => {
         currency: "CNY",
         totalExpenseMinor: "0",
         originalCurrencyTotals: [],
+        startDate: null,
+        endDate: null,
+        memberCount: 1,
+        currentUserBalanceMinor: "0",
       }}
       expenses={[]}
       entryContext={
         {
+          activity: { status: "ACTIVE" },
           permissions: { canCreateExpense: true },
         } as never
       }

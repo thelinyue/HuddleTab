@@ -28,6 +28,10 @@ export interface ExpenseFeedSummaryDto {
   readonly currency: string;
   readonly revision: string;
   readonly totalExpenseMinor: string;
+  readonly startDate: string | null;
+  readonly endDate: string | null;
+  readonly memberCount: number;
+  readonly currentUserBalanceMinor: string;
   readonly originalCurrencyTotals: readonly {
     readonly currency: string;
     readonly amountMinor: string;
@@ -38,6 +42,7 @@ export interface QuickExpenseContextDto {
   readonly activity: {
     readonly id: string;
     readonly baseCurrency: string;
+    readonly status: "ACTIVE" | "ENDED" | "ARCHIVED";
     readonly currentMemberId: string;
     readonly currentUserId: string;
   };

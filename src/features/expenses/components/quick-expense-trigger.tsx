@@ -26,7 +26,7 @@ export function QuickExpenseTrigger({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-11 items-center gap-2 bg-primary px-3 font-medium text-primary-foreground"
+        className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-3 font-medium text-primary-foreground shadow-sm min-[768px]:static"
       >
         <PlusIcon aria-hidden="true" className="size-4" />
         记一笔

@@ -139,6 +139,7 @@ export class ExpenseService {
         activity: {
           id: activityId,
           baseCurrency: authorization.activity.baseCurrency,
+          status: authorization.activity.status,
           currentMemberId: authorization.member.id,
           currentUserId: authorization.userId,
         },
