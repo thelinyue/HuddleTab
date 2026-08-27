@@ -11,13 +11,17 @@
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --background: #f6f8f7;
   --surface: #ffffff;
-  --surface-muted: #eaf2ee;
-  --foreground: #17211d;
+  --surface-muted: #f1f5f3;
+  --foreground: #333333;
   --card: #ffffff;
   --card-foreground: #17211d;
   --popover: #ffffff;
   --popover-foreground: #17211d;
   --primary: #146b52;
+  --brand: #146b52;
+  --mint: #5dc0a7;
+  --orange: #ffb54d;
+  --red: #ff5c5c;
   --primary-foreground: #ffffff;
   --secondary: #eaf2ee;
   --secondary-foreground: #17211d;
@@ -27,6 +31,9 @@
   --accent-foreground: #146b52;
   --warning: #8a5510;
   --destructive: #c93636;
+  --amount-receivable: #16745b;
+  --amount-payable: #a64b00;
+  --amount-danger: #c62828;
   --border: #dce5e0;
   --input: #dce5e0;
   --ring: #146b52;
@@ -52,6 +59,10 @@
   --popover: #14201b;
   --popover-foreground: #f1f7f4;
   --primary: #5dd6a7;
+  --brand: #5dd6a7;
+  --mint: #5dc0a7;
+  --orange: #f1b968;
+  --red: #ff7b7b;
   --primary-foreground: #062017;
   --secondary: #1b2b24;
   --secondary-foreground: #f1f7f4;
@@ -61,6 +72,9 @@
   --accent-foreground: #5dd6a7;
   --warning: #f1b968;
   --destructive: #ff7b7b;
+  --amount-receivable: #5dd6a7;
+  --amount-payable: #f1b968;
+  --amount-danger: #ff7b7b;
   --border: #2a3b34;
   --input: #2a3b34;
   --ring: #5dd6a7;
@@ -83,6 +97,10 @@
     --popover: #14201b;
     --popover-foreground: #f1f7f4;
     --primary: #5dd6a7;
+    --brand: #5dd6a7;
+    --mint: #5dc0a7;
+    --orange: #f1b968;
+    --red: #ff7b7b;
     --primary-foreground: #062017;
     --secondary: #1b2b24;
     --secondary-foreground: #f1f7f4;
@@ -92,6 +110,9 @@
     --accent-foreground: #5dd6a7;
     --warning: #f1b968;
     --destructive: #ff7b7b;
+    --amount-receivable: #5dd6a7;
+    --amount-payable: #f1b968;
+    --amount-danger: #ff7b7b;
     --border: #2a3b34;
     --input: #2a3b34;
     --ring: #5dd6a7;
@@ -106,6 +127,10 @@
 @theme inline {
   --font-sans: var(--font-ui);
   --color-surface-muted: var(--surface-muted);
+  --color-brand: var(--brand);
+  --color-mint: var(--mint);
+  --color-orange: var(--orange);
+  --color-red: var(--red);
   --color-surface: var(--surface);
   --color-warning: var(--warning);
   --color-chart-5: var(--chart-5);

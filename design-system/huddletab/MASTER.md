@@ -21,14 +21,20 @@
 |---|---:|---|
 | `background` | `#F6F8F7` | 页面底色 |
 | `surface` | `#FFFFFF` | Sheet、Dialog、主要内容面 |
-| `surface-muted` | `#EAF2EE` | 摘要、选中、轻提示 |
-| `foreground` | `#17211D` | 主文本 |
+| `surface-muted` | `#F1F5F3` | 摘要、选中、轻提示 |
+| `foreground` | `#333333` | 主文本 |
 | `muted-foreground` | `#56675F` | 辅助文本 |
 | `primary` | `#146B52` | 主按钮、选中、关键链接 |
+| `mint` | `#5DC0A7` | 柔和强调和插图点缀 |
+| `orange` | `#FFB54D` | 轻量提示和插图点缀 |
+| `red` | `#FF5C5C` | 非破坏性视觉提醒 |
 | `on-primary` | `#FFFFFF` | 主色上的文本与图标 |
 | `border` | `#DCE5E0` | 分隔和输入边界 |
 | `warning` | `#8A5510` | 超额、待同步、注意事项 |
 | `destructive` | `#C93636` | 删除、失败、危险操作 |
+| `amount-receivable` | `#16745B` | 应收金额 |
+| `amount-payable` | `#A64B00` | 应付金额 |
+| `amount-danger` | `#C62828` | 异常金额 |
 
 ### Dark
 
@@ -44,6 +50,9 @@
 | `border` | `#2A3B34` | 分隔和输入边界 |
 | `warning` | `#F1B968` | 超额、待同步、注意事项 |
 | `destructive` | `#FF7B7B` | 删除、失败、危险操作 |
+| `amount-receivable` | `#5DD6A7` | 应收金额 |
+| `amount-payable` | `#F1B968` | 应付金额 |
+| `amount-danger` | `#FF7B7B` | 异常金额 |
 
 ## 3. Typography
 
@@ -102,6 +111,9 @@ font-family:
 - 列表优先使用分组和留白，而非每行完整卡片边框。
 - 主 CTA 每个视图通常只有一个；破坏性操作与主 CTA 视觉分离。
 - 加载、空状态、离线、待同步、同步失败和版本冲突都有独立文案与可恢复操作。
+- `MoneyAmount` 接收币种、最小单位 bigint 和语义色调；始终复用 Domain 金额格式化并使用等宽数字。
+- `MemberAvatar` 与 `ActivityCover` 以稳定 ID 哈希选择回退视觉，不能使用随机值；活动标题同时可见时封面为装饰图片。
+- `AppHeader`、`EmptyState`、`SyncStatus` 只提供通用布局与语义插槽，不包含页面业务行为。
 
 ## 8. Anti-patterns
 
