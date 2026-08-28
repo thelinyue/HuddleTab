@@ -7,8 +7,25 @@
 :root {
   color-scheme: light;
   --font-ui:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-money-family:
+    "Inter", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --text-display-amount: 2rem;
+  --text-display-amount--line-height: 2.5rem;
+  --text-amount-lg: 1.25rem;
+  --text-amount-lg--line-height: 1.75rem;
+  --text-amount: 1rem;
+  --text-amount--line-height: 1.5rem;
+  --text-page-title: 1.25rem;
+  --text-page-title--line-height: 1.75rem;
+  --text-section-title: 0.9375rem;
+  --text-section-title--line-height: 1.375rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.375rem;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.25rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.125rem;
   --background: #f6f8f7;
   --surface: #ffffff;
   --surface-muted: #f1f5f3;
@@ -31,6 +48,7 @@
   --accent-foreground: #146b52;
   --warning: #8a5510;
   --destructive: #c93636;
+  --success: #217a55;
   --amount-receivable: #16745b;
   --amount-payable: #a64b00;
   --amount-danger: #c62828;
@@ -45,7 +63,6 @@
   --motion-fast: 160ms;
   --motion-normal: 220ms;
   --motion-overlay: 280ms;
-  --radius: 0.5rem;
 }
 
 .dark {
@@ -72,6 +89,7 @@
   --accent-foreground: #5dd6a7;
   --warning: #f1b968;
   --destructive: #ff7b7b;
+  --success: #6bd89e;
   --amount-receivable: #5dd6a7;
   --amount-payable: #f1b968;
   --amount-danger: #ff7b7b;
@@ -110,6 +128,7 @@
     --accent-foreground: #5dd6a7;
     --warning: #f1b968;
     --destructive: #ff7b7b;
+    --success: #6bd89e;
     --amount-receivable: #5dd6a7;
     --amount-payable: #f1b968;
     --amount-danger: #ff7b7b;
@@ -126,6 +145,7 @@
 
 @theme inline {
   --font-sans: var(--font-ui);
+  --font-amount: var(--font-money-family);
   --color-surface-muted: var(--surface-muted);
   --color-brand: var(--brand);
   --color-mint: var(--mint);
@@ -133,6 +153,9 @@
   --color-red: var(--red);
   --color-surface: var(--surface);
   --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-receivable: var(--amount-receivable);
+  --color-payable: var(--amount-payable);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -156,10 +179,55 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.75);
-  --radius-md: var(--radius);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 2);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1rem;
+  --shadow-sm: 0 1px 2px rgb(23 33 29 / 8%);
+  --shadow-overlay: 0 12px 32px rgb(13 21 18 / 16%);
+}
+
+@layer utilities {
+  /* type-* 使用独立命名空间，避免 Tailwind 自动生成的 text-* 类覆盖语义文字色。 */
+  .type-display-amount {
+    font-size: var(--text-display-amount);
+    line-height: var(--text-display-amount--line-height);
+  }
+
+  .type-amount-lg {
+    font-size: var(--text-amount-lg);
+    line-height: var(--text-amount-lg--line-height);
+  }
+
+  .type-amount {
+    font-size: var(--text-amount);
+    line-height: var(--text-amount--line-height);
+  }
+
+  .type-page-title {
+    font-size: var(--text-page-title);
+    line-height: var(--text-page-title--line-height);
+  }
+
+  .type-section-title {
+    font-size: var(--text-section-title);
+    line-height: var(--text-section-title--line-height);
+  }
+
+  .type-body {
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+  }
+
+  .type-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+  }
+
+  .type-caption {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+  }
 }
 
 @layer base {
@@ -177,8 +245,8 @@
     @apply bg-background text-foreground antialiased;
     margin: 0;
     font-family: var(--font-ui);
-    font-size: 1rem;
-    line-height: 1.5;
+    font-size: 0.875rem;
+    line-height: 1.375rem;
   }
 
   button:not(:disabled),
@@ -193,6 +261,7 @@
   }
 
   .money {
+    font-family: var(--font-money-family);
     font-variant-numeric: tabular-nums;
   }
 

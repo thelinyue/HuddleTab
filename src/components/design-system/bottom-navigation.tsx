@@ -22,8 +22,8 @@ function currentDestination(pathname: string): TopLevelDestination {
 }
 
 /**
- * 一级导航只有产品的三个稳定入口。活动详情由 `ProductNavigation` 隐藏本栏，改由活动内
- * 导航接管；宽屏仍使用同一条居中栏而不是扩展为侧边栏，避免信息架构随设备变化。
+ * 一级导航只有产品的三个稳定入口。流水根页保留本栏，便于返回产品主路径；更深的活动
+ * 页面仍保留本栏；活动内页签只负责二级跳转，不会替代回到产品入口的能力。
  */
 export function BottomNavigation({
   current,
@@ -35,7 +35,7 @@ export function BottomNavigation({
   return (
     <nav
       aria-label="主导航"
-      className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[800px] border-t border-border/80 bg-surface pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[800px] border-t border-border/70 bg-surface/98 pb-[env(safe-area-inset-bottom)]"
     >
       <ul className="grid grid-cols-3">
         {items.map(({ id, href, label, Icon }) => {
@@ -49,9 +49,17 @@ export function BottomNavigation({
                 href={href}
                 aria-current={current === id ? "page" : undefined}
                 aria-label={notificationLabel}
-                className="flex min-h-14 flex-col items-center justify-center gap-0.5 border-t-2 border-transparent px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground aria-[current=page]:border-primary aria-[current=page]:bg-primary/5 aria-[current=page]:text-primary"
+                className="flex min-h-14 flex-col items-center justify-center gap-0.5 px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground aria-[current=page]:text-primary"
               >
-                <Icon aria-hidden="true" className="size-5" />
+                <span className="relative">
+                  <Icon aria-hidden="true" className="size-5" />
+                  {id === "notifications" && unreadCount > 0 ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-0.5 -right-1 size-1.5 rounded-full bg-primary"
+                    />
+                  ) : null}
+                </span>
                 <span>{label}</span>
               </Link>
             </li>
@@ -69,7 +77,8 @@ export function ProductNavigation({
   readonly unreadCount?: number;
 }) {
   const pathname = usePathname();
-  const isInsideActivity = /^\/activities\/[^/]+(?:\/|$)/.test(pathname);
+  const isActivityFeedRoot = /^\/activities\/[^/]+$/.test(pathname);
+  const isInsideActivitySubpage = /^\/activities\/[^/]+\/.+/.test(pathname);
   const [currentUnreadCount, setCurrentUnreadCount] = useState(unreadCount);
   const unreadCountVersion = useRef(0);
   useEffect(() => {
@@ -88,7 +97,8 @@ export function ProductNavigation({
       );
   }, []);
   useEffect(() => {
-    if (isInsideActivity) return;
+    // 流水根页沿用进入活动前的未读数；返回一级页面时再刷新，避免无意义的重复请求。
+    if (isInsideActivitySubpage || isActivityFeedRoot) return;
     const requestVersion = unreadCountVersion.current + 1;
     unreadCountVersion.current = requestVersion;
     void fetch("/api/notifications", { cache: "no-store" })
@@ -104,8 +114,7 @@ export function ProductNavigation({
           setCurrentUnreadCount(body.data.unreadCount);
       })
       .catch(() => undefined);
-  }, [isInsideActivity]);
-  if (isInsideActivity) return null;
+  }, [isActivityFeedRoot, isInsideActivitySubpage, pathname]);
   return (
     <BottomNavigation
       current={currentDestination(pathname)}

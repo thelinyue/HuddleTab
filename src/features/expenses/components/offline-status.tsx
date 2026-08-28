@@ -1,8 +1,10 @@
 "use client";
 
-import { WifiOffIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { SyncStatus } from "@/components/design-system/sync-status";
+import { StateNotice } from "@/components/design-system/state-notice";
+import { Button } from "@/components/ui/button";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
 import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
@@ -36,13 +38,13 @@ export function useOnlineStatus() {
 /** 离线时保留不可排队操作的可见原因，避免禁用命令没有解释。 */
 export function OfflineStatus({ children }: { readonly children: string }) {
   return (
-    <p
+    <StateNotice
+      tone="warning"
+      title="当前离线"
+      description={children}
+      className="mt-3"
       role="status"
-      className="mt-2 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"
-    >
-      <WifiOffIcon aria-hidden="true" className="size-4 shrink-0" />
-      {children}
-    </p>
+    />
   );
 }
 
@@ -57,8 +59,19 @@ export function OfflineExpenseStatus({
   readonly onRemoveRejectedAttachments?: (id: string) => void;
 }) {
   const status = describeMutation(mutation);
+  const syncTone =
+    mutation.status === "PENDING"
+      ? "offline"
+      : mutation.status === "SYNCING"
+        ? "pending"
+        : mutation.status === "RETRYABLE" || mutation.status === "REJECTED"
+          ? "error"
+          : "synced";
   return (
-    <article className="border-b border-dashed py-3" aria-label="本地离线消费">
+    <article
+      className="mb-3 rounded-lg border border-dashed bg-surface-muted/60 p-3"
+      aria-label="本地离线消费"
+    >
       <div className="flex items-start justify-between gap-4">
         <strong className="min-w-0 [overflow-wrap:anywhere]">
           {mutation.payload.title}
@@ -73,38 +86,45 @@ export function OfflineExpenseStatus({
           )}
         </strong>
       </div>
-      <p className="mt-1 text-sm text-muted-foreground">{status}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <SyncStatus tone={syncTone} />
+        <p className="min-w-0 text-sm text-muted-foreground">{status}</p>
+      </div>
       {mutation.status === "REJECTED" && (
-        <button
+        <Button
           type="button"
-          className="mt-2 min-h-11 border px-3 text-sm"
+          variant="outline"
+          size="sm"
+          className="mt-2"
           onClick={() => {
             if (window.confirm("丢弃后无法恢复这条本地离线消费，确定继续吗？"))
               onDiscard(mutation.id);
           }}
         >
           丢弃本地记录
-        </button>
+        </Button>
       )}
       {mutation.status === "SYNCED" &&
         mutation.syncInfo?.code === "ATTACHMENTS_REJECTED" &&
         onRemoveRejectedAttachments && (
-          <button
+          <Button
             type="button"
-            className="mt-2 min-h-11 border px-3 text-sm"
+            variant="outline"
+            size="sm"
+            className="mt-2"
             onClick={() => onRemoveRejectedAttachments(mutation.id)}
           >
             移除被拒绝的附件
-          </button>
+          </Button>
         )}
     </article>
   );
 }
 
 function describeMutation(mutation: PendingExpenseMutation) {
-  if (mutation.status === "PENDING" || mutation.status === "SYNCING")
-    return "待同步";
-  if (mutation.status === "RETRYABLE") return "同步失败，可重试";
+  if (mutation.status === "PENDING") return "已保存在本机，联网后自动同步。";
+  if (mutation.status === "SYNCING") return "正在提交到服务器。";
+  if (mutation.status === "RETRYABLE") return "联网后将自动重试。";
   if (mutation.status === "REJECTED")
     return mutation.lastError?.message ?? "服务器拒绝了这笔离线消费。";
   return mutation.syncInfo?.message ?? "已同步";

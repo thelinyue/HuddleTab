@@ -3,21 +3,23 @@
 import "@testing-library/jest-dom/vitest";
 
 import { createElement } from "react";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { CirclePlusIcon } from "lucide-react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { buttonVariants } from "@/components/ui/button";
 import { ActivityCover } from "@/components/design-system/activity-cover";
 import { EmptyState } from "@/components/design-system/empty-state";
 import { MemberAvatar } from "@/components/design-system/member-avatar";
 
+afterEach(cleanup);
+
 describe("基础交互组件", () => {
   it("keeps the default button at the mobile minimum touch target", () => {
     expect(buttonVariants()).toContain("min-h-11");
   });
 
-  it("uses an accessible Unicode-name avatar fallback with a stable member mapping", () => {
+  it("uses an accessible preset avatar fallback with a stable member mapping", () => {
     const { rerender } = render(
       createElement(MemberAvatar, {
         memberId: "member-42",
@@ -26,8 +28,12 @@ describe("基础交互组件", () => {
     );
 
     const avatar = screen.getByLabelText("小王的头像");
-    expect(avatar).toHaveTextContent("小");
+    expect(avatar.querySelector("img")).toHaveAttribute(
+      "src",
+      expect.stringMatching(/^\/member-avatars\/avatar-0[1-6]\.webp$/),
+    );
     const colorIndex = avatar.getAttribute("data-avatar-color-index");
+    const source = avatar.querySelector("img")?.getAttribute("src");
 
     rerender(
       createElement(MemberAvatar, {
@@ -38,6 +44,25 @@ describe("基础交互组件", () => {
     expect(screen.getByLabelText("访客的头像")).toHaveAttribute(
       "data-avatar-color-index",
       colorIndex,
+    );
+    expect(screen.getByLabelText("访客的头像").querySelector("img")).toHaveAttribute(
+      "src",
+      source,
+    );
+  });
+
+  it("keeps a real member image ahead of the preset fallback", () => {
+    render(
+      createElement(MemberAvatar, {
+        memberId: "member-42",
+        displayName: "小王",
+        imageUrl: "/uploads/member-42.webp",
+      }),
+    );
+
+    expect(screen.getByLabelText("小王的头像").querySelector("img")).toHaveAttribute(
+      "src",
+      "/uploads/member-42.webp",
     );
   });
 

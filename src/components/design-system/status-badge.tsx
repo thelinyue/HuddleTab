@@ -27,7 +27,7 @@ const toneClassName: Record<StatusTone, string> = {
   destructive: "bg-destructive/15 text-destructive",
 };
 
-/** 状态始终以文字和具名图标共同表达，色彩只作为辅助线索。 */
+/** 状态至少以文字表达；需要强调来源时再附加具名图标，色彩始终只作辅助线索。 */
 export function StatusBadge({
   tone,
   icon,
@@ -35,11 +35,11 @@ export function StatusBadge({
   className,
 }: {
   readonly tone: StatusTone;
-  readonly icon: StatusIcon;
+  readonly icon?: StatusIcon;
   readonly children: ReactNode;
   readonly className?: string;
 }) {
-  const { Icon, label } = iconConfig[icon];
+  const iconEntry = icon ? iconConfig[icon] : null;
   return (
     <span
       className={cn(
@@ -48,9 +48,11 @@ export function StatusBadge({
         className,
       )}
     >
-      <span role="img" aria-label={label}>
-        <Icon aria-hidden="true" className="size-3.5" />
-      </span>
+      {iconEntry ? (
+        <span role="img" aria-label={iconEntry.label}>
+          <iconEntry.Icon aria-hidden="true" className="size-3.5" />
+        </span>
+      ) : null}
       <span>{children}</span>
     </span>
   );

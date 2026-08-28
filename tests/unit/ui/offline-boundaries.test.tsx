@@ -205,10 +205,41 @@ test("服务端拒绝的本地消费保留原因，并可明确丢弃本地记�
   );
 
   expect(screen.getByText("活动已经结束，这笔离线消费未同步。")).toBeVisible();
+  expect(screen.getByText("同步失败")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "丢弃本地记录" }));
   expect(confirm).toHaveBeenCalledOnce();
   expect(onDiscard).toHaveBeenCalledWith("mutation-1");
   confirm.mockRestore();
+});
+
+test("待同步消费使用统一同步标签，并把本地记录与服务端流水区分开", () => {
+  render(
+    <OfflineExpenseStatus
+      mutation={{
+        id: "mutation-pending",
+        userId: "user-1",
+        activityId: "activity-1",
+        kind: "CREATE_EXPENSE",
+        payload: {
+          title: "离线早餐",
+          originalAmountMinor: "3600",
+          originalCurrency: "CNY",
+        } as never,
+        status: "PENDING",
+        attemptCount: 0,
+        nextAttemptAt: 0,
+        createdAt: 0,
+        updatedAt: 0,
+      }}
+      onDiscard={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("离线待同步")).toBeVisible();
+  expect(screen.getByRole("article", { name: "本地离线消费" })).toHaveClass(
+    "rounded-lg",
+    "bg-surface-muted/60",
+  );
 });
 
 test("已同步账单可以移除被服务端拒绝的附件", async () => {

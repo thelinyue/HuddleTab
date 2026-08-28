@@ -53,6 +53,7 @@ test("离线入队不触发服务端流水刷新", async () => {
         memberCount: 1,
         currentUserBalanceMinor: "0",
       }}
+      timeZone="Asia/Shanghai"
       expenses={[]}
       entryContext={
         {

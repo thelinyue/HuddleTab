@@ -12,7 +12,9 @@ afterEach(() => cleanup());
 
 test("登录提交用户名和密码后进入活动页", async () => {
   const user = userEvent.setup();
-  const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue(new Response("{}", { status: 200 }));
   const assign = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("location", { assign, origin: "http://localhost" });
@@ -27,6 +29,46 @@ test("登录提交用户名和密码后进入活动页", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "alice", password: "password123" }),
   });
+  expect(assign).toHaveBeenCalledWith("http://localhost/activities");
+});
+
+test("邀请登录成功后只回到受控的站内邀请地址", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue(new Response("{}", { status: 200 }));
+  const assign = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("location", { assign, origin: "http://localhost" });
+
+  render(
+    <AccountForm mode="login" callbackURL="/join/secure_invite_token_123" />,
+  );
+  await user.type(screen.getByLabelText("用户名"), "alice");
+  await user.type(screen.getByLabelText("密码"), "password123");
+  await user.click(screen.getByRole("button", { name: "登录" }));
+
+  expect(assign).toHaveBeenCalledWith(
+    "http://localhost/join/secure_invite_token_123",
+  );
+});
+
+test("外部 callbackURL 被拒绝并回退到活动页", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response("{}", { status: 200 })),
+  );
+  const assign = vi.fn();
+  vi.stubGlobal("location", { assign, origin: "http://localhost" });
+
+  render(
+    <AccountForm mode="login" callbackURL="https://evil.example/join/token" />,
+  );
+  await user.type(screen.getByLabelText("用户名"), "alice");
+  await user.type(screen.getByLabelText("密码"), "password123");
+  await user.click(screen.getByRole("button", { name: "登录" }));
+
   expect(assign).toHaveBeenCalledWith("http://localhost/activities");
 });
 
@@ -51,10 +93,61 @@ test("注册后自动登录且不提交确认密码", async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nickname: "小王", username: "wang", password: "password123", inviteProof: "proof" }),
+    body: JSON.stringify({
+      nickname: "小王",
+      username: "wang",
+      password: "password123",
+      inviteProof: "proof",
+    }),
   });
-  expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/sign-in/username", expect.any(Object));
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    2,
+    "/api/auth/sign-in/username",
+    expect.any(Object),
+  );
   expect(assign).toHaveBeenCalledWith("http://localhost/activities");
+});
+
+test("邀请注册自动提交 proof 并在认证后返回邀请页", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(new Response("{}", { status: 201 }))
+    .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+  const assign = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("location", { assign, origin: "http://localhost" });
+
+  render(
+    <AccountForm
+      mode="register"
+      callbackURL="/join/secure_invite_token_123"
+      invitationProof="secure_invite_token_123"
+    />,
+  );
+  expect(screen.getByText("注册后将继续加入受邀活动")).toBeVisible();
+  expect(
+    screen.queryByLabelText("邀请凭证（受邀注册时填写）"),
+  ).not.toBeInTheDocument();
+  await user.type(screen.getByLabelText("昵称"), "小王");
+  await user.type(screen.getByLabelText("用户名"), "wang");
+  await user.type(screen.getByLabelText("密码"), "password123");
+  await user.type(screen.getByLabelText("确认密码"), "password123");
+  await user.click(screen.getByRole("button", { name: "注册" }));
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      nickname: "小王",
+      username: "wang",
+      password: "password123",
+      inviteProof: "secure_invite_token_123",
+    }),
+  });
+  expect(assign).toHaveBeenCalledWith(
+    "http://localhost/join/secure_invite_token_123",
+  );
 });
 
 test("注册确认密码不一致时不发起请求", async () => {

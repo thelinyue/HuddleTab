@@ -2,6 +2,8 @@
 
 import type { QuickExpenseMember } from "@/features/expenses/components/quick-expense-form";
 import { MemberAvatar } from "@/components/design-system/member-avatar";
+import { MoneyAmount } from "@/components/design-system/money-amount";
+import type { AllocationResult } from "@/domain/splitting/allocation";
 
 type SplitMode = "EQUAL" | "EXACT" | "PERCENTAGE" | "WEIGHT";
 
@@ -11,14 +13,16 @@ export function SplitEditor({
   participantIds,
   mode,
   values,
-  equalPreview,
+  currency,
+  allocations,
   onValueChange,
 }: {
   readonly members: readonly QuickExpenseMember[];
   readonly participantIds: readonly string[];
   readonly mode: SplitMode;
   readonly values: Readonly<Record<string, string>>;
-  readonly equalPreview: string;
+  readonly currency: string;
+  readonly allocations: readonly AllocationResult[] | null;
   readonly onValueChange: (memberId: string, value: string) => void;
 }) {
   const label =
@@ -30,59 +34,73 @@ export function SplitEditor({
   const selectedMembers = members.filter((member) =>
     participantIds.includes(member.id),
   );
+  const allocationByMemberId = new Map(
+    allocations?.map((allocation) => [
+      allocation.memberId,
+      allocation.amountMinor,
+    ]),
+  );
   return (
     <section aria-label="参与成员分摊">
-      {mode !== "EQUAL" && (
-        <fieldset>
-          <legend className="text-sm font-medium">{label}</legend>
-          <div className="mt-2 space-y-2">
-            {selectedMembers.map((member) => (
-              <label
-                key={member.id}
-                className="grid grid-cols-[1fr_8rem] items-center gap-3"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <MemberAvatar
-                    memberId={member.id}
-                    displayName={member.displayName}
-                    className="size-8"
-                  />
-                  <span>{member.displayName}</span>
-                </span>
-                <input
-                  inputMode="decimal"
-                  aria-label={`${member.displayName}分摊值`}
-                  value={values[member.id] ?? ""}
-                  onChange={(event) =>
-                    onValueChange(member.id, event.target.value)
-                  }
-                  className="min-h-11 border bg-background px-3"
-                />
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
-      {mode === "EQUAL" && (
-        <div className="space-y-2">
-          {selectedMembers.map((member) => (
-            <div
+      <h2 className="type-label flex min-h-11 items-center font-medium">
+        参与成员 · {selectedMembers.length}人
+      </h2>
+      <ul aria-label="参与成员承担金额" className="divide-y border-y">
+        {selectedMembers.map((member) => {
+          const allocation = allocationByMemberId.get(member.id);
+          return (
+            <li
               key={member.id}
-              className="flex min-h-11 items-center justify-between border px-3"
+              className="flex min-h-16 items-center gap-3 px-3 py-2"
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <MemberAvatar
-                  memberId={member.id}
-                  displayName={member.displayName}
-                  className="size-8"
-                />
-                <span>{member.displayName}</span>
+              <MemberAvatar
+                memberId={member.id}
+                displayName={member.displayName}
+                className="size-10"
+              />
+              <span className="type-body min-w-0 flex-1 truncate font-medium">
+                {member.displayName}
               </span>
-              <span className="money text-sm">均摊参考 {equalPreview}</span>
-            </div>
-          ))}
-        </div>
-      )}
+              {mode !== "EQUAL" ? (
+                <label className="relative flex min-h-11 w-24 items-center">
+                  <span className="sr-only">{label}</span>
+                  <input
+                    inputMode="decimal"
+                    aria-label={`${member.displayName}分摊值`}
+                    value={values[member.id] ?? ""}
+                    onChange={(event) =>
+                      onValueChange(member.id, event.target.value)
+                    }
+                    className={`money type-amount min-h-11 w-full rounded-sm border bg-background px-2 text-right outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 ${mode === "EXACT" ? "" : "pr-7"}`}
+                  />
+                  {mode !== "EXACT" ? (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-2 text-muted-foreground"
+                    >
+                      {mode === "PERCENTAGE" ? "%" : "份"}
+                    </span>
+                  ) : null}
+                </label>
+              ) : null}
+              {mode !== "EXACT" ? (
+                allocation === undefined ? (
+                  <span className="type-body min-w-20 text-right font-semibold">
+                    待完成
+                  </span>
+                ) : (
+                  <MoneyAmount
+                    currency={currency}
+                    amountMinor={allocation}
+                    size="md"
+                    className="min-w-20 text-right font-semibold"
+                  />
+                )
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

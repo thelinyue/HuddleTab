@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState, type ComponentProps } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -27,6 +28,13 @@ vi.mock("gsap", () => ({
 }));
 
 import { QuickExpenseForm } from "@/features/expenses/components/quick-expense-form";
+
+function QuickExpenseHarness(
+  props: Omit<ComponentProps<typeof QuickExpenseForm>, "step" | "onStepChange">,
+) {
+  const [step, setStep] = useState<"ENTRY" | "SPLIT">("ENTRY");
+  return <QuickExpenseForm {...props} step={step} onStepChange={setStep} />;
+}
 
 const activity = {
   id: "a1",
@@ -61,7 +69,7 @@ test("步骤切换使用 scoped GSAP 的可中断位移动画", async () => {
   const user = userEvent.setup();
   setMotionPreference(false);
   render(
-    <QuickExpenseForm
+    <QuickExpenseHarness
       activity={activity}
       members={members}
       preference={preference}
@@ -91,7 +99,7 @@ test("步骤切换使用 scoped GSAP 的可中断位移动画", async () => {
 test("减少动态效果时步骤直接进入最终状态", () => {
   setMotionPreference(true);
   render(
-    <QuickExpenseForm
+    <QuickExpenseHarness
       activity={activity}
       members={members}
       preference={preference}

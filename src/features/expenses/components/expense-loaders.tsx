@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import {
   getExpenseDetail,
   getExpenseFeed,
   getExpenseFeedSummary,
   getQuickExpenseContext,
+  deleteExpense,
   type ExpenseDetailResponse,
   type ExpenseFeedSummaryDto,
   type ExpenseListItemDto,
   type QuickExpenseContextDto,
 } from "@/features/expenses/api";
 import { ExpenseDetail } from "@/features/expenses/components/expense-detail";
+import { ExpenseEditOverlay } from "@/features/expenses/components/expense-edit-overlay";
+import { ExpenseSplitDetail } from "@/features/expenses/components/expense-split-detail";
 import {
   ExpenseFeed,
   type ExpenseFeedFilters,
@@ -75,7 +78,7 @@ async function getCachedExpenseFeed(activityId: string) {
 }
 
 /** 加载器负责向服务端提交冻结筛选条件，展示组件不以客户端副本冒充权威筛选结果。 */
-export function ExpenseFeedLoader() {
+export function ExpenseFeedLoader({ timeZone }: { readonly timeZone: string }) {
   const { activityId } = useParams<{ activityId: string }>();
   const [summary, setSummary] = useState<ExpenseFeedSummaryDto | null>(null);
   const [expenses, setExpenses] = useState<readonly ExpenseListItemDto[]>([]);
@@ -195,6 +198,7 @@ export function ExpenseFeedLoader() {
       <ExpenseFeed
         activity={{ id: activityId, name: summary.activityName, ...summary }}
         expenses={expenses}
+        timeZone={timeZone}
         onFiltersChange={setFilters}
         entryContext={entryContext}
         pendingMutations={pendingMutations}
@@ -241,18 +245,105 @@ export function ExpenseFeedLoader() {
   );
 }
 
-export function ExpenseDetailLoader() {
+export function ExpenseDetailLoader({
+  timeZone,
+}: {
+  readonly timeZone: string;
+}) {
+  const { activityId, expenseId } = useParams<{
+    activityId: string;
+    expenseId: string;
+  }>();
+  const router = useRouter();
+  const [data, setData] = useState<ExpenseDetailResponse | null>(null);
+  const [activityName, setActivityName] = useState<string | null>(null);
+  const [context, setContext] = useState<QuickExpenseContextDto | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      getExpenseDetail(activityId, expenseId),
+      getExpenseFeedSummary(activityId),
+      getQuickExpenseContext(activityId),
+    ])
+      .then(([nextData, summary, nextContext]) => {
+        if (cancelled) return;
+        setData(nextData);
+        setActivityName(summary.activityName);
+        setContext(nextContext);
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(errorMessage(reason));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activityId, expenseId, refreshToken]);
+  if (error)
+    return (
+      <p role="alert" className="py-8 text-destructive">
+        {error}
+      </p>
+    );
+  if (!data || !activityName || !context)
+    return <p className="py-8 text-muted-foreground">正在加载消费详情…</p>;
+  return (
+    <>
+      <ExpenseDetail
+        data={data}
+        activityName={activityName}
+        timeZone={timeZone}
+        onEdit={
+          data.permissions.canUpdate ? () => setEditOpen(true) : undefined
+        }
+        onDelete={
+          data.permissions.canDelete
+            ? async () => {
+                await deleteExpense(
+                  activityId,
+                  expenseId,
+                  data.expense.version,
+                );
+                router.replace(`/activities/${encodeURIComponent(activityId)}`);
+                router.refresh();
+              }
+            : undefined
+        }
+      />
+      <ExpenseEditOverlay
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        data={data}
+        context={context}
+        timeZone={timeZone}
+        onSaved={() => setRefreshToken((value) => value + 1)}
+      />
+    </>
+  );
+}
+
+export function ExpenseSplitDetailLoader() {
   const { activityId, expenseId } = useParams<{
     activityId: string;
     expenseId: string;
   }>();
   const [data, setData] = useState<ExpenseDetailResponse | null>(null);
+  const [activityName, setActivityName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void getExpenseDetail(activityId, expenseId)
-      .then((nextData) => {
-        if (!cancelled) setData(nextData);
+    void Promise.all([
+      getExpenseDetail(activityId, expenseId),
+      getExpenseFeedSummary(activityId),
+    ])
+      .then(([nextData, summary]) => {
+        if (cancelled) return;
+        setData(nextData);
+        setActivityName(summary.activityName);
+        setError(null);
       })
       .catch((reason: unknown) => {
         if (!cancelled) setError(errorMessage(reason));
@@ -267,7 +358,7 @@ export function ExpenseDetailLoader() {
         {error}
       </p>
     );
-  if (!data)
-    return <p className="py-8 text-muted-foreground">正在加载消费详情…</p>;
-  return <ExpenseDetail data={data} />;
+  if (!data || !activityName)
+    return <p className="py-8 text-muted-foreground">正在加载分摊明细…</p>;
+  return <ExpenseSplitDetail data={data} activityName={activityName} />;
 }

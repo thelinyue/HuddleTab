@@ -5,7 +5,6 @@ export const dynamic = "force-dynamic";
 
 const decisionInput = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),
-  displayName: z.string().trim().min(1).max(40),
 });
 
 /** 审批 Route 只组装 Session 和输入；活动权限与所有数据库写入均由服务事务负责。 */
@@ -38,7 +37,6 @@ export async function POST(
       activityId: params.activityId,
       requestId: params.requestId,
       decision: body.decision,
-      displayName: body.displayName,
     });
     return NextResponse.json({ data: { activityId: params.activityId } });
   } catch (error) {

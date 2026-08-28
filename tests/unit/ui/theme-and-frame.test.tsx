@@ -34,6 +34,15 @@ test("核心容器在中等屏幕增加边距，并保持单列与底部安全�
   expect(screen.getByRole("img", { name: "同步状态" })).toBeVisible();
 });
 
+test("状态标签允许省略图标并保留纯文字语义", () => {
+  const { container } = render(
+    <StatusBadge tone="success">所有者</StatusBadge>,
+  );
+
+  expect(screen.getByText("所有者")).toBeVisible();
+  expect(container.querySelector('[role="img"]')).not.toBeInTheDocument();
+});
+
 test("共享输入和标签控件保留 44px 触控目标", () => {
   render(
     <>
@@ -51,11 +60,12 @@ test("共享输入和标签控件保留 44px 触控目标", () => {
   expect(screen.getByRole("tab", { name: "流水" })).toHaveClass("min-h-11");
 });
 
-test("共享控件将 rounded-lg 限制为 8px", () => {
+test("共享控件使用 8、12、16px 的 V1 圆角层级", () => {
   const css = readFileSync("src/app/globals.css", "utf8");
 
-  expect(css).toContain("--radius: 0.5rem;");
-  expect(css).toContain("--radius-lg: var(--radius);");
+  expect(css).toContain("--radius-sm: 0.5rem;");
+  expect(css).toContain("--radius-md: 0.75rem;");
+  expect(css).toContain("--radius-lg: 1rem;");
 });
 
 test("共享展示原语保留标题、金额语义和同步状态文本", () => {
@@ -86,7 +96,8 @@ test("共享展示原语保留标题、金额语义和同步状态文本", () =>
 });
 
 test("共享标题允许合法的长无空格文本在窄屏内断行", () => {
-  const longTitle = "一次很长很长且没有空格的活动标题用于验证移动端不会溢出容器";
+  const longTitle =
+    "一次很长很长且没有空格的活动标题用于验证移动端不会溢出容器";
   render(
     <AppHeader
       eyebrow={longTitle}
@@ -116,9 +127,7 @@ test("移动端记一笔按钮固定在活动导航和安全区上方", () => {
           currentMemberId: "member-1",
           currentUserId: "user-1",
         },
-        members: [
-          { id: "member-1", displayName: "小王", status: "ACTIVE" },
-        ],
+        members: [{ id: "member-1", displayName: "小王", status: "ACTIVE" }],
         preference: {
           lastCategory: null,
           recentParticipantIds: ["member-1"],
@@ -133,7 +142,8 @@ test("移动端记一笔按钮固定在活动导航和安全区上方", () => {
   );
 
   expect(screen.getByRole("button", { name: "记一笔" })).toHaveClass(
-    "bottom-[calc(4rem+env(safe-area-inset-bottom))]",
-    "min-[768px]:static",
+    "bottom-[calc(4.5rem+env(safe-area-inset-bottom))]",
+    "size-14",
+    "rounded-full",
   );
 });

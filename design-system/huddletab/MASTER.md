@@ -32,6 +32,7 @@
 | `border` | `#DCE5E0` | 分隔和输入边界 |
 | `warning` | `#8A5510` | 超额、待同步、注意事项 |
 | `destructive` | `#C93636` | 删除、失败、危险操作 |
+| `success` | `#217A55` | 已结清、成功状态 |
 | `amount-receivable` | `#16745B` | 应收金额 |
 | `amount-payable` | `#A64B00` | 应付金额 |
 | `amount-danger` | `#C62828` | 异常金额 |
@@ -50,6 +51,7 @@
 | `border` | `#2A3B34` | 分隔和输入边界 |
 | `warning` | `#F1B968` | 超额、待同步、注意事项 |
 | `destructive` | `#FF7B7B` | 删除、失败、危险操作 |
+| `success` | `#6BD89E` | 已结清、成功状态 |
 | `amount-receivable` | `#5DD6A7` | 应收金额 |
 | `amount-payable` | `#F1B968` | 应付金额 |
 | `amount-danger` | `#FF7B7B` | 异常金额 |
@@ -58,28 +60,24 @@
 
 ```css
 font-family:
-  system-ui,
-  -apple-system,
-  BlinkMacSystemFont,
-  "Segoe UI",
+  "Noto Sans SC",
   "PingFang SC",
-  "Hiragino Sans GB",
   "Microsoft YaHei",
+  system-ui,
   sans-serif;
 ```
 
-- 正文：`16px / 1.5`。
-- 辅助信息：`13–14px`，非必要内容不得低于 `12px`。
-- 页面标题：`24–28px`，字重 `700–800`。
-- 区块标题：`18–20px`，字重 `650–750`。
-- 金额和统计数字使用 `font-variant-numeric: tabular-nums`。
+- 中文界面统一使用 `Noto Sans SC`，英文、数字与金额使用 `Inter`。
+- Display Amount：`32px / 40px / 600`；Amount Large：`20px / 28px / 600`；Amount：`16px / 24px / 600`。
+- Page Title：`20px / 28px / 600`；Section Title：`15px / 22px / 600`。
+- Body：`14px / 22px / 400`；Label：`13px / 20px / 500`；Caption：`12px / 18px / 400`。
+- 金额和重要数字统一使用 `Inter`、`font-variant-numeric: tabular-nums`。
 - 不依赖在线字体，保证私有部署与离线 App Shell 的中文显示稳定。
 
 ## 4. Spacing, radius, shadow, motion
 
-- 基础间距：`4px / 8px`。
-- 页面层级：`16 / 24 / 32 / 48px`。
-- 圆角：`10 / 12 / 16 / 24px`。
+- 基础间距采用 4px 网格：`4 / 8 / 12 / 16 / 20 / 24 / 32 / 40px`。
+- 圆角仅使用 `8 / 12 / 16px / full` 四档；Input、Button 与普通 Card 默认 `12px`，重点 Card 与 Overlay 使用 `16px`。
 - 阴影仅用于 Sheet、Dialog、浮动按钮和明确的层级分离。
 - 动效：快速反馈 `160ms`、普通切换 `220ms`、Sheet/Dialog `280ms`。
 - 支持 `prefers-reduced-motion`；禁用非必要位移与缩放。
@@ -112,7 +110,7 @@ font-family:
 - 主 CTA 每个视图通常只有一个；破坏性操作与主 CTA 视觉分离。
 - 加载、空状态、离线、待同步、同步失败和版本冲突都有独立文案与可恢复操作。
 - `MoneyAmount` 接收币种、最小单位 bigint 和语义色调；始终复用 Domain 金额格式化并使用等宽数字。
-- `MemberAvatar` 与 `ActivityCover` 以稳定 ID 哈希选择回退视觉，不能使用随机值；活动标题同时可见时封面为装饰图片。
+- `MemberAvatar` 与 `ActivityCover` 以稳定 ID 哈希选择六张本地插画回退视觉，不能使用随机值；真实图片地址始终优先，活动标题同时可见时封面为装饰图片。
 - `AppHeader`、`EmptyState`、`SyncStatus` 只提供通用布局与语义插槽，不包含页面业务行为。
 
 ## 8. Anti-patterns

@@ -2,9 +2,14 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ activityId: "activity-1" }),
+  usePathname: () => "/activities/activity-1/settlements",
+}));
 
 import { SettlementPage } from "@/features/settlements/components/settlement-page";
 
@@ -21,6 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -33,6 +39,12 @@ const data = {
     currentMemberId: "m1",
     currentMemberStatus: "ACTIVE" as const,
     currentMemberRole: "MEMBER" as const,
+  },
+  summary: {
+    activityName: "大阪旅行",
+    startDate: "2026-08-20",
+    endDate: "2026-08-24",
+    memberCount: 2,
   },
   members: [
     { id: "m1", displayName: "小王", status: "ACTIVE" as const },
@@ -48,76 +60,128 @@ const data = {
   settlements: [],
 };
 
-test("结算总览显示本人结果，并在记录页签中单独展示实际历史", async () => {
-  const user = userEvent.setup();
+const settlement = {
+  id: "s1",
+  payerMemberId: "m1",
+  receiverMemberId: "m2",
+  amountMinor: "32650",
+  currency: "CNY",
+  occurredAt: "2026-08-27T08:00:00.000Z",
+  note: "已转账",
+};
+
+test("结算信息在同一滚动页展示三列摘要、余额、推荐和记录", () => {
   render(
     <SettlementPage
-      data={{
-        ...data,
-        settlements: [
-          {
-            id: "s1",
-            payerMemberId: "m1",
-            receiverMemberId: "m2",
-            amountMinor: "32650",
-            currency: "CNY",
-            occurredAt: "2026-08-27T08:00:00.000Z",
-            note: "已转账",
-          },
-        ],
-      }}
+      data={{ ...data, settlements: [settlement] }}
+      timeZone="Asia/Shanghai"
       createSettlement={vi.fn()}
     />,
   );
 
-  const overviewTab = screen.getByRole("tab", { name: "总览" });
-  const historyTab = screen.getByRole("tab", { name: "记录" });
-  expect(overviewTab).toHaveAttribute("aria-selected", "true");
-  expect(
-    document.getElementById(overviewTab.getAttribute("aria-controls")!),
-  ).toBeInTheDocument();
-  expect(
-    document.getElementById(historyTab.getAttribute("aria-controls")!),
-  ).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "我的结算结果" })).toBeVisible();
-  expect(screen.getAllByText("-¥326.50")[0]).toBeVisible();
-  expect(screen.getByText(/已转账/)).not.toBeVisible();
-
-  await user.click(screen.getByRole("tab", { name: "记录" }));
-  expect(screen.getByRole("tab", { name: "记录" })).toHaveAttribute(
-    "aria-selected",
-    "true",
+  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  expect(screen.getByTestId("settlement-page-surface")).toHaveClass(
+    "bg-surface",
   );
-  expect(screen.getByText(/已转账/)).toBeVisible();
-  expect(
-    screen.queryByRole("heading", { name: "我的结算结果" }),
-  ).not.toBeInTheDocument();
+  const summary = screen.getByLabelText("结算摘要");
+  expect(summary).toHaveClass("grid-cols-3", "rounded-sm", "border");
+  expect(within(summary).getByLabelText("我的结算")).toHaveTextContent(
+    "应付¥326.50",
+  );
+  expect(within(summary).getByLabelText("待结清")).toHaveTextContent("1");
+  expect(within(summary).getByLabelText("已结算")).toHaveTextContent("1");
+  expect(screen.getByRole("heading", { name: "成员余额" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "推荐转账" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "实际结算记录" })).toBeVisible();
+  expect(screen.getByRole("list", { name: "推荐转账" })).toBeVisible();
+  expect(screen.getByRole("list", { name: "实际结算记录" })).toBeVisible();
+  expect(screen.getByRole("list", { name: "推荐转账" })).toHaveClass(
+    "rounded-sm",
+    "border",
+  );
+  expect(screen.getByRole("list", { name: "实际结算记录" })).toHaveClass(
+    "rounded-sm",
+    "border",
+  );
+  expect(screen.getByText("已转账")).toBeVisible();
+  expect(screen.getByText(/2026年8月27日 16:00/)).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "记录结算" })).toHaveLength(1);
+  expect(screen.getByRole("heading", { name: "大阪旅行" })).toBeVisible();
+  expect(screen.getByText("5天 · 2人 · 进行中")).toBeVisible();
 });
 
-test("结算页签使用 roving tabIndex，并支持键盘切换和聚焦", async () => {
+test("推荐转账整行预填结算，不显示重复操作文案", async () => {
   const user = userEvent.setup();
-  render(<SettlementPage data={data} createSettlement={vi.fn()} />);
+  render(
+    <SettlementPage
+      data={data}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
 
-  const overviewTab = screen.getByRole("tab", { name: "总览" });
-  const historyTab = screen.getByRole("tab", { name: "记录" });
-  expect(overviewTab).toHaveAttribute("tabindex", "0");
-  expect(historyTab).toHaveAttribute("tabindex", "-1");
+  const recommendation = screen.getByRole("button", {
+    name: "按建议记录：小王向小李支付 ¥326.50",
+  });
+  expect(recommendation).toHaveClass("min-h-14");
+  expect(recommendation).toHaveTextContent("小王小李¥326.50");
+  expect(
+    within(recommendation).getByTestId("recommendation-chevron"),
+  ).toBeVisible();
+  expect(screen.queryByText("按建议记录")).not.toBeInTheDocument();
 
-  overviewTab.focus();
-  await user.keyboard("{ArrowRight}");
-  expect(historyTab).toHaveFocus();
-  expect(historyTab).toHaveAttribute("aria-selected", "true");
-  expect(historyTab).toHaveAttribute("tabindex", "0");
-  expect(overviewTab).toHaveAttribute("tabindex", "-1");
+  await user.click(recommendation);
+  expect(screen.getByLabelText("付款人")).toHaveValue("m1");
+  expect(screen.getByLabelText("收款人")).toHaveValue("m2");
+  expect(screen.getByLabelText("金额")).toHaveValue("326.50");
+});
 
-  await user.keyboard("{Home}");
-  expect(overviewTab).toHaveFocus();
-  expect(overviewTab).toHaveAttribute("aria-selected", "true");
+test("结算页消费共享活动导航并标记当前页签", () => {
+  render(
+    <SettlementPage
+      data={data}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
 
-  await user.keyboard("{End}");
-  expect(historyTab).toHaveFocus();
-  await user.keyboard("{ArrowLeft}");
-  expect(overviewTab).toHaveFocus();
+  const activityNavigations = screen.getAllByRole("navigation", {
+    name: "活动导航",
+  });
+  expect(activityNavigations).toHaveLength(1);
+  expect(
+    within(activityNavigations[0]!).getByRole("link", { name: "结算" }),
+  ).toHaveAttribute("aria-current", "page");
+});
+
+test("成员余额使用头像、方向文字和绝对值金额", () => {
+  render(
+    <SettlementPage
+      data={{
+        ...data,
+        balances: [...data.balances, { memberId: "m3", netMinor: "0" }],
+        members: [
+          ...data.members,
+          { id: "m3", displayName: "小周", status: "ACTIVE" },
+        ],
+      }}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
+
+  const balances = screen.getByRole("list", { name: "成员余额" });
+  expect(within(balances).getByText("小王").closest("li")).toHaveTextContent(
+    "应付¥326.50",
+  );
+  expect(within(balances).getByText("小李").closest("li")).toHaveTextContent(
+    "应收¥326.50",
+  );
+  const settledRow = within(balances).getByText("小周").closest("li");
+  expect(settledRow).toHaveTextContent("已结清");
+  expect(settledRow).not.toHaveTextContent("¥0.00");
+  expect(within(balances).getAllByRole("img")).toHaveLength(3);
+  expect(within(balances).getAllByRole("img")[0]).toHaveClass("size-10");
 });
 
 test("推荐只预填表单，超额需要明确二次确认", async () => {
@@ -130,9 +194,27 @@ test("推荐只预填表单，超额需要明确二次确认", async () => {
       details: { overAmountMinor: "7350" },
     })
     .mockResolvedValueOnce({ settlement: { id: "s1" } });
-  render(<SettlementPage data={data} createSettlement={createSettlement} />);
+  render(
+    <SettlementPage
+      data={{
+        ...data,
+        activity: { ...data.activity, currentMemberRole: "OWNER" },
+        recommendations: [
+          {
+            payerMemberId: "m2",
+            receiverMemberId: "m1",
+            amountMinor: "32650",
+          },
+        ],
+      }}
+      timeZone="Asia/Shanghai"
+      createSettlement={createSettlement}
+    />,
+  );
 
-  await user.click(screen.getByRole("button", { name: "按建议记录" }));
+  await user.click(screen.getByRole("button", { name: /按建议记录/ }));
+  expect(screen.getByLabelText("付款人")).toHaveValue("m2");
+  expect(screen.getByLabelText("收款人")).toHaveValue("m1");
   expect(screen.getByLabelText("金额")).toHaveValue("326.50");
   expect(createSettlement).not.toHaveBeenCalled();
   await user.clear(screen.getByLabelText("金额"));
@@ -148,25 +230,55 @@ test("推荐只预填表单，超额需要明确二次确认", async () => {
   );
 });
 
-test("LEFT 成员付款人固定为自己，ARCHIVED 不显示记账入口", async () => {
+test("实际记录约束超长关系与备注，避免推挤金额或横向滚动", () => {
+  const payerName = "付款人无断点名称".repeat(8);
+  const receiverName = "收款人无断点名称".repeat(8);
+  const note = "超长无断点备注".repeat(12);
+  render(
+    <SettlementPage
+      data={{
+        ...data,
+        members: [
+          { id: "m1", displayName: payerName, status: "ACTIVE" },
+          { id: "m2", displayName: receiverName, status: "ACTIVE" },
+        ],
+        settlements: [{ ...settlement, note }],
+      }}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
+
+  const history = screen.getByRole("region", { name: "实际结算记录" });
+  const historyList = within(history).getByRole("list", {
+    name: "实际结算记录",
+  });
+  expect(within(historyList).getAllByRole("img")).toHaveLength(2);
+  expect(within(historyList).getByText(payerName)).toHaveClass("truncate");
+  expect(within(historyList).getByText(receiverName)).toHaveClass("truncate");
+  expect(within(historyList).getByTestId("history-direction")).toBeVisible();
+  expect(within(history).getByText(note)).toHaveClass(
+    "min-w-0",
+    "[overflow-wrap:anywhere]",
+  );
+});
+
+test("LEFT 成员付款人固定为自己，ARCHIVED 不显示记录入口", async () => {
   const user = userEvent.setup();
   const { rerender } = render(
     <SettlementPage
       data={{
         ...data,
-        activity: {
-          ...data.activity,
-          currentMemberStatus: "LEFT",
-        },
+        activity: { ...data.activity, currentMemberStatus: "LEFT" },
         members: [
           ...data.members,
           { id: "m3", displayName: "老陈", status: "LEFT" },
         ],
       }}
+      timeZone="Asia/Shanghai"
       createSettlement={vi.fn()}
     />,
   );
-  expect(screen.getByRole("button", { name: "记录结算" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "记录结算" }));
   expect(screen.getByLabelText("付款人")).toBeDisabled();
   expect(screen.getByLabelText("付款人")).toHaveValue("m1");
@@ -175,10 +287,26 @@ test("LEFT 成员付款人固定为自己，ARCHIVED 不显示记账入口", asy
   rerender(
     <SettlementPage
       data={{ ...data, activity: { ...data.activity, status: "ARCHIVED" } }}
+      timeZone="Asia/Shanghai"
       createSettlement={vi.fn()}
     />,
   );
   expect(
     screen.queryByRole("button", { name: "记录结算" }),
   ).not.toBeInTheDocument();
+});
+
+test("离线时记录入口与推荐预填均禁用并解释原因", () => {
+  render(
+    <SettlementPage
+      data={data}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
+
+  act(() => window.dispatchEvent(new Event("offline")));
+  expect(screen.getByRole("button", { name: "记录结算" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /按建议记录/ })).toBeDisabled();
+  expect(screen.getByText("结算必须联网后记录。")).toBeVisible();
 });

@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
 
-import { ActivityNavigation } from "@/features/activities/components/activity-navigation";
-
-/** 活动详情使用固定四项导航，并由上层 ProductNavigation 隐藏一级底部栏。 */
+/** 活动详情只提供共享页面容器；各页面头部负责呈现活动内导航。 */
 export default function ActivityLayout({
   children,
 }: Readonly<{
@@ -10,7 +8,6 @@ export default function ActivityLayout({
 }>) {
   return (
     <section className="min-w-0">
-      <ActivityNavigation />
       {children}
     </section>
   );

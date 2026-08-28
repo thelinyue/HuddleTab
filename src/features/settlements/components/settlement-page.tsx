@@ -1,65 +1,80 @@
 "use client";
 
-import { useGSAP } from "@gsap/react";
-import { ReceiptTextIcon, ScaleIcon, WalletCardsIcon } from "lucide-react";
-import { type KeyboardEvent, useRef, useState } from "react";
-import { gsap } from "gsap";
+import {
+  ArrowRightIcon,
+  ChevronRightIcon,
+  ReceiptTextIcon,
+  ScaleIcon,
+  WalletCardsIcon,
+} from "lucide-react";
+import { useState } from "react";
 
-import { AppHeader } from "@/components/design-system/app-header";
 import { EmptyState } from "@/components/design-system/empty-state";
+import { MemberAvatar } from "@/components/design-system/member-avatar";
 import { MoneyAmount } from "@/components/design-system/money-amount";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
-import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
+import type { ExpenseFeedSummaryDto } from "@/features/expenses/api";
 import {
   OfflineStatus,
   useOnlineStatus,
 } from "@/features/expenses/components/offline-status";
+import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
 import {
   minorToInput,
   type SettlementDto,
   type SettlementPageContextDto,
 } from "@/features/settlements/api";
+import type { CreateSettlementRequest } from "@/features/settlements/contracts";
 import { OverSettlementDialog } from "@/features/settlements/components/over-settlement-dialog";
 import {
   SettlementForm,
   type SettlementFormInitial,
 } from "@/features/settlements/components/settlement-form";
-import type { CreateSettlementRequest } from "@/features/settlements/contracts";
 
 type PageData = SettlementPageContextDto & {
+  readonly summary: Pick<
+    ExpenseFeedSummaryDto,
+    "activityName" | "startDate" | "endDate" | "memberCount"
+  >;
   readonly settlements: readonly SettlementDto[];
 };
+
 type OverSettlement = {
   readonly request: CreateSettlementRequest;
   readonly amountText: string;
   readonly message: string;
 };
-type SettlementTab = "OVERVIEW" | "HISTORY";
-const settlementTabs = [
-  ["OVERVIEW", "总览"],
-  ["HISTORY", "记录"],
-] as const;
 
-gsap.registerPlugin(useGSAP);
+function member(data: PageData, memberId: string) {
+  return data.members.find((item) => item.id === memberId);
+}
 
-function memberName(data: PageData, memberId: string): string {
-  return (
-    data.members.find((member) => member.id === memberId)?.displayName ??
-    "未知成员"
-  );
+function absoluteMinor(value: bigint): bigint {
+  return value < 0n ? -value : value;
+}
+
+function balanceDirection(value: bigint) {
+  return value < 0n
+    ? { label: "应付", tone: "payable" as const }
+    : value > 0n
+      ? { label: "应收", tone: "receivable" as const }
+      : { label: "已结清", tone: "settled" as const };
 }
 
 /**
- * 推荐与实际结算在 UI 上刻意分离：推荐只是预填表单的临时建议，历史区域只显示
- * 已确认写入的 Settlement 事实。余额、推荐和超额判断均来自服务端快照。
+ * 页面把服务端计算出的余额、推荐与实际记录按事实层级一次展开。推荐只负责预填表单，
+ * 不会直接写入结算；金额始终使用 bigint 的绝对值展示，方向由独立中文文本表达。
  */
 export function SettlementPage({
   data,
+  timeZone,
   createSettlement,
   onSaved,
 }: {
   readonly data: PageData;
+  readonly timeZone: string;
   readonly createSettlement: (
     request: CreateSettlementRequest,
   ) => Promise<{ readonly settlement: { readonly id: string } }>;
@@ -70,12 +85,6 @@ export function SettlementPage({
   const [overSettlement, setOverSettlement] = useState<OverSettlement | null>(
     null,
   );
-  const [tab, setTab] = useState<SettlementTab>("OVERVIEW");
-  const tabScope = useRef<HTMLDivElement>(null);
-  const tabRefs = useRef<Record<SettlementTab, HTMLButtonElement | null>>({
-    OVERVIEW: null,
-    HISTORY: null,
-  });
   const currency = asCurrencyCode(data.activity.currency);
   const online = useOnlineStatus();
   const writable =
@@ -84,37 +93,8 @@ export function SettlementPage({
     (balance) => balance.memberId === data.activity.currentMemberId,
   );
   const currentNetMinor = BigInt(currentBalance?.netMinor ?? "0");
-  const currentTone =
-    currentNetMinor < 0n
-      ? "payable"
-      : currentNetMinor > 0n
-        ? "receivable"
-        : "settled";
-  useGSAP(
-    () => {
-      const target = tabScope.current;
-      if (!target) return;
-      if (
-        typeof window !== "undefined" &&
-        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-      ) {
-        gsap.set(target, { autoAlpha: 1, x: 0 });
-        return;
-      }
-      gsap.fromTo(
-        target,
-        { autoAlpha: 0, x: 12 },
-        {
-          autoAlpha: 1,
-          duration: 0.22,
-          ease: "power1.out",
-          overwrite: "auto",
-          x: 0,
-        },
-      );
-    },
-    { dependencies: [tab], revertOnUpdate: true, scope: tabScope },
-  );
+  const currentDirection = balanceDirection(currentNetMinor);
+
   const execute = async (
     request: CreateSettlementRequest,
     amountText: string,
@@ -144,131 +124,105 @@ export function SettlementPage({
       throw error;
     }
   };
+
   const openForm = (next?: SettlementFormInitial) => {
     setInitial(next);
     setFormOpen(true);
   };
-  const selectTab = (next: SettlementTab, focus = false) => {
-    setTab(next);
-    if (focus) tabRefs.current[next]?.focus();
-  };
-  const onTabKeyDown = (
-    event: KeyboardEvent<HTMLButtonElement>,
-    current: SettlementTab,
-  ) => {
-    const currentIndex = settlementTabs.findIndex(
-      ([value]) => value === current,
-    );
-    const nextIndex =
-      event.key === "ArrowRight"
-        ? (currentIndex + 1) % settlementTabs.length
-        : event.key === "ArrowLeft"
-          ? (currentIndex - 1 + settlementTabs.length) % settlementTabs.length
-          : event.key === "Home"
-            ? 0
-            : event.key === "End"
-              ? settlementTabs.length - 1
-              : null;
-    if (nextIndex === null) return;
-    event.preventDefault();
-    selectTab(settlementTabs[nextIndex]![0], true);
-  };
+
   return (
     <>
-      <AppHeader
-        eyebrow={data.activity.name}
-        title="结算"
-        actions={
-          writable ? (
-            <button
-              type="button"
-              disabled={!online}
-              onClick={() => openForm()}
-              className="min-h-11 bg-primary px-3 font-medium text-primary-foreground"
-            >
-              记录结算
-            </button>
-          ) : undefined
-        }
-      />
-      {writable && !online && (
-        <OfflineStatus>结算必须联网后记录。</OfflineStatus>
-      )}
       <div
-        role="tablist"
-        aria-label="结算内容"
-        className="mt-5 grid grid-cols-2 overflow-hidden border"
+        data-testid="settlement-page-surface"
+        className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] min-h-dvh bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6"
       >
-        {settlementTabs.map(([value, label]) => (
-          <button
-            key={value}
-            id={`settlement-tab-${value}`}
-            type="button"
-            role="tab"
-            aria-selected={tab === value}
-            aria-controls={`settlement-panel-${value}`}
-            tabIndex={tab === value ? 0 : -1}
-            className="min-h-11 border-r text-sm font-medium last:border-r-0 aria-selected:bg-primary aria-selected:text-primary-foreground"
-            ref={(element) => {
-              tabRefs.current[value] = element;
-            }}
-            onClick={() => selectTab(value)}
-            onKeyDown={(event) => onTabKeyDown(event, value)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div ref={tabScope} className="will-change-transform">
-        <div
-          id="settlement-panel-OVERVIEW"
-          role="tabpanel"
-          aria-labelledby="settlement-tab-OVERVIEW"
-          hidden={tab !== "OVERVIEW"}
-        >
-          <section className="mt-6" aria-labelledby="current-result-heading">
-            <h2 id="current-result-heading" className="text-base font-semibold">
-              我的结算结果
-            </h2>
-            <p className="mt-2 border p-3">
-              <MoneyAmount
-                currency={currency}
-                amountMinor={currentNetMinor}
-                tone={currentTone}
-                size="lg"
-              />
-            </p>
-          </section>
+        <ActivityPageHeader
+          activityId={data.activity.id}
+          name={data.summary.activityName}
+          startDate={data.summary.startDate}
+          endDate={data.summary.endDate}
+          memberCount={data.summary.memberCount}
+          status={data.activity.status}
+        />
+
+        <main className="pb-8">
+          {writable && !online ? (
+            <OfflineStatus>结算必须联网后记录。</OfflineStatus>
+          ) : null}
+
           <section
-            aria-labelledby="balance-heading"
-            className="mt-6 border-y py-4"
+            aria-label="结算摘要"
+            className="mt-4 grid grid-cols-3 divide-x rounded-sm border bg-surface"
           >
+            <div
+              aria-label="我的结算"
+              className="min-w-0 px-2 py-3 text-center"
+            >
+              <p className="text-xs text-muted-foreground">我的结算</p>
+              <p className="mt-1 flex flex-wrap items-baseline justify-center gap-1 text-sm font-medium">
+                <span>{currentDirection.label}</span>
+                <MoneyAmount
+                  currency={currency}
+                  amountMinor={absoluteMinor(currentNetMinor)}
+                  tone={currentDirection.tone}
+                  size="sm"
+                />
+              </p>
+            </div>
+            <div aria-label="待结清" className="min-w-0 px-2 py-3 text-center">
+              <p className="text-xs text-muted-foreground">待结清</p>
+              <p className="mt-1 text-base font-semibold tabular-nums">
+                {data.recommendations.length}
+              </p>
+            </div>
+            <div aria-label="已结算" className="min-w-0 px-2 py-3 text-center">
+              <p className="text-xs text-muted-foreground">已结算</p>
+              <p className="mt-1 text-base font-semibold tabular-nums">
+                {data.settlements.length}
+              </p>
+            </div>
+          </section>
+
+          <section aria-labelledby="balance-heading" className="mt-6">
             <h2 id="balance-heading" className="text-base font-semibold">
-              全部余额
+              成员余额
             </h2>
             {data.balances.length ? (
-              <div className="mt-2 space-y-2">
-                {data.balances.map((balance) => (
-                  <div
-                    key={balance.memberId}
-                    className="flex justify-between gap-4 text-sm"
-                  >
-                    <span>{memberName(data, balance.memberId)}</span>
-                    <MoneyAmount
-                      currency={currency}
-                      amountMinor={BigInt(balance.netMinor)}
-                      tone={
-                        BigInt(balance.netMinor) < 0n
-                          ? "payable"
-                          : BigInt(balance.netMinor) > 0n
-                            ? "receivable"
-                            : "settled"
-                      }
-                      size="sm"
-                    />
-                  </div>
-                ))}
-              </div>
+              <ul aria-label="成员余额" className="mt-2 divide-y border-y">
+                {data.balances.map((balance) => {
+                  const balanceMember = member(data, balance.memberId);
+                  const amountMinor = BigInt(balance.netMinor);
+                  const direction = balanceDirection(amountMinor);
+                  const displayName = balanceMember?.displayName ?? "未知成员";
+                  return (
+                    <li
+                      key={balance.memberId}
+                      className="flex min-h-14 items-center gap-3 py-2"
+                    >
+                      <MemberAvatar
+                        memberId={balance.memberId}
+                        displayName={displayName}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {displayName}
+                      </span>
+                      <span className="flex shrink-0 items-baseline gap-1 text-sm">
+                        <span className="text-muted-foreground">
+                          {direction.label}
+                        </span>
+                        {amountMinor !== 0n ? (
+                          <MoneyAmount
+                            currency={currency}
+                            amountMinor={absoluteMinor(amountMinor)}
+                            tone={direction.tone}
+                            size="sm"
+                          />
+                        ) : null}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             ) : (
               <EmptyState
                 icon={ScaleIcon}
@@ -277,90 +231,184 @@ export function SettlementPage({
               />
             )}
           </section>
+
           <section aria-labelledby="recommendation-heading" className="mt-6">
             <h2 id="recommendation-heading" className="text-base font-semibold">
-              推荐结算
+              推荐转账
             </h2>
             {data.recommendations.length ? (
-              <div className="mt-2 space-y-3">
-                {data.recommendations.map((recommendation) => (
-                  <div
-                    key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`}
-                    className="flex items-center justify-between gap-4 border-b py-3"
-                  >
-                    <p className="text-sm">
-                      {memberName(data, recommendation.payerMemberId)} 向{" "}
-                      {memberName(data, recommendation.receiverMemberId)} 支付{" "}
+              <ul
+                aria-labelledby="recommendation-heading"
+                className="mt-2 divide-y overflow-hidden rounded-sm border"
+              >
+                {data.recommendations.map((recommendation) => {
+                  const payer = member(data, recommendation.payerMemberId);
+                  const receiver = member(
+                    data,
+                    recommendation.receiverMemberId,
+                  );
+                  const payerName = payer?.displayName ?? "未知成员";
+                  const receiverName = receiver?.displayName ?? "未知成员";
+                  const amountMinor = BigInt(recommendation.amountMinor);
+                  const transfer = (
+                    <>
+                      <span className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)_16px_32px_minmax(0,1fr)] items-center gap-2">
+                        <MemberAvatar
+                          memberId={recommendation.payerMemberId}
+                          displayName={payerName}
+                          className="size-8"
+                        />
+                        <span className="min-w-0 truncate text-sm">
+                          {payerName}
+                        </span>
+                        <ArrowRightIcon
+                          aria-hidden="true"
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                        <MemberAvatar
+                          memberId={recommendation.receiverMemberId}
+                          displayName={receiverName}
+                          className="size-8"
+                        />
+                        <span className="min-w-0 truncate text-sm">
+                          {receiverName}
+                        </span>
+                      </span>
                       <MoneyAmount
                         currency={currency}
-                        amountMinor={BigInt(recommendation.amountMinor)}
+                        amountMinor={amountMinor}
                         size="sm"
+                        className="shrink-0 font-semibold"
                       />
-                    </p>
-                    {writable && (
-                      <button
-                        type="button"
-                        disabled={!online}
-                        className="min-h-11 border px-3 text-sm"
-                        onClick={() => openForm(recommendation)}
-                      >
-                        按建议记录
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+                    </>
+                  );
+                  return (
+                    <li
+                      key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`}
+                    >
+                      {writable ? (
+                        <button
+                          type="button"
+                          aria-label={`按建议记录：${payerName}向${receiverName}支付 ${formatMoney(
+                            { currency, amountMinor },
+                            "zh-CN",
+                          )}`}
+                          disabled={!online}
+                          className="grid min-h-14 w-full grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-2 px-3 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => openForm(recommendation)}
+                        >
+                          {transfer}
+                          <ChevronRightIcon
+                            data-testid="recommendation-chevron"
+                            aria-hidden="true"
+                            className="size-4 text-muted-foreground/70"
+                          />
+                        </button>
+                      ) : (
+                        <div className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2">
+                          {transfer}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             ) : (
               <EmptyState
                 icon={WalletCardsIcon}
-                title="没有推荐结算"
+                title="没有推荐转账"
                 description="当前成员余额已经平衡。"
               />
             )}
           </section>
-        </div>
-        <section
-          id="settlement-panel-HISTORY"
-          role="tabpanel"
-          aria-labelledby="settlement-tab-HISTORY"
-          hidden={tab !== "HISTORY"}
-          className="mt-6"
-        >
-          <h2 className="text-base font-semibold">实际结算记录</h2>
-          {data.settlements.length ? (
-            <div className="mt-2">
-              {data.settlements.map((settlement) => (
-                <div key={settlement.id} className="border-b py-3">
-                  <div className="flex justify-between gap-4">
-                    <span>
-                      {memberName(data, settlement.payerMemberId)} 向{" "}
-                      {memberName(data, settlement.receiverMemberId)} 支付
-                    </span>
-                    <MoneyAmount
-                      currency={currency}
-                      amountMinor={BigInt(settlement.amountMinor)}
-                      size="sm"
-                    />
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {new Intl.DateTimeFormat("zh-CN", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(new Date(settlement.occurredAt))}
-                    {settlement.note ? ` · ${settlement.note}` : ""}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={ReceiptTextIcon}
-              title="没有结算记录"
-              description="已确认的转账会显示在这里。"
-            />
-          )}
-        </section>
+
+          {writable ? (
+            <button
+              type="button"
+              disabled={!online}
+              onClick={() => openForm()}
+              className="mt-6 min-h-12 w-full rounded-lg bg-primary px-4 font-medium text-primary-foreground disabled:opacity-50"
+            >
+              记录结算
+            </button>
+          ) : null}
+
+          <section aria-labelledby="history-heading" className="mt-6">
+            <h2 id="history-heading" className="text-base font-semibold">
+              实际结算记录
+            </h2>
+            {data.settlements.length ? (
+              <ul
+                aria-labelledby="history-heading"
+                className="mt-2 divide-y overflow-hidden rounded-sm border"
+              >
+                {data.settlements.map((settlement) => {
+                  const payerName =
+                    member(data, settlement.payerMemberId)?.displayName ??
+                    "未知成员";
+                  const receiverName =
+                    member(data, settlement.receiverMemberId)?.displayName ??
+                    "未知成员";
+                  return (
+                    <li key={settlement.id} className="min-w-0 px-3 py-3">
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+                        <div className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)_16px_32px_minmax(0,1fr)] items-center gap-2">
+                          <MemberAvatar
+                            memberId={settlement.payerMemberId}
+                            displayName={payerName}
+                            className="size-8"
+                          />
+                          <span className="min-w-0 truncate text-sm font-medium">
+                            {payerName}
+                          </span>
+                          <ArrowRightIcon
+                            data-testid="history-direction"
+                            aria-hidden="true"
+                            className="size-4 shrink-0 text-muted-foreground"
+                          />
+                          <MemberAvatar
+                            memberId={settlement.receiverMemberId}
+                            displayName={receiverName}
+                            className="size-8"
+                          />
+                          <span className="min-w-0 truncate text-sm font-medium">
+                            {receiverName}
+                          </span>
+                        </div>
+                        <MoneyAmount
+                          currency={settlement.currency}
+                          amountMinor={BigInt(settlement.amountMinor)}
+                          size="sm"
+                          className="shrink-0 font-semibold"
+                        />
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {new Intl.DateTimeFormat("zh-CN", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                          timeZone,
+                        }).format(new Date(settlement.occurredAt))}
+                      </p>
+                      {settlement.note ? (
+                        <p className="mt-1 min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                          {settlement.note}
+                        </p>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <EmptyState
+                icon={ReceiptTextIcon}
+                title="没有结算记录"
+                description="已确认的转账会显示在这里。"
+              />
+            )}
+          </section>
+        </main>
       </div>
+
       <ResponsiveFormOverlay
         open={formOpen}
         onOpenChange={setFormOpen}
@@ -373,22 +421,32 @@ export function SettlementPage({
           onSubmit={execute}
         />
       </ResponsiveFormOverlay>
-      {overSettlement && (
+
+      {overSettlement ? (
         <OverSettlementDialog
           open
           message={overSettlement.message}
-          confirmLabel={`仍然记录 ${formatMoney({ currency, amountMinor: BigInt(overSettlement.request.amountMinor) }, "zh-CN")}`}
+          confirmLabel={`仍然记录 ${formatMoney(
+            {
+              currency,
+              amountMinor: BigInt(overSettlement.request.amountMinor),
+            },
+            "zh-CN",
+          )}`}
           onOpenChange={(open) => {
             if (!open) setOverSettlement(null);
           }}
           onConfirm={() => {
             void execute(
-              { ...overSettlement.request, confirmOverSettlement: true },
+              {
+                ...overSettlement.request,
+                confirmOverSettlement: true,
+              },
               overSettlement.amountText,
             );
           }}
         />
-      )}
+      ) : null}
     </>
   );
 }

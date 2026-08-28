@@ -10,6 +10,7 @@ import {
   ProductNavigation,
 } from "@/components/design-system/bottom-navigation";
 import { ActivityNavigation } from "@/features/activities/components/activity-navigation";
+import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import { NOTIFICATION_UNREAD_COUNT_EVENT } from "@/lib/notification-unread-count";
 
 const navigation = vi.hoisted(() => ({
@@ -124,16 +125,96 @@ test("从活动详情返回后忽略更早一轮的乱序未读响应", async ()
   expect(screen.getByRole("link", { name: "通知，1 条未读" })).toBeVisible();
 });
 
-test("活动详情路径下隐藏一级导航", () => {
+test("活动流水同时保留全局导航", () => {
   navigation.pathname = "/activities/activity-42";
   render(<ProductNavigation />);
 
-  expect(
-    screen.queryByRole("navigation", { name: "主导航" }),
-  ).not.toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "主导航" })).toBeVisible();
 });
 
-test("活动导航保留四个带图标的深链接和当前项语义", () => {
+test("活动头展示由页面提供的摘要，并链接到更多页", () => {
+  render(
+    <ActivityPageHeader
+      activityId="activity-42"
+      name="周末露营"
+      startDate="2026-08-01"
+      endDate="2026-08-03"
+      memberCount={3}
+      status="ACTIVE"
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "周末露营" })).toBeVisible();
+  expect(screen.getByText("3天 · 3人 · 进行中")).toBeVisible();
+  expect(screen.getByRole("link", { name: "返回活动列表" })).toHaveAttribute(
+    "href",
+    "/activities",
+  );
+  expect(screen.getByRole("link", { name: "活动更多" })).toHaveAttribute(
+    "href",
+    "/activities/activity-42/more",
+  );
+  expect(screen.getByRole("navigation", { name: "活动导航" })).toBeVisible();
+});
+
+test("活动头的页签在成员、结算和更多页反映当前 URL", () => {
+  const { rerender } = render(
+    <ActivityPageHeader
+      activityId="activity-42"
+      name="周末露营"
+      startDate={null}
+      endDate={null}
+      memberCount={3}
+      status="ACTIVE"
+    />,
+  );
+
+  expect(screen.queryByText(/天 ·/)).not.toBeInTheDocument();
+  for (const [pathname, label] of [
+    ["/activities/activity-42/members", "成员"],
+    ["/activities/activity-42/settlements", "结算"],
+    ["/activities/activity-42/more", "更多"],
+  ]) {
+    navigation.pathname = pathname;
+    rerender(
+      <ActivityPageHeader
+        activityId="activity-42"
+        name="周末露营"
+        startDate={null}
+        endDate={null}
+        memberCount={3}
+        status="ACTIVE"
+      />,
+    );
+    expect(screen.getByRole("link", { name: label })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  }
+});
+
+test("活动子页面保留全局导航", () => {
+  navigation.pathname = "/activities/activity-42/members";
+  render(<ProductNavigation />);
+
+  expect(screen.getByRole("navigation", { name: "主导航" })).toBeVisible();
+});
+
+test("流水页的活动导航以页签呈现", () => {
+  navigation.pathname = "/activities/activity-42";
+  render(<ActivityNavigation />);
+
+  const activityNavigation = screen.getByRole("navigation", {
+    name: "活动导航",
+  });
+  expect(activityNavigation).not.toHaveClass("fixed");
+  expect(screen.getByRole("link", { name: "流水" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("活动导航以内联页签保留四个深链接和当前项语义", () => {
   navigation.pathname = "/activities/activity-42/members";
   render(<ActivityNavigation />);
 
@@ -157,10 +238,9 @@ test("活动导航保留四个带图标的深链接和当前项语义", () => {
   const activityNavigation = screen.getByRole("navigation", {
     name: "活动导航",
   });
-  expect(activityNavigation).toHaveClass(
-    "fixed",
-    "bottom-0",
-    "pb-[env(safe-area-inset-bottom)]",
-  );
-  expect(activityNavigation.querySelectorAll("svg")).toHaveLength(4);
+  expect(activityNavigation).not.toHaveClass("fixed", "bottom-0");
+  expect(activityNavigation.querySelectorAll("svg")).toHaveLength(0);
+  for (const link of screen.getAllByRole("link")) {
+    expect(link).toHaveClass("min-h-12", "text-sm");
+  }
 });

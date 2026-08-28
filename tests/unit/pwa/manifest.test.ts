@@ -41,8 +41,10 @@ it("定义可安装的 HuddleTab Manifest", () => {
   );
 });
 
-it("提交由固定 SVG 生成的 PWA PNG 图标", async () => {
+it("提交由正式应用图标派生的 Next.js 与 PWA PNG 图标", async () => {
   const icons = [
+    ["src/app/icon.png", 1254],
+    ["src/app/apple-icon.png", 180],
     ["public/icons/icon-192.png", 192],
     ["public/icons/icon-512.png", 512],
     ["public/icons/icon-maskable-512.png", 512],

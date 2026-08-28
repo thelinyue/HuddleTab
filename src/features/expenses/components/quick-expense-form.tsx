@@ -1,7 +1,7 @@
 "use client";
 
 import { useGSAP } from "@gsap/react";
-import { ArrowLeftIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { gsap } from "gsap";
@@ -12,6 +12,8 @@ import {
 } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
 import { MemberAvatar } from "@/components/design-system/member-avatar";
+import { MoneyAmount } from "@/components/design-system/money-amount";
+import { Button } from "@/components/ui/button";
 import { createExpense } from "@/features/expenses/api";
 import {
   expenseCategories,
@@ -21,6 +23,7 @@ import {
 import { PaymentEditor } from "@/features/expenses/components/payment-editor";
 import { SplitEditor } from "@/features/expenses/components/split-editor";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
+import { splitExpense, type SplitInput } from "@/domain/splitting/split";
 import { enqueueExpense } from "@/pwa/sync-queue/enqueue-expense";
 import { requestForegroundSync } from "@/pwa/sync-queue/sync-events";
 
@@ -31,7 +34,7 @@ type FormValues = {
   category: ExpenseCategory;
   currency: string;
   exchangeRate: string;
-  exchangeRateSource: "IDENTITY" | "MANUAL";
+  exchangeRateSource: CreateExpenseRequest["exchangeRateSource"];
   exchangeRateAt: string;
   occurredAt: string;
   note: string;
@@ -43,7 +46,9 @@ type FormValues = {
   splitEntries: Record<string, string>;
 };
 
-type QuickExpenseStep = "ENTRY" | "SPLIT";
+export type QuickExpenseInitialValues = FormValues;
+
+export type QuickExpenseStep = "ENTRY" | "SPLIT";
 
 gsap.registerPlugin(useGSAP);
 
@@ -76,21 +81,106 @@ function currentLocalDateTime(): string {
     .slice(0, 16);
 }
 
-/** 预览沿用提交前的最小单位转换，避免把浮点数带入分摊设置界面。 */
-function previewMoney(amount: string, currency: string, memberCount = 1) {
-  if (!memberCount) return "待选择成员";
+function currencySymbol(currency: string): string {
   try {
-    return formatMoney(
-      {
-        currency: asCurrencyCode(currency.trim().toUpperCase()),
-        amountMinor:
-          BigInt(amountToMinor(amount, currency)) / BigInt(memberCount),
-      },
-      "zh-CN",
+    return (
+      new Intl.NumberFormat("zh-CN", {
+        style: "currency",
+        currency: currency.trim().toUpperCase(),
+      })
+        .formatToParts(0)
+        .find((part) => part.type === "currency")?.value ?? currency
     );
   } catch {
-    return "待填写金额";
+    return currency.trim().toUpperCase();
   }
+}
+
+/** 预览沿用提交前的最小单位转换，避免把浮点数带入分摊设置界面。 */
+function previewAmountMinor(amount: string, currency: string): bigint | null {
+  try {
+    asCurrencyCode(currency.trim().toUpperCase());
+    return BigInt(amountToMinor(amount, currency));
+  } catch {
+    return null;
+  }
+}
+
+/** 四种预览与正式提交复用同一套精确文本转换和领域分配规则。 */
+function previewSplit(
+  totalMinor: bigint | null,
+  currency: string,
+  participantIds: readonly string[],
+  mode: SplitMode,
+  entries: Readonly<Record<string, string>>,
+) {
+  if (totalMinor === null) return null;
+  try {
+    const input: SplitInput =
+      mode === "EQUAL"
+        ? { mode, totalMinor, memberIds: participantIds }
+        : mode === "EXACT"
+          ? {
+              mode,
+              totalMinor,
+              shares: participantIds.map((memberId) => ({
+                memberId,
+                amountMinor: BigInt(
+                  amountToMinor(entries[memberId] ?? "", currency),
+                ),
+              })),
+            }
+          : mode === "PERCENTAGE"
+            ? {
+                mode,
+                totalMinor,
+                shares: participantIds.map((memberId) => ({
+                  memberId,
+                  basisPoints: BigInt(
+                    decimalToHundredths(entries[memberId] ?? "", "比例"),
+                  ),
+                })),
+              }
+            : {
+                mode,
+                totalMinor,
+                shares: participantIds.map((memberId) => ({
+                  memberId,
+                  weightHundredths: BigInt(
+                    decimalToHundredths(entries[memberId] ?? "", "权重"),
+                  ),
+                })),
+              };
+    return splitExpense(input);
+  } catch {
+    return null;
+  }
+}
+
+/** 摘要只累计用户已填的合法规则值，未填写按零处理，非法文本保持“待完成”。 */
+function previewSplitProgress(
+  currency: string,
+  participantIds: readonly string[],
+  mode: Exclude<SplitMode, "EQUAL">,
+  entries: Readonly<Record<string, string>>,
+): bigint | null {
+  try {
+    return participantIds.reduce((sum, memberId) => {
+      const value = (entries[memberId] ?? "").trim();
+      if (!value) return sum;
+      const units =
+        mode === "EXACT"
+          ? amountToMinor(value, currency)
+          : decimalToHundredths(value, mode === "PERCENTAGE" ? "比例" : "份数");
+      return sum + BigInt(units);
+    }, 0n);
+  } catch {
+    return null;
+  }
+}
+
+function formatHundredths(value: bigint): string {
+  return `${value / 100n}.${(value % 100n).toString().padStart(2, "0")}`;
 }
 
 export interface QuickExpenseMember {
@@ -115,8 +205,16 @@ export function QuickExpenseForm({
   members,
   preference,
   online = true,
+  step = "ENTRY",
+  onStepChange = () => undefined,
+  onSplitValidityChange,
   onSaved,
   onQueued,
+  initialValues,
+  submitExpense,
+  submitLabel = "保存",
+  allowAttachments = true,
+  onConflict,
 }: {
   readonly activity: {
     readonly id: string;
@@ -127,6 +225,9 @@ export function QuickExpenseForm({
   readonly members: readonly QuickExpenseMember[];
   readonly preference: QuickExpensePreference;
   readonly online?: boolean;
+  readonly step?: QuickExpenseStep;
+  readonly onStepChange?: (step: QuickExpenseStep) => void;
+  readonly onSplitValidityChange?: (valid: boolean) => void;
   readonly onSaved: (expense: {
     readonly id: string;
     readonly title: string;
@@ -134,14 +235,26 @@ export function QuickExpenseForm({
     readonly baseCurrency?: string;
   }) => void;
   readonly onQueued?: (mutationId: string) => void;
+  readonly initialValues?: QuickExpenseInitialValues;
+  readonly submitExpense?: (request: CreateExpenseRequest) => Promise<{
+    readonly id: string;
+    readonly title: string;
+    readonly baseAmountMinor?: string;
+    readonly baseCurrency?: string;
+  }>;
+  readonly submitLabel?: string;
+  readonly allowAttachments?: boolean;
+  readonly onConflict?: () => void;
 }) {
   const [advanced, setAdvanced] = useState(false);
-  const [multiplePayers, setMultiplePayers] = useState(false);
-  const [step, setStep] = useState<QuickExpenseStep>("ENTRY");
+  const [multiplePayers, setMultiplePayers] = useState(
+    () => (initialValues?.payerIds.length ?? 0) > 1,
+  );
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
+  const [versionConflict, setVersionConflict] = useState(false);
   const [files, setFiles] = useState<readonly File[]>([]);
   const [clientMutationId] = useState(() => crypto.randomUUID());
   const stepScope = useRef<HTMLDivElement>(null);
@@ -154,7 +267,7 @@ export function QuickExpenseForm({
   );
   const preferredPayer = preferredPayerIds[0] ?? activity.currentMemberId;
   const form = useForm<FormValues>({
-    defaultValues: {
+    defaultValues: initialValues ?? {
       amount: "",
       title: "",
       category: preference.lastCategory ?? "OTHER",
@@ -175,12 +288,30 @@ export function QuickExpenseForm({
     },
   });
   const values = useWatch({ control: form.control }) as FormValues;
-  const totalPreview = previewMoney(values.amount, values.currency);
-  const perPersonPreview = previewMoney(
-    values.amount,
+  const payer =
+    activeMembers.find((member) => member.id === values.payerId) ??
+    activeMembers[0];
+  const totalMinorPreview = previewAmountMinor(values.amount, values.currency);
+  const splitPreview = previewSplit(
+    totalMinorPreview,
     values.currency,
-    values.participantIds.length,
+    values.participantIds,
+    values.splitMode,
+    values.splitEntries,
   );
+  const splitValid = splitPreview !== null;
+  const splitProgress =
+    values.splitMode === "EQUAL"
+      ? null
+      : previewSplitProgress(
+          values.currency,
+          values.participantIds,
+          values.splitMode,
+          values.splitEntries,
+        );
+  useEffect(() => {
+    onSplitValidityChange?.(splitValid);
+  }, [onSplitValidityChange, splitValid]);
   useGSAP(
     () => {
       const target = stepScope.current;
@@ -211,6 +342,7 @@ export function QuickExpenseForm({
       document.getElementById("quick-expense-error-summary")?.focus();
   }, [submitError]);
   const showError = (message: string, fieldId?: string) => {
+    setVersionConflict(false);
     setSubmitError(message);
     setFieldErrors(fieldId ? { [fieldId]: message } : {});
   };
@@ -218,6 +350,7 @@ export function QuickExpenseForm({
     setSubmitError(null);
     setFieldErrors({});
     setQueuedMessage(null);
+    setVersionConflict(false);
     try {
       if (!next.amount.trim())
         return showError("金额不能为空。", "quick-expense-amount");
@@ -287,6 +420,11 @@ export function QuickExpenseForm({
         payments,
         split,
       };
+      if (submitExpense) {
+        if (!online) throw new Error("编辑账单需要联网，请恢复网络后重试。");
+        onSaved(await submitExpense(request));
+        return;
+      }
       if (!online || files.length) {
         await queueExpense(request);
         return;
@@ -302,6 +440,14 @@ export function QuickExpenseForm({
         throw error;
       }
     } catch (error) {
+      if (error instanceof Error && "status" in error && error.status === 409) {
+        setVersionConflict(true);
+        setSubmitError(
+          "账单已被其他人更新。当前输入已保留，请查看最新内容后重新编辑。",
+        );
+        setFieldErrors({});
+        return;
+      }
       showError(
         error instanceof Error ? error.message : "消费保存失败，请稍后重试。",
       );
@@ -319,9 +465,15 @@ export function QuickExpenseForm({
     requestForegroundSync();
     onQueued?.(queued.mutation.id);
   }
-  const textInput = "mt-1 min-h-11 w-full border bg-background px-3";
+  const textInput =
+    "mt-1 min-h-11 w-full rounded-lg border bg-background px-3 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30";
   return (
-    <form onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
+    <form
+      id="quick-expense-form"
+      onSubmit={form.handleSubmit(submit)}
+      className="flex h-full flex-col"
+      noValidate
+    >
       {submitError && (
         <div
           id="quick-expense-error-summary"
@@ -342,31 +494,64 @@ export function QuickExpenseForm({
               ))}
             </ul>
           ) : (
-            <p className="mt-1">{submitError}</p>
+            <>
+              <p className="mt-1">{submitError}</p>
+              {versionConflict && onConflict ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 border-destructive/30 bg-surface text-foreground"
+                  onClick={onConflict}
+                >
+                  查看最新内容
+                </Button>
+              ) : null}
+            </>
           )}
         </div>
       )}
-      <div ref={stepScope} data-quick-expense-step={step}>
-        <div hidden={step !== "ENTRY"} className="space-y-5">
-          <div>
-            <label
-              htmlFor="quick-expense-amount"
-              className="block text-sm font-medium"
-            >
+      <div
+        ref={stepScope}
+        data-quick-expense-step={step}
+        className="min-h-0 flex-1"
+      >
+        <div
+          hidden={step !== "ENTRY"}
+          className="flex min-h-full flex-col gap-4 py-2"
+        >
+          <div className="text-center">
+            <label htmlFor="quick-expense-amount" className="sr-only">
               金额
             </label>
-            <input
-              id="quick-expense-amount"
-              inputMode="decimal"
-              className={textInput}
-              aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
-              aria-describedby={
-                fieldErrors["quick-expense-amount"]
-                  ? "quick-expense-amount-error"
-                  : undefined
-              }
-              {...form.register("amount")}
-            />
+            <div className="flex min-h-11 items-baseline justify-center gap-2">
+              <span
+                aria-hidden="true"
+                className="font-amount type-amount font-medium text-foreground"
+              >
+                {currencySymbol(values.currency)}
+              </span>
+              <input
+                id="quick-expense-amount"
+                inputMode="decimal"
+                autoFocus
+                placeholder="0.00"
+                className="font-amount type-display-amount min-h-11 w-48 max-w-3/4 bg-transparent text-center font-semibold text-primary outline-none placeholder:text-muted-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
+                aria-describedby={
+                  fieldErrors["quick-expense-amount"]
+                    ? "quick-expense-amount-error"
+                    : undefined
+                }
+                {...form.register("amount")}
+              />
+            </div>
+            <p
+              aria-hidden="true"
+              className="type-caption text-muted-foreground"
+            >
+              金额
+            </p>
             {fieldErrors["quick-expense-amount"] && (
               <p
                 id="quick-expense-amount-error"
@@ -379,22 +564,25 @@ export function QuickExpenseForm({
           <div>
             <label
               htmlFor="quick-expense-title"
-              className="block text-sm font-medium"
+              className="block rounded-md border bg-surface px-3 py-2 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
             >
-              用途
+              <span className="type-caption block text-muted-foreground">
+                用途
+              </span>
+              <input
+                id="quick-expense-title"
+                className="type-body min-h-6 w-full bg-transparent outline-none placeholder:text-muted-foreground/60"
+                list="quick-expense-recent-titles"
+                placeholder="例如：晚餐"
+                aria-invalid={Boolean(fieldErrors["quick-expense-title"])}
+                aria-describedby={
+                  fieldErrors["quick-expense-title"]
+                    ? "quick-expense-title-error"
+                    : undefined
+                }
+                {...form.register("title")}
+              />
             </label>
-            <input
-              id="quick-expense-title"
-              className={textInput}
-              list="quick-expense-recent-titles"
-              aria-invalid={Boolean(fieldErrors["quick-expense-title"])}
-              aria-describedby={
-                fieldErrors["quick-expense-title"]
-                  ? "quick-expense-title-error"
-                  : undefined
-              }
-              {...form.register("title")}
-            />
             <datalist id="quick-expense-recent-titles">
               {(preference.recentTitles ?? []).slice(0, 6).map((title) => (
                 <option key={title} value={title} />
@@ -409,34 +597,63 @@ export function QuickExpenseForm({
               </p>
             )}
           </div>
-          <fieldset>
-            <legend className="text-sm font-medium">谁付款</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {activeMembers.map((member) => (
-                <label
-                  key={member.id}
-                  className="flex min-h-11 items-center gap-2 border px-3"
-                >
-                  <input
-                    type="radio"
-                    value={member.id}
-                    {...form.register("payerId")}
-                  />
-                  {member.displayName}
-                </label>
-              ))}
+          <div className="rounded-md border bg-surface px-3 py-2 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+            <span className="type-caption block text-muted-foreground">
+              谁付款
+            </span>
+            <div className="flex min-h-11 items-center gap-2">
+              {payer ? (
+                <MemberAvatar
+                  memberId={payer.id}
+                  displayName={payer.displayName}
+                  className="size-8"
+                />
+              ) : null}
+              <select
+                aria-label="谁付款"
+                className="type-body min-h-11 min-w-0 flex-1 appearance-none bg-transparent font-medium outline-none"
+                {...form.register("payerId")}
+              >
+                {activeMembers.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.displayName}
+                  </option>
+                ))}
+              </select>
+              <ChevronRightIcon
+                aria-hidden="true"
+                className="size-4 text-muted-foreground"
+              />
             </div>
-          </fieldset>
-          <fieldset id="quick-expense-participants">
-            <legend className="text-sm font-medium">谁参与</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
+          </div>
+          <fieldset
+            id="quick-expense-participants"
+            aria-label="参与成员"
+            className="px-0"
+          >
+            <legend className="sr-only">参与成员</legend>
+            <div className="flex min-h-11 items-center justify-between gap-3">
+              <span className="type-label font-medium">
+                参与成员（{values.participantIds.length}人）
+              </span>
+              <button
+                type="button"
+                className="type-label min-h-11 font-medium text-primary"
+                onClick={() => onStepChange("SPLIT")}
+              >
+                分摊设置
+              </button>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-3">
               {activeMembers.map((member) => (
                 <label
                   key={member.id}
-                  className="flex min-h-11 items-center gap-2 border px-3"
+                  className="flex min-h-16 min-w-12 cursor-pointer flex-col items-center justify-center gap-1 rounded-sm text-center focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring"
                 >
                   <input
                     type="checkbox"
+                    aria-label={`${member.displayName}参与`}
+                    className="sr-only"
                     checked={values.participantIds.includes(member.id)}
                     onChange={(event) =>
                       form.setValue(
@@ -449,12 +666,21 @@ export function QuickExpenseForm({
                       )
                     }
                   />
-                  <MemberAvatar
-                    memberId={member.id}
-                    displayName={member.displayName}
-                    className="size-8"
-                  />
-                  <span>{member.displayName}</span>
+                  <span className="relative">
+                    <MemberAvatar
+                      memberId={member.id}
+                      displayName={member.displayName}
+                      className={`size-9 ${values.participantIds.includes(member.id) ? "ring-2 ring-primary/35 ring-offset-1" : "opacity-45 grayscale"}`}
+                    />
+                    {values.participantIds.includes(member.id) ? (
+                      <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <CheckIcon aria-hidden="true" className="size-2.5" />
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="type-caption max-w-16 truncate">
+                    {member.displayName}
+                  </span>
                 </label>
               ))}
             </div>
@@ -464,21 +690,19 @@ export function QuickExpenseForm({
               </p>
             )}
           </fieldset>
-          <button
+          <Button
             type="button"
-            className="min-h-11 w-full border px-3 text-left font-medium"
-            onClick={() => setStep("SPLIT")}
-          >
-            分摊设置
-          </button>
-          <button
-            type="button"
-            className="min-h-11 text-primary underline"
+            variant="outline"
+            className="type-body w-full justify-between rounded-md px-3 font-medium"
             aria-expanded={advanced}
             onClick={() => setAdvanced((value) => !value)}
           >
-            更多设置
-          </button>
+            <span>更多设置</span>
+            <ChevronRightIcon
+              aria-hidden="true"
+              className={`size-4 text-muted-foreground transition-transform ${advanced ? "rotate-90" : ""}`}
+            />
+          </Button>
           {advanced && (
             <section className="space-y-4 border-t pt-4">
               <fieldset>
@@ -605,36 +829,40 @@ export function QuickExpenseForm({
                   {...form.register("occurredAt")}
                 />
               </div>
-              <div>
-                <label
-                  htmlFor="quick-expense-attachments"
-                  className="block text-sm font-medium"
-                >
-                  附件（最多三张）
-                </label>
-                <input
-                  id="quick-expense-attachments"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="mt-1 block min-h-11 w-full"
-                  onChange={(event) => {
-                    const selected = Array.from(event.target.files ?? []);
-                    setAttachmentError(
-                      selected.length > 3 ? "每笔消费最多选择三张附件。" : null,
-                    );
-                    setFiles(selected.length > 3 ? [] : selected);
-                  }}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  账单保存后可上传附件。
-                </p>
-                {attachmentError && (
-                  <p role="alert" className="mt-1 text-sm text-destructive">
-                    {attachmentError}
+              {allowAttachments ? (
+                <div>
+                  <label
+                    htmlFor="quick-expense-attachments"
+                    className="block text-sm font-medium"
+                  >
+                    附件（最多三张）
+                  </label>
+                  <input
+                    id="quick-expense-attachments"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="mt-1 block min-h-11 w-full"
+                    onChange={(event) => {
+                      const selected = Array.from(event.target.files ?? []);
+                      setAttachmentError(
+                        selected.length > 3
+                          ? "每笔消费最多选择三张附件。"
+                          : null,
+                      );
+                      setFiles(selected.length > 3 ? [] : selected);
+                    }}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    账单保存后可上传附件。
                   </p>
-                )}
-              </div>
+                  {attachmentError && (
+                    <p role="alert" className="mt-1 text-sm text-destructive">
+                      {attachmentError}
+                    </p>
+                  )}
+                </div>
+              ) : null}
               <div>
                 <label
                   htmlFor="quick-expense-note"
@@ -651,31 +879,19 @@ export function QuickExpenseForm({
               </div>
             </section>
           )}
-          <button
+          <Button
             type="submit"
-            className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
+            size="lg"
+            className="type-section-title mt-auto h-12 w-full rounded-md font-semibold"
           >
-            保存
-          </button>
+            {submitLabel}
+          </Button>
         </div>
         {step === "SPLIT" && (
-          <section className="space-y-5" aria-labelledby="split-settings-title">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex min-h-11 items-center gap-1 text-primary"
-                onClick={() => setStep("ENTRY")}
-              >
-                <ArrowLeftIcon aria-hidden="true" className="size-4" />
-                返回快速记账
-              </button>
-              <h2 id="split-settings-title" className="text-lg font-semibold">
-                分摊设置
-              </h2>
-            </div>
+          <section className="grid gap-4 py-2" aria-label="分摊设置内容">
             <fieldset role="radiogroup" aria-label="分摊方式">
-              <legend className="text-sm font-medium">分摊方式</legend>
-              <div className="mt-2 grid grid-cols-2 overflow-hidden border">
+              <legend className="type-label font-medium">分摊方式</legend>
+              <div className="mt-2 grid grid-cols-4 gap-2">
                 {(
                   [
                     ["EQUAL", "均摊"],
@@ -686,15 +902,17 @@ export function QuickExpenseForm({
                 ).map(([mode, label]) => (
                   <label
                     key={mode}
-                    className="flex min-h-11 items-center justify-center border-r border-b px-3 text-sm has-[:checked]:bg-primary has-[:checked]:text-primary-foreground"
+                    className="relative min-h-11 cursor-pointer rounded-sm"
                   >
                     <input
                       type="radio"
                       value={mode}
-                      className="sr-only"
+                      className="peer sr-only"
                       {...form.register("splitMode")}
                     />
-                    {label}
+                    <span className="type-label flex min-h-11 items-center justify-center rounded-sm border bg-background px-2 text-center transition-colors peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:font-semibold peer-checked:text-primary peer-focus-visible:ring-3 peer-focus-visible:ring-ring/50 peer-focus-visible:outline-none">
+                      {label}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -704,7 +922,8 @@ export function QuickExpenseForm({
               participantIds={values.participantIds}
               mode={values.splitMode}
               values={values.splitEntries}
-              equalPreview={perPersonPreview}
+              currency={values.currency}
+              allocations={splitPreview}
               onValueChange={(memberId, value) =>
                 form.setValue("splitEntries", {
                   ...values.splitEntries,
@@ -712,25 +931,96 @@ export function QuickExpenseForm({
                 })
               }
             />
-            <div
-              aria-label="分摊摘要"
-              className="grid grid-cols-2 gap-3 border bg-surface-muted p-3 text-sm"
-            >
-              <p>
-                <span className="block text-muted-foreground">总额</span>
-                <strong className="money">{totalPreview}</strong>
-              </p>
-              <p>
-                <span className="block text-muted-foreground">人均</span>
-                <strong className="money">{perPersonPreview}</strong>
-              </p>
+            <div aria-label="分摊摘要" className="mt-2 border-t py-2">
+              {values.splitMode === "EQUAL" ? (
+                <>
+                  <p className="flex min-h-11 items-center justify-between">
+                    <span className="type-label text-muted-foreground">
+                      合计
+                    </span>
+                    {totalMinorPreview === null ? (
+                      <strong className="type-body">待填写金额</strong>
+                    ) : (
+                      <MoneyAmount
+                        currency={values.currency}
+                        amountMinor={totalMinorPreview}
+                        className="font-semibold"
+                      />
+                    )}
+                  </p>
+                  <p className="flex min-h-11 items-center justify-between">
+                    <span className="type-label text-muted-foreground">
+                      人均
+                    </span>
+                    {totalMinorPreview === null ||
+                    !values.participantIds.length ? (
+                      <strong className="type-body">待完成</strong>
+                    ) : (
+                      <MoneyAmount
+                        currency={values.currency}
+                        amountMinor={
+                          totalMinorPreview /
+                          BigInt(values.participantIds.length)
+                        }
+                        className="font-medium text-muted-foreground"
+                      />
+                    )}
+                  </p>
+                </>
+              ) : values.splitMode === "EXACT" ? (
+                <p className="flex min-h-11 items-center justify-between">
+                  <span className="type-label text-muted-foreground">
+                    已分配
+                  </span>
+                  <strong className="money type-amount font-semibold">
+                    {splitProgress === null || totalMinorPreview === null
+                      ? "待完成"
+                      : `${formatMoney(
+                          {
+                            currency: asCurrencyCode(values.currency),
+                            amountMinor: splitProgress,
+                          },
+                          "zh-CN",
+                        )} / ${formatMoney(
+                          {
+                            currency: asCurrencyCode(values.currency),
+                            amountMinor: totalMinorPreview,
+                          },
+                          "zh-CN",
+                        )}`}
+                  </strong>
+                </p>
+              ) : (
+                <>
+                  <p className="flex min-h-11 items-center justify-between">
+                    <span className="type-label text-muted-foreground">
+                      {values.splitMode === "PERCENTAGE" ? "已分配" : "总份数"}
+                    </span>
+                    <strong className="money type-amount font-semibold">
+                      {splitProgress === null
+                        ? "待完成"
+                        : `${formatHundredths(splitProgress)}${
+                            values.splitMode === "PERCENTAGE" ? "%" : ""
+                          }`}
+                    </strong>
+                  </p>
+                  <p className="flex min-h-11 items-center justify-between">
+                    <span className="type-label text-muted-foreground">
+                      合计
+                    </span>
+                    {totalMinorPreview === null ? (
+                      <strong className="type-body">待填写金额</strong>
+                    ) : (
+                      <MoneyAmount
+                        currency={values.currency}
+                        amountMinor={totalMinorPreview}
+                        className="font-semibold"
+                      />
+                    )}
+                  </p>
+                </>
+              )}
             </div>
-            <button
-              type="submit"
-              className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
-            >
-              保存
-            </button>
           </section>
         )}
       </div>

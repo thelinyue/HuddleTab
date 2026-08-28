@@ -19,6 +19,7 @@ export interface ExpenseDetailDto extends ExpenseListItemDto {
   readonly splitMode: string;
   readonly note: string | null;
   readonly createdByDisplayName: string | null;
+  readonly version: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -72,6 +73,7 @@ export interface ExpenseDetailResponse {
   readonly shares: readonly {
     readonly memberId: string;
     readonly memberDisplayName: string;
+    readonly splitInputMinor: string | null;
     readonly originalAmountMinor: string;
     readonly baseAmountMinor: string;
   }[];
@@ -153,4 +155,51 @@ export async function createExpense(
     readonly expense: ExpenseDetailDto;
     readonly idempotentReplay: boolean;
   };
+}
+
+async function mutationError(response: Response, fallback: string) {
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: { message?: string };
+  };
+  return new ExpenseRequestError(
+    body.error?.message ?? fallback,
+    response.status,
+  );
+}
+
+/** 更新沿用服务端乐观锁版本；客户端不重算或跳过冲突校验。 */
+export async function updateExpense(
+  activityId: string,
+  expenseId: string,
+  input: import("@/features/expenses/contracts").UpdateExpenseRequest,
+) {
+  const response = await fetch(
+    `/api/activities/${activityId}/expenses/${expenseId}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok)
+    throw await mutationError(response, "账单更新失败，请稍后重试。");
+  return (await response.json()).data as ExpenseDetailDto;
+}
+
+/** 删除只发送详情读取时获得的版本号，权限和生命周期仍由服务端最终判定。 */
+export async function deleteExpense(
+  activityId: string,
+  expenseId: string,
+  version: number,
+) {
+  const response = await fetch(
+    `/api/activities/${activityId}/expenses/${expenseId}`,
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version }),
+    },
+  );
+  if (!response.ok)
+    throw await mutationError(response, "账单删除失败，请稍后重试。");
 }

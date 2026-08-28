@@ -31,8 +31,10 @@ export async function GET(
         operation: "READ",
       }),
     );
-    const members =
-      await sql`select id, display_name, role, status, member_type from activity_members where activity_id = ${params.activityId} order by joined_at, id`;
+    const [members, inviteModes] = await Promise.all([
+      sql`select id, display_name, role, status, member_type from activity_members where activity_id = ${params.activityId} order by joined_at, id`,
+      sql`select invite_mode from activities where id = ${params.activityId}`,
+    ]);
     return NextResponse.json({
       data: members.map((member) => ({
         id: member.id,
@@ -47,6 +49,9 @@ export async function GET(
             authorization.activity.status === "ACTIVE",
         },
       })),
+      meta: {
+        inviteMode: inviteModes[0].invite_mode,
+      },
     });
   } catch (error) {
     const response = applicationErrorResponse(error);

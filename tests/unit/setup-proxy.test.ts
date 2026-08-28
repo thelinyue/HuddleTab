@@ -34,6 +34,20 @@ describe("首次初始化路由", () => {
     await expect(
       proxy(new NextRequest("http://localhost/icons/icon-192.png")),
     ).resolves.toBeDefined();
+    await expect(
+      proxy(
+        new NextRequest(
+          "http://localhost/member-avatars/avatar-01.webp",
+        ),
+      ),
+    ).resolves.toBeDefined();
+    await expect(
+      proxy(
+        new NextRequest(
+          "http://localhost/activity-covers/cover-01.webp",
+        ),
+      ),
+    ).resolves.toBeDefined();
     expect(mocks.setupRequired).not.toHaveBeenCalled();
   });
 

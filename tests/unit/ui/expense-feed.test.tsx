@@ -39,6 +39,7 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
         memberCount: 3,
         currentUserBalanceMinor: "0",
       }}
+      timeZone="Asia/Shanghai"
       expenses={[
         {
           id: "expense-1",
@@ -56,6 +57,10 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
     />,
   );
 
+  expect(
+    screen.queryByRole("searchbox", { name: "搜索消费名称" }),
+  ).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "筛选流水" }));
   expect(screen.getByRole("searchbox", { name: "搜索消费名称" })).toBeVisible();
   expect(screen.getByRole("button", { name: "餐饮" })).toBeVisible();
   expect(screen.getByRole("checkbox", { name: "只看我参与的" })).toBeVisible();
@@ -63,7 +68,11 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
   expect(screen.getByText("一兰拉面")).toBeVisible();
 });
 
-test("流水消费摘要只展示权威总额派生的人均和当前余额", () => {
+test.each([
+  ["1200", "应收¥12.00"],
+  ["-1200", "应付¥12.00"],
+  ["0", "已结清¥0.00"],
+])("流水消费摘要将本人净余额 %s 显示为 %s", (balance, expected) => {
   render(
     <ExpenseFeed
       activity={{
@@ -75,15 +84,24 @@ test("流水消费摘要只展示权威总额派生的人均和当前余额", ()
         startDate: "2026-08-20",
         endDate: "2026-08-24",
         memberCount: 3,
-        currentUserBalanceMinor: "-1200",
+        currentUserBalanceMinor: balance,
       }}
+      timeZone="Asia/Shanghai"
       expenses={[]}
+      entryContext={
+        {
+          activity: { status: "ACTIVE" },
+          permissions: { canCreateExpense: false },
+        } as never
+      }
     />,
   );
 
-  expect(screen.getByText("2026-08-20 至 2026-08-24 · 3 人")).toBeVisible();
+  expect(screen.getByText("5天 · 3人 · 进行中")).toBeVisible();
   expect(screen.getByLabelText("消费摘要")).toHaveTextContent("人均¥20.00");
-  expect(screen.getByLabelText("消费摘要")).toHaveTextContent("我的余额应付¥12.00");
+  expect(screen.getByLabelText("消费摘要")).toHaveTextContent(
+    `我的结算${expected}`,
+  );
 });
 
 test("消费链接保留所属活动并按发生日期分组", () => {
@@ -100,6 +118,7 @@ test("消费链接保留所属活动并按发生日期分组", () => {
         memberCount: 3,
         currentUserBalanceMinor: "0",
       }}
+      timeZone="Pacific/Honolulu"
       expenses={[
         {
           id: "expense-1",
@@ -129,8 +148,6 @@ test("消费链接保留所属活动并按发生日期分组", () => {
     "href",
     "/activities/activity-1/expenses/expense-1",
   );
-  expect(
-    screen.getAllByRole("heading", { name: "2026年8月23日" }),
-  ).not.toHaveLength(0);
-  expect(screen.getByRole("heading", { name: "2026年8月22日" })).toBeVisible();
+  expect(screen.getByRole("list", { name: "2026年8月22日" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "2026年8月21日" })).toBeVisible();
 });

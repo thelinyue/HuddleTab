@@ -10,13 +10,22 @@ import {
   type SettlementPageContextDto,
   type SettlementDto,
 } from "@/features/settlements/api";
+import {
+  getExpenseFeedSummary,
+  type ExpenseFeedSummaryDto,
+} from "@/features/expenses/api";
 import { SettlementPage } from "@/features/settlements/components/settlement-page";
 
 /** 加载器只协调权威快照刷新，展示与提交流程保留在可独立测试的 SettlementPage。 */
-export function SettlementPageLoader() {
+export function SettlementPageLoader({
+  timeZone,
+}: {
+  readonly timeZone: string;
+}) {
   const { activityId } = useParams<{ activityId: string }>();
   const [context, setContext] = useState<SettlementPageContextDto | null>(null);
   const [settlements, setSettlements] = useState<readonly SettlementDto[]>([]);
+  const [summary, setSummary] = useState<ExpenseFeedSummaryDto | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -24,11 +33,13 @@ export function SettlementPageLoader() {
     void Promise.all([
       getSettlementContext(activityId),
       getSettlements(activityId),
+      getExpenseFeedSummary(activityId),
     ])
-      .then(([nextContext, nextSettlements]) => {
+      .then(([nextContext, nextSettlements, nextSummary]) => {
         if (cancelled) return;
         setContext(nextContext);
         setSettlements(nextSettlements);
+        setSummary(nextSummary);
         setError(null);
       })
       .catch((reason: unknown) => {
@@ -49,11 +60,12 @@ export function SettlementPageLoader() {
         {error}
       </p>
     );
-  if (!context)
+  if (!context || !summary)
     return <p className="py-8 text-muted-foreground">正在加载结算…</p>;
   return (
     <SettlementPage
-      data={{ ...context, settlements }}
+      data={{ ...context, settlements, summary }}
+      timeZone={timeZone}
       createSettlement={(input) => createSettlement(activityId, input)}
       onSaved={() => setRefresh((value) => value + 1)}
     />

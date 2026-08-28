@@ -13,9 +13,18 @@ const avatarColorClassName = [
   "bg-[#e3ebdc] text-[#4f7041] dark:bg-[#30482b] dark:text-[#b9dda8]",
 ] as const;
 
+const avatarPaths = [
+  "/member-avatars/avatar-01.webp",
+  "/member-avatars/avatar-02.webp",
+  "/member-avatars/avatar-03.webp",
+  "/member-avatars/avatar-04.webp",
+  "/member-avatars/avatar-05.webp",
+  "/member-avatars/avatar-06.webp",
+] as const;
+
 /**
- * 成员头像没有上传图时以名称首个 Unicode 字符回退。颜色仅由 memberId 决定，
- * 因此正式成员与访客使用相同映射，不会因角色改变而造成视觉跳变。
+ * 成员头像没有上传图时使用本地人物插画。图片与背景色仅由 memberId 决定，
+ * 因此正式成员与访客使用相同映射，不会因名称或角色改变而造成视觉跳变。
  */
 export function MemberAvatar({
   memberId,
@@ -30,8 +39,8 @@ export function MemberAvatar({
 }) {
   const name = displayName.trim();
   const label = name || "未命名成员";
-  const initial = Array.from(name)[0] ?? "?";
   const colorIndex = stableVisualIndex(memberId, avatarColorClassName.length);
+  const source = imageUrl ?? avatarPaths[colorIndex];
 
   return (
     <span
@@ -44,19 +53,15 @@ export function MemberAvatar({
         className,
       )}
     >
-      {imageUrl ? (
-        // 未来头像可能来自需鉴权的任意地址，因此保留原始 src，不走服务端图片代理。
-        <Image
-          src={imageUrl}
-          alt=""
-          width={40}
-          height={40}
-          unoptimized
-          className="size-full object-cover"
-        />
-      ) : (
-        initial
-      )}
+      {/* 真实头像可能来自需鉴权的任意地址，因此统一保留原始 src，不走服务端图片代理。 */}
+      <Image
+        src={source}
+        alt=""
+        width={40}
+        height={40}
+        unoptimized
+        className="size-full object-cover"
+      />
     </span>
   );
 }

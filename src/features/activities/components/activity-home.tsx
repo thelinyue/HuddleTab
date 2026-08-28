@@ -11,7 +11,6 @@ import {
 import { ActivityListItem } from "@/features/activities/components/activity-list-item";
 import { CreateActivityForm } from "@/features/activities/components/create-activity-form";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
-import { AppHeader } from "@/components/design-system/app-header";
 import { EmptyState } from "@/components/design-system/empty-state";
 import {
   ListReveal,
@@ -29,16 +28,20 @@ function ActivityGroup({
 }) {
   if (items.length === 0) return null;
   return (
-    <section className="mt-8" aria-labelledby={`${title}-heading`}>
-      <h2 id={`${title}-heading`} className="text-lg font-semibold">
+    <section className="mt-5" aria-labelledby={`${title}-heading`}>
+      <h2 id={`${title}-heading`} className="text-sm font-semibold">
         {title}
       </h2>
-      <ListReveal className="mt-2">
-        {items.map((item) => (
-          <ListRevealItem key={item.id}>
-            <ActivityListItem item={item} />
-          </ListRevealItem>
-        ))}
+      <ListReveal>
+        <ul aria-label={title} className="mt-2 space-y-2">
+          {items.map((item) => (
+            <li key={item.id}>
+              <ListRevealItem>
+                <ActivityListItem item={item} />
+              </ListRevealItem>
+            </li>
+          ))}
+        </ul>
       </ListReveal>
     </section>
   );
@@ -51,78 +54,81 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
     data.active.length + data.ended.length + data.archived.length > 0;
   return (
     <>
-      <AppHeader
-        eyebrow="一起花，清楚分。"
-        title="活动"
-        actions={
+      <div className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] -mb-[calc(5rem+env(safe-area-inset-bottom))] min-h-dvh bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(5rem+env(safe-area-inset-bottom))] min-[481px]:-mx-6 min-[481px]:px-6">
+        <header className="flex min-h-11 items-center justify-between">
+          <h1 className="text-xl font-semibold">活动</h1>
           <Button
             size="icon"
+            variant="ghost"
+            className="rounded-full hover:bg-primary/8"
             aria-label="创建活动"
             onClick={() => setCreating(true)}
           >
-            <PlusIcon aria-hidden="true" />
+            <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
+              <PlusIcon aria-hidden="true" className="size-4" />
+            </span>
           </Button>
-        }
-      />
-      <ResponsiveFormOverlay
-        open={creating}
-        onOpenChange={setCreating}
-        title="创建活动"
-      >
-        <CreateActivityForm />
-      </ResponsiveFormOverlay>
-      <section
-        aria-label="跨活动账务摘要"
-        className="mt-5 grid grid-cols-2 gap-3"
-      >
-        {data.summaries.flatMap((summary) => {
-          return [
-            <p key={`${summary.currency}-payable`} className="bg-orange/10 p-3">
-              <span className="block text-sm text-muted-foreground">
-                待支付
-              </span>
-              <MoneyAmount
-                currency={summary.currency}
-                amountMinor={BigInt(summary.payableMinor)}
-                tone="payable"
-                size="lg"
-              />
-            </p>,
-            <p
-              key={`${summary.currency}-receivable`}
-              className="bg-primary/10 p-3"
-            >
-              <span className="block text-sm text-muted-foreground">
-                待收款
-              </span>
-              <MoneyAmount
-                currency={summary.currency}
-                amountMinor={BigInt(summary.receivableMinor)}
-                tone="receivable"
-                size="lg"
-              />
-            </p>,
-          ];
-        })}
-      </section>
-      {!hasActivities && (
-        <EmptyState
-          icon={PlusIcon}
-          title="还没有活动"
-          description="创建第一个活动后，就可以开始记录消费。"
-          action={<Button onClick={() => setCreating(true)}>创建活动</Button>}
-        />
-      )}
-      <ActivityGroup title="进行中" items={data.active} />
-      <ActivityGroup title="最近结束" items={data.ended} />
-      {data.archived.length > 0 && (
-        <details className="mt-8">
-          <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-primary">
-            查看历史活动
-          </summary>
-          <ActivityGroup title="历史活动" items={data.archived} />
-        </details>
-      )}
+        </header>
+        <ResponsiveFormOverlay
+          open={creating}
+          onOpenChange={setCreating}
+          title="创建活动"
+        >
+          <CreateActivityForm />
+        </ResponsiveFormOverlay>
+        <dl aria-label="跨活动账务摘要" className="mt-3 grid grid-cols-2 gap-2">
+          {data.summaries.flatMap((summary) => {
+            return [
+              <div
+                key={`${summary.currency}-payable`}
+                className="min-h-16 rounded-md bg-orange/10 px-3 py-2.5"
+              >
+                <dt className="text-xs text-muted-foreground">待支付</dt>
+                <dd className="mt-0.5">
+                  <MoneyAmount
+                    currency={summary.currency}
+                    amountMinor={BigInt(summary.payableMinor)}
+                    tone="payable"
+                    size="lg"
+                  />
+                </dd>
+              </div>,
+              <div
+                key={`${summary.currency}-receivable`}
+                className="min-h-16 rounded-md bg-primary/10 px-3 py-2.5"
+              >
+                <dt className="text-xs text-muted-foreground">待收款</dt>
+                <dd className="mt-0.5">
+                  <MoneyAmount
+                    currency={summary.currency}
+                    amountMinor={BigInt(summary.receivableMinor)}
+                    tone="receivable"
+                    size="lg"
+                  />
+                </dd>
+              </div>,
+            ];
+          })}
+        </dl>
+        {!hasActivities && (
+          <EmptyState
+            icon={PlusIcon}
+            title="还没有活动"
+            description="创建第一个活动后，就可以开始记录消费。"
+            action={<Button onClick={() => setCreating(true)}>创建活动</Button>}
+          />
+        )}
+        <ActivityGroup title="进行中的活动" items={data.active} />
+        <ActivityGroup title="最近结束" items={data.ended} />
+        {data.archived.length > 0 && (
+          <details className="mt-5">
+            <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-primary">
+              查看历史活动
+            </summary>
+            <ActivityGroup title="历史活动" items={data.archived} />
+          </details>
+        )}
+      </div>
     </>
   );
 }

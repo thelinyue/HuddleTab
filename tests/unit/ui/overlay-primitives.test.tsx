@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 
 import {
@@ -50,7 +50,7 @@ test("AlertDialog content and footer use the compact 8px control radius", () => 
 test("Dialog content uses the compact 8px control radius", () => {
   render(
     <Dialog open>
-      <DialogContent showCloseButton={false}>
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>编辑</DialogTitle>
         </DialogHeader>
@@ -61,6 +61,7 @@ test("Dialog content uses the compact 8px control radius", () => {
   expect(document.querySelector('[data-slot="dialog-content"]')).toHaveClass(
     "rounded-lg",
   );
+  expect(screen.getByRole("button", { name: "关闭" })).toHaveClass("size-11");
 });
 
 test("bottom Sheet content uses the compact 8px control radius", () => {
@@ -77,4 +78,23 @@ test("bottom Sheet content uses the compact 8px control radius", () => {
   expect(document.querySelector('[data-slot="sheet-content"]')).toHaveClass(
     "data-[side=bottom]:rounded-t-lg",
   );
+});
+
+test("Overlay 只降低背景亮度，不模糊用户用于确认上下文的内容", () => {
+  render(
+    <Dialog open>
+      <DialogContent showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>版本冲突</DialogTitle>
+        </DialogHeader>
+      </DialogContent>
+    </Dialog>,
+  );
+
+  expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass(
+    "bg-black/25",
+  );
+  expect(
+    document.querySelector('[data-slot="dialog-overlay"]'),
+  ).not.toHaveClass("supports-backdrop-filter:backdrop-blur-xs");
 });

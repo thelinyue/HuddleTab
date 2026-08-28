@@ -13,10 +13,12 @@ export function EmptyState({
   readonly action?: ReactNode;
 }) {
   return (
-    <section className="py-10 text-center" aria-label={title}>
-      <Icon aria-hidden className="mx-auto mb-3 size-8 text-muted-foreground" />
-      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>
+    <section className="py-8 text-center" aria-label={title}>
+      <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-surface-muted text-muted-foreground">
+        <Icon aria-hidden className="size-5" />
+      </span>
+      <h2 className="type-section-title font-semibold text-foreground">{title}</h2>
+      <p className="type-caption mx-auto mt-1 max-w-sm text-muted-foreground [overflow-wrap:anywhere]">{description}</p>
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </section>
   );

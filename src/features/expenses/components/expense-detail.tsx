@@ -1,26 +1,104 @@
-import { FileTextIcon, ReceiptTextIcon, UsersIcon } from "lucide-react";
+"use client";
 
-import { AppHeader } from "@/components/design-system/app-header";
-import { EmptyState } from "@/components/design-system/empty-state";
+import Link from "next/link";
+import {
+  ArrowLeftIcon,
+  BedDoubleIcon,
+  BusFrontIcon,
+  ChevronRightIcon,
+  EllipsisIcon,
+  FerrisWheelIcon,
+  PencilIcon,
+  ReceiptTextIcon,
+  ShoppingBagIcon,
+  TicketIcon,
+  Trash2Icon,
+  UtensilsIcon,
+  type LucideIcon,
+} from "lucide-react";
+import { useState } from "react";
+
+import { MemberAvatar } from "@/components/design-system/member-avatar";
 import { MoneyAmount } from "@/components/design-system/money-amount";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
+import type { ExpenseDetailResponse } from "@/features/expenses/api";
 import {
   expenseCategoryLabels,
   type ExpenseCategory,
 } from "@/features/expenses/categories";
-import type { ExpenseDetailResponse } from "@/features/expenses/api";
 import { ExpenseAttachments } from "@/features/attachments/expense-attachments";
+
+const splitModeLabels: Record<string, string> = {
+  EQUAL: "均摊",
+  EXACT: "按金额",
+  PERCENTAGE: "按比例",
+  WEIGHT: "按份数",
+};
+
+const categoryAppearance: Record<
+  ExpenseCategory,
+  { readonly Icon: LucideIcon; readonly className: string }
+> = {
+  FOOD: {
+    Icon: UtensilsIcon,
+    className: "bg-orange text-white dark:text-[#241500]",
+  },
+  TRANSPORT: {
+    Icon: BusFrontIcon,
+    className: "bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
+  },
+  LODGING: {
+    Icon: BedDoubleIcon,
+    className:
+      "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+  },
+  TICKET: {
+    Icon: TicketIcon,
+    className:
+      "bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300",
+  },
+  SHOPPING: {
+    Icon: ShoppingBagIcon,
+    className:
+      "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
+  },
+  ENTERTAINMENT: {
+    Icon: FerrisWheelIcon,
+    className:
+      "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
+  },
+  OTHER: { Icon: ReceiptTextIcon, className: "bg-muted text-muted-foreground" },
+};
 
 function MoneyLine({
   currency,
   amountMinor,
+  className,
 }: {
   readonly currency: string;
-  readonly amountMinor: string;
+  readonly amountMinor: string | bigint;
+  readonly className?: string;
 }) {
   return (
-    <span className="money">
+    <span className={`money ${className ?? ""}`}>
       {formatMoney(
         {
           currency: asCurrencyCode(currency),
@@ -32,205 +110,342 @@ function MoneyLine({
   );
 }
 
-/** 详情只展示服务端返回的不可变快照与权限结果，LEFT 成员不会得到编辑或删除命令。 */
+/** 日期展示显式使用部署端 TZ，避免服务端、浏览器和测试环境各自采用隐式时区。 */
+function formatDateTime(value: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
+}
+
+function Section({
+  title,
+  children,
+}: {
+  readonly title: string;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <section
+      aria-label={title}
+      className="mt-2.5 rounded-sm border bg-surface px-3 shadow-sm"
+    >
+      <h2 className="type-label border-b py-2.5 font-semibold">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function DetailRow({
+  label,
+  children,
+}: {
+  readonly label: string;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <div className="grid min-h-10 grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-3 border-b py-1.5 last:border-b-0">
+      <dt className="type-label text-muted-foreground">{label}</dt>
+      <dd className="type-label min-w-0 text-right font-medium">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * 账单详情只组合服务端返回的付款、分摊和权限事实。金额与成员事实不在客户端补造，
+ * 管理动作也必须同时满足服务端权限和真实回调，避免渲染无法落地的占位入口。
+ */
 export function ExpenseDetail({
   data,
+  activityName,
+  timeZone,
+  onEdit,
+  onDelete,
 }: {
   readonly data: ExpenseDetailResponse;
+  readonly activityName: string;
+  readonly timeZone: string;
+  readonly onEdit?: () => void;
+  readonly onDelete?: () => Promise<void>;
 }) {
   const { expense } = data;
-  const memberAmounts = new Map<
-    string,
-    {
-      displayName: string;
-      paidMinor: bigint;
-      shareMinor: bigint;
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const category = expense.category as ExpenseCategory;
+  const { Icon: CategoryIcon, className: categoryClassName } =
+    categoryAppearance[category] ?? categoryAppearance.OTHER;
+  const paymentTotal = data.payments.reduce(
+    (sum, payment) => sum + BigInt(payment.baseAmountMinor),
+    0n,
+  );
+  const participantCount = data.shares.length;
+  const canEdit = data.permissions.canUpdate && Boolean(onEdit);
+  const canDelete = data.permissions.canDelete && Boolean(onDelete);
+
+  const remove = async () => {
+    if (!onDelete || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDelete();
+      setDeleteOpen(false);
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : "账单删除失败，请稍后重试。",
+      );
+    } finally {
+      setDeleting(false);
     }
-  >();
-  for (const payment of data.payments) {
-    const current = memberAmounts.get(payment.memberId) ?? {
-      displayName: payment.memberDisplayName,
-      paidMinor: 0n,
-      shareMinor: 0n,
-    };
-    current.paidMinor += BigInt(payment.baseAmountMinor);
-    memberAmounts.set(payment.memberId, current);
-  }
-  for (const share of data.shares) {
-    const current = memberAmounts.get(share.memberId) ?? {
-      displayName: share.memberDisplayName,
-      paidMinor: 0n,
-      shareMinor: 0n,
-    };
-    current.shareMinor += BigInt(share.baseAmountMinor);
-    memberAmounts.set(share.memberId, current);
-  }
+  };
+
   return (
-    <article className="py-5">
-      <AppHeader
-        eyebrow={expenseCategoryLabels[expense.category as ExpenseCategory]}
-        title={expense.title}
-      />
-      <p className="mt-3 border-b pb-4">
+    <article className="-mx-4 min-h-[calc(100dvh-5rem)] bg-surface px-4 pb-6 min-[481px]:-mx-6 min-[481px]:px-6">
+      <header className="grid min-h-14 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          asChild
+          aria-label="返回活动流水"
+          className="-ml-3"
+        >
+          <Link href={`/activities/${encodeURIComponent(expense.activityId)}`}>
+            <ArrowLeftIcon aria-hidden="true" className="size-5" />
+          </Link>
+        </Button>
+        <h1 className="type-page-title text-center font-semibold">账单详情</h1>
+        {canEdit || canDelete ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="账单操作"
+                className="-mr-3"
+              >
+                <EllipsisIcon aria-hidden="true" className="size-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-36">
+              {canEdit ? (
+                <DropdownMenuItem
+                  className="min-h-10 gap-2 px-2"
+                  onSelect={onEdit}
+                >
+                  <PencilIcon aria-hidden="true" />
+                  编辑账单
+                </DropdownMenuItem>
+              ) : null}
+              {canDelete ? (
+                <DropdownMenuItem
+                  variant="destructive"
+                  className="min-h-10 gap-2 px-2"
+                  onSelect={() => {
+                    setDeleteError(null);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  <Trash2Icon aria-hidden="true" />
+                  删除账单
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span aria-hidden="true" />
+        )}
+      </header>
+
+      <div className="flex flex-col items-center pb-1 pt-2 text-center">
+        <span
+          aria-hidden="true"
+          className={`flex size-11 items-center justify-center rounded-full ${categoryClassName}`}
+        >
+          <CategoryIcon className="size-5" />
+        </span>
+        <h2 className="type-section-title mt-2 font-semibold">
+          {expense.title}
+        </h2>
         <MoneyAmount
           currency={expense.baseCurrency}
           amountMinor={BigInt(expense.baseAmountMinor)}
           size="lg"
+          className="type-display-amount mt-1 font-semibold"
         />
-      </p>
-      <dl className="divide-y">
-        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
-          <dt className="text-muted-foreground">消费时间</dt>
-          <dd>
-            {new Intl.DateTimeFormat("zh-CN", {
-              dateStyle: "medium",
-              timeStyle: "short",
-            }).format(new Date(expense.occurredAt))}
-          </dd>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
-          <dt className="text-muted-foreground">原币金额</dt>
-          <dd>
-            <MoneyLine
-              currency={expense.originalCurrency}
-              amountMinor={expense.originalAmountMinor}
-            />
-          </dd>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
-          <dt className="text-muted-foreground">汇率</dt>
-          <dd>
-            {expense.exchangeRate}（{expense.exchangeRateSource}）
-          </dd>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
-          <dt className="text-muted-foreground">分摊方式</dt>
-          <dd>{expense.splitMode}</dd>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
-          <dt className="text-muted-foreground">创建人</dt>
-          <dd>{expense.createdByDisplayName ?? "-"}</dd>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
-          <dt className="text-muted-foreground">创建时间</dt>
-          <dd>
-            {new Intl.DateTimeFormat("zh-CN", {
-              dateStyle: "medium",
-              timeStyle: "short",
-            }).format(new Date(expense.createdAt))}
-          </dd>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
-          <dt className="text-muted-foreground">最后修改</dt>
-          <dd>
-            {new Intl.DateTimeFormat("zh-CN", {
-              dateStyle: "medium",
-              timeStyle: "short",
-            }).format(new Date(expense.updatedAt))}
-          </dd>
-        </div>
-      </dl>
-      <section className="mt-6">
-        <h2 className="text-lg font-semibold">付款明细</h2>
-        {data.payments.length ? (
-          <ul className="mt-2 divide-y">
-            {data.payments.map((payment) => (
-              <li key={payment.memberId} className="flex justify-between py-2">
-                <span>{payment.memberDisplayName}</span>
-                <MoneyLine
-                  currency={expense.baseCurrency}
-                  amountMinor={payment.baseAmountMinor}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState
-            icon={ReceiptTextIcon}
-            title="没有付款明细"
-            description="这笔消费尚未记录付款成员。"
+      </div>
+
+      <Section title="付款信息">
+        <ul className="divide-y">
+          {data.payments.map((payment) => (
+            <li
+              key={payment.memberId}
+              className="flex min-h-11 items-center gap-2 py-1.5"
+            >
+              <MemberAvatar
+                memberId={payment.memberId}
+                displayName={payment.memberDisplayName}
+                className="size-7"
+              />
+              <span className="type-label min-w-0 flex-1 truncate font-medium">
+                {payment.memberDisplayName}
+                <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                  付款人
+                </span>
+              </span>
+              <MoneyLine
+                currency={expense.baseCurrency}
+                amountMinor={payment.baseAmountMinor}
+                className="type-label font-semibold"
+              />
+            </li>
+          ))}
+        </ul>
+        <div className="flex min-h-11 items-center justify-between border-t">
+          <span className="type-label text-muted-foreground">支付合计</span>
+          <MoneyLine
+            currency={expense.baseCurrency}
+            amountMinor={paymentTotal}
+            className="type-label font-semibold"
           />
-        )}
-      </section>
+        </div>
+      </Section>
+
+      <Section title="消费信息">
+        <dl>
+          <DetailRow label="消费时间">
+            {formatDateTime(expense.occurredAt, timeZone)}
+          </DetailRow>
+          <DetailRow label="活动">
+            <Link
+              href={`/activities/${encodeURIComponent(expense.activityId)}`}
+              aria-label={`查看活动 ${activityName}`}
+              className="inline-flex max-w-full items-center justify-end gap-1"
+            >
+              <span className="truncate">{activityName}</span>
+              <ChevronRightIcon
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground"
+              />
+            </Link>
+          </DetailRow>
+          <DetailRow label="分类">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="size-2 rounded-full bg-orange"
+              />
+              {expenseCategoryLabels[category] ?? expenseCategoryLabels.OTHER}
+            </span>
+          </DetailRow>
+          {expense.originalCurrency !== expense.baseCurrency ? (
+            <>
+              <DetailRow label="原币金额">
+                <MoneyLine
+                  currency={expense.originalCurrency}
+                  amountMinor={expense.originalAmountMinor}
+                />
+              </DetailRow>
+              <DetailRow label="汇率">{expense.exchangeRate}</DetailRow>
+            </>
+          ) : null}
+          <DetailRow label="备注">{expense.note || "无"}</DetailRow>
+        </dl>
+      </Section>
+
+      <Section title="分摊信息">
+        <dl>
+          <DetailRow label="分摊方式">
+            <Link
+              href={`/activities/${encodeURIComponent(expense.activityId)}/expenses/${encodeURIComponent(expense.id)}/split`}
+              aria-label="查看分摊明细"
+              className="inline-flex items-center gap-1"
+            >
+              {splitModeLabels[expense.splitMode] ?? expense.splitMode}（
+              {participantCount}人）
+              <ChevronRightIcon
+                aria-hidden="true"
+                className="size-4 text-muted-foreground"
+              />
+            </Link>
+          </DetailRow>
+          <DetailRow label="参与成员">
+            <span className="inline-flex -space-x-1.5">
+              {data.shares.map((share) => (
+                <MemberAvatar
+                  key={share.memberId}
+                  memberId={share.memberId}
+                  displayName={share.memberDisplayName}
+                  className="size-7 border-2 border-surface"
+                />
+              ))}
+            </span>
+          </DetailRow>
+        </dl>
+      </Section>
+
+      <Section title="创建信息">
+        <dl>
+          <DetailRow label="创建人">
+            <span className="inline-flex items-center gap-1.5">
+              <MemberAvatar
+                memberId={data.payments[0]?.memberId ?? expense.id}
+                displayName={expense.createdByDisplayName ?? "未知成员"}
+                className="size-6"
+              />
+              {expense.createdByDisplayName ?? "-"}
+            </span>
+          </DetailRow>
+          <DetailRow label="创建时间">
+            {formatDateTime(expense.createdAt, timeZone)}
+          </DetailRow>
+        </dl>
+      </Section>
+
       {data.attachments.length ? (
         <ExpenseAttachments
           activityId={expense.activityId}
           expenseId={expense.id}
           attachments={data.attachments}
         />
-      ) : (
-        <section className="mt-6" aria-labelledby="attachment-heading">
-          <h2 id="attachment-heading" className="text-lg font-semibold">
-            附件
-          </h2>
-          <EmptyState
-            icon={FileTextIcon}
-            title="没有附件"
-            description="这笔消费没有可查看的附件。"
-          />
-        </section>
-      )}
-      <section className="mt-6" aria-labelledby="member-summary-heading">
-        <h2 id="member-summary-heading" className="text-lg font-semibold">
-          成员收支
-        </h2>
-        {memberAmounts.size ? (
-          <ul className="mt-2 divide-y">
-            {[...memberAmounts.entries()].map(([memberId, member]) => (
-              <li key={memberId} className="py-3">
-                <strong>{member.displayName}</strong>
-                <dl className="mt-2 grid grid-cols-3 gap-2 text-sm">
-                  <div>
-                    <dt className="text-muted-foreground">已付</dt>
-                    <dd>
-                      <MoneyAmount
-                        currency={expense.baseCurrency}
-                        amountMinor={member.paidMinor}
-                        size="sm"
-                      />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">承担</dt>
-                    <dd>
-                      <MoneyAmount
-                        currency={expense.baseCurrency}
-                        amountMinor={member.shareMinor}
-                        size="sm"
-                      />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">净额</dt>
-                    <dd>
-                      <MoneyAmount
-                        currency={expense.baseCurrency}
-                        amountMinor={member.paidMinor - member.shareMinor}
-                        size="sm"
-                      />
-                    </dd>
-                  </div>
-                </dl>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState
-            icon={UsersIcon}
-            title="没有成员收支"
-            description="这笔消费尚未记录成员付款或承担。"
-          />
-        )}
-      </section>
-      {expense.note && (
-        <section className="mt-6">
-          <h2 className="text-lg font-semibold">备注</h2>
-          <p className="mt-2 whitespace-pre-wrap">{expense.note}</p>
-        </section>
-      )}
-      {(data.permissions.canUpdate || data.permissions.canDelete) && (
-        <p className="mt-6 text-sm text-muted-foreground">此消费可由你管理。</p>
-      )}
+      ) : null}
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除账单</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后，这笔账单将不再计入活动账务。此操作会根据最新账单版本再次校验。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void remove();
+              }}
+            >
+              {deleting ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </article>
   );
 }

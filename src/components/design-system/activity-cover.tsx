@@ -37,8 +37,8 @@ export function ActivityCover({
       alt={isDecorative ? "" : "活动封面"}
       role={isDecorative ? "presentation" : undefined}
       data-cover-index={imageUrl ? undefined : stableVisualIndex(activityId, coverPaths.length)}
-      width={1200}
-      height={900}
+      width={640}
+      height={480}
       sizes="(max-width: 767px) 96px, 160px"
       unoptimized
       className={cn("aspect-[4/3] w-full object-cover", className)}

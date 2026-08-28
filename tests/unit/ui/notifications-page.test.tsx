@@ -17,6 +17,76 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test("通知页按参考稿展示五项筛选、未读优先分组和真实通知摘要", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(
+    new Date("2026-08-28T04:00:00.000Z").getTime(),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          items: [
+            {
+              id: "join-request-1",
+              type: "JOIN_APPROVAL_REQUESTED",
+              targetType: "ACTIVITY",
+              targetId: "activity-1",
+              activityId: "activity-1",
+              payload: { requestId: "request-1", displayName: "小王" },
+              readAt: null,
+              createdAt: "2026-08-28T02:30:00.000Z",
+            },
+            {
+              id: "settlement-1",
+              type: "SETTLEMENT_RECEIVED",
+              targetType: "SETTLEMENT",
+              targetId: "settlement-1",
+              activityId: "activity-1",
+              payload: { amountMinor: "6800", currency: "CNY" },
+              readAt: "2026-08-28T01:00:00.000Z",
+              createdAt: "2026-08-28T00:45:00.000Z",
+            },
+            {
+              id: "deleted-1",
+              type: "PARTICIPATING_EXPENSE_DELETED",
+              targetType: "ACTIVITY",
+              targetId: "activity-1",
+              activityId: "activity-1",
+              payload: { title: "便利店购物" },
+              readAt: "2026-08-27T11:00:00.000Z",
+              createdAt: "2026-08-27T10:30:00.000Z",
+            },
+          ],
+          unreadCount: 1,
+        },
+      }),
+    }),
+  );
+
+  render(<NotificationsPage timeZone="Asia/Shanghai" />);
+
+  expect(await screen.findByRole("heading", { name: "通知" })).toBeVisible();
+  const filters = screen.getByRole("group", { name: "通知筛选" });
+  expect(filters).toBeVisible();
+  for (const label of ["全部", "未读", "邀请", "结算", "系统"]) {
+    expect(screen.getByRole("button", { name: label })).toBeVisible();
+  }
+  expect(screen.getByRole("button", { name: "全部" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(
+    screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent),
+  ).toEqual(["未读", "今天", "昨天"]);
+  expect(screen.getByText("10:30")).toBeVisible();
+  expect(screen.getByText("¥68.00")).toBeVisible();
+  expect(screen.queryAllByRole("img")).toHaveLength(0);
+});
+
 test("通知页读取服务端 items 契约并展示未读通知", async () => {
   vi.stubGlobal(
     "fetch",
@@ -42,13 +112,13 @@ test("通知页读取服务端 items 契约并展示未读通知", async () => {
     }),
   );
 
-  render(<NotificationsPage />);
+  render(<NotificationsPage timeZone="Asia/Shanghai" />);
 
   const notification = await screen.findByRole("link", {
     name: "活动状态已更新",
   });
   expect(notification).toHaveAttribute("href", "/activities/activity-1");
-  expect(screen.getByText("未读")).toBeVisible();
+  expect(screen.getByLabelText("未读标记")).toBeVisible();
 
   notification.addEventListener("click", (event) => event.preventDefault());
   await userEvent.setup().click(notification);
@@ -56,7 +126,7 @@ test("通知页读取服务端 items 契约并展示未读通知", async () => {
     "/api/notifications/notification-1/read",
     { method: "POST" },
   );
-  expect(await screen.findByText("已读")).toBeVisible();
+  expect(screen.queryByLabelText("未读标记")).not.toBeInTheDocument();
 });
 
 test("通知链接仅由受控目标类型和服务端资源 ID 构建", () => {
@@ -127,7 +197,7 @@ test("通知按现有业务类型在本地筛选，且没有受控目标时不�
     }),
   );
 
-  render(<NotificationsPage />);
+  render(<NotificationsPage timeZone="Asia/Shanghai" />);
 
   await screen.findByText("收到活动邀请");
   await userEvent.setup().click(screen.getByRole("button", { name: "邀请" }));
@@ -139,7 +209,9 @@ test("通知按现有业务类型在本地筛选，且没有受控目标时不�
   await userEvent.setup().click(screen.getByRole("button", { name: "系统" }));
   const systemNotification = screen.getByText("活动状态已更新");
   expect(systemNotification.closest("a")).toBeNull();
-  expect(systemNotification.parentElement?.querySelector("svg")).not.toBeNull();
+  expect(
+    systemNotification.closest("[data-notification-row]")?.querySelector("svg"),
+  ).not.toBeNull();
 });
 
 test("全部已读仅提交未读通知，并保留请求失败的未读状态", async () => {
@@ -197,7 +269,7 @@ test("全部已读仅提交未读通知，并保留请求失败的未读状态",
   });
   vi.stubGlobal("fetch", fetchMock);
 
-  render(<NotificationsPage />);
+  render(<NotificationsPage timeZone="Asia/Shanghai" />);
 
   await screen.findByText("收到活动邀请");
   await userEvent
@@ -216,7 +288,61 @@ test("全部已读仅提交未读通知，并保留请求失败的未读状态",
     "/api/notifications/already-read/read",
     { method: "POST" },
   );
-  expect(await screen.findAllByText("未读")).toHaveLength(1);
+  expect(await screen.findAllByLabelText("未读标记")).toHaveLength(1);
   expect(unreadCounts).toContain(1);
-  window.removeEventListener(NOTIFICATION_UNREAD_COUNT_EVENT, recordUnreadCount);
+  window.removeEventListener(
+    NOTIFICATION_UNREAD_COUNT_EVENT,
+    recordUnreadCount,
+  );
+});
+
+test("管理员可以在加入申请通知中通过或拒绝成员", async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    if (input === "/api/notifications") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          data: {
+            items: [
+              {
+                id: "join-request-notification",
+                type: "JOIN_APPROVAL_REQUESTED",
+                targetType: "ACTIVITY",
+                targetId: "activity-1",
+                activityId: "activity-1",
+                payload: {
+                  requestId: "request-1",
+                  displayName: "小王",
+                },
+                readAt: null,
+                createdAt: "2026-08-26T00:00:00.000Z",
+              },
+            ],
+            unreadCount: 1,
+          },
+        }),
+      });
+    }
+    return Promise.resolve({ ok: true });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<NotificationsPage timeZone="Asia/Shanghai" />);
+
+  expect(await screen.findByText("小王申请加入活动")).toBeVisible();
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "通过小王的申请" }));
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/activities/activity-1/invitations/join-requests/request-1",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision: "APPROVE" }),
+    },
+  );
+  expect(await screen.findByRole("status")).toHaveTextContent(
+    "已通过小王的加入申请。",
+  );
 });
