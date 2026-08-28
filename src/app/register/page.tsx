@@ -1,7 +1,5 @@
-import Link from "next/link";
-
 import { AccountForm } from "@/features/auth/components/account-form";
-import { AccountPage } from "@/app/login/page";
+import { AccountPage } from "@/features/auth/components/account-page";
 import {
   invitationTokenFromCallbackURL,
   normalizeInvitationCallbackURL,
@@ -31,15 +29,16 @@ export default async function RegisterPage({
           ? "创建账号后将继续加入受邀活动"
           : "创建账号后即可加入和管理活动"
       }
+      alternateAction={{
+        label: "已有账号，登录",
+        href: loginHref,
+      }}
     >
       <AccountForm
         mode="register"
         callbackURL={callbackURL}
         invitationProof={invitationProof}
       />
-      <Link className="mt-5 text-center text-sm text-primary" href={loginHref}>
-        已有账号，登录
-      </Link>
     </AccountPage>
   );
 }

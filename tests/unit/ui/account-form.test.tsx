@@ -32,6 +32,40 @@ test("登录提交用户名和密码后进入活动页", async () => {
   expect(assign).toHaveBeenCalledWith("http://localhost/activities");
 });
 
+test("登录密码可以独立显示和再次隐藏", async () => {
+  const user = userEvent.setup();
+  render(<AccountForm mode="login" />);
+
+  const password = screen.getByLabelText("密码");
+  expect(password).toHaveAttribute("type", "password");
+
+  const toggle = screen.getByRole("button", { name: "显示密码" });
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await user.click(toggle);
+  expect(password).toHaveAttribute("type", "text");
+  expect(screen.getByRole("button", { name: "隐藏密码" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await user.click(screen.getByRole("button", { name: "隐藏密码" }));
+  expect(password).toHaveAttribute("type", "password");
+});
+
+test("注册页的两个密码框分别控制显隐状态", async () => {
+  const user = userEvent.setup();
+  render(<AccountForm mode="register" />);
+
+  const password = screen.getByLabelText("密码", { exact: true });
+  const confirmation = screen.getByLabelText("确认密码");
+  const toggles = screen.getAllByRole("button", { name: "显示密码" });
+  expect(toggles).toHaveLength(2);
+
+  await user.click(toggles[0]);
+  expect(password).toHaveAttribute("type", "text");
+  expect(confirmation).toHaveAttribute("type", "password");
+});
+
 test("邀请登录成功后只回到受控的站内邀请地址", async () => {
   const user = userEvent.setup();
   const fetchMock = vi

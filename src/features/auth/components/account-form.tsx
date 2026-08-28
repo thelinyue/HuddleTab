@@ -1,7 +1,13 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import {
+  Eye,
+  EyeOff,
+  LoaderCircle,
+  LockKeyhole,
+  UserRound,
+} from "lucide-react";
+import { type FormEvent, type ReactNode, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,7 +91,7 @@ export function AccountForm({
   }
 
   return (
-    <form className="mt-8 grid gap-5" onSubmit={(event) => void submit(event)}>
+    <form className="mt-6 grid gap-5" onSubmit={(event) => void submit(event)}>
       {mode === "register" && invitationProof ? (
         <p className="rounded-sm bg-muted px-3 py-2 text-sm text-muted-foreground">
           注册后将继续加入受邀活动
@@ -94,12 +100,18 @@ export function AccountForm({
       {mode === "register" ? (
         <Field id="nickname" label="昵称" autoComplete="name" />
       ) : null}
-      <Field id="username" label="用户名" autoComplete="username" />
+      <Field
+        id="username"
+        label="用户名"
+        autoComplete="username"
+        icon={<UserRound className="size-5" aria-hidden="true" />}
+      />
       <Field
         id="password"
         label="密码"
         type="password"
         autoComplete={mode === "register" ? "new-password" : "current-password"}
+        icon={<LockKeyhole className="size-5" aria-hidden="true" />}
       />
       {mode === "register" ? (
         <>
@@ -108,6 +120,7 @@ export function AccountForm({
             label="确认密码"
             type="password"
             autoComplete="new-password"
+            icon={<LockKeyhole className="size-5" aria-hidden="true" />}
           />
           {!invitationProof ? (
             <Field
@@ -124,7 +137,12 @@ export function AccountForm({
           {error}
         </p>
       ) : null}
-      <Button type="submit" size="lg" disabled={submitting}>
+      <Button
+        className="w-full font-semibold"
+        type="submit"
+        size="lg"
+        disabled={submitting}
+      >
         {submitting ? (
           <LoaderCircle className="animate-spin" aria-hidden="true" />
         ) : null}
@@ -140,24 +158,62 @@ function Field({
   type = "text",
   autoComplete,
   required = true,
+  icon,
 }: {
   readonly id: string;
   readonly label: string;
   readonly type?: "text" | "password";
   readonly autoComplete: string;
   readonly required?: boolean;
+  readonly icon?: ReactNode;
 }) {
+  const isPassword = type === "password";
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const toggleLabel = passwordVisible ? "隐藏密码" : "显示密码";
+
   return (
     <div className="grid gap-2">
       <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        name={id}
-        type={type}
-        required={required}
-        minLength={type === "password" ? 8 : undefined}
-        autoComplete={autoComplete}
-      />
+      <div className="relative">
+        {icon ? (
+          <span className="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center text-primary">
+            {icon}
+          </span>
+        ) : null}
+        <Input
+          className={
+            icon
+              ? isPassword
+                ? "pr-12 pl-11"
+                : "pl-11"
+              : isPassword
+                ? "pr-12"
+                : undefined
+          }
+          id={id}
+          name={id}
+          type={isPassword && passwordVisible ? "text" : type}
+          required={required}
+          minLength={isPassword ? 8 : undefined}
+          autoComplete={autoComplete}
+        />
+        {isPassword ? (
+          <button
+            aria-label={toggleLabel}
+            aria-pressed={passwordVisible}
+            className="absolute top-1/2 right-0 flex size-11 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+            onClick={() => setPasswordVisible((visible) => !visible)}
+            title={toggleLabel}
+            type="button"
+          >
+            {passwordVisible ? (
+              <EyeOff className="size-5" aria-hidden="true" />
+            ) : (
+              <Eye className="size-5" aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
