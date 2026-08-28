@@ -1,11 +1,12 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import {
   openRegistrationThroughUi,
-  prepareProductVisualScenario,
+  registerAccountThroughUi,
+  selectAvatarPresetThroughUi,
   signInThroughUi,
   uniqueScenarioSuffix,
 } from "./authenticated-product-support";
@@ -105,141 +106,141 @@ async function capture(
   });
 }
 
-test("生成 30 张风险分层产品截图", async ({ page, browser }) => {
+function clearPreviousScreenshots() {
   mkdirSync(screenshotDirectory, { recursive: true });
+  for (const fileName of readdirSync(screenshotDirectory)) {
+    if (path.extname(fileName).toLowerCase() !== ".png") continue;
+    unlinkSync(path.join(screenshotDirectory, fileName));
+  }
+}
+
+test("生成 14 张我的模块视觉验收截图", async ({ page, browser }) => {
+  clearPreviousScreenshots();
   await signInThroughUi(page);
   await openRegistrationThroughUi(page);
-  const scenario = await prepareProductVisualScenario(
-    page,
-    browser,
-    uniqueScenarioSuffix(),
-  );
+  const suffix = uniqueScenarioSuffix();
+  const visualContext = await browser.newContext({
+    baseURL: new URL(page.url()).origin,
+  });
+  const visualPage = await visualContext.newPage();
 
-  const views = {
-    activities: async () => {
-      await page.goto("/activities");
-      await expect(
-        page.getByRole("heading", { name: "活动", exact: true }),
-      ).toBeVisible();
-      await expect(
-        page.getByText(scenario.activityName, { exact: true }),
-      ).toBeVisible();
-    },
-    "activity-feed": async () => {
-      await page.goto(`/activities/${scenario.activityId}`);
-      await expect(page.getByText("大阪烧晚餐", { exact: true })).toBeVisible();
-    },
-    "quick-expense": async () => {
-      await views["activity-feed"]();
-      await page.getByRole("button", { name: "记一笔" }).click();
-      await expect(
-        page.getByRole("heading", { name: "记一笔", exact: true }),
-      ).toBeVisible();
-      await expect(page.getByLabel("金额", { exact: true })).toBeFocused();
-    },
-    "split-settings": async () => {
-      await views["quick-expense"]();
-      await page.getByLabel("金额", { exact: true }).fill("428");
-      await page.getByLabel("用途").fill("晚餐");
-      await page.getByRole("button", { name: "分摊设置" }).click();
-      await expect(page.getByText("参与成员 · 4人")).toBeVisible();
-      const surface = page.locator('[data-quick-expense-step="SPLIT"]');
-      const translation = await surface.evaluate((element) => {
-        const matrix = new DOMMatrixReadOnly(
-          getComputedStyle(element).transform,
-        );
-        return { x: matrix.m41, y: matrix.m42 };
-      });
-      expect(translation, "Reduced Motion 下步骤切换不能保留位移").toEqual({
-        x: 0,
-        y: 0,
-      });
-    },
-    members: async () => {
-      await page.goto(`/activities/${scenario.activityId}/members`);
-      await expect(page.getByText("活动成员 · 4人")).toBeVisible();
-    },
-    settlements: async () => {
-      await page.goto(`/activities/${scenario.activityId}/settlements`);
-      await expect(
-        page.getByRole("heading", { name: "推荐转账" }),
-      ).toBeVisible();
-    },
-    "expense-detail": async () => {
-      await page.goto(
-        `/activities/${scenario.activityId}/expenses/${scenario.expenseId}`,
-      );
-      await expect(
-        page.getByRole("heading", { name: "账单详情", exact: true }),
-      ).toBeVisible();
-    },
-    "expense-split-detail": async () => {
-      await page.goto(
-        `/activities/${scenario.activityId}/expenses/${scenario.expenseId}/split`,
-      );
-      await expect(
-        page.getByRole("heading", { name: "分摊明细", exact: true }),
-      ).toBeVisible();
-    },
-    notifications: async () => {
-      await page.goto("/notifications");
-      await expect(
-        page.getByRole("heading", { name: "通知", exact: true }),
-      ).toBeVisible();
-      await page.getByRole("button", { name: "未读", exact: true }).click();
-      await expect(
-        page.getByText("收到一笔结算", { exact: true }).first(),
-      ).toBeVisible();
-    },
-    me: async () => {
-      await page.goto("/me");
-      await expect(
-        page.getByRole("heading", { name: "我的", exact: true }),
-      ).toBeVisible();
-      await expect(page.getByText("验收管理员", { exact: true })).toBeVisible();
-    },
-    more: async () => {
-      await page.goto(`/activities/${scenario.activityId}/more`);
-      await expect(
-        page.getByRole("heading", { name: "活动信息" }),
-      ).toBeVisible();
-    },
-    "state-ended": async () => {
-      await page.goto(`/activities/${scenario.endedActivityId}`);
-      await expect(page.getByText("活动已结束", { exact: true })).toBeVisible();
-    },
-  } satisfies Record<string, () => Promise<void>>;
+  try {
+    await registerAccountThroughUi(visualPage, {
+      nickname: "视觉验收成员",
+      username: `me_visual_${suffix.replaceAll("-", "_")}`,
+      password: "HuddleTab-visual-2026!",
+    });
+    await selectAvatarPresetThroughUi(visualPage, 5);
 
-  const mobile = { width: 390, height: 844 } as const;
-  for (const [name, openView] of Object.entries(views)) {
-    await capture(page, name, mobile, "light", openView);
-  }
+    const views = {
+      me: async () => {
+        await visualPage.goto("/me");
+        await expect(
+          visualPage.getByRole("heading", { name: "我的", exact: true }),
+        ).toBeVisible();
+        await expect(
+          visualPage.getByText("视觉验收成员", { exact: true }),
+        ).toBeVisible();
+      },
+      "me-profile": async () => {
+        await visualPage.goto("/me/profile");
+        await expect(
+          visualPage.getByRole("heading", {
+            name: "个人资料",
+            exact: true,
+          }),
+        ).toBeVisible();
+      },
+      "me-email-unbound": async () => {
+        await visualPage.goto("/me/email");
+        await expect(
+          visualPage.getByText("尚未绑定邮箱", { exact: true }),
+        ).toBeVisible();
+      },
+      "me-email-bound": async () => {
+        await visualPage.goto("/me/email");
+        await expect(
+          visualPage.getByRole("button", { name: "更换邮箱", exact: true }),
+        ).toBeVisible();
+      },
+      "me-password": async () => {
+        await visualPage.goto("/me/password");
+        await expect(
+          visualPage.getByRole("heading", {
+            name: "修改密码",
+            exact: true,
+          }),
+        ).toBeVisible();
+      },
+      "me-theme": async () => {
+        await visualPage.goto("/me/theme");
+        await expect(
+          visualPage.getByRole("heading", { name: "主题", exact: true }),
+        ).toBeVisible();
+      },
+      admin: async () => {
+        await page.goto("/admin");
+        await expect(
+          page.getByRole("heading", { name: "系统管理", exact: true }),
+        ).toBeVisible();
+      },
+    } satisfies Record<string, () => Promise<void>>;
 
-  for (const name of [
-    "activities",
-    "activity-feed",
-    "quick-expense",
-    "split-settings",
-    "members",
-    "settlements",
-    "notifications",
-    "state-ended",
-  ] as const) {
-    await capture(page, name, mobile, "dark", views[name]);
-  }
+    const mobile = { width: 390, height: 844 } as const;
+    await capture(visualPage, "me", mobile, "light", views.me);
+    await capture(
+      visualPage,
+      "me-profile",
+      mobile,
+      "light",
+      views["me-profile"],
+    );
+    await capture(
+      visualPage,
+      "me-email-unbound",
+      mobile,
+      "light",
+      views["me-email-unbound"],
+    );
 
-  for (const viewport of [
-    { width: 700, height: 900 },
-    { width: 1440, height: 1000 },
-  ] as const) {
-    for (const name of [
-      "activities",
-      "activity-feed",
-      "split-settings",
-      "notifications",
-      "me",
-    ] as const) {
-      await capture(page, name, viewport, "light", views[name]);
+    await visualPage
+      .getByLabel("真实邮箱")
+      .fill(`visual_${suffix.replaceAll("-", "_")}@example.com`);
+    await visualPage
+      .getByRole("button", { name: "绑定邮箱", exact: true })
+      .click();
+    await expect(visualPage).toHaveURL(/\/me$/);
+
+    await capture(
+      visualPage,
+      "me-email-bound",
+      mobile,
+      "light",
+      views["me-email-bound"],
+    );
+    await capture(
+      visualPage,
+      "me-password",
+      mobile,
+      "light",
+      views["me-password"],
+    );
+    await capture(visualPage, "me-theme", mobile, "light", views["me-theme"]);
+    await capture(page, "admin", mobile, "light", views.admin);
+
+    for (const name of ["me", "me-profile", "me-theme"] as const) {
+      await capture(visualPage, name, mobile, "dark", views[name]);
     }
+
+    for (const viewport of [
+      { width: 700, height: 900 },
+      { width: 1440, height: 1000 },
+    ] as const) {
+      for (const name of ["me", "me-profile"] as const) {
+        await capture(visualPage, name, viewport, "light", views[name]);
+      }
+    }
+  } finally {
+    await visualContext.close();
   }
 });

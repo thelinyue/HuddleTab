@@ -4,9 +4,11 @@ import {
   addGuestThroughUi,
   createActivityThroughUi,
   createInviteThroughUi,
+  expectMemberAvatarPreset,
   openRegistrationThroughUi,
   readExpenseId,
   registerFromInviteThroughUi,
+  selectAvatarPresetThroughUi,
   signInThroughUi,
   uniqueScenarioSuffix,
 } from "./authenticated-product-support";
@@ -96,4 +98,25 @@ test("登录用户通过真实界面完成邀请、四人均摊、结算和通�
   } finally {
     await memberContext.close();
   }
+});
+
+test("登录用户保存头像后在我的主页和活动成员页保持一致", async ({ page }) => {
+  const suffix = uniqueScenarioSuffix();
+  const activityName = `头像验收活动 ${suffix}`;
+
+  await signInThroughUi(page);
+  await selectAvatarPresetThroughUi(page, 5);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "我的", exact: true }),
+  ).toBeVisible();
+  await expectMemberAvatarPreset(page, "验收管理员", 5);
+
+  const activityId = await createActivityThroughUi(page, activityName);
+  await page.goto(`/activities/${activityId}/members`);
+  const ownerRow = page.getByRole("button", {
+    name: "查看成员 验收管理员",
+  });
+  await expect(ownerRow).toBeVisible();
+  await expectMemberAvatarPreset(ownerRow, "验收管理员", 5);
 });
