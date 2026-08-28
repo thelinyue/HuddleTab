@@ -1,0 +1,29 @@
+services:
+  postgres:
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+
+  app:
+    environment:
+      APP_BASE_URL: http://localhost:5660
+      BETTER_AUTH_URL: http://localhost:5660
+      BETTER_AUTH_TRUSTED_ORIGINS: http://localhost:5660
+      TZ: ${TZ:-Asia/Shanghai}
+
+  playwright:
+    build:
+      context: .
+      dockerfile: docker/playwright/Dockerfile
+    depends_on:
+      app:
+        condition: service_healthy
+    network_mode: service:app
+    environment:
+      CI: "true"
+      PLAYWRIGHT_BASE_URL: http://localhost:5660
+      RELEASE_E2E_ARTIFACT_DIR: /artifacts
+      RELEASE_E2E_SCREENSHOT_DIR: /artifacts/screenshots
+      RUN_FOUR_DAY_RELEASE_E2E: "true"
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ${RELEASE_E2E_ARTIFACTS_DIR:?请设置发布门禁产物目录}:/artifacts

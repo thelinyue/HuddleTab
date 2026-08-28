@@ -11,15 +11,6 @@ FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
-COPY --from=build /app/package.json /app/package-lock.json ./
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
-COPY --from=build /app/drizzle ./drizzle
-COPY --from=build /app/src/server ./src/server
-COPY --from=build /app/docker/entrypoint.sh ./docker/entrypoint.sh
-
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
   && install -d -m 0755 /usr/share/keyrings \
@@ -30,7 +21,18 @@ RUN apt-get update \
   && apt-get update \
   && apt-get install -y --no-install-recommends postgresql-client-18 \
   && rm -rf /var/lib/apt/lists/* \
-  && mkdir -p /data/uploads /data/backups \
+  && mkdir -p /data/uploads /data/backups
+
+COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+COPY --from=build /app/drizzle ./drizzle
+COPY --from=build /app/src/server ./src/server
+COPY --from=build /app/docker/entrypoint.sh ./docker/entrypoint.sh
+
+RUN sed -i 's/\r$//' ./docker/entrypoint.sh \
   && chmod +x ./docker/entrypoint.sh
 
 EXPOSE 5660
