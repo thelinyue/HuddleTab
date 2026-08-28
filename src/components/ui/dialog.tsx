@@ -5,12 +5,30 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  OverlayMotionRoot,
+  useOverlayMotion,
+  useOverlayMotionState,
+} from "@/components/ui/overlay-motion";
 import { XIcon } from "lucide-react";
 
 function Dialog({
+  defaultOpen,
+  onOpenChange,
+  open,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+  return (
+    <OverlayMotionRoot
+      defaultOpen={defaultOpen}
+      onOpenChange={onOpenChange}
+      open={open}
+    >
+      {(motionProps) => (
+        <DialogPrimitive.Root data-slot="dialog" {...props} {...motionProps} />
+      )}
+    </OverlayMotionRoot>
+  );
 }
 
 function DialogTrigger({
@@ -20,9 +38,17 @@ function DialogTrigger({
 }
 
 function DialogPortal({
+  forceMount,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+  const motion = useOverlayMotionState();
+  return (
+    <DialogPrimitive.Portal
+      data-slot="dialog-portal"
+      forceMount={forceMount ?? motion.forceMount}
+      {...props}
+    />
+  );
 }
 
 function DialogClose({
@@ -33,15 +59,18 @@ function DialogClose({
 
 function DialogOverlay({
   className,
+  inert,
+  style,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+  const motion = useOverlayMotionState();
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
-      className={cn(
-        "fixed inset-0 isolate z-50 bg-black/25 duration-200 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
-        className,
-      )}
+      data-motion-state={motion.phase}
+      className={cn("fixed inset-0 isolate z-50 bg-black/25", className)}
+      inert={motion.closing ? true : inert}
+      style={motion.closing ? { ...style, pointerEvents: "none" } : style}
       {...props}
     />
   );
@@ -50,20 +79,31 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
+  inert,
+  ref,
   showCloseButton = true,
+  style,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
 }) {
+  const { closing, contentRef, overlayRef, phase } = useOverlayMotion({
+    forwardedContentRef: ref,
+    kind: "dialog",
+  });
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay ref={overlayRef} />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        data-motion-state={phase}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg bg-popover p-4 text-sm text-popover-foreground shadow-overlay ring-1 ring-foreground/10 duration-200 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg bg-popover p-4 text-sm text-popover-foreground shadow-overlay ring-1 ring-foreground/10 outline-none sm:max-w-sm",
           className,
         )}
+        inert={closing ? true : inert}
+        ref={contentRef}
+        style={closing ? { ...style, pointerEvents: "none" } : style}
         {...props}
       >
         {children}

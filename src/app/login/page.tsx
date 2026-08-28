@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { PageReveal } from "@/components/design-system/page-reveal";
 import { AccountForm } from "@/features/auth/components/account-form";
 import { normalizeInvitationCallbackURL } from "@/lib/invitation-return";
 
@@ -46,11 +47,11 @@ export function AccountPage({
   readonly children: React.ReactNode;
 }) {
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center px-5 py-12 sm:px-8">
+    <PageReveal className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center px-5 py-12 sm:px-8">
       <p className="text-sm font-semibold">伙记</p>
       <h1 className="mt-1 text-2xl font-bold">{title}</h1>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       {children}
-    </main>
+    </PageReveal>
   );
 }

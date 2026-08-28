@@ -1,8 +1,9 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useStateMotion } from "@/components/design-system/state-motion";
 import { Button } from "@/components/ui/button";
 import { openHuddleTabDb } from "@/pwa/indexed-db/database";
 import { createUpdateController } from "@/pwa/service-worker/update-controller";
@@ -49,6 +50,7 @@ export function UpdateBanner({
   const [hasPendingSync, setHasPendingSync] = useState(
     Boolean(pendingOverride),
   );
+  const scope = useRef<HTMLElement>(null);
   const controller = useMemo(
     () =>
       createUpdateController({
@@ -124,7 +126,11 @@ export function UpdateBanner({
     };
   }, [pendingOverride, refreshPendingState, userId]);
 
-  const visible = waitingOverride || waiting;
+  const visible = Boolean(waitingOverride || waiting);
+  useStateMotion(
+    scope,
+    visible ? (hasPendingSync ? "pending" : "ready") : "hidden",
+  );
   if (!visible) return null;
 
   const requestUpdate = async () => {
@@ -135,6 +141,7 @@ export function UpdateBanner({
 
   return (
     <aside
+      ref={scope}
       aria-live="polite"
       className="fixed inset-x-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-md items-center gap-3 border border-warning/40 bg-surface p-3 text-sm shadow-lg sm:bottom-6"
     >

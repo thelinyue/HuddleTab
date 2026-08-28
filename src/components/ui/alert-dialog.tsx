@@ -5,11 +5,33 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  OverlayMotionRoot,
+  useOverlayMotion,
+  useOverlayMotionState,
+} from "@/components/ui/overlay-motion";
 
 function AlertDialog({
+  defaultOpen,
+  onOpenChange,
+  open,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
+  return (
+    <OverlayMotionRoot
+      defaultOpen={defaultOpen}
+      onOpenChange={onOpenChange}
+      open={open}
+    >
+      {(motionProps) => (
+        <AlertDialogPrimitive.Root
+          data-slot="alert-dialog"
+          {...props}
+          {...motionProps}
+        />
+      )}
+    </OverlayMotionRoot>
+  );
 }
 
 function AlertDialogTrigger({
@@ -21,24 +43,36 @@ function AlertDialogTrigger({
 }
 
 function AlertDialogPortal({
+  forceMount,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) {
+  const motion = useOverlayMotionState();
   return (
-    <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
+    <AlertDialogPrimitive.Portal
+      data-slot="alert-dialog-portal"
+      forceMount={forceMount ?? motion.forceMount}
+      {...props}
+    />
   );
 }
 
 function AlertDialogOverlay({
   className,
+  inert,
+  style,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
+  const motion = useOverlayMotionState();
   return (
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
+      data-motion-state={motion.phase}
       className={cn(
-        "fixed inset-0 z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs",
         className,
       )}
+      inert={motion.closing ? true : inert}
+      style={motion.closing ? { ...style, pointerEvents: "none" } : style}
       {...props}
     />
   );
@@ -46,21 +80,32 @@ function AlertDialogOverlay({
 
 function AlertDialogContent({
   className,
+  inert,
+  ref,
   size = "default",
+  style,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm";
 }) {
+  const { closing, contentRef, overlayRef, phase } = useOverlayMotion({
+    forwardedContentRef: ref,
+    kind: "dialog",
+  });
   return (
     <AlertDialogPortal>
-      <AlertDialogOverlay />
+      <AlertDialogOverlay ref={overlayRef} />
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
+        data-motion-state={phase}
         data-size={size}
         className={cn(
-          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm",
           className,
         )}
+        inert={closing ? true : inert}
+        ref={contentRef}
+        style={closing ? { ...style, pointerEvents: "none" } : style}
         {...props}
       />
     </AlertDialogPortal>

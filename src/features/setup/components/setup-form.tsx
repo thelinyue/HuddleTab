@@ -1,8 +1,9 @@
 "use client";
 
 import { LoaderCircle, ShieldCheck } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 
+import { useFormMotion } from "@/components/design-system/form-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +52,8 @@ export function SetupForm() {
   const [values, setValues] = useState(initialValues);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const scope = useRef<HTMLElement>(null);
+  useFormMotion(scope, error ?? "");
 
   function update<Key extends keyof SetupFormValues>(
     key: Key,
@@ -107,8 +110,11 @@ export function SetupForm() {
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center px-5 py-12 sm:px-8">
-      <div className="flex items-center gap-3">
+    <main
+      ref={scope}
+      className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center px-5 py-12 sm:px-8"
+    >
+      <div data-motion-field className="flex items-center gap-3">
         <span className="grid size-11 place-items-center rounded-lg bg-primary/10 text-primary">
           <ShieldCheck className="size-5" aria-hidden="true" />
         </span>
@@ -154,16 +160,22 @@ export function SetupForm() {
           onChange={(value) => update("confirmPassword", value)}
         />
         {error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p
+            data-motion-error
+            role="alert"
+            className="text-sm text-destructive"
+          >
             {error}
           </p>
         ) : null}
-        <Button type="submit" size="lg" disabled={submitting}>
-          {submitting ? (
-            <LoaderCircle className="animate-spin" aria-hidden="true" />
-          ) : null}
-          完成初始化
-        </Button>
+        <div data-motion-field className="grid">
+          <Button type="submit" size="lg" disabled={submitting}>
+            {submitting ? (
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+            ) : null}
+            完成初始化
+          </Button>
+        </div>
       </form>
     </main>
   );
@@ -187,7 +199,7 @@ function Field({
   readonly onChange: (value: string) => void;
 }) {
   return (
-    <div className="grid gap-2">
+    <div data-motion-field className="grid gap-2">
       <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}

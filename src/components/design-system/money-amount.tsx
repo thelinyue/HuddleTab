@@ -1,3 +1,13 @@
+"use client";
+
+import { gsap } from "gsap";
+import { useRef } from "react";
+
+import {
+  motionDuration,
+  motionEase,
+  useMotionGSAP,
+} from "@/components/design-system/motion";
 import { formatMoney } from "@/domain/money/money";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { cn } from "@/lib/utils";
@@ -37,9 +47,36 @@ export function MoneyAmount({
     { currency: asCurrencyCode(currency), amountMinor },
     "zh-CN",
   );
+  const scope = useRef<HTMLSpanElement>(null);
+  const previousAmount = useRef(amount);
+
+  useMotionGSAP(
+    (reducedMotion) => {
+      const target = scope.current;
+      if (!target || previousAmount.current === amount) return;
+      previousAmount.current = amount;
+      if (reducedMotion) {
+        gsap.set(target, { opacity: 1, y: 0 });
+        return;
+      }
+      gsap.fromTo(
+        target,
+        { opacity: 0.65, y: -2 },
+        {
+          duration: motionDuration.brief,
+          ease: motionEase.emphasis,
+          opacity: 1,
+          overwrite: "auto",
+          y: 0,
+        },
+      );
+    },
+    { dependencies: [amount], scope },
+  );
 
   return (
     <span
+      ref={scope}
       data-money-tone={tone}
       className={cn("money", toneClassName[tone], sizeClassName[size], className)}
     >

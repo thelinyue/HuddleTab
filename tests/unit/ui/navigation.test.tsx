@@ -3,7 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import {
   BottomNavigation,
@@ -17,10 +17,72 @@ const navigation = vi.hoisted(() => ({
   activityId: "activity-42",
   pathname: "/activities",
 }));
+const motion = vi.hoisted(() => ({
+  fromTo: vi.fn(),
+  registerPlugin: vi.fn(),
+  set: vi.fn(),
+  to: vi.fn(),
+  useGSAP: vi.fn(),
+}));
+const resize = vi.hoisted(() => ({
+  callbacks: [] as ResizeObserverCallback[],
+  disconnect: vi.fn(),
+  observe: vi.fn(),
+}));
+vi.mock("@gsap/react", async () => {
+  const { useLayoutEffect } =
+    await vi.importActual<typeof import("react")>("react");
+  return {
+    useGSAP: (callback: () => void, config: unknown) => {
+      motion.useGSAP(callback, config);
+      useLayoutEffect(() => callback());
+    },
+  };
+});
+vi.mock("gsap", () => ({
+  gsap: {
+    fromTo: motion.fromTo,
+    registerPlugin: motion.registerPlugin,
+    set: motion.set,
+    to: motion.to,
+  },
+}));
+vi.mock("gsap/Flip", () => ({ Flip: {} }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ activityId: navigation.activityId }),
   usePathname: () => navigation.pathname,
 }));
+
+function setMotionPreference(reducedMotion: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation(() => ({
+      addEventListener: vi.fn(),
+      matches: reducedMotion,
+      removeEventListener: vi.fn(),
+    })),
+  );
+}
+
+function installResizeObserver() {
+  class TestResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      resize.callbacks.push(callback);
+    }
+
+    disconnect = resize.disconnect;
+    observe = resize.observe;
+  }
+  vi.stubGlobal("ResizeObserver", TestResizeObserver);
+}
+
+beforeEach(() => {
+  resize.callbacks = [];
+  resize.disconnect.mockClear();
+  resize.observe.mockClear();
+  setMotionPreference(false);
+  installResizeObserver();
+});
 
 afterEach(() => {
   cleanup();
@@ -37,6 +99,85 @@ test("一级导航只有活动、通知、我的，并提供当前项语义", ()
     "page",
   );
   expect(screen.getByRole("link", { name: /通知，3 条未读/ })).toBeVisible();
+  expect(document.querySelector("[data-navigation-indicator]")).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+});
+
+test("一级导航切换 current 时在自身范围内定位装饰性指示器", () => {
+  const { rerender } = render(
+    <BottomNavigation current="activities" unreadCount={0} />,
+  );
+  rerender(<BottomNavigation current="notifications" unreadCount={0} />);
+
+  expect(motion.to).toHaveBeenCalledWith(
+    expect.any(HTMLSpanElement),
+    expect.objectContaining({ duration: 0.18, overwrite: "auto", x: 0 }),
+  );
+  expect(motion.to.mock.calls.some(([, vars]) => "width" in vars)).toBe(false);
+  expect(motion.useGSAP).toHaveBeenLastCalledWith(
+    expect.any(Function),
+    expect.objectContaining({
+      revertOnUpdate: false,
+      scope: expect.anything(),
+    }),
+  );
+  expect(screen.getByRole("link", { name: "通知" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("减少动态效果时一级导航直接定位装饰性指示器", () => {
+  setMotionPreference(true);
+  render(<BottomNavigation current="activities" unreadCount={0} />);
+
+  expect(motion.set).toHaveBeenCalledWith(
+    expect.any(HTMLSpanElement),
+    expect.objectContaining({ x: 0 }),
+  );
+  expect(motion.to).not.toHaveBeenCalled();
+});
+
+test("导航尺寸变化时直接重算 transform，并在卸载时清理观察器", () => {
+  const { unmount } = render(
+    <BottomNavigation current="activities" unreadCount={0} />,
+  );
+  const indicator = document.querySelector("[data-navigation-indicator]");
+  expect(resize.observe).toHaveBeenCalledWith(expect.any(HTMLElement));
+
+  motion.set.mockClear();
+  motion.to.mockClear();
+  act(() => resize.callbacks[0]?.([], {} as ResizeObserver));
+
+  expect(motion.set).toHaveBeenCalledWith(indicator, { x: 0 });
+  expect(motion.to).not.toHaveBeenCalled();
+  expect(motion.set.mock.calls.some(([, vars]) => "width" in vars)).toBe(false);
+
+  unmount();
+  expect(resize.disconnect).toHaveBeenCalledTimes(1);
+});
+
+test("未读数由零变为正数时仅强调一次通知点", () => {
+  const { rerender } = render(
+    <BottomNavigation current="activities" unreadCount={0} />,
+  );
+  rerender(<BottomNavigation current="activities" unreadCount={2} />);
+  rerender(<BottomNavigation current="activities" unreadCount={3} />);
+
+  expect(
+    motion.fromTo.mock.calls.filter(
+      ([target]) =>
+        target instanceof HTMLElement &&
+        target.hasAttribute("data-unread-indicator"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    screen
+      .getByLabelText("通知，3 条未读")
+      .querySelector("[data-unread-indicator]"),
+  ).toHaveAttribute("aria-hidden", "true");
 });
 
 test("一级导航加载服务器未读通知数", async () => {
@@ -240,7 +381,26 @@ test("活动导航以内联页签保留四个深链接和当前项语义", () =>
   });
   expect(activityNavigation).not.toHaveClass("fixed", "bottom-0");
   expect(activityNavigation.querySelectorAll("svg")).toHaveLength(0);
+  expect(
+    activityNavigation.querySelector("[data-navigation-indicator]"),
+  ).toHaveAttribute("aria-hidden", "true");
   for (const link of screen.getAllByRole("link")) {
     expect(link).toHaveClass("min-h-12", "text-sm");
   }
+});
+
+test("活动导航切换 pathname 时在自身范围内过渡装饰性指示器", () => {
+  navigation.pathname = "/activities/activity-42";
+  const { rerender } = render(<ActivityNavigation />);
+  navigation.pathname = "/activities/activity-42/members";
+  rerender(<ActivityNavigation />);
+
+  expect(motion.to).toHaveBeenCalledWith(
+    expect.any(HTMLSpanElement),
+    expect.objectContaining({ duration: 0.18, overwrite: "auto", x: 0 }),
+  );
+  expect(screen.getByRole("link", { name: "成员" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
 });
