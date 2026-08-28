@@ -81,7 +81,12 @@ const activity = {
   currentUserId: "u1",
 };
 const members = [
-  { id: "m1", displayName: "小王", status: "ACTIVE" as const },
+  {
+    id: "m1",
+    displayName: "小王",
+    status: "ACTIVE" as const,
+    avatarPreset: 6 as const,
+  },
   { id: "m2", displayName: "小李", status: "ACTIVE" as const },
 ];
 const preference = {
@@ -134,6 +139,12 @@ test("快捷录入按金额、用途、付款人、参与成员和更多设置�
   expect(
     screen.getByRole("checkbox", { name: "小王参与" }).closest("label"),
   ).toHaveClass("focus-within:outline-ring");
+  for (const avatar of screen.getAllByLabelText("小王的头像")) {
+    expect(avatar.querySelector("img")).toHaveAttribute(
+      "src",
+      "/member-avatars/avatar-06.webp",
+    );
+  }
   expect(advanced).toHaveClass("rounded-md", "type-body");
   expect(save).toHaveClass(
     "h-12",

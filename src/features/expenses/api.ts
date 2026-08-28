@@ -1,3 +1,5 @@
+import type { AvatarPreset } from "@/features/me/avatar-presets";
+
 export interface ExpenseListItemDto {
   readonly id: string;
   readonly title: string;
@@ -51,6 +53,7 @@ export interface QuickExpenseContextDto {
     readonly id: string;
     readonly displayName: string;
     readonly status: "ACTIVE" | "LEFT";
+    readonly avatarPreset?: AvatarPreset | null;
   }[];
   readonly preference: {
     readonly lastCategory: string | null;

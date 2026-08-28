@@ -172,7 +172,7 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
   );
 });
 
-it("快速记账上下文只返回活动身份与当前用户偏好", async () => {
+it("快速记账上下文投影成员头像，不改变活动偏好和权限", async () => {
   mocks.getEntryContext.mockResolvedValue({
     activity: {
       id: "activity-1",
@@ -181,7 +181,20 @@ it("快速记账上下文只返回活动身份与当前用户偏好", async () =
       currentMemberId: "member-1",
       currentUserId: "user-1",
     },
-    members: [{ id: "member-1", displayName: "小李", status: "ACTIVE" }],
+    members: [
+      {
+        id: "member-user",
+        displayName: "小李",
+        status: "ACTIVE",
+        avatarPreset: 5,
+      },
+      {
+        id: "member-guest",
+        displayName: "临时成员",
+        status: "ACTIVE",
+        avatarPreset: null,
+      },
+    ],
     preference: {
       lastCategory: "FOOD",
       recentParticipantIds: ["member-1"],
@@ -207,7 +220,17 @@ it("快速记账上下文只返回活动身份与当前用户偏好", async () =
         currentUserId: "user-1",
         status: "ENDED",
       },
-      members: [{ displayName: "小李" }],
+      members: [
+        { id: "member-user", avatarPreset: 5 },
+        { id: "member-guest", avatarPreset: null },
+      ],
+      preference: {
+        lastCategory: "FOOD",
+        recentParticipantIds: ["member-1"],
+        recentPayerIds: ["member-1"],
+        recentCurrency: "CNY",
+        recentTitles: ["晚餐"],
+      },
       permissions: { canCreateExpense: true },
     },
   });

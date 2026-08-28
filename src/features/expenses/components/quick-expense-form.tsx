@@ -24,6 +24,7 @@ import { PaymentEditor } from "@/features/expenses/components/payment-editor";
 import { SplitEditor } from "@/features/expenses/components/split-editor";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 import { splitExpense, type SplitInput } from "@/domain/splitting/split";
+import type { AvatarPreset } from "@/features/me/avatar-presets";
 import { enqueueExpense } from "@/pwa/sync-queue/enqueue-expense";
 import { requestForegroundSync } from "@/pwa/sync-queue/sync-events";
 
@@ -187,6 +188,7 @@ export interface QuickExpenseMember {
   readonly id: string;
   readonly displayName: string;
   readonly status: "ACTIVE" | "LEFT";
+  readonly avatarPreset?: AvatarPreset | null;
 }
 export interface QuickExpensePreference {
   readonly lastCategory?: ExpenseCategory | null;
@@ -606,6 +608,7 @@ export function QuickExpenseForm({
                 <MemberAvatar
                   memberId={payer.id}
                   displayName={payer.displayName}
+                  avatarPreset={payer.avatarPreset}
                   className="size-8"
                 />
               ) : null}
@@ -670,6 +673,7 @@ export function QuickExpenseForm({
                     <MemberAvatar
                       memberId={member.id}
                       displayName={member.displayName}
+                      avatarPreset={member.avatarPreset}
                       className={`size-9 ${values.participantIds.includes(member.id) ? "ring-2 ring-primary/35 ring-offset-1" : "opacity-45 grayscale"}`}
                     />
                     {values.participantIds.includes(member.id) ? (

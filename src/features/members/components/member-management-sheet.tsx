@@ -102,6 +102,7 @@ export function MemberManagementSheet({
           <MemberAvatar
             memberId={member.id}
             displayName={member.displayName}
+            avatarPreset={member.avatarPreset}
             className="size-14"
           />
           <div className="mt-3 flex max-w-full items-center justify-center gap-1.5">

@@ -56,6 +56,7 @@ export function SplitEditor({
               <MemberAvatar
                 memberId={member.id}
                 displayName={member.displayName}
+                avatarPreset={member.avatarPreset}
                 className="size-10"
               />
               <span className="type-body min-w-0 flex-1 truncate font-medium">

@@ -30,15 +30,24 @@ vi.mock("@/server/http/application-error-response", () => ({
 
 import { GET } from "@/app/api/activities/[activityId]/members/route";
 
-it("成员 GET 保留 data 数组并返回活动邀请模式元数据", async () => {
+it("成员 GET 为正式成员投影头像预设，并保持临时成员头像为空", async () => {
   mocks.sql
     .mockResolvedValueOnce([
       {
-        id: "member-1",
+        id: "member-user",
         display_name: "小王",
         role: "OWNER",
         status: "ACTIVE",
         member_type: "USER",
+        avatar_preset: 5,
+      },
+      {
+        id: "member-guest",
+        display_name: "小李",
+        role: "MEMBER",
+        status: "ACTIVE",
+        member_type: "GUEST",
+        avatar_preset: 3,
       },
     ])
     .mockResolvedValueOnce([{ invite_mode: "REQUIRE_APPROVAL" }]);
@@ -52,11 +61,21 @@ it("成员 GET 保留 data 数组并返回活动邀请模式元数据", async ()
   expect(await response.json()).toEqual({
     data: [
       {
-        id: "member-1",
+        id: "member-user",
         displayName: "小王",
         role: "OWNER",
         status: "ACTIVE",
         memberType: "USER",
+        avatarPreset: 5,
+        permissions: { canManage: true },
+      },
+      {
+        id: "member-guest",
+        displayName: "小李",
+        role: "MEMBER",
+        status: "ACTIVE",
+        memberType: "GUEST",
+        avatarPreset: null,
         permissions: { canManage: true },
       },
     ],

@@ -1,6 +1,7 @@
 import type postgres from "postgres";
 
 import { prepareExpense } from "@/domain/expenses/prepare-expense";
+import type { AvatarPreset } from "@/features/me/avatar-presets";
 import type {
   CreateExpenseRequest,
   ExpenseListQuery,
@@ -97,8 +98,8 @@ export class ExpenseService {
 
   /**
    * 表单上下文遵循普通账务读取授权，且仅返回 ACTIVE 成员身份、当前认证用户 ID
-   * 与活动偏好。认证用户 ID 仅用于隔离浏览器离线数据库，不关联 User 资料，避免
-   * 快速记账入口无意暴露邮箱或系统角色。
+   * 与活动偏好。成员的头像预设仅从关联的公开资料投影，认证用户 ID 仅用于隔离浏览器
+   * 离线数据库，不返回邮箱或系统角色。
    */
   async getEntryContext(
     session: { readonly user: { readonly id: string } } | null,
@@ -113,7 +114,11 @@ export class ExpenseService {
       const [preference] =
         await transaction`select last_category, recent_participant_ids, recent_payer_ids, recent_currency from user_activity_preferences where user_id = ${authorization.userId} and activity_id = ${activityId}`;
       const members =
-        await transaction`select id, display_name, status from activity_members where activity_id = ${activityId} and status = 'ACTIVE' order by id`;
+        await transaction`select member.id, member.display_name, member.status, member.member_type, profile.avatar_preset
+          from activity_members member
+          left join user_profiles profile on profile.user_id = member.user_id
+          where member.activity_id = ${activityId} and member.status = 'ACTIVE'
+          order by member.id`;
       const recentTitles =
         await transaction`select title from expenses where activity_id = ${activityId} and deleted_at is null group by title order by max(created_at) desc, title asc limit 6`;
       const canCreateExpense = (() => {
@@ -147,6 +152,10 @@ export class ExpenseService {
           id: member.id,
           displayName: member.display_name,
           status: member.status,
+          avatarPreset:
+            member.member_type === "USER"
+              ? (member.avatar_preset as AvatarPreset | null) ?? null
+              : null,
         })),
         preference: {
           lastCategory: preference?.last_category ?? null,

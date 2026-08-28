@@ -55,10 +55,16 @@ function createSql() {
     if (query.includes("group by original_currency")) return [];
     if (query.includes("group by category")) return [];
     if (query.includes("from user_activity_preferences")) return [];
-    if (
-      query.includes("select id, display_name, status from activity_members")
-    ) {
-      return [{ id: "member-1", display_name: "Owner", status: "ACTIVE" }];
+    if (query.includes("profile.avatar_preset")) {
+      return [
+        {
+          id: "member-1",
+          display_name: "Owner",
+          status: "ACTIVE",
+          member_type: "USER",
+          avatar_preset: 5,
+        },
+      ];
     }
     if (query.includes("select title from expenses")) return [];
     throw new Error(`未预期查询：${query}`);
@@ -92,7 +98,7 @@ it("真实 ActivitySummaryService 输出页面依赖的活动摘要字段", asyn
   });
 });
 
-it("真实 ExpenseService 上下文输出活动生命周期字段", async () => {
+it("真实 ExpenseService 上下文输出活动生命周期和成员头像预设", async () => {
   mocks.authorize.mockResolvedValue(authorization);
   const sql = createSql();
 
@@ -101,5 +107,8 @@ it("真实 ExpenseService 上下文输出活动生命周期字段", async () => 
     "activity-1",
   );
 
-  expect(entryContext.activity).toMatchObject({ status: "ACTIVE" });
+  expect(entryContext).toMatchObject({
+    activity: { status: "ACTIVE" },
+    members: [{ id: "member-1", avatarPreset: 5 }],
+  });
 });

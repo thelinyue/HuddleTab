@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import type { AvatarPreset } from "@/features/me/avatar-presets";
+
 export const dynamic = "force-dynamic";
 
-/** 成员读取只返回 ActivityMember 账务身份，绝不关联或泄露账户邮箱。 */
+/** 成员读取只投影显示头像预设，绝不返回账户邮箱或改变 ActivityMember 身份。 */
 export async function GET(
   request: Request,
   context: { params: Promise<{ activityId: string }> },
@@ -32,7 +34,11 @@ export async function GET(
       }),
     );
     const [members, inviteModes] = await Promise.all([
-      sql`select id, display_name, role, status, member_type from activity_members where activity_id = ${params.activityId} order by joined_at, id`,
+      sql`select member.id, member.display_name, member.role, member.status, member.member_type, profile.avatar_preset
+        from activity_members member
+        left join user_profiles profile on profile.user_id = member.user_id
+        where member.activity_id = ${params.activityId}
+        order by member.joined_at, member.id`,
       sql`select invite_mode from activities where id = ${params.activityId}`,
     ]);
     return NextResponse.json({
@@ -42,6 +48,10 @@ export async function GET(
         role: member.role,
         status: member.status,
         memberType: member.member_type,
+        avatarPreset:
+          member.member_type === "USER"
+            ? (member.avatar_preset as AvatarPreset | null) ?? null
+            : null,
         permissions: {
           canManage:
             authorization.member.role !== "MEMBER" &&

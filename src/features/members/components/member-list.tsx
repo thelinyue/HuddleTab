@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import type { AvatarPreset } from "@/features/me/avatar-presets";
 import { MemberBalance } from "@/features/members/components/member-balance";
 import { MemberInviteDialog } from "@/features/members/components/member-invite-dialog";
 import {
@@ -28,6 +29,7 @@ export type MemberListRow = {
   readonly role: "OWNER" | "ADMIN" | "MEMBER";
   readonly status: "ACTIVE" | "LEFT";
   readonly memberType: "USER" | "GUEST";
+  readonly avatarPreset?: AvatarPreset | null;
   readonly permissions: { readonly canManage: boolean };
 };
 
@@ -147,7 +149,11 @@ export function MemberList({
           className="grid min-h-[68px] w-full grid-cols-[40px_minmax(0,1fr)_auto_16px] items-center gap-3 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45"
           onClick={() => setSelectedMember(member)}
         >
-          <MemberAvatar memberId={member.id} displayName={member.displayName} />
+          <MemberAvatar
+            memberId={member.id}
+            displayName={member.displayName}
+            avatarPreset={member.avatarPreset}
+          />
           <span className="min-w-0">
             <span className="flex min-w-0 items-center gap-1.5">
               <strong className="truncate text-sm font-semibold text-foreground">
