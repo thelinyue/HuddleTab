@@ -1,3 +1,5 @@
+"use client";
+
 import {
   CircleCheckIcon,
   InfoIcon,
@@ -5,8 +7,9 @@ import {
   TriangleAlertIcon,
   type LucideIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
+import { useStateMotion } from "@/components/design-system/state-motion";
 import { cn } from "@/lib/utils";
 
 type StateNoticeTone = "neutral" | "info" | "success" | "warning" | "error";
@@ -63,9 +66,12 @@ export function StateNotice({
 }) {
   const style = toneStyles[tone];
   const { Icon } = style;
+  const scope = useRef<HTMLElement>(null);
+  useStateMotion(scope, `${tone}:${title}`);
 
   return (
     <section
+      ref={scope}
       role={role ?? (tone === "error" ? "alert" : undefined)}
       aria-label={title}
       className={cn(

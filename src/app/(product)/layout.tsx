@@ -11,7 +11,7 @@ export default function ProductLayout({
   return (
     <>
       <ProductThemeSync>
-        <AppFrame>{children}</AppFrame>
+        <AppFrame reveal>{children}</AppFrame>
       </ProductThemeSync>
       <ProductNavigation />
     </>

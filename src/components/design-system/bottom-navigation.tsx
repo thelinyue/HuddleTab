@@ -4,7 +4,14 @@ import { BellIcon, UserRoundIcon, UsersRoundIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { gsap } from "gsap";
 
+import {
+  motionDuration,
+  motionEase,
+  useMotionGSAP,
+  useScopedResize,
+} from "@/components/design-system/motion";
 import { NOTIFICATION_UNREAD_COUNT_EVENT } from "@/lib/notification-unread-count";
 
 type TopLevelDestination = "activities" | "notifications" | "me";
@@ -32,12 +39,83 @@ export function BottomNavigation({
   readonly current: TopLevelDestination;
   readonly unreadCount: number;
 }) {
+  const navigation = useRef<HTMLElement>(null);
+  const previousUnreadCount = useRef(unreadCount);
+  const repositionIndicator = useRef<(immediate: boolean) => void>(
+    () => undefined,
+  );
+
+  useMotionGSAP(
+    (reducedMotion) => {
+      const positionCurrentIndicator = (immediate: boolean) => {
+        const scope = navigation.current;
+        const indicator = scope?.querySelector<HTMLElement>(
+          "[data-navigation-indicator]",
+        );
+        const activeLink = scope?.querySelector<HTMLElement>(
+          "a[aria-current=page]",
+        );
+        const indicatorParent = indicator?.parentElement;
+        if (!indicator || !activeLink || !indicatorParent) return;
+        const activeBounds = activeLink.getBoundingClientRect();
+        const parentBounds = indicatorParent.getBoundingClientRect();
+        const position = { x: activeBounds.left - parentBounds.left };
+        if (reducedMotion || immediate) {
+          gsap.set(indicator, position);
+          gsap.set(activeLink, { scale: 1 });
+          return;
+        }
+        gsap.to(indicator, {
+          ...position,
+          duration: motionDuration.brief,
+          ease: motionEase.enter,
+          overwrite: "auto",
+        });
+        gsap.fromTo(
+          activeLink,
+          { scale: 0.98 },
+          {
+            scale: 1,
+            duration: motionDuration.brief,
+            ease: motionEase.emphasis,
+            overwrite: "auto",
+          },
+        );
+      };
+      repositionIndicator.current = positionCurrentIndicator;
+      positionCurrentIndicator(false);
+
+      const scope = navigation.current;
+      const unreadIndicator = scope?.querySelector<HTMLElement>("[data-unread-indicator]");
+      if (unreadCount > 0 && previousUnreadCount.current === 0 && unreadIndicator) {
+        if (reducedMotion) {
+          gsap.set(unreadIndicator, { scale: 1 });
+        } else {
+          gsap.fromTo(
+            unreadIndicator,
+            { scale: 0 },
+            { scale: 1, duration: motionDuration.brief, ease: motionEase.emphasis },
+          );
+        }
+      }
+      previousUnreadCount.current = unreadCount;
+    },
+    {
+      dependencies: [current, unreadCount],
+      revertOnUpdate: false,
+      scope: navigation,
+    },
+  );
+  useScopedResize(navigation, () => repositionIndicator.current(true));
+
   return (
     <nav
+      ref={navigation}
       aria-label="主导航"
       className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[800px] border-t border-border/70 bg-surface/98 pb-[env(safe-area-inset-bottom)]"
     >
-      <ul className="grid grid-cols-3">
+      <div className="relative">
+        <ul className="grid grid-cols-3">
         {items.map(({ id, href, label, Icon }) => {
           const notificationLabel =
             id === "notifications" && unreadCount > 0
@@ -56,6 +134,7 @@ export function BottomNavigation({
                   {id === "notifications" && unreadCount > 0 ? (
                     <span
                       aria-hidden="true"
+                      data-unread-indicator
                       className="absolute -top-0.5 -right-1 size-1.5 rounded-full bg-primary"
                     />
                   ) : null}
@@ -65,7 +144,13 @@ export function BottomNavigation({
             </li>
           );
         })}
-      </ul>
+        </ul>
+        <span
+          aria-hidden="true"
+          data-navigation-indicator
+          className="pointer-events-none absolute bottom-0 left-0 h-0.5 w-1/3 bg-primary"
+        />
+      </div>
     </nav>
   );
 }

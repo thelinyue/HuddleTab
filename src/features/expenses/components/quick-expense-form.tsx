@@ -1,11 +1,15 @@
 "use client";
 
-import { useGSAP } from "@gsap/react";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { gsap } from "gsap";
 
+import {
+  motionDuration,
+  motionEase,
+  useMotionGSAP,
+} from "@/components/design-system/motion";
 import {
   asCurrencyCode,
   getCurrencyMinorUnits,
@@ -50,8 +54,6 @@ type FormValues = {
 export type QuickExpenseInitialValues = FormValues;
 
 export type QuickExpenseStep = "ENTRY" | "SPLIT";
-
-gsap.registerPlugin(useGSAP);
 
 function amountToMinor(value: string, currency: string): string {
   const precision = getCurrencyMinorUnits(currency.trim().toUpperCase());
@@ -208,6 +210,7 @@ export function QuickExpenseForm({
   preference,
   online = true,
   step = "ENTRY",
+  completionVersion = 0,
   onStepChange = () => undefined,
   onSplitValidityChange,
   onSaved,
@@ -228,6 +231,7 @@ export function QuickExpenseForm({
   readonly preference: QuickExpensePreference;
   readonly online?: boolean;
   readonly step?: QuickExpenseStep;
+  readonly completionVersion?: number;
   readonly onStepChange?: (step: QuickExpenseStep) => void;
   readonly onSplitValidityChange?: (valid: boolean) => void;
   readonly onSaved: (expense: {
@@ -260,6 +264,8 @@ export function QuickExpenseForm({
   const [files, setFiles] = useState<readonly File[]>([]);
   const [clientMutationId] = useState(() => crypto.randomUUID());
   const stepScope = useRef<HTMLDivElement>(null);
+  const previousStep = useRef(step);
+  const previousCompletionVersion = useRef(completionVersion);
   const activeMembers = members.filter((member) => member.status === "ACTIVE");
   const preferredParticipants = preference.recentParticipantIds.filter((id) =>
     activeMembers.some((member) => member.id === id),
@@ -314,30 +320,45 @@ export function QuickExpenseForm({
   useEffect(() => {
     onSplitValidityChange?.(splitValid);
   }, [onSplitValidityChange, splitValid]);
-  useGSAP(
-    () => {
+  useMotionGSAP(
+    (reducedMotion) => {
       const target = stepScope.current;
       if (!target) return;
-      if (
-        typeof window !== "undefined" &&
-        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-      ) {
-        gsap.set(target, { autoAlpha: 1, x: 0 });
+      const completedSplit =
+        previousStep.current === "SPLIT" &&
+        step === "ENTRY" &&
+        previousCompletionVersion.current !== completionVersion;
+      previousStep.current = step;
+      previousCompletionVersion.current = completionVersion;
+      if (reducedMotion) {
+        gsap.set(target, { opacity: 1, scale: 1, x: 0 });
         return;
       }
       gsap.fromTo(
         target,
-        { autoAlpha: 0, x: 12 },
+        { opacity: 0.01, x: 12 },
         {
-          autoAlpha: 1,
-          duration: 0.22,
-          ease: "power1.out",
+          opacity: 1,
+          duration: motionDuration.brief,
+          ease: motionEase.enter,
           overwrite: "auto",
           x: 0,
         },
       );
+      if (completedSplit) {
+        gsap.fromTo(
+          target,
+          { scale: 0.985 },
+          {
+            duration: motionDuration.brief,
+            ease: motionEase.emphasis,
+            overwrite: "auto",
+            scale: 1,
+          },
+        );
+      }
     },
-    { dependencies: [step], revertOnUpdate: true, scope: stepScope },
+    { dependencies: [completionVersion, step], scope: stepScope },
   );
   useEffect(() => {
     if (submitError)

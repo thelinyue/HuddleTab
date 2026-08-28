@@ -7,8 +7,9 @@ import {
   LockKeyhole,
   UserRound,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useRef, useState } from "react";
 
+import { useFormMotion } from "@/components/design-system/form-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +36,8 @@ export function AccountForm({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const scope = useRef<HTMLFormElement>(null);
+  useFormMotion(scope, error ?? "");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,9 +94,16 @@ export function AccountForm({
   }
 
   return (
-    <form className="mt-6 grid gap-5" onSubmit={(event) => void submit(event)}>
+    <form
+      ref={scope}
+      className="mt-6 grid gap-5"
+      onSubmit={(event) => void submit(event)}
+    >
       {mode === "register" && invitationProof ? (
-        <p className="rounded-sm bg-muted px-3 py-2 text-sm text-muted-foreground">
+        <p
+          data-motion-field
+          className="rounded-sm bg-muted px-3 py-2 text-sm text-muted-foreground"
+        >
           注册后将继续加入受邀活动
         </p>
       ) : null}
@@ -133,21 +143,23 @@ export function AccountForm({
         </>
       ) : null}
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p data-motion-error role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
-      <Button
-        className="w-full font-semibold"
-        type="submit"
-        size="lg"
-        disabled={submitting}
-      >
-        {submitting ? (
-          <LoaderCircle className="animate-spin" aria-hidden="true" />
-        ) : null}
-        {mode === "login" ? "登录" : "注册"}
-      </Button>
+      <div data-motion-field className="grid">
+        <Button
+          className="w-full font-semibold"
+          type="submit"
+          size="lg"
+          disabled={submitting}
+        >
+          {submitting ? (
+            <LoaderCircle className="animate-spin" aria-hidden="true" />
+          ) : null}
+          {mode === "login" ? "登录" : "注册"}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -172,7 +184,7 @@ function Field({
   const toggleLabel = passwordVisible ? "隐藏密码" : "显示密码";
 
   return (
-    <div className="grid gap-2">
+    <div data-motion-field className="grid gap-2">
       <Label htmlFor={id}>{label}</Label>
       <div className="relative">
         {icon ? (

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
+import { useFormMotion } from "@/components/design-system/form-motion";
 import { getCurrencyMinorUnits } from "@/domain/currency/currency";
 import {
   minorToInput,
@@ -71,6 +72,8 @@ export function SettlementForm({
   const [occurredAt, setOccurredAt] = useState(currentLocalDateTime());
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const scope = useRef<HTMLFormElement>(null);
+  useFormMotion(scope, error ?? "");
   const inputClass = "mt-1 min-h-11 w-full border bg-background px-3";
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,8 +106,8 @@ export function SettlementForm({
     }
   }
   return (
-    <form onSubmit={submit} className="space-y-4" noValidate>
-      <div>
+    <form ref={scope} onSubmit={submit} className="space-y-4" noValidate>
+      <div data-motion-field>
         <label htmlFor="settlement-payer" className="block text-sm font-medium">
           付款人
         </label>
@@ -128,7 +131,7 @@ export function SettlementForm({
             ))}
         </select>
       </div>
-      <div>
+      <div data-motion-field>
         <label
           htmlFor="settlement-receiver"
           className="block text-sm font-medium"
@@ -152,7 +155,7 @@ export function SettlementForm({
             ))}
         </select>
       </div>
-      <div>
+      <div data-motion-field>
         <label
           htmlFor="settlement-amount"
           className="block text-sm font-medium"
@@ -167,7 +170,7 @@ export function SettlementForm({
           className={inputClass}
         />
       </div>
-      <div>
+      <div data-motion-field>
         <label
           htmlFor="settlement-occurred-at"
           className="block text-sm font-medium"
@@ -182,7 +185,7 @@ export function SettlementForm({
           className={inputClass}
         />
       </div>
-      <div>
+      <div data-motion-field>
         <label htmlFor="settlement-note" className="block text-sm font-medium">
           备注
         </label>
@@ -195,20 +198,22 @@ export function SettlementForm({
         />
       </div>
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p data-motion-error role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={!online}
-        aria-describedby={online ? undefined : "settlement-offline-help"}
-        className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
-      >
-        确认已支付
-      </button>
+      <div data-motion-field>
+        <button
+          type="submit"
+          disabled={!online}
+          aria-describedby={online ? undefined : "settlement-offline-help"}
+          className="min-h-12 w-full bg-primary px-4 font-medium text-primary-foreground"
+        >
+          确认已支付
+        </button>
+      </div>
       {!online && (
-        <div id="settlement-offline-help">
+        <div data-motion-field id="settlement-offline-help">
           <OfflineStatus>结算必须联网后记录。</OfflineStatus>
         </div>
       )}

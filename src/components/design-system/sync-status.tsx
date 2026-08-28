@@ -1,3 +1,8 @@
+"use client";
+
+import { useRef } from "react";
+
+import { useStateMotion } from "./state-motion";
 import { StatusBadge } from "./status-badge";
 
 type SyncTone = "synced" | "pending" | "offline" | "error";
@@ -15,10 +20,14 @@ const syncContent: Record<
 /** 同步状态只展示可识别的语义，不执行重试或网络操作。 */
 export function SyncStatus({ tone, className }: { readonly tone: SyncTone; readonly className?: string }) {
   const content = syncContent[tone];
+  const scope = useRef<HTMLSpanElement>(null);
+  useStateMotion(scope, tone);
 
   return (
-    <StatusBadge tone={content.badgeTone} icon={content.icon} className={className}>
-      {content.label}
-    </StatusBadge>
+    <span ref={scope} className="inline-flex">
+      <StatusBadge tone={content.badgeTone} icon={content.icon} className={className}>
+        {content.label}
+      </StatusBadge>
+    </span>
   );
 }

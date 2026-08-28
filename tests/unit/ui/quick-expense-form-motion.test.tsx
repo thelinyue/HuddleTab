@@ -26,6 +26,7 @@ vi.mock("gsap", () => ({
     set: mocks.set,
   },
 }));
+vi.mock("gsap/Flip", () => ({ Flip: {} }));
 
 import { QuickExpenseForm } from "@/features/expenses/components/quick-expense-form";
 
@@ -81,10 +82,10 @@ test("步骤切换使用 scoped GSAP 的可中断位移动画", async () => {
 
   expect(mocks.fromTo).toHaveBeenLastCalledWith(
     expect.any(HTMLDivElement),
-    { autoAlpha: 0, x: 12 },
+    { opacity: 0.01, x: 12 },
     {
-      autoAlpha: 1,
-      duration: 0.22,
+      opacity: 1,
+      duration: 0.18,
       ease: "power1.out",
       overwrite: "auto",
       x: 0,
@@ -108,7 +109,8 @@ test("减少动态效果时步骤直接进入最终状态", () => {
   );
 
   expect(mocks.set).toHaveBeenCalledWith(expect.any(HTMLDivElement), {
-    autoAlpha: 1,
+    opacity: 1,
+    scale: 1,
     x: 0,
   });
   expect(mocks.fromTo).not.toHaveBeenCalled();
