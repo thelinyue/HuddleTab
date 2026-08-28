@@ -13,30 +13,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { MemberAvatar } from "@/components/design-system/member-avatar";
-import { useThemePreference } from "@/components/design-system/theme-provider";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
-import {
-  ThemeSelector,
-  type ThemeValue,
-} from "@/features/me/components/theme-selector";
+import { getMeProfile, type MeProfileDto } from "@/features/me/api";
 
-type Profile = {
-  readonly nickname: string;
-  readonly username: string;
-  readonly emailBound: boolean;
-  readonly themePreference: ThemeValue;
-  readonly isSystemAdmin: boolean;
-};
-
-type Panel = "PROFILE" | "EMAIL" | "PASSWORD" | "THEME" | null;
-
-const themeLabels: Record<ThemeValue, string> = {
+const themeLabels: Record<MeProfileDto["themePreference"], string> = {
   SYSTEM: "跟随系统",
   LIGHT: "亮色",
   DARK: "暗色",
@@ -47,33 +29,19 @@ async function ensureSuccess(response: Response, message: string) {
 }
 
 /**
- * 个人页只负责账户能力编排：列表用于浏览，响应式 Overlay 承载编辑。
- * 服务端仍是资料、主题和凭证变更的最终校验边界，页面不会推断额外账户信息。
+ * “我的”主页只编排已存在的账户路由，避免主页与二级表单维护两套资料状态。
+ * `avatarPreset` 直接交给 MemberAvatar：历史 NULL 值仍会由成员标识稳定回退。
  */
 export function MePage() {
   const router = useRouter();
-  const { updateThemePreference } = useThemePreference();
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<MeProfileDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [panelError, setPanelError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [panel, setPanel] = useState<Panel>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [nickname, setNickname] = useState("");
-  const [email, setEmail] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
 
   useEffect(() => {
-    void fetch("/api/me/profile", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("个人资料加载失败，请稍后重试。");
-        return (await response.json()).data as Profile;
-      })
-      .then((next) => {
-        setProfile(next);
-        setNickname(next.nickname);
-      })
+    void getMeProfile()
+      .then(setProfile)
       .catch((reason: unknown) =>
         setLoadError(
           reason instanceof Error
@@ -83,121 +51,9 @@ export function MePage() {
       );
   }, []);
 
-  const openPanel = (next: Exclude<Panel, null>) => {
-    setPanelError(null);
-    setNotice(null);
-    setPanel(next);
-  };
-
-  const closePanel = () => {
-    if (submitting) return;
-    setPanel(null);
-    setPanelError(null);
-  };
-
-  const saveNickname = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!profile || submitting) return;
-    setSubmitting(true);
-    setPanelError(null);
-    try {
-      await ensureSuccess(
-        await fetch("/api/me/profile", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nickname }),
-        }),
-        "昵称保存失败，请稍后重试。",
-      );
-      setProfile({ ...profile, nickname });
-      setPanel(null);
-      setNotice("昵称已更新。");
-    } catch (reason) {
-      setPanelError(
-        reason instanceof Error ? reason.message : "昵称保存失败，请稍后重试。",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const bindEmail = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!profile || submitting) return;
-    setSubmitting(true);
-    setPanelError(null);
-    try {
-      await ensureSuccess(
-        await fetch("/api/me/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        }),
-        "邮箱绑定失败，请检查后重试。",
-      );
-      setProfile({ ...profile, emailBound: true });
-      setEmail("");
-      setPanel(null);
-      setNotice("邮箱已绑定。");
-    } catch (reason) {
-      setPanelError(
-        reason instanceof Error ? reason.message : "邮箱绑定失败，请稍后重试。",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const changePassword = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (submitting) return;
-    setSubmitting(true);
-    setPanelError(null);
-    try {
-      await ensureSuccess(
-        await fetch("/api/me/password", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ currentPassword, newPassword }),
-        }),
-        "密码修改失败，请检查当前密码。",
-      );
-      setCurrentPassword("");
-      setNewPassword("");
-      setPanel(null);
-      setNotice("密码已修改。");
-    } catch (reason) {
-      setPanelError(
-        reason instanceof Error ? reason.message : "密码修改失败，请稍后重试。",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const changeTheme = async (next: ThemeValue) => {
-    if (!profile || submitting || next === profile.themePreference) return;
-    setSubmitting(true);
-    setPanelError(null);
-    try {
-      await updateThemePreference(next);
-      setProfile({ ...profile, themePreference: next });
-      setPanel(null);
-      setNotice(`主题已切换为${themeLabels[next]}。`);
-    } catch (reason) {
-      setPanelError(
-        reason instanceof Error
-          ? reason.message
-          : "主题偏好保存失败，请稍后重试。",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const signOut = async () => {
-    if (submitting) return;
-    setSubmitting(true);
+    if (signingOut) return;
+    setSigningOut(true);
     setNotice(null);
     try {
       await ensureSuccess(
@@ -210,7 +66,7 @@ export function MePage() {
         reason instanceof Error ? reason.message : "退出登录失败，请稍后重试。",
       );
     } finally {
-      setSubmitting(false);
+      setSigningOut(false);
     }
   };
 
@@ -235,64 +91,60 @@ export function MePage() {
 
       <section
         aria-label="个人资料"
-        className="mt-3 flex items-center gap-4 rounded-lg bg-primary px-4 py-5 text-primary-foreground"
+        className="mt-3 flex items-center gap-4 rounded-lg bg-secondary px-4 py-5 text-secondary-foreground"
       >
         <MemberAvatar
           memberId={profile.username}
           displayName={profile.nickname}
-          className="size-16 ring-2 ring-primary-foreground/40"
+          avatarPreset={profile.avatarPreset}
+          className="size-16 ring-2 ring-primary/20"
         />
         <div className="min-w-0 flex-1">
           <h2 className="type-page-title truncate font-semibold">
             {profile.nickname}
           </h2>
-          <p className="type-body mt-0.5 truncate opacity-80">
+          <p className="type-body mt-0.5 truncate text-muted-foreground">
             @{profile.username}
           </p>
-          <span className="type-caption mt-2 inline-flex items-center gap-1 rounded-full bg-primary-foreground/15 px-2 py-0.5 font-medium">
-            <BadgeCheckIcon aria-hidden="true" className="size-3.5" />
-            {profile.emailBound ? "邮箱已绑定" : "邮箱未绑定"}
-          </span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className="type-caption inline-flex items-center gap-1 rounded-full bg-surface px-2 py-0.5 font-medium text-foreground">
+              <BadgeCheckIcon aria-hidden="true" className="size-3.5" />
+              {profile.emailBound ? "邮箱已绑定" : "邮箱未绑定"}
+            </span>
+            {profile.isSystemAdmin ? (
+              <span className="type-caption inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
+                系统管理员
+              </span>
+            ) : null}
+          </div>
         </div>
       </section>
-
-      {notice ? (
-        <p role="status" className="type-label mt-3 text-success">
-          {notice}
-        </p>
-      ) : null}
 
       <SettingsSection id="account-security" title="账户与安全">
         <SettingsRow
           Icon={UserRoundPenIcon}
           title="个人资料"
           description={`@${profile.username}`}
-          actionLabel="编辑个人资料"
-          onClick={() => openPanel("PROFILE")}
+          href="/me/profile"
         />
-        {profile.emailBound ? (
-          <SettingsRow
-            Icon={MailIcon}
-            title="邮箱"
-            description="用于账户安全与找回"
-            trailing={<span className="type-label text-success">已绑定</span>}
-          />
-        ) : (
-          <SettingsRow
-            Icon={MailIcon}
-            title="邮箱"
-            description="尚未绑定真实邮箱"
-            trailing={<span className="type-label text-warning">未绑定</span>}
-            actionLabel="绑定邮箱"
-            onClick={() => openPanel("EMAIL")}
-          />
-        )}
+        <SettingsRow
+          Icon={MailIcon}
+          title="邮箱"
+          description={profile.emailBound ? "用于账户安全与找回" : "尚未绑定真实邮箱"}
+          trailing={
+            <span
+              className={`type-label ${profile.emailBound ? "text-success" : "text-warning"}`}
+            >
+              {profile.emailBound ? "已绑定" : "未绑定"}
+            </span>
+          }
+          href="/me/email"
+        />
         <SettingsRow
           Icon={KeyRoundIcon}
           title="修改密码"
           description="更新当前登录凭证"
-          actionLabel="修改密码"
-          onClick={() => openPanel("PASSWORD")}
+          href="/me/password"
         />
       </SettingsSection>
 
@@ -302,8 +154,8 @@ export function MePage() {
           title="主题"
           description="调整应用显示模式"
           trailing={themeLabels[profile.themePreference]}
-          actionLabel={`主题：${themeLabels[profile.themePreference]}`}
-          onClick={() => openPanel("THEME")}
+          ariaLabel={`主题：${themeLabels[profile.themePreference]}`}
+          href="/me/theme"
         />
       </SettingsSection>
 
@@ -314,120 +166,29 @@ export function MePage() {
             title="系统管理"
             description="用户与系统运行设置"
             href="/admin"
-            actionLabel="系统管理"
           />
         </SettingsSection>
       ) : null}
 
+      {notice ? (
+        <p role="alert" className="type-label mt-3 text-destructive">
+          {notice}
+        </p>
+      ) : null}
+
       <button
         type="button"
-        disabled={submitting}
-        className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 font-medium text-destructive disabled:opacity-50"
+        disabled={signingOut}
+        className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-destructive/30 disabled:opacity-50"
         onClick={() => void signOut()}
       >
         <LogOutIcon aria-hidden="true" className="size-4" />
-        {submitting ? "正在退出…" : "退出登录"}
+        {signingOut ? "正在退出…" : "退出登录"}
       </button>
 
       <p className="type-caption mt-6 text-center text-muted-foreground">
         HuddleTab V1
       </p>
-
-      <ResponsiveFormOverlay
-        open={panel !== null}
-        onOpenChange={(open) => {
-          if (!open) closePanel();
-        }}
-        title={
-          panel === "PROFILE"
-            ? "编辑个人资料"
-            : panel === "EMAIL"
-              ? "绑定邮箱"
-              : panel === "PASSWORD"
-                ? "修改密码"
-                : "主题"
-        }
-      >
-        {panel === "PROFILE" ? (
-          <form
-            className="grid gap-4"
-            onSubmit={(event) => void saveNickname(event)}
-          >
-            <Field
-              id="profile-nickname"
-              label="昵称"
-              value={nickname}
-              onChange={setNickname}
-              autoComplete="name"
-              maxLength={40}
-            />
-            <PanelError message={panelError} />
-            <Button type="submit" size="lg" disabled={submitting}>
-              {submitting ? "保存中…" : "保存"}
-            </Button>
-          </form>
-        ) : null}
-
-        {panel === "EMAIL" ? (
-          <form
-            className="grid gap-4"
-            onSubmit={(event) => void bindEmail(event)}
-          >
-            <Field
-              id="profile-email"
-              label="真实邮箱"
-              type="email"
-              value={email}
-              onChange={setEmail}
-              autoComplete="email"
-            />
-            <PanelError message={panelError} />
-            <Button type="submit" size="lg" disabled={submitting}>
-              {submitting ? "绑定中…" : "绑定邮箱"}
-            </Button>
-          </form>
-        ) : null}
-
-        {panel === "PASSWORD" ? (
-          <form
-            className="grid gap-4"
-            onSubmit={(event) => void changePassword(event)}
-          >
-            <Field
-              id="current-password"
-              label="当前密码"
-              type="password"
-              value={currentPassword}
-              onChange={setCurrentPassword}
-              autoComplete="current-password"
-              minLength={8}
-            />
-            <Field
-              id="new-password"
-              label="新密码"
-              type="password"
-              value={newPassword}
-              onChange={setNewPassword}
-              autoComplete="new-password"
-              minLength={8}
-            />
-            <PanelError message={panelError} />
-            <Button type="submit" size="lg" disabled={submitting}>
-              {submitting ? "修改中…" : "确认修改"}
-            </Button>
-          </form>
-        ) : null}
-
-        {panel === "THEME" ? (
-          <div className="grid gap-4">
-            <ThemeSelector
-              value={profile.themePreference}
-              onChange={(next) => void changeTheme(next)}
-            />
-            <PanelError message={panelError} />
-          </div>
-        ) : null}
-      </ResponsiveFormOverlay>
     </section>
   );
 }
@@ -446,7 +207,9 @@ function SettingsSection({
       <h2 id={id} className="type-section-title mb-2 font-semibold">
         {title}
       </h2>
-      <div className="border-y">{children}</div>
+      <div className="divide-y overflow-hidden rounded-lg border bg-surface">
+        {children}
+      </div>
     </section>
   );
 }
@@ -456,20 +219,22 @@ function SettingsRow({
   title,
   description,
   trailing,
-  actionLabel,
-  onClick,
+  ariaLabel,
   href,
 }: {
   readonly Icon: LucideIcon;
   readonly title: string;
   readonly description: string;
   readonly trailing?: ReactNode;
-  readonly actionLabel?: string;
-  readonly onClick?: () => void;
-  readonly href?: string;
+  readonly ariaLabel?: string;
+  readonly href: string;
 }) {
-  const content = (
-    <>
+  return (
+    <Link
+      href={href}
+      aria-label={ariaLabel ?? title}
+      className="flex min-h-14 w-full items-center gap-3 px-3 py-2 text-foreground transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50"
+    >
       <span
         aria-hidden="true"
         className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"
@@ -483,81 +248,12 @@ function SettingsRow({
         </span>
       </span>
       {trailing ? (
-        <span className="type-label shrink-0 text-muted-foreground">
-          {trailing}
-        </span>
+        <span className="shrink-0 text-muted-foreground">{trailing}</span>
       ) : null}
-      {onClick || href ? (
-        <ChevronRightIcon
-          aria-hidden="true"
-          className="size-4 shrink-0 text-muted-foreground"
-        />
-      ) : null}
-    </>
-  );
-  const className =
-    "flex min-h-16 w-full items-center gap-3 border-b py-2 text-foreground last:border-b-0";
-
-  if (href)
-    return (
-      <Link href={href} aria-label={actionLabel ?? title} className={className}>
-        {content}
-      </Link>
-    );
-  if (onClick)
-    return (
-      <button
-        type="button"
-        aria-label={actionLabel ?? title}
-        className={className}
-        onClick={onClick}
-      >
-        {content}
-      </button>
-    );
-  return <div className={className}>{content}</div>;
-}
-
-function Field({
-  id,
-  label,
-  value,
-  onChange,
-  type = "text",
-  autoComplete,
-  minLength,
-  maxLength,
-}: {
-  readonly id: string;
-  readonly label: string;
-  readonly value: string;
-  readonly onChange: (value: string) => void;
-  readonly type?: "text" | "email" | "password";
-  readonly autoComplete: string;
-  readonly minLength?: number;
-  readonly maxLength?: number;
-}) {
-  return (
-    <div className="grid gap-2">
-      <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        required
-        minLength={minLength}
-        maxLength={maxLength}
-        autoComplete={autoComplete}
+      <ChevronRightIcon
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground"
       />
-    </div>
+    </Link>
   );
-}
-
-function PanelError({ message }: { readonly message: string | null }) {
-  return message ? (
-    <p role="alert" className="type-label text-destructive">
-      {message}
-    </p>
-  ) : null;
 }

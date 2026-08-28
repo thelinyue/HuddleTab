@@ -14,8 +14,37 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { MemberList } from "@/features/members/components/member-list";
 import { ThemeSelector } from "@/features/me/components/theme-selector";
+import AdminPage from "@/app/admin/page";
 
 afterEach(cleanup);
+
+test("系统管理首页仅提供四个已实现管理页面的导航", () => {
+  render(<AdminPage />);
+
+  expect(screen.getByRole("heading", { name: "系统管理" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "返回" })).toHaveAttribute(
+    "href",
+    "/me",
+  );
+  expect(screen.getByRole("link", { name: "用户管理" })).toHaveAttribute(
+    "href",
+    "/admin/users",
+  );
+  expect(screen.getByRole("link", { name: "系统设置" })).toHaveAttribute(
+    "href",
+    "/admin/settings",
+  );
+  expect(screen.getByRole("link", { name: "备份与恢复" })).toHaveAttribute(
+    "href",
+    "/admin/backups",
+  );
+  expect(screen.getByRole("link", { name: "系统信息" })).toHaveAttribute(
+    "href",
+    "/admin/system",
+  );
+  expect(screen.getAllByRole("link")).toHaveLength(5);
+  expect(screen.queryByText(/SMTP/)).not.toBeInTheDocument();
+});
 
 const members = [
   {
