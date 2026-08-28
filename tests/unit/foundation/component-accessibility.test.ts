@@ -57,6 +57,7 @@ describe("基础交互组件", () => {
         memberId: "member-42",
         displayName: "小王",
         imageUrl: "/uploads/member-42.webp",
+        avatarPreset: 4,
       }),
     );
 
@@ -64,6 +65,45 @@ describe("基础交互组件", () => {
       "src",
       "/uploads/member-42.webp",
     );
+  });
+
+  it("uses the selected avatar preset before the stable hash fallback", () => {
+    render(
+      createElement(MemberAvatar, {
+        memberId: "member-42",
+        displayName: "小王",
+        avatarPreset: 4,
+      }),
+    );
+
+    expect(
+      screen.getByLabelText("小王的头像").querySelector("img"),
+    ).toHaveAttribute("src", "/member-avatars/avatar-04.webp");
+  });
+
+  it("uses the stable hash fallback when the avatar preset is null", () => {
+    const { rerender } = render(
+      createElement(MemberAvatar, {
+        memberId: "member-42",
+        displayName: "小王",
+        avatarPreset: null,
+      }),
+    );
+
+    const avatar = screen.getByLabelText("小王的头像");
+    const source = avatar.querySelector("img")?.getAttribute("src");
+
+    rerender(
+      createElement(MemberAvatar, {
+        memberId: "member-42",
+        displayName: "访客",
+        avatarPreset: null,
+      }),
+    );
+
+    expect(
+      screen.getByLabelText("访客的头像").querySelector("img"),
+    ).toHaveAttribute("src", source);
   });
 
   it("keeps fallback covers decorative when their activity title is visible", () => {

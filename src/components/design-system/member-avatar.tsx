@@ -1,5 +1,7 @@
 import Image from "next/image";
 
+import type { AvatarPreset } from "@/features/me/avatar-presets";
+import { avatarPresetPath } from "@/features/me/avatar-presets";
 import { cn } from "@/lib/utils";
 
 import { stableVisualIndex } from "./visual-index";
@@ -30,17 +32,21 @@ export function MemberAvatar({
   memberId,
   displayName,
   imageUrl,
+  avatarPreset,
   className,
 }: {
   readonly memberId: string;
   readonly displayName: string;
   readonly imageUrl?: string | null;
+  readonly avatarPreset?: AvatarPreset | null;
   readonly className?: string;
 }) {
   const name = displayName.trim();
   const label = name || "未命名成员";
   const colorIndex = stableVisualIndex(memberId, avatarColorClassName.length);
-  const source = imageUrl ?? avatarPaths[colorIndex];
+  // 头像来源按“真实图片 > 用户选择的预设 > memberId 稳定哈希”分层，确保资料选择生效且旧成员仍有稳定回退。
+  const source = imageUrl ??
+    (avatarPreset ? avatarPresetPath(avatarPreset) : avatarPaths[colorIndex]);
 
   return (
     <span
