@@ -16,6 +16,7 @@ const theme = vi.hoisted(() => ({
 const productTheme = vi.hoisted(() => ({
   loading: false,
   preference: "SYSTEM" as "SYSTEM" | "LIGHT" | "DARK" | null,
+  commitPreference: vi.fn(),
 }));
 
 vi.mock("@/features/me/api", () => api);

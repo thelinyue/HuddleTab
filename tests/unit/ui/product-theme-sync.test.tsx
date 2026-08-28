@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { act, StrictMode, type ReactNode } from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const nextTheme = vi.hoisted(() => ({
@@ -125,6 +126,69 @@ test("主题页复用 product shell 的资料读取与主题应用", async () =>
   expect(
     fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH"),
   ).toBe(false);
+});
+
+test("保存主题后同一 product shell 导航返回仍使用最新偏好", async () => {
+  const user = userEvent.setup();
+  nextTheme.theme = "system";
+  const fetchMock = vi.fn(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      if (input === "/api/me/profile") return darkProfileResponse();
+      if (input === "/api/me/theme" && init?.method === "PATCH") {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`未预期的主题请求：${String(input)}`);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  const view = render(
+    <ThemeProvider>
+      <ProductLayout>
+        <ThemePage />
+      </ProductLayout>
+    </ThemeProvider>,
+  );
+
+  expect(await screen.findByRole("radio", { name: "暗色" })).toBeChecked();
+  await user.click(screen.getByRole("radio", { name: "亮色" }));
+  await waitFor(() => {
+    expect(screen.getByRole("radio", { name: "亮色" })).toBeChecked();
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/me/theme", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ theme: "LIGHT" }),
+  });
+
+  view.rerender(
+    <ThemeProvider>
+      <ProductLayout>
+        <p>活动列表</p>
+      </ProductLayout>
+    </ThemeProvider>,
+  );
+  expect(screen.getByText("活动列表")).toBeVisible();
+  view.rerender(
+    <ThemeProvider>
+      <ProductLayout>
+        <ThemePage />
+      </ProductLayout>
+    </ThemeProvider>,
+  );
+
+  expect(await screen.findByRole("radio", { name: "亮色" })).toBeChecked();
+  await user.click(screen.getByRole("radio", { name: "暗色" }));
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("radio", { name: "暗色" })).toBeChecked();
+  });
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/me/theme", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ theme: "DARK" }),
+  });
 });
 
 test("StrictMode effect 探测后仍应用服务器主题且请求次数有界", async () => {

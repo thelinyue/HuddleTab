@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -20,7 +21,11 @@ interface ProductThemeSyncState {
   readonly preference: ThemePreference | null;
 }
 
-const ProductThemeSyncContext = createContext<ProductThemeSyncState | null>(
+interface ProductThemeSyncValue extends ProductThemeSyncState {
+  readonly commitPreference: (preference: ThemePreference) => void;
+}
+
+const ProductThemeSyncContext = createContext<ProductThemeSyncValue | null>(
   null,
 );
 
@@ -39,6 +44,10 @@ export function ProductThemeSync({
     loading: true,
     preference: null,
   });
+  /** 成功保存必须与首次 GET 写入同一快照，保证共享 layout 导航后仍使用最新偏好。 */
+  const commitPreference = useCallback((preference: ThemePreference) => {
+    setState({ loading: false, preference });
+  }, []);
 
   useEffect(() => {
     applyThemePreferenceRef.current = applyThemePreference;
@@ -63,7 +72,7 @@ export function ProductThemeSync({
   }, []);
 
   return (
-    <ProductThemeSyncContext.Provider value={state}>
+    <ProductThemeSyncContext.Provider value={{ ...state, commitPreference }}>
       {children}
     </ProductThemeSyncContext.Provider>
   );

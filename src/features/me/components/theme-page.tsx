@@ -16,7 +16,11 @@ import { ThemeSelector } from "./theme-selector";
  * ThemeProvider 先持久化，成功后才切换本地主题和 radio。
  */
 export function ThemePage() {
-  const { loading, preference: syncedPreference } = useProductThemeSync();
+  const {
+    loading,
+    preference: syncedPreference,
+    commitPreference,
+  } = useProductThemeSync();
 
   return (
     <section className="pb-6">
@@ -26,7 +30,10 @@ export function ThemePage() {
           正在加载主题偏好…
         </p>
       ) : (
-        <ThemeSettings syncedPreference={syncedPreference} />
+        <ThemeSettings
+          syncedPreference={syncedPreference}
+          commitPreference={commitPreference}
+        />
       )}
     </section>
   );
@@ -34,8 +41,10 @@ export function ThemePage() {
 
 function ThemeSettings({
   syncedPreference,
+  commitPreference,
 }: {
   readonly syncedPreference: ThemePreference | null;
+  readonly commitPreference: (preference: ThemePreference) => void;
 }) {
   const { preference, updateThemePreference } = useThemePreference();
   const [selectedTheme, setSelectedTheme] = useState<ThemePreference>(
@@ -51,6 +60,7 @@ function ThemeSettings({
     setSaveError(null);
     try {
       await updateThemePreference(nextTheme);
+      commitPreference(nextTheme);
       setSelectedTheme(nextTheme);
     } catch (reason) {
       setSaveError(
