@@ -12,25 +12,20 @@ import {
   updateMeProfile,
   type MeProfileDto,
 } from "@/features/me/api";
-import {
-  DEFAULT_AVATAR_PRESET,
-  type AvatarPreset,
-} from "@/features/me/avatar-presets";
+import { type AvatarPreset } from "@/features/me/avatar-presets";
 
 import { AvatarPresetPicker } from "./avatar-preset-picker";
 import { MeSubpageHeader } from "./me-subpage-header";
 
 /**
  * 资料编辑页将服务端资料复制到受控表单中。保存失败时不重置本地状态，
- * 让用户修正后直接重试；旧账户的空头像则只在编辑界面回退到默认预设。
+ * 让用户修正后直接重试；旧账户的空头像保持稳定哈希回退，直到主动选择预设。
  */
 export function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<MeProfileDto | null>(null);
   const [nickname, setNickname] = useState("");
-  const [avatarPreset, setAvatarPreset] = useState<AvatarPreset>(
-    DEFAULT_AVATAR_PRESET,
-  );
+  const [avatarPreset, setAvatarPreset] = useState<AvatarPreset | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -40,7 +35,7 @@ export function ProfilePage() {
       .then((next) => {
         setProfile(next);
         setNickname(next.nickname);
-        setAvatarPreset(next.avatarPreset ?? DEFAULT_AVATAR_PRESET);
+        setAvatarPreset(next.avatarPreset);
       })
       .catch((reason: unknown) => {
         setLoadError(
@@ -58,7 +53,9 @@ export function ProfilePage() {
     setSubmitting(true);
     setSaveError(null);
     try {
-      await updateMeProfile({ nickname, avatarPreset });
+      await updateMeProfile(
+        avatarPreset === null ? { nickname } : { nickname, avatarPreset },
+      );
       router.replace("/me");
       router.refresh();
     } catch (reason) {

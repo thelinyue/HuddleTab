@@ -12,6 +12,8 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
+import type { AvatarPreset } from "@/features/me/avatar-presets";
+
 const api = vi.hoisted(() => ({
   getMeProfile: vi.fn(),
   updateMeProfile: vi.fn(),
@@ -28,14 +30,18 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderProfile() {
+function renderProfile({
+  avatarPreset = 2,
+}: {
+  readonly avatarPreset?: AvatarPreset | null;
+} = {}) {
   api.getMeProfile.mockResolvedValue({
     nickname: "林樾",
     username: "linyue",
     emailBound: true,
     maskedEmail: "l***@example.com",
     emailVerified: true,
-    avatarPreset: 2,
+    avatarPreset,
     themePreference: "SYSTEM",
     isSystemAdmin: false,
   });
@@ -106,4 +112,26 @@ test("保存失败时保留昵称和头像选择，并显示中文错误", async
   expect(nickname).toHaveValue("新昵称");
   expect(screen.getByRole("radio", { name: "头像 5" })).toBeChecked();
   expect(router.replace).not.toHaveBeenCalled();
+});
+
+test("历史账户只改昵称时保留哈希头像并省略头像字段", async () => {
+  const user = userEvent.setup();
+  api.updateMeProfile.mockResolvedValue(undefined);
+  renderProfile({ avatarPreset: null });
+
+  expect(
+    within(await screen.findByRole("img", { name: "当前的头像" })).getByRole(
+      "presentation",
+    ),
+  ).toHaveAttribute("src", "/member-avatars/avatar-03.webp");
+  expect(screen.getByRole("radio", { name: "头像 2" })).not.toBeChecked();
+
+  const nickname = screen.getByLabelText("昵称");
+  await user.clear(nickname);
+  await user.type(nickname, "历史昵称");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => {
+    expect(api.updateMeProfile).toHaveBeenCalledWith({ nickname: "历史昵称" });
+  });
 });

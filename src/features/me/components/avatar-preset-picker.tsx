@@ -16,7 +16,7 @@ export function AvatarPresetPicker({
   value,
   onChange,
 }: {
-  readonly value: AvatarPreset;
+  readonly value: AvatarPreset | null;
   readonly onChange: (value: AvatarPreset) => void;
 }) {
   return (
