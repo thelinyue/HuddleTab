@@ -2,7 +2,19 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
-const nicknameInput = z.object({ nickname: z.string().trim().min(1).max(40) });
+const profileInput = z.object({
+  nickname: z.string().trim().min(1).max(40),
+  avatarPreset: z
+    .union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+      z.literal(6),
+    ])
+    .optional(),
+});
 
 export async function GET(request: Request) {
   const [{ requireSession, sessionUserId }, { sql }, { MeService }] =
@@ -25,7 +37,7 @@ export async function PATCH(request: Request) {
       import("@/server/services/me-service"),
     ]);
   const userId = sessionUserId(await requireSession(request.headers));
-  const input = nicknameInput.parse(await request.json());
-  await new MeService(sql).updateNickname(userId, input.nickname);
+  const input = profileInput.parse(await request.json());
+  await new MeService(sql).updateProfile(userId, input);
   return new Response(null, { status: 204 });
 }

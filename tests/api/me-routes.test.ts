@@ -3,6 +3,8 @@ import { expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listSessions: vi.fn(),
   revokeSession: vi.fn(),
+  getProfile: vi.fn(),
+  updateProfile: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({
@@ -10,13 +12,23 @@ vi.mock("@/server/auth/session", () => ({
     user: { id: "user-1" },
     session: { id: "current-session" },
   }),
+  sessionUserId: vi.fn().mockReturnValue("user-1"),
   sessionId: vi.fn().mockReturnValue("current-session"),
 }));
 vi.mock("@/server/auth/auth", () => ({
   auth: { api: mocks },
 }));
+vi.mock("@/server/db/client", () => ({ sql: {} }));
+vi.mock("@/server/services/me-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/services/me-service")>()),
+  MeService: class {
+    getProfile = mocks.getProfile;
+    updateProfile = mocks.updateProfile;
+  },
+}));
 
 import { DELETE, GET } from "@/app/api/me/sessions/route";
+import { PATCH } from "@/app/api/me/profile/route";
 
 it("列出会话时不暴露 Better Auth Token", async () => {
   mocks.listSessions.mockResolvedValue([
@@ -59,5 +71,51 @@ it("仅撤销当前用户已列出的目标会话", async () => {
   expect(mocks.revokeSession).toHaveBeenCalledWith({
     headers: expect.any(Headers),
     body: { token: "target-token" },
+  });
+});
+
+it("资料 PATCH 保持仅昵称请求的兼容性", async () => {
+  mocks.updateProfile.mockResolvedValue(undefined);
+
+  const response = await PATCH(
+    new Request("http://localhost/api/me/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ nickname: "新昵称" }),
+    }),
+  );
+
+  expect(response.status).toBe(204);
+  expect(mocks.updateProfile).toHaveBeenCalledWith("user-1", {
+    nickname: "新昵称",
+  });
+});
+
+it("资料 PATCH 拒绝范围外的头像预设", async () => {
+  await expect(
+    PATCH(
+      new Request("http://localhost/api/me/profile", {
+        method: "PATCH",
+        body: JSON.stringify({ nickname: "新昵称", avatarPreset: 7 }),
+      }),
+    ),
+  ).rejects.toThrow();
+
+  expect(mocks.updateProfile).not.toHaveBeenCalled();
+});
+
+it("资料 PATCH 将合法头像预设原样交给资料服务", async () => {
+  mocks.updateProfile.mockResolvedValue(undefined);
+
+  const response = await PATCH(
+    new Request("http://localhost/api/me/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ nickname: "新昵称", avatarPreset: 5 }),
+    }),
+  );
+
+  expect(response.status).toBe(204);
+  expect(mocks.updateProfile).toHaveBeenCalledWith("user-1", {
+    nickname: "新昵称",
+    avatarPreset: 5,
   });
 });
