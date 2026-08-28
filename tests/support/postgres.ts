@@ -17,12 +17,13 @@ export interface PostgresHarness {
 
 /**
  * 集成测试统一使用临时 PostgreSQL 18，并只通过已提交的 Drizzle migration 建表。
- * Setup 凭证创建会在业务事务中回调，因此预留第二条连接避免测试夹具与自身事务自锁。
+ * 并发 Setup 会占用两条外层事务连接，凭证创建回调还需第三条连接写入测试账号，
+ * 因此测试连接池至少保留三条连接，避免夹具与自身事务形成连接池饥饿。
  */
 export async function startPostgres(): Promise<PostgresHarness> {
   const { PostgreSqlContainer } = await import("@testcontainers/postgresql");
   const container = await new PostgreSqlContainer("postgres:18-alpine").start();
-  const { sql, db } = createDatabaseClient(container.getConnectionUri(), 2);
+  const { sql, db } = createDatabaseClient(container.getConnectionUri(), 3);
 
   await migrate(db, { migrationsFolder: "drizzle" });
 

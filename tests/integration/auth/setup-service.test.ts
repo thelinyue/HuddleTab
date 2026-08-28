@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   startPostgres,
@@ -11,6 +11,19 @@ describe("SetupService", () => {
 
   beforeAll(async () => {
     harness = await startPostgres();
+  });
+
+  beforeEach(async () => {
+    await harness.sql`delete from system_roles
+      where user_id in ('setup-admin', 'concurrent-setup-1', 'concurrent-setup-2')`;
+    await harness.sql`delete from account
+      where user_id in ('setup-admin', 'concurrent-setup-1', 'concurrent-setup-2')`;
+    await harness.sql`delete from user_profiles
+      where user_id in ('setup-admin', 'concurrent-setup-1', 'concurrent-setup-2')`;
+    await harness.sql`delete from "user"
+      where id in ('setup-admin', 'concurrent-setup-1', 'concurrent-setup-2')`;
+    await harness.sql`update system_bootstrap
+      set completed_at = null where id = 'singleton'`;
   });
 
   afterAll(async () => {
