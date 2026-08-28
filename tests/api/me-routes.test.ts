@@ -1,19 +1,21 @@
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
+
+import { ApplicationError } from "@/server/errors/application-error";
 
 const mocks = vi.hoisted(() => ({
   listSessions: vi.fn(),
   revokeSession: vi.fn(),
   getProfile: vi.fn(),
   updateProfile: vi.fn(),
+  requireSession: vi.fn(),
+  sessionUserId: vi.fn(),
+  sessionId: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({
-  requireSession: vi.fn().mockResolvedValue({
-    user: { id: "user-1" },
-    session: { id: "current-session" },
-  }),
-  sessionUserId: vi.fn().mockReturnValue("user-1"),
-  sessionId: vi.fn().mockReturnValue("current-session"),
+  requireSession: mocks.requireSession,
+  sessionUserId: mocks.sessionUserId,
+  sessionId: mocks.sessionId,
 }));
 vi.mock("@/server/auth/auth", () => ({
   auth: { api: mocks },
@@ -27,8 +29,18 @@ vi.mock("@/server/services/me-service", async (importOriginal) => ({
   },
 }));
 
-import { DELETE, GET } from "@/app/api/me/sessions/route";
-import { PATCH } from "@/app/api/me/profile/route";
+import { GET as GET_PROFILE, PATCH } from "@/app/api/me/profile/route";
+import { DELETE, GET as GET_SESSIONS } from "@/app/api/me/sessions/route";
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  mocks.requireSession.mockResolvedValue({
+    user: { id: "user-1" },
+    session: { id: "current-session" },
+  });
+  mocks.sessionUserId.mockReturnValue("user-1");
+  mocks.sessionId.mockReturnValue("current-session");
+});
 
 it("列出会话时不暴露 Better Auth Token", async () => {
   mocks.listSessions.mockResolvedValue([
@@ -40,7 +52,9 @@ it("列出会话时不暴露 Better Auth Token", async () => {
     },
   ]);
 
-  const response = await GET(new Request("http://localhost/api/me/sessions"));
+  const response = await GET_SESSIONS(
+    new Request("http://localhost/api/me/sessions"),
+  );
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
@@ -91,15 +105,22 @@ it("资料 PATCH 保持仅昵称请求的兼容性", async () => {
 });
 
 it("资料 PATCH 拒绝范围外的头像预设", async () => {
-  await expect(
-    PATCH(
-      new Request("http://localhost/api/me/profile", {
-        method: "PATCH",
-        body: JSON.stringify({ nickname: "新昵称", avatarPreset: 7 }),
-      }),
-    ),
-  ).rejects.toThrow();
+  const response = await PATCH(
+    new Request("http://localhost/api/me/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ nickname: "新昵称", avatarPreset: 7 }),
+    }),
+  );
 
+  expect(response.status).toBe(422);
+  expect(await response.json()).toEqual({
+    error: {
+      code: "VALIDATION_ERROR",
+      message: "个人资料请求不合法，请检查后重试。",
+      fieldErrors: { avatarPreset: ["头像预设仅支持 1 至 6。"] },
+      details: {},
+    },
+  });
   expect(mocks.updateProfile).not.toHaveBeenCalled();
 });
 
@@ -118,4 +139,67 @@ it("资料 PATCH 将合法头像预设原样交给资料服务", async () => {
     nickname: "新昵称",
     avatarPreset: 5,
   });
+});
+
+it.each([
+  ["GET", () => GET_PROFILE(new Request("http://localhost/api/me/profile"))],
+  [
+    "PATCH",
+    () =>
+      PATCH(
+        new Request("http://localhost/api/me/profile", {
+          method: "PATCH",
+          body: JSON.stringify({ nickname: "新昵称" }),
+        }),
+      ),
+  ],
+])("资料 %s 将未认证错误转换为中文 401 JSON", async (_method, request) => {
+  mocks.requireSession.mockRejectedValue(
+    new ApplicationError(
+      "UNAUTHENTICATED",
+      "登录状态已失效，请重新登录。",
+      401,
+    ),
+  );
+
+  const response = await request();
+
+  expect(response.status).toBe(401);
+  expect(await response.json()).toEqual({
+    error: {
+      code: "UNAUTHENTICATED",
+      message: "登录状态已失效，请重新登录。",
+      fieldErrors: {},
+      details: {},
+    },
+  });
+});
+
+it("资料 GET 将资料缺失转换为中文 404 JSON", async () => {
+  mocks.getProfile.mockRejectedValue(
+    new ApplicationError("PROFILE_NOT_FOUND", "用户资料不存在。", 404),
+  );
+
+  const response = await GET_PROFILE(
+    new Request("http://localhost/api/me/profile"),
+  );
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({
+    error: {
+      code: "PROFILE_NOT_FOUND",
+      message: "用户资料不存在。",
+      fieldErrors: {},
+      details: {},
+    },
+  });
+});
+
+it("资料 GET 不吞掉未知异常", async () => {
+  const databaseError = new Error("database unavailable");
+  mocks.getProfile.mockRejectedValue(databaseError);
+
+  await expect(
+    GET_PROFILE(new Request("http://localhost/api/me/profile")),
+  ).rejects.toBe(databaseError);
 });

@@ -13,10 +13,17 @@ const theme = vi.hoisted(() => ({
   updateThemePreference: vi.fn(),
   applyThemePreference: vi.fn(),
 }));
+const productTheme = vi.hoisted(() => ({
+  loading: false,
+  preference: "SYSTEM" as "SYSTEM" | "LIGHT" | "DARK" | null,
+}));
 
 vi.mock("@/features/me/api", () => api);
 vi.mock("@/components/design-system/theme-provider", () => ({
   useThemePreference: () => theme,
+}));
+vi.mock("@/features/me/components/product-theme-sync", () => ({
+  useProductThemeSync: () => productTheme,
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
@@ -31,6 +38,8 @@ afterEach(() => {
 });
 
 function mockProfile(overrides: Partial<Record<string, unknown>> = {}) {
+  productTheme.preference =
+    (overrides.themePreference as typeof productTheme.preference) ?? "SYSTEM";
   api.getMeProfile.mockResolvedValue({
     nickname: "林樾",
     username: "linyue",
@@ -126,13 +135,13 @@ test("密码一致时提交现有密码接口所需字段", async () => {
   expect(await screen.findByRole("status")).toHaveTextContent("密码已修改。");
 });
 
-test("主题页以服务器偏好初始化本地显示且不提交主题接口", async () => {
+test("主题页展示壳层已同步的服务器偏好且不重复应用或提交", async () => {
   mockProfile({ themePreference: "DARK" });
 
   render(<ThemePage />);
 
   expect(await screen.findByRole("radio", { name: "暗色" })).toBeChecked();
-  expect(theme.applyThemePreference).toHaveBeenCalledWith("DARK");
+  expect(theme.applyThemePreference).not.toHaveBeenCalled();
   expect(theme.updateThemePreference).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
   expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();

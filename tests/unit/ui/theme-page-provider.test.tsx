@@ -20,6 +20,7 @@ vi.mock("next-themes", () => ({
 }));
 
 import { ThemeProvider } from "@/components/design-system/theme-provider";
+import { ProductThemeSync } from "@/features/me/components/product-theme-sync";
 import { ThemePage } from "@/features/me/components/theme-page";
 
 afterEach(() => {
@@ -45,11 +46,14 @@ test("主题接口保存失败时真实 Provider 不切换本地主题且页面�
 
   render(
     <ThemeProvider>
-      <ThemePage />
+      <ProductThemeSync>
+        <ThemePage />
+      </ProductThemeSync>
     </ThemeProvider>,
   );
 
   expect(await screen.findByRole("radio", { name: "暗色" })).toBeChecked();
+  expect(api.getMeProfile).toHaveBeenCalledTimes(1);
   expect(nextTheme.setTheme).toHaveBeenCalledWith("dark");
   nextTheme.setTheme.mockClear();
 
