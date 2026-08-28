@@ -18,7 +18,7 @@ test.skip(
   "仅对保留数据的外部生产容器执行登录后核心业务验收。",
 );
 
-test("登录用户通过真实界面完成邀请、四人均摊、结算和通知闭环", async ({
+test("登录用户通过真实界面完成核心闭环与头像持久化", async ({
   page,
   browser,
 }) => {
@@ -95,28 +95,35 @@ test("登录用户通过真实界面完成邀请、四人均摊、结算和通�
     await page.getByRole("button", { name: "全部", exact: true }).click();
     await page.getByRole("button", { name: "全部已读" }).click();
     await expect(page.getByRole("button", { name: "全部已读" })).toBeDisabled();
+
+    const avatarContext = await browser.newContext({
+      baseURL: new URL(memberPage.url()).origin,
+    });
+    const avatarPage = await avatarContext.newPage();
+    try {
+      // 全新上下文没有注册时创建的 Session，头像场景必须重新经过真实登录页。
+      await signInThroughUi(avatarPage, joinedAccount);
+      await selectAvatarPresetThroughUi(avatarPage, 5);
+      await avatarPage.reload();
+      await expect(
+        avatarPage.getByRole("heading", { name: "我的", exact: true }),
+      ).toBeVisible();
+      await expectMemberAvatarPreset(avatarPage, joinedName, 5);
+
+      const avatarActivityId = await createActivityThroughUi(
+        avatarPage,
+        `头像验收活动 ${suffix}`,
+      );
+      await avatarPage.goto(`/activities/${avatarActivityId}/members`);
+      const ownerRow = avatarPage.getByRole("button", {
+        name: `查看成员 ${joinedName}`,
+      });
+      await expect(ownerRow).toBeVisible();
+      await expectMemberAvatarPreset(ownerRow, joinedName, 5);
+    } finally {
+      await avatarContext.close();
+    }
   } finally {
     await memberContext.close();
   }
-});
-
-test("登录用户保存头像后在我的主页和活动成员页保持一致", async ({ page }) => {
-  const suffix = uniqueScenarioSuffix();
-  const activityName = `头像验收活动 ${suffix}`;
-
-  await signInThroughUi(page);
-  await selectAvatarPresetThroughUi(page, 5);
-  await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "我的", exact: true }),
-  ).toBeVisible();
-  await expectMemberAvatarPreset(page, "验收管理员", 5);
-
-  const activityId = await createActivityThroughUi(page, activityName);
-  await page.goto(`/activities/${activityId}/members`);
-  const ownerRow = page.getByRole("button", {
-    name: "查看成员 验收管理员",
-  });
-  await expect(ownerRow).toBeVisible();
-  await expectMemberAvatarPreset(ownerRow, "验收管理员", 5);
 });

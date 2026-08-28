@@ -31,12 +31,16 @@ async function expectTouchTarget(locator: Locator, label: string) {
 }
 
 async function assertPageFrame(page: Page) {
-  expect(
-    await page
-      .locator("body")
-      .evaluate((body) => body.scrollWidth <= window.innerWidth),
-    "页面出现横向滚动",
-  ).toBe(true);
+  const pageWidths = await page.evaluate(() => ({
+    scrollWidth: Math.max(
+      document.documentElement.scrollWidth,
+      document.body.scrollWidth,
+    ),
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(pageWidths.scrollWidth, "页面出现横向滚动").toBeLessThanOrEqual(
+    pageWidths.clientWidth,
+  );
 
   const navigation = page.getByRole("navigation", { name: "主导航" });
   if (await navigation.isVisible()) {
@@ -67,6 +71,24 @@ async function assertPageFrame(page: Page) {
   const firstFocusable = page
     .locator("button:visible, a[href]:visible, input:visible")
     .first();
+  const reducedMotionDurations = await firstFocusable.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      animation: style.animationDuration,
+      transition: style.transitionDuration,
+    };
+  });
+  for (const [kind, value] of Object.entries(reducedMotionDurations)) {
+    const milliseconds = value.split(",").map((duration) => {
+      const normalized = duration.trim();
+      const numeric = Number.parseFloat(normalized);
+      return normalized.endsWith("ms") ? numeric : numeric * 1_000;
+    });
+    expect(
+      milliseconds.every((duration) => duration > 0 && duration <= 0.01),
+      `Reduced Motion 未将${kind}时长压缩到 0.01ms`,
+    ).toBe(true);
+  }
   await firstFocusable.focus();
   await expect(firstFocusable, "页面首个操作必须可由键盘聚焦").toBeFocused();
   await page.evaluate(() =>
@@ -114,7 +136,14 @@ function clearPreviousScreenshots() {
   }
 }
 
-test("生成 14 张我的模块视觉验收截图", async ({ page, browser }) => {
+test("生成 14 张我的模块视觉验收截图", async (
+  { page, browser },
+  testInfo,
+) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "视觉矩阵只由 desktop-chromium 串行清理并写入共享截图目录。",
+  );
   clearPreviousScreenshots();
   await signInThroughUi(page);
   await openRegistrationThroughUi(page);
