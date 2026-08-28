@@ -37,7 +37,7 @@ test("个人页使用真实账户路由组织资料与设置，并保留主页�
           username: "linyue",
           emailBound: true,
           maskedEmail: "l***@example.com",
-          emailVerified: true,
+          emailVerified: false,
           avatarPreset: null,
           themePreference: "SYSTEM",
           isSystemAdmin: true,
@@ -49,7 +49,16 @@ test("个人页使用真实账户路由组织资料与设置，并保留主页�
   render(<MePage />);
 
   expect(await screen.findByRole("heading", { name: "我的" })).toBeVisible();
-  expect(await screen.findByRole("img", { name: "林樾的头像" })).toBeVisible();
+  const avatar = await screen.findByRole("img", { name: "林樾的头像" });
+  expect(avatar).toBeVisible();
+  expect(within(avatar).getByRole("presentation")).toHaveAttribute(
+    "src",
+    "/member-avatars/avatar-03.webp",
+  );
+  expect(within(avatar).getByRole("presentation")).not.toHaveAttribute(
+    "src",
+    "/member-avatars/avatar-02.webp",
+  );
   expect(screen.getByText("林樾")).toBeVisible();
   expect(
     within(screen.getByRole("region", { name: "个人资料" })).getByText(
@@ -128,6 +137,9 @@ test("退出登录成功后通过 App Router 替换到登录页", async () => {
         nickname: "林樾",
         username: "linyue",
         emailBound: true,
+        maskedEmail: "l***@example.com",
+        emailVerified: true,
+        avatarPreset: null,
         themePreference: "SYSTEM",
         isSystemAdmin: false,
       },

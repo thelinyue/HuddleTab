@@ -65,6 +65,8 @@ test("个人资料页展示返回导航、资料字段与六个头像单选项",
   expect(screen.getByLabelText("用户名")).toHaveAttribute("readonly");
   expect(screen.getByText("系统唯一标识，暂不支持修改。")).toBeVisible();
   expect(screen.getByRole("button", { name: "保存" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
+  expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();
 });
 
 test("保存时发送昵称和头像预设，并返回我的主页", async () => {

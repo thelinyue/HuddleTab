@@ -69,6 +69,8 @@ test("已绑定邮箱使用服务端脱敏值和真实验证状态，并提供�
   expect(screen.getByText("未验证")).toBeVisible();
   expect(screen.queryByText("已验证")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "更换邮箱" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
+  expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();
 });
 
 test("新密码与确认密码不一致时不提交并显示中文错误", async () => {
@@ -95,6 +97,8 @@ test("新密码与确认密码不一致时不提交并显示中文错误", async
     "true",
   );
   expect(fetchMock).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
+  expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();
 });
 
 test("密码一致时提交现有密码接口所需字段", async () => {
@@ -130,6 +134,8 @@ test("主题页以服务器偏好初始化本地显示且不提交主题接口",
   expect(await screen.findByRole("radio", { name: "暗色" })).toBeChecked();
   expect(theme.applyThemePreference).toHaveBeenCalledWith("DARK");
   expect(theme.updateThemePreference).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
+  expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();
 });
 
 test("主题保存成功后才更新本地主题", async () => {
