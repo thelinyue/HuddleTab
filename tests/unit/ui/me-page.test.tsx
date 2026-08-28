@@ -153,6 +153,8 @@ test("退出登录成功后通过 App Router 替换到登录页", async () => {
   await waitFor(() => {
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/sign-out", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
     });
     expect(router.replace).toHaveBeenCalledWith("/login");
   });

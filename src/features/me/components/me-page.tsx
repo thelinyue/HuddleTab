@@ -57,7 +57,11 @@ export function MePage() {
     setNotice(null);
     try {
       await ensureSuccess(
-        await fetch("/api/auth/sign-out", { method: "POST" }),
+        await fetch("/api/auth/sign-out", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }),
         "退出登录失败，请稍后重试。",
       );
       router.replace("/login");
