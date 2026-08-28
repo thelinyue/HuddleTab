@@ -1,10 +1,12 @@
 import { getCurrencyMinorUnits } from "@/domain/currency/currency";
+import type { AvatarPreset } from "@/features/me/avatar-presets";
 import type { CreateSettlementRequest } from "@/features/settlements/contracts";
 
 export interface SettlementMemberDto {
   readonly id: string;
   readonly displayName: string;
   readonly status: "ACTIVE" | "LEFT";
+  readonly avatarPreset?: AvatarPreset | null;
 }
 
 export interface SettlementPageContextDto {

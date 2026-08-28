@@ -47,8 +47,8 @@ const data = {
     memberCount: 2,
   },
   members: [
-    { id: "m1", displayName: "小王", status: "ACTIVE" as const },
-    { id: "m2", displayName: "小李", status: "ACTIVE" as const },
+    { id: "m1", displayName: "小王", status: "ACTIVE" as const, avatarPreset: 2 as const },
+    { id: "m2", displayName: "小李", status: "ACTIVE" as const, avatarPreset: 5 as const },
   ],
   balances: [
     { memberId: "m1", netMinor: "-32650" },
@@ -182,6 +182,27 @@ test("成员余额使用头像、方向文字和绝对值金额", () => {
   expect(settledRow).not.toHaveTextContent("¥0.00");
   expect(within(balances).getAllByRole("img")).toHaveLength(3);
   expect(within(balances).getAllByRole("img")[0]).toHaveClass("size-10");
+});
+
+test("结算中的每个成员头像使用上下文投影的预设", () => {
+  render(
+    <SettlementPage
+      data={{ ...data, settlements: [settlement] }}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
+
+  for (const [name, source] of [
+    ["小王", "/member-avatars/avatar-02.webp"],
+    ["小李", "/member-avatars/avatar-05.webp"],
+  ]) {
+    for (const avatar of screen.getAllByRole("img", {
+      name: `${name}的头像`,
+    })) {
+      expect(avatar.querySelector("img")).toHaveAttribute("src", source);
+    }
+  }
 });
 
 test("推荐只预填表单，超额需要明确二次确认", async () => {

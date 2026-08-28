@@ -60,22 +60,36 @@ export class ExpenseRepository {
       expenseId,
     );
     const [creator] =
-      await transaction`select display_name from activity_members where id = ${expense.created_by_member_id}`;
+      await transaction`select member.display_name,
+        case when member.member_type = 'USER' then profile.avatar_preset else null end as avatar_preset
+        from activity_members member
+        left join user_profiles profile on profile.user_id = member.user_id
+        where member.id = ${expense.created_by_member_id}`;
     const payments =
-      await transaction`select payment.*, member.display_name as member_display_name
-      from expense_payments payment join activity_members member on member.id = payment.activity_member_id
+      await transaction`select payment.*, member.display_name as member_display_name,
+        case when member.member_type = 'USER' then profile.avatar_preset else null end as member_avatar_preset
+      from expense_payments payment
+      join activity_members member on member.id = payment.activity_member_id
+      left join user_profiles profile on profile.user_id = member.user_id
       where payment.expense_id = ${expenseId}
       order by payment.activity_member_id`;
     const shares =
-      await transaction`select share.*, member.display_name as member_display_name
-      from expense_shares share join activity_members member on member.id = share.activity_member_id
+      await transaction`select share.*, member.display_name as member_display_name,
+        case when member.member_type = 'USER' then profile.avatar_preset else null end as member_avatar_preset
+      from expense_shares share
+      join activity_members member on member.id = share.activity_member_id
+      left join user_profiles profile on profile.user_id = member.user_id
       where share.expense_id = ${expenseId}
       order by share.activity_member_id`;
     const attachments =
       await transaction`select id, safe_filename, mime_type, width, height, byte_size, sha256, created_at
       from expense_attachments where expense_id = ${expenseId} order by created_at asc, id asc`;
     return {
-      expense: { ...expense, created_by_display_name: creator?.display_name },
+      expense: {
+        ...expense,
+        created_by_display_name: creator?.display_name,
+        created_by_avatar_preset: creator?.avatar_preset ?? null,
+      },
       payments,
       shares,
       attachments,

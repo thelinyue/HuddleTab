@@ -202,6 +202,7 @@ export function SettlementPage({
                       <MemberAvatar
                         memberId={balance.memberId}
                         displayName={displayName}
+                        avatarPreset={balanceMember?.avatarPreset}
                       />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {displayName}
@@ -256,6 +257,7 @@ export function SettlementPage({
                         <MemberAvatar
                           memberId={recommendation.payerMemberId}
                           displayName={payerName}
+                          avatarPreset={payer?.avatarPreset}
                           className="size-8"
                         />
                         <span className="min-w-0 truncate text-sm">
@@ -268,6 +270,7 @@ export function SettlementPage({
                         <MemberAvatar
                           memberId={recommendation.receiverMemberId}
                           displayName={receiverName}
+                          avatarPreset={receiver?.avatarPreset}
                           className="size-8"
                         />
                         <span className="min-w-0 truncate text-sm">
@@ -343,12 +346,10 @@ export function SettlementPage({
                 className="mt-2 divide-y overflow-hidden rounded-sm border"
               >
                 {data.settlements.map((settlement) => {
-                  const payerName =
-                    member(data, settlement.payerMemberId)?.displayName ??
-                    "未知成员";
-                  const receiverName =
-                    member(data, settlement.receiverMemberId)?.displayName ??
-                    "未知成员";
+                  const payer = member(data, settlement.payerMemberId);
+                  const receiver = member(data, settlement.receiverMemberId);
+                  const payerName = payer?.displayName ?? "未知成员";
+                  const receiverName = receiver?.displayName ?? "未知成员";
                   return (
                     <li key={settlement.id} className="min-w-0 px-3 py-3">
                       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
@@ -356,6 +357,7 @@ export function SettlementPage({
                           <MemberAvatar
                             memberId={settlement.payerMemberId}
                             displayName={payerName}
+                            avatarPreset={payer?.avatarPreset}
                             className="size-8"
                           />
                           <span className="min-w-0 truncate text-sm font-medium">
@@ -369,6 +371,7 @@ export function SettlementPage({
                           <MemberAvatar
                             memberId={settlement.receiverMemberId}
                             displayName={receiverName}
+                            avatarPreset={receiver?.avatarPreset}
                             className="size-8"
                           />
                           <span className="min-w-0 truncate text-sm font-medium">

@@ -293,6 +293,7 @@ export function ExpenseDetail({
               <MemberAvatar
                 memberId={payment.memberId}
                 displayName={payment.memberDisplayName}
+                avatarPreset={payment.avatarPreset}
                 className="size-7"
               />
               <span className="type-label min-w-0 flex-1 truncate font-medium">
@@ -384,6 +385,7 @@ export function ExpenseDetail({
                   key={share.memberId}
                   memberId={share.memberId}
                   displayName={share.memberDisplayName}
+                  avatarPreset={share.avatarPreset}
                   className="size-7 border-2 border-surface"
                 />
               ))}
@@ -399,6 +401,7 @@ export function ExpenseDetail({
               <MemberAvatar
                 memberId={data.payments[0]?.memberId ?? expense.id}
                 displayName={expense.createdByDisplayName ?? "未知成员"}
+                avatarPreset={expense.createdByAvatarPreset}
                 className="size-6"
               />
               {expense.createdByDisplayName ?? "-"}

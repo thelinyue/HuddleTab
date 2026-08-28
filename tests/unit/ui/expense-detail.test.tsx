@@ -28,6 +28,7 @@ const detail: ExpenseDetailResponse = {
     occurredAt: "2026-08-27T08:00:00.000Z",
     note: null,
     createdByDisplayName: "我",
+    createdByAvatarPreset: 4,
     createdAt: "2026-08-27T08:03:00.000Z",
     updatedAt: "2026-08-27T08:03:00.000Z",
     version: 1,
@@ -36,6 +37,7 @@ const detail: ExpenseDetailResponse = {
     {
       memberId: "m1",
       memberDisplayName: "我",
+      avatarPreset: 2,
       originalAmountMinor: "42800",
       baseAmountMinor: "42800",
     },
@@ -44,6 +46,7 @@ const detail: ExpenseDetailResponse = {
     {
       memberId: "m1",
       memberDisplayName: "我",
+      avatarPreset: 2,
       splitInputMinor: null,
       originalAmountMinor: "10700",
       baseAmountMinor: "10700",
@@ -51,6 +54,7 @@ const detail: ExpenseDetailResponse = {
     {
       memberId: "m2",
       memberDisplayName: "小王",
+      avatarPreset: null,
       splitInputMinor: null,
       originalAmountMinor: "10700",
       baseAmountMinor: "10700",
@@ -58,6 +62,7 @@ const detail: ExpenseDetailResponse = {
     {
       memberId: "m3",
       memberDisplayName: "小李",
+      avatarPreset: 3,
       splitInputMinor: null,
       originalAmountMinor: "10700",
       baseAmountMinor: "10700",
@@ -65,6 +70,7 @@ const detail: ExpenseDetailResponse = {
     {
       memberId: "m4",
       memberDisplayName: "小陈",
+      avatarPreset: null,
       splitInputMinor: null,
       originalAmountMinor: "10700",
       baseAmountMinor: "10700",
@@ -117,6 +123,32 @@ test("账单详情按查看链路展示真实信息，并只保留分摊方式�
   expect(
     screen.queryByRole("button", { name: "账单操作" }),
   ).not.toBeInTheDocument();
+});
+
+test("账单详情将创建人、付款人与分摊成员的头像预设传到图片", () => {
+  render(
+    <ExpenseDetail
+      data={detail}
+      activityName="日本大阪之旅"
+      timeZone="Asia/Shanghai"
+    />,
+  );
+
+  expect(
+    screen
+      .getByRole("region", { name: "付款信息" })
+      .querySelector('[role="img"] img'),
+  ).toHaveAttribute("src", "/member-avatars/avatar-02.webp");
+  expect(
+    screen
+      .getByRole("region", { name: "分摊信息" })
+      .querySelectorAll('[role="img"] img')[2],
+  ).toHaveAttribute("src", "/member-avatars/avatar-03.webp");
+  expect(
+    screen
+      .getByRole("region", { name: "创建信息" })
+      .querySelector('[role="img"] img'),
+  ).toHaveAttribute("src", "/member-avatars/avatar-04.webp");
 });
 
 test("有管理权限时通过单一菜单编辑或二次确认删除账单", async () => {

@@ -1,3 +1,5 @@
+import type { AvatarPreset } from "@/features/me/avatar-presets";
+
 /** 将 PostgreSQL 的 bigint 和时间字段转换为 Route Handler 可安全返回的 JSON。 */
 function asString(value: unknown): string {
   return String(value);
@@ -32,6 +34,11 @@ export function serializeExpense(row: Row) {
       row.created_by_display_name === undefined
         ? null
         : asString(row.created_by_display_name),
+    createdByAvatarPreset:
+      row.created_by_avatar_preset === undefined ||
+      row.created_by_avatar_preset === null
+        ? null
+        : (Number(row.created_by_avatar_preset) as AvatarPreset),
     version: Number(row.version),
     createdAt: asIsoTime(row.created_at),
     updatedAt: asIsoTime(row.updated_at),
@@ -48,6 +55,10 @@ export function serializeExpensePayment(row: Row) {
   return {
     memberId: asString(row.activity_member_id),
     memberDisplayName: asString(row.member_display_name),
+    avatarPreset:
+      row.member_avatar_preset === undefined || row.member_avatar_preset === null
+        ? null
+        : (Number(row.member_avatar_preset) as AvatarPreset),
     originalAmountMinor: asString(row.original_amount_minor),
     baseAmountMinor: asString(row.base_amount_minor),
   };
@@ -57,6 +68,10 @@ export function serializeExpenseShare(row: Row) {
   return {
     memberId: asString(row.activity_member_id),
     memberDisplayName: asString(row.member_display_name),
+    avatarPreset:
+      row.member_avatar_preset === undefined || row.member_avatar_preset === null
+        ? null
+        : (Number(row.member_avatar_preset) as AvatarPreset),
     splitInputMinor:
       row.split_input_minor === null ? null : asString(row.split_input_minor),
     originalAmountMinor: asString(row.original_amount_minor),

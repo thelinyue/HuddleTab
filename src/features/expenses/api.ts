@@ -21,6 +21,7 @@ export interface ExpenseDetailDto extends ExpenseListItemDto {
   readonly splitMode: string;
   readonly note: string | null;
   readonly createdByDisplayName: string | null;
+  readonly createdByAvatarPreset?: AvatarPreset | null;
   readonly version: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -70,12 +71,14 @@ export interface ExpenseDetailResponse {
   readonly payments: readonly {
     readonly memberId: string;
     readonly memberDisplayName: string;
+    readonly avatarPreset?: AvatarPreset | null;
     readonly originalAmountMinor: string;
     readonly baseAmountMinor: string;
   }[];
   readonly shares: readonly {
     readonly memberId: string;
     readonly memberDisplayName: string;
+    readonly avatarPreset?: AvatarPreset | null;
     readonly splitInputMinor: string | null;
     readonly originalAmountMinor: string;
     readonly baseAmountMinor: string;

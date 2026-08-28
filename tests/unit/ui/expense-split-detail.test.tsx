@@ -35,6 +35,7 @@ const percentageDetail: ExpenseDetailResponse = {
     {
       memberId: "m1",
       memberDisplayName: "我",
+      avatarPreset: 2,
       originalAmountMinor: "60000",
       baseAmountMinor: "60000",
     },
@@ -43,6 +44,7 @@ const percentageDetail: ExpenseDetailResponse = {
     {
       memberId: "m1",
       memberDisplayName: "我",
+      avatarPreset: 2,
       splitInputMinor: "5000",
       originalAmountMinor: "30000",
       baseAmountMinor: "30000",
@@ -50,6 +52,7 @@ const percentageDetail: ExpenseDetailResponse = {
     {
       memberId: "m2",
       memberDisplayName: "小王",
+      avatarPreset: null,
       splitInputMinor: "3000",
       originalAmountMinor: "18000",
       baseAmountMinor: "18000",
@@ -57,6 +60,7 @@ const percentageDetail: ExpenseDetailResponse = {
     {
       memberId: "m3",
       memberDisplayName: "小李",
+      avatarPreset: 3,
       splitInputMinor: "2000",
       originalAmountMinor: "12000",
       baseAmountMinor: "12000",
@@ -97,6 +101,24 @@ test("比例分摊按基点显示右侧比例，并按已支付减应承担计�
   expect(totals).toHaveTextContent("支付合计¥600.00");
   expect(totals).toHaveTextContent("净额合计¥0.00");
   expect(screen.getByText("正数表示应收，负数表示应付")).toBeVisible();
+});
+
+test("分摊明细保留付款与承担成员的头像预设", () => {
+  render(
+    <ExpenseSplitDetail data={percentageDetail} activityName="日本大阪之旅" />,
+  );
+
+  const rows = within(
+    screen.getByRole("table", { name: "成员分摊明细" }),
+  ).getAllByRole("row");
+  expect(rows[1]?.querySelector('[role="img"] img')).toHaveAttribute(
+    "src",
+    "/member-avatars/avatar-02.webp",
+  );
+  expect(rows[3]?.querySelector('[role="img"] img')).toHaveAttribute(
+    "src",
+    "/member-avatars/avatar-03.webp",
+  );
 });
 
 test("均摊显示人均金额和付款人身份，并保持成员净额守恒", () => {

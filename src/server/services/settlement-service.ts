@@ -4,6 +4,7 @@ import { calculateLedger, type LedgerBalance } from "@/domain/ledger/ledger";
 import { recommendSettlements } from "@/domain/settlement/recommendation";
 import { formatMoney } from "@/domain/money/money";
 import { asCurrencyCode } from "@/domain/currency/currency";
+import type { AvatarPreset } from "@/features/me/avatar-presets";
 import type {
   CreateSettlementRequest,
   UpdateSettlementRequest,
@@ -58,7 +59,11 @@ export class SettlementService {
       const [activity] =
         await transaction`select name from activities where id = ${activityId}`;
       const members =
-        await transaction`select id, display_name, status from activity_members where activity_id = ${activityId} order by id`;
+        await transaction`select member.id, member.display_name, member.status, member.member_type, profile.avatar_preset
+          from activity_members member
+          left join user_profiles profile on profile.user_id = member.user_id
+          where member.activity_id = ${activityId}
+          order by member.id`;
       const balances = calculateLedger(
         await this.ledgerRepository.loadFacts(transaction, activityId),
       );
@@ -76,6 +81,10 @@ export class SettlementService {
           id: member.id,
           displayName: member.display_name,
           status: member.status,
+          avatarPreset:
+            member.member_type === "USER"
+              ? (member.avatar_preset as AvatarPreset | null) ?? null
+              : null,
         })),
         balances: balances.map((balance) => ({
           memberId: balance.memberId,

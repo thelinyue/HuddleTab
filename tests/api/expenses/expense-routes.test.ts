@@ -79,6 +79,7 @@ const expense = {
   created_by_member_id: "member-1",
   created_by_user_id: "user-1",
   created_by_display_name: "小李",
+  created_by_avatar_preset: 4,
   client_mutation_id: "01JEXPENSERETRY0000000001",
   version: 1,
   created_at: new Date("2026-08-23T08:00:00.000Z"),
@@ -118,8 +119,40 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
   mocks.list.mockResolvedValue([expense]);
   mocks.get.mockResolvedValue({
     expense,
-    payments: [],
-    shares: [],
+    payments: [
+      {
+        activity_member_id: "member-user",
+        member_display_name: "小李",
+        member_avatar_preset: 5,
+        original_amount_minor: 1000n,
+        base_amount_minor: 1000n,
+      },
+      {
+        activity_member_id: "member-guest",
+        member_display_name: "临时成员",
+        member_avatar_preset: null,
+        original_amount_minor: 1000n,
+        base_amount_minor: 1000n,
+      },
+    ],
+    shares: [
+      {
+        activity_member_id: "member-user",
+        member_display_name: "小李",
+        member_avatar_preset: 5,
+        split_input_minor: null,
+        original_amount_minor: 1000n,
+        base_amount_minor: 1000n,
+      },
+      {
+        activity_member_id: "member-guest",
+        member_display_name: "临时成员",
+        member_avatar_preset: null,
+        split_input_minor: null,
+        original_amount_minor: 1000n,
+        base_amount_minor: 1000n,
+      },
+    ],
     attachments: [
       {
         id: "attachment-1",
@@ -158,8 +191,17 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
   expect(detailBody.data.expense).toMatchObject({
     id: "expense-1",
     createdByDisplayName: "小李",
+    createdByAvatarPreset: 4,
   });
   expect(detailBody.data).toMatchObject({
+    payments: [
+      { memberId: "member-user", avatarPreset: 5 },
+      { memberId: "member-guest", avatarPreset: null },
+    ],
+    shares: [
+      { memberId: "member-user", avatarPreset: 5 },
+      { memberId: "member-guest", avatarPreset: null },
+    ],
     permissions: { canUpdate: false, canDelete: false },
     attachments: [
       { id: "attachment-1", createdAt: "2026-08-23T08:00:00.000Z" },

@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
 import type { ExpenseDetailResponse } from "@/features/expenses/api";
+import type { AvatarPreset } from "@/features/me/avatar-presets";
 import {
   expenseCategoryLabels,
   type ExpenseCategory,
@@ -45,6 +46,7 @@ const categoryIcons: Record<ExpenseCategory, LucideIcon> = {
 type SplitRow = {
   readonly memberId: string;
   readonly displayName: string;
+  readonly avatarPreset: AvatarPreset | null;
   readonly splitInputMinor: bigint | null;
   readonly shareMinor: bigint;
   readonly paidMinor: bigint;
@@ -60,6 +62,7 @@ function buildRows(data: ExpenseDetailResponse): SplitRow[] {
     rows.set(share.memberId, {
       memberId: share.memberId,
       displayName: share.memberDisplayName,
+      avatarPreset: share.avatarPreset ?? null,
       splitInputMinor:
         share.splitInputMinor === null ? null : BigInt(share.splitInputMinor),
       shareMinor: BigInt(share.baseAmountMinor),
@@ -71,6 +74,7 @@ function buildRows(data: ExpenseDetailResponse): SplitRow[] {
     rows.set(payment.memberId, {
       memberId: payment.memberId,
       displayName: current?.displayName ?? payment.memberDisplayName,
+      avatarPreset: current?.avatarPreset ?? payment.avatarPreset ?? null,
       splitInputMinor: current?.splitInputMinor ?? null,
       shareMinor: current?.shareMinor ?? 0n,
       paidMinor: (current?.paidMinor ?? 0n) + BigInt(payment.baseAmountMinor),
@@ -294,6 +298,7 @@ export function ExpenseSplitDetail({
                         <MemberAvatar
                           memberId={row.memberId}
                           displayName={row.displayName}
+                          avatarPreset={row.avatarPreset}
                           className="size-7 shrink-0"
                         />
                         <span className="min-w-0 truncate text-xs">
