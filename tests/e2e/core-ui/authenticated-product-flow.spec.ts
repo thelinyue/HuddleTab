@@ -110,6 +110,14 @@ test("登录用户通过真实界面完成核心闭环与头像持久化", async
       ).toBeVisible();
       await expectMemberAvatarPreset(avatarPage, joinedName, 5);
 
+      // 回到保存前已打开的浏览器上下文和既有活动，证明头像来自账户资料动态关联。
+      await memberPage.goto(`/activities/${activityId}/members`);
+      const existingMemberRow = memberPage.getByRole("button", {
+        name: `查看成员 ${joinedName}`,
+      });
+      await expect(existingMemberRow).toBeVisible();
+      await expectMemberAvatarPreset(existingMemberRow, joinedName, 5);
+
       const avatarActivityId = await createActivityThroughUi(
         avatarPage,
         `头像验收活动 ${suffix}`,
