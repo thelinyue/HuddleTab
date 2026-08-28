@@ -49,6 +49,7 @@ const detail = {
     splitMode: "EQUAL",
     occurredAt: "2026-08-27T08:00:00.000Z",
     note: null,
+    createdByMemberId: "m1",
     createdByDisplayName: "我",
     version: 4,
     createdAt: "2026-08-27T08:03:00.000Z",
