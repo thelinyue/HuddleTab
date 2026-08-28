@@ -4,7 +4,7 @@ import {
   ThemeProvider as NextThemesProvider,
   useTheme,
 } from "next-themes";
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 
 export type ThemePreference = "SYSTEM" | "LIGHT" | "DARK";
 
@@ -37,6 +37,14 @@ export function useThemePreference() {
   const preference: ThemePreference =
     theme === "dark" ? "DARK" : theme === "light" ? "LIGHT" : "SYSTEM";
 
+  /** 已从认证资料读取偏好时只同步本地显示，避免初始化重复写入服务端。 */
+  const applyThemePreference = useCallback(
+    (nextPreference: ThemePreference) => {
+      setTheme(themeName[nextPreference]);
+    },
+    [setTheme],
+  );
+
   async function updateThemePreference(nextPreference: ThemePreference) {
     const response = await fetch("/api/me/theme", {
       method: "PATCH",
@@ -44,8 +52,8 @@ export function useThemePreference() {
       body: JSON.stringify({ theme: nextPreference }),
     });
     if (!response.ok) throw new Error("主题偏好保存失败，请稍后重试。");
-    setTheme(themeName[nextPreference]);
+    applyThemePreference(nextPreference);
   }
 
-  return { preference, updateThemePreference } as const;
+  return { preference, applyThemePreference, updateThemePreference } as const;
 }

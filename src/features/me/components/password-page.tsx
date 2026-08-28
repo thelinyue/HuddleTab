@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,11 +10,11 @@ import { MeSubpageHeader } from "./me-subpage-header";
 
 /** 密码页先在客户端校验确认密码，服务端仍负责当前密码和最终密码规则校验。 */
 export function PasswordPage() {
-  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmedPassword, setConfirmedPassword] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const passwordsMismatch = saveError === "新密码与确认密码不一致。";
 
@@ -29,6 +28,7 @@ export function PasswordPage() {
 
     setSubmitting(true);
     setSaveError(null);
+    setSuccessNotice(null);
     try {
       const response = await fetch("/api/me/password", {
         method: "POST",
@@ -36,8 +36,10 @@ export function PasswordPage() {
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       if (!response.ok) throw new Error("密码修改失败，请检查当前密码。");
-      router.replace("/me");
-      router.refresh();
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmedPassword("");
+      setSuccessNotice("密码已修改。");
     } catch (reason) {
       setSaveError(
         reason instanceof Error ? reason.message : "密码修改失败，请稍后重试。",
@@ -111,6 +113,12 @@ export function PasswordPage() {
             className="type-label text-destructive"
           >
             {saveError}
+          </p>
+        ) : null}
+
+        {successNotice ? (
+          <p role="status" className="type-label text-success">
+            {successNotice}
           </p>
         ) : null}
 

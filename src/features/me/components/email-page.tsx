@@ -88,6 +88,11 @@ export function EmailPage() {
           <p className="type-body font-medium">
             {isBound ? profile.maskedEmail : "尚未绑定邮箱"}
           </p>
+          {!isBound ? (
+            <p className="type-caption text-muted-foreground">
+              用于账户安全和找回。
+            </p>
+          ) : null}
           {isBound ? (
             <p
               className={`type-label ${

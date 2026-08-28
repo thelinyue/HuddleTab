@@ -11,6 +11,7 @@ const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 const theme = vi.hoisted(() => ({
   preference: "SYSTEM" as const,
   updateThemePreference: vi.fn(),
+  applyThemePreference: vi.fn(),
 }));
 
 vi.mock("@/features/me/api", () => api);
@@ -50,6 +51,7 @@ test("未绑定邮箱时显示绑定入口且不展示合成邮箱", async () =>
 
   expect(await screen.findByRole("heading", { name: "邮箱" })).toBeVisible();
   expect(screen.getByRole("button", { name: "绑定邮箱" })).toBeVisible();
+  expect(screen.getByText("用于账户安全和找回。")).toBeVisible();
   expect(screen.queryByText(/Synthetic Email/i)).not.toBeInTheDocument();
   expect(screen.queryByText("已验证")).not.toBeInTheDocument();
 });
@@ -117,6 +119,17 @@ test("密码一致时提交现有密码接口所需字段", async () => {
       }),
     });
   });
+  expect(await screen.findByRole("status")).toHaveTextContent("密码已修改。");
+});
+
+test("主题页以服务器偏好初始化本地显示且不提交主题接口", async () => {
+  mockProfile({ themePreference: "DARK" });
+
+  render(<ThemePage />);
+
+  expect(await screen.findByRole("radio", { name: "暗色" })).toBeChecked();
+  expect(theme.applyThemePreference).toHaveBeenCalledWith("DARK");
+  expect(theme.updateThemePreference).not.toHaveBeenCalled();
 });
 
 test("主题保存成功后才更新本地主题", async () => {
@@ -129,9 +142,10 @@ test("主题保存成功后才更新本地主题", async () => {
       }),
   );
 
+  mockProfile();
   render(<ThemePage />);
 
-  await user.click(screen.getByRole("radio", { name: "暗色" }));
+  await user.click(await screen.findByRole("radio", { name: "暗色" }));
   expect(theme.updateThemePreference).toHaveBeenCalledWith("DARK");
   expect(screen.getByRole("radio", { name: "跟随系统" })).toBeChecked();
   resolveUpdate?.();
