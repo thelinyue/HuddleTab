@@ -36,6 +36,7 @@ export const userProfiles = pgTable(
     usernameNormalized: text("username_normalized").notNull(),
     nickname: text("nickname").notNull(),
     emailKind: emailKind("email_kind").notNull(),
+    // 兼容历史稳定哈希头像：保持可空且无数据库默认值；仅新注册和初始化显式写入 avatar-02。
     avatarPreset: integer("avatar_preset"),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
     themePreference: themePreference("theme_preference")
