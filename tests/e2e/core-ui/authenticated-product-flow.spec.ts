@@ -120,6 +120,10 @@ test("登录用户通过真实界面完成核心闭环与头像持久化", async
       });
       await expect(ownerRow).toBeVisible();
       await expectMemberAvatarPreset(ownerRow, joinedName, 5);
+
+      await avatarPage.goto("/me");
+      await avatarPage.getByRole("button", { name: "退出登录" }).click();
+      await expect(avatarPage).toHaveURL(/\/login$/);
     } finally {
       await avatarContext.close();
     }
