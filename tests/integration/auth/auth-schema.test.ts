@@ -32,4 +32,21 @@ describe("认证与系统表", () => {
         values ('u2', 'alice', '乙', 'SYNTHETIC', now(), now())`,
     ).rejects.toMatchObject({ code: "23505" });
   });
+
+  it("保留历史 Profile 的空头像并拒绝非法头像预设", async () => {
+    await harness.sql`insert into "user" (id, name, email, email_verified, created_at, updated_at)
+      values ('u3', '丙', 'u_3@local.invalid', false, now(), now()),
+             ('u4', '丁', 'u_4@local.invalid', false, now(), now())`;
+    await harness.sql`insert into user_profiles (user_id, username_normalized, nickname, email_kind, created_at, updated_at)
+      values ('u3', 'carol', '丙', 'SYNTHETIC', now(), now())`;
+
+    const [profile] =
+      await harness.sql`select avatar_preset from user_profiles where user_id = 'u3'`;
+    expect(profile?.avatar_preset).toBeNull();
+
+    await expect(
+      harness.sql`insert into user_profiles (user_id, username_normalized, nickname, email_kind, avatar_preset, created_at, updated_at)
+        values ('u4', 'dave', '丁', 'SYNTHETIC', 7, now(), now())`,
+    ).rejects.toMatchObject({ code: "23514" });
+  });
 });

@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   index,
   integer,
   pgEnum,
@@ -34,6 +36,7 @@ export const userProfiles = pgTable(
     usernameNormalized: text("username_normalized").notNull(),
     nickname: text("nickname").notNull(),
     emailKind: emailKind("email_kind").notNull(),
+    avatarPreset: integer("avatar_preset"),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
     themePreference: themePreference("theme_preference")
       .notNull()
@@ -47,6 +50,10 @@ export const userProfiles = pgTable(
   },
   (table) => [
     uniqueIndex("user_profiles_username_uq").on(table.usernameNormalized),
+    check(
+      "user_profiles_avatar_preset_check",
+      sql`${table.avatarPreset} between 1 and 6`,
+    ),
   ],
 );
 

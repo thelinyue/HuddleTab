@@ -39,10 +39,14 @@ describe("注册服务", () => {
       password: "password-123",
       nickname: "小艾",
     });
-    const [profile] =
-      await harness.sql`select email_kind from user_profiles where user_id = 'new-user'`;
+    const [profile] = await harness.sql`
+      select email_kind, avatar_preset
+      from user_profiles where user_id = 'new-user'`;
 
-    expect(profile?.email_kind).toBe("SYNTHETIC");
+    expect(profile).toMatchObject({
+      email_kind: "SYNTHETIC",
+      avatar_preset: 2,
+    });
     expect(result).toEqual({
       id: "new-user",
       username: "alice",

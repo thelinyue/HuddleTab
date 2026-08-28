@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { eq } from "drizzle-orm";
 
+import { DEFAULT_AVATAR_PRESET } from "@/features/me/avatar-presets";
 import {
   assertRegistrationAllowed,
   type InvitationRegistrationVerifier,
@@ -87,6 +88,7 @@ export class RegistrationService {
         usernameNormalized: normalizedUsername,
         nickname: input.nickname,
         emailKind: suppliedEmail ? "REAL" : "SYNTHETIC",
+        avatarPreset: DEFAULT_AVATAR_PRESET,
       });
     } catch (error) {
       await this.dependencies.database

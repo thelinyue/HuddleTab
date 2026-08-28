@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { eq } from "drizzle-orm";
 
+import { DEFAULT_AVATAR_PRESET } from "@/features/me/avatar-presets";
 import { auth } from "@/server/auth/auth";
 import { createSyntheticEmail } from "@/server/auth/synthetic-email";
 import { normalizeUsername } from "@/server/auth/username";
@@ -31,6 +32,7 @@ const setupCredentials: SetupCredentialCreator = {
         usernameNormalized: normalizedUsername,
         nickname: input.nickname,
         emailKind: "SYNTHETIC",
+        avatarPreset: DEFAULT_AVATAR_PRESET,
       });
     } catch (error) {
       await db
