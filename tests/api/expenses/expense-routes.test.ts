@@ -190,6 +190,7 @@ it("列表与详情只返回 JSON 安全的费用事实", async () => {
   const detailBody = await detail.json();
   expect(detailBody.data.expense).toMatchObject({
     id: "expense-1",
+    createdByMemberId: "member-1",
     createdByDisplayName: "小李",
     createdByAvatarPreset: 4,
   });

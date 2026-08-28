@@ -66,6 +66,7 @@ const data = {
     splitMode: "PERCENTAGE",
     occurredAt: "2026-08-27T08:00:00.000Z",
     note: "朋友聚餐",
+    createdByMemberId: "m1",
     createdByDisplayName: "我",
     version: 3,
     createdAt: "2026-08-27T08:03:00.000Z",

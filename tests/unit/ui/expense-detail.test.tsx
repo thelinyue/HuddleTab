@@ -27,6 +27,7 @@ const detail: ExpenseDetailResponse = {
     splitMode: "EQUAL",
     occurredAt: "2026-08-27T08:00:00.000Z",
     note: null,
+    createdByMemberId: "m1",
     createdByDisplayName: "我",
     createdByAvatarPreset: 4,
     createdAt: "2026-08-27T08:03:00.000Z",
@@ -149,6 +150,35 @@ test("账单详情将创建人、付款人与分摊成员的头像预设传到�
       .getByRole("region", { name: "创建信息" })
       .querySelector('[role="img"] img'),
   ).toHaveAttribute("src", "/member-avatars/avatar-04.webp");
+});
+
+test("创建人没有预设时按创建成员 ID 回退头像，而非首笔付款人", () => {
+  render(
+    <ExpenseDetail
+      data={{
+        ...detail,
+        expense: {
+          ...detail.expense,
+          createdByMemberId: "creator-member",
+          createdByAvatarPreset: null,
+        },
+        payments: [
+          {
+            ...detail.payments[0]!,
+            memberId: "payer-member",
+          },
+        ],
+      }}
+      activityName="日本大阪之旅"
+      timeZone="Asia/Shanghai"
+    />,
+  );
+
+  expect(
+    screen
+      .getByRole("region", { name: "创建信息" })
+      .querySelector('[role="img"] img'),
+  ).toHaveAttribute("src", "/member-avatars/avatar-06.webp");
 });
 
 test("有管理权限时通过单一菜单编辑或二次确认删除账单", async () => {

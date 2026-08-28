@@ -20,6 +20,7 @@ export interface ExpenseDetailDto extends ExpenseListItemDto {
   readonly exchangeRateAt: string;
   readonly splitMode: string;
   readonly note: string | null;
+  readonly createdByMemberId: string;
   readonly createdByDisplayName: string | null;
   readonly createdByAvatarPreset?: AvatarPreset | null;
   readonly version: number;

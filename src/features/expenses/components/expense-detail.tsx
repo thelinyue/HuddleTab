@@ -399,7 +399,7 @@ export function ExpenseDetail({
           <DetailRow label="创建人">
             <span className="inline-flex items-center gap-1.5">
               <MemberAvatar
-                memberId={data.payments[0]?.memberId ?? expense.id}
+                memberId={expense.createdByMemberId}
                 displayName={expense.createdByDisplayName ?? "未知成员"}
                 avatarPreset={expense.createdByAvatarPreset}
                 className="size-6"
