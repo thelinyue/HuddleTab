@@ -108,8 +108,8 @@ test("快捷录入按金额、用途、付款人、参与成员和更多设置�
 
   const amount = screen.getByLabelText("金额");
   const title = screen.getByLabelText("用途");
-  const payer = screen.getByRole("combobox", { name: "谁付款" });
-  const participants = screen.getByRole("group", { name: "参与成员" });
+  const payer = screen.getByRole("button", { name: "谁付款" });
+  const participants = screen.getByRole("button", { name: "谁参与" });
   const advanced = screen.getByRole("button", { name: "更多设置" });
   const save = screen.getByRole("button", { name: "保存" });
 
@@ -127,18 +127,14 @@ test("快捷录入按金额、用途、付款人、参与成员和更多设置�
     "rounded-md",
     "focus-within:border-ring",
   );
-  expect(payer).toHaveValue("m1");
-  expect(payer.parentElement?.parentElement).toHaveClass(
-    "rounded-md",
-    "focus-within:border-ring",
-  );
-  expect(participants).toContainElement(
-    screen.getByRole("checkbox", { name: "小王参与" }),
-  );
-  expect(participants).not.toHaveClass("border");
+  expect(payer).toHaveTextContent("小王");
+  expect(participants).toHaveTextContent("2 人");
   expect(
-    screen.getByRole("checkbox", { name: "小王参与" }).closest("label"),
-  ).toHaveClass("focus-within:outline-ring");
+    screen.queryByRole("combobox", { name: "谁付款" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "多人付款" }),
+  ).not.toBeInTheDocument();
   for (const avatar of screen.getAllByLabelText("小王的头像")) {
     expect(avatar.querySelector("img")).toHaveAttribute(
       "src",
@@ -197,6 +193,28 @@ test("分摊设置在同一表单内前进和返回，并保留快速录入值",
   expect(screen.getByLabelText("汇率")).toBeVisible();
 });
 
+test("参与成员只有在成员面板点击完成后才更新并进入分摊设置", async () => {
+  const user = userEvent.setup();
+  render(
+    <QuickExpenseHarness
+      activity={activity}
+      members={members}
+      preference={preference}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "谁参与" }));
+  await user.click(screen.getByRole("checkbox", { name: "小李" }));
+  await user.click(screen.getByRole("button", { name: "完成" }));
+
+  expect(screen.getByRole("button", { name: "谁参与" })).toHaveTextContent(
+    "小王",
+  );
+  await user.click(screen.getByRole("button", { name: "分摊设置" }));
+  expect(screen.getByRole("heading", { name: "参与成员 · 1人" })).toBeVisible();
+});
+
 test("合法分摊点击完成返回快速记账，再由底部保存提交", async () => {
   const user = userEvent.setup();
   mocks.createExpense.mockResolvedValue({ expense: { id: "expense-1" } });
@@ -244,25 +262,21 @@ test("多人付款和精确分摊转换为最小金额，并在付款不守恒�
 
   await user.type(screen.getByLabelText("金额"), "100");
   await user.type(screen.getByLabelText("用途"), "晚餐");
-  await user.click(screen.getByRole("button", { name: "更多设置" }));
+  await user.click(screen.getByRole("button", { name: "谁付款" }));
   await user.click(screen.getByRole("button", { name: "多人付款" }));
   await user.clear(screen.getByLabelText("小王付款金额"));
   await user.type(screen.getByLabelText("小王付款金额"), "60");
-  await user.click(screen.getByLabelText("小李作为付款人"));
+  await user.click(screen.getByRole("checkbox", { name: "小李" }));
   await user.type(screen.getByLabelText("小李付款金额"), "30");
+  expect(screen.getByRole("button", { name: "完成" })).toBeDisabled();
+  await user.clear(screen.getByLabelText("小李付款金额"));
+  await user.type(screen.getByLabelText("小李付款金额"), "40");
+  await user.click(screen.getByRole("button", { name: "完成" }));
   await user.click(screen.getByRole("button", { name: "分摊设置" }));
   await user.click(screen.getByRole("radio", { name: "按金额" }));
   await user.type(screen.getByLabelText("小王分摊值"), "50");
   await user.type(screen.getByLabelText("小李分摊值"), "50");
   await user.click(screen.getByRole("button", { name: "完成" }));
-  await user.click(screen.getByRole("button", { name: "保存" }));
-
-  expect(screen.getByRole("alert")).toHaveTextContent(
-    "付款合计必须等于消费金额",
-  );
-  expect(mocks.createExpense).not.toHaveBeenCalled();
-  await user.clear(screen.getByLabelText("小李付款金额"));
-  await user.type(screen.getByLabelText("小李付款金额"), "40");
   await user.click(screen.getByRole("button", { name: "保存" }));
 
   expect(mocks.createExpense).toHaveBeenCalledWith(
@@ -282,6 +296,37 @@ test("多人付款和精确分摊转换为最小金额，并在付款不守恒�
       },
     }),
   );
+});
+
+test("多人付款完成后修改主金额只标记失效，不自动重分配", async () => {
+  const user = userEvent.setup();
+  render(
+    <QuickExpenseHarness
+      activity={activity}
+      members={members}
+      preference={preference}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.type(screen.getByLabelText("金额"), "100");
+  await user.type(screen.getByLabelText("用途"), "晚餐");
+  await user.click(screen.getByRole("button", { name: "谁付款" }));
+  await user.click(screen.getByRole("button", { name: "多人付款" }));
+  await user.clear(screen.getByLabelText("小王付款金额"));
+  await user.type(screen.getByLabelText("小王付款金额"), "60");
+  await user.click(screen.getByRole("checkbox", { name: "小李" }));
+  await user.type(screen.getByLabelText("小李付款金额"), "40");
+  await user.click(screen.getByRole("button", { name: "完成" }));
+
+  await user.clear(screen.getByLabelText("金额"));
+  await user.type(screen.getByLabelText("金额"), "120");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "付款合计必须等于消费金额",
+  );
+  expect(mocks.createExpense).not.toHaveBeenCalled();
 });
 
 test.each([
@@ -662,10 +707,8 @@ test("编辑模式保留账单输入，并通过在线更新提交器保存完�
         occurredAt: "2026-08-27T16:00",
         note: "朋友聚餐",
         splitMode: "PERCENTAGE",
-        payerId: "m1",
+        payerSelection: { mode: "single", memberId: "m1" },
         participantIds: ["m1", "m2"],
-        payerIds: ["m1"],
-        paymentEntries: { m1: "428.00" },
         splitEntries: { m1: "25.00", m2: "75.00" },
       }}
       submitExpense={submitExpense}

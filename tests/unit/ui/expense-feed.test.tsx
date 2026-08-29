@@ -91,7 +91,7 @@ test.each([
       entryContext={
         {
           activity: { status: "ACTIVE" },
-          permissions: { canCreateExpense: false },
+          permissions: { canCreateExpense: false, canManageMembers: false },
         } as never
       }
     />,

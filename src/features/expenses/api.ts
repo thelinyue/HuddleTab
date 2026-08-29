@@ -64,7 +64,10 @@ export interface QuickExpenseContextDto {
     readonly recentCurrency: string | null;
     readonly recentTitles: readonly string[];
   };
-  readonly permissions: { readonly canCreateExpense: boolean };
+  readonly permissions: {
+    readonly canCreateExpense: boolean;
+    readonly canManageMembers: boolean;
+  };
 }
 
 export interface ExpenseDetailResponse {
@@ -161,6 +164,24 @@ export async function createExpense(
   return (await response.json()).data as {
     readonly expense: ExpenseDetailDto;
     readonly idempotentReplay: boolean;
+  };
+}
+
+/** 临时成员只支持在线创建；返回值可直接并入当前快速记账表单的成员列表。 */
+export async function addGuestMember(activityId: string, displayName: string) {
+  const response = await fetch(`/api/activities/${activityId}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName }),
+  });
+  if (!response.ok) {
+    throw await mutationError(response, "添加临时成员失败，请稍后重试。");
+  }
+  return (await response.json()).data as {
+    readonly id: string;
+    readonly displayName: string;
+    readonly status: "ACTIVE";
+    readonly avatarPreset: null;
   };
 }
 

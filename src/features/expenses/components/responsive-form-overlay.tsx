@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 
 import {
   Dialog,
@@ -27,6 +27,7 @@ export function ResponsiveFormOverlay({
   mobileFullScreen = false,
   headerStart,
   headerEnd,
+  returnFocusRef,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -35,6 +36,7 @@ export function ResponsiveFormOverlay({
   readonly mobileFullScreen?: boolean;
   readonly headerStart?: ReactNode;
   readonly headerEnd?: ReactNode;
+  readonly returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const [wide, setWide] = useState(false);
   useEffect(() => {
@@ -51,6 +53,11 @@ export function ResponsiveFormOverlay({
         <DialogContent
           className="max-h-[88dvh] max-w-2xl overflow-y-auto"
           showCloseButton={!headerStart}
+          onCloseAutoFocus={(event) => {
+            if (!returnFocusRef?.current) return;
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }}
         >
           <DialogHeader
             className={
@@ -76,6 +83,11 @@ export function ResponsiveFormOverlay({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
+        onCloseAutoFocus={(event) => {
+          if (!returnFocusRef?.current) return;
+          event.preventDefault();
+          returnFocusRef.current.focus();
+        }}
         className={
           mobileFullScreen
             ? "data-[side=bottom]:h-dvh data-[side=bottom]:rounded-none data-[side=bottom]:border-0 max-h-dvh gap-0 overflow-hidden"

@@ -245,7 +245,7 @@ it("快速记账上下文投影成员头像，不改变活动偏好和权限", a
       recentCurrency: "CNY",
       recentTitles: ["晚餐"],
     },
-    permissions: { canCreateExpense: true },
+    permissions: { canCreateExpense: true, canManageMembers: true },
   });
 
   const response = await getEntryContext(
@@ -274,7 +274,7 @@ it("快速记账上下文投影成员头像，不改变活动偏好和权限", a
         recentCurrency: "CNY",
         recentTitles: ["晚餐"],
       },
-      permissions: { canCreateExpense: true },
+      permissions: { canCreateExpense: true, canManageMembers: true },
     },
   });
   expect(mocks.getEntryContext).toHaveBeenCalledWith(

@@ -110,5 +110,24 @@ it("真实 ExpenseService 上下文输出活动生命周期和成员头像预设
   expect(entryContext).toMatchObject({
     activity: { status: "ACTIVE" },
     members: [{ id: "member-1", avatarPreset: 5 }],
+    permissions: { canCreateExpense: true, canManageMembers: true },
+  });
+});
+
+it("普通成员不能从快速记账上下文创建临时成员", async () => {
+  mocks.authorize.mockResolvedValue({
+    ...authorization,
+    member: { ...authorization.member, role: "MEMBER" as const },
+  });
+  const sql = createSql();
+
+  const entryContext = await new ExpenseService(sql as never).getEntryContext(
+    session,
+    "activity-1",
+  );
+
+  expect(entryContext.permissions).toEqual({
+    canCreateExpense: true,
+    canManageMembers: false,
   });
 });

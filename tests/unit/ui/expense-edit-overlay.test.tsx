@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  addGuestMember: vi.fn(),
   createExpense: vi.fn(),
   updateExpense: vi.fn(),
 }));
@@ -16,6 +17,7 @@ vi.mock("@/features/expenses/api", async (importOriginal) => {
     await importOriginal<typeof import("@/features/expenses/api")>();
   return {
     ...original,
+    addGuestMember: mocks.addGuestMember,
     createExpense: mocks.createExpense,
     updateExpense: mocks.updateExpense,
   };
@@ -47,7 +49,7 @@ const context = {
     recentCurrency: null,
     recentTitles: [],
   },
-  permissions: { canCreateExpense: true },
+  permissions: { canCreateExpense: true, canManageMembers: true },
 } satisfies QuickExpenseContextDto;
 
 const data = {
@@ -161,6 +163,36 @@ test("编辑账单使用现有事实预填，并携带版本提交更新", async
   );
   expect(onSaved).toHaveBeenCalledOnce();
   expect(mocks.createExpense).not.toHaveBeenCalled();
+});
+
+test("编辑付款人时可添加临时成员并立即选中", async () => {
+  const user = userEvent.setup();
+  mocks.addGuestMember.mockResolvedValue({
+    id: "guest-1",
+    displayName: "阿岚",
+    status: "ACTIVE",
+    avatarPreset: null,
+  });
+  render(
+    <ExpenseEditOverlay
+      open
+      onOpenChange={vi.fn()}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "谁付款" }));
+  await user.click(screen.getByRole("button", { name: "添加临时成员" }));
+  await user.type(screen.getByLabelText("临时成员昵称"), "阿岚");
+  await user.click(screen.getByRole("button", { name: "确认添加" }));
+
+  expect(mocks.addGuestMember).toHaveBeenCalledWith("activity-1", "阿岚");
+  expect(
+    document.querySelector('#quick-expense-form button[aria-label="谁付款"]'),
+  ).toHaveTextContent("阿岚");
 });
 
 test("版本冲突时保留用户输入，并可退出编辑查看最新内容", async () => {

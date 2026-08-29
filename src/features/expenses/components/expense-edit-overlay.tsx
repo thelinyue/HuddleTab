@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { getCurrencyMinorUnits } from "@/domain/currency/currency";
 import {
+  addGuestMember,
   updateExpense,
   type ExpenseDetailResponse,
   type QuickExpenseContextDto,
@@ -69,15 +70,23 @@ function initialValues(
     occurredAt: dateTimeInput(expense.occurredAt, timeZone),
     note: expense.note ?? "",
     splitMode,
-    payerId: payerIds[0] ?? "",
+    payerSelection:
+      data.payments.length <= 1
+        ? { mode: "single", memberId: payerIds[0] ?? "" }
+        : {
+            mode: "multiple",
+            memberIds: payerIds,
+            amountInputs: Object.fromEntries(
+              data.payments.map((payment) => [
+                payment.memberId,
+                amountInput(
+                  payment.originalAmountMinor,
+                  expense.originalCurrency,
+                ),
+              ]),
+            ),
+          },
     participantIds: data.shares.map((share) => share.memberId),
-    payerIds,
-    paymentEntries: Object.fromEntries(
-      data.payments.map((payment) => [
-        payment.memberId,
-        amountInput(payment.originalAmountMinor, expense.originalCurrency),
-      ]),
-    ),
     splitEntries: Object.fromEntries(
       data.shares.map((share) => [
         share.memberId,
@@ -169,6 +178,10 @@ export function ExpenseEditOverlay({
           recentTitles: context.preference.recentTitles,
         }}
         online={online}
+        canManageMembers={context.permissions.canManageMembers}
+        onAddGuest={(displayName) =>
+          addGuestMember(context.activity.id, displayName)
+        }
         step={step}
         onStepChange={setStep}
         onSplitValidityChange={setSplitValid}

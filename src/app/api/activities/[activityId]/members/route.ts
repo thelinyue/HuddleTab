@@ -50,7 +50,7 @@ export async function GET(
         memberType: member.member_type,
         avatarPreset:
           member.member_type === "USER"
-            ? (member.avatar_preset as AvatarPreset | null) ?? null
+            ? ((member.avatar_preset as AvatarPreset | null) ?? null)
             : null,
         permissions: {
           canManage:
@@ -70,11 +70,22 @@ export async function GET(
   }
 }
 
-const addGuestInput = z.object({ displayName: z.string().trim().min(1).max(40) });
+const addGuestInput = z.object({
+  displayName: z.string().trim().min(1).max(40),
+});
 
 /** 临时成员由服务事务创建，Route 不复制成员、账务或审计不变量。 */
-export async function POST(request: Request, context: { params: Promise<{ activityId: string }> }) {
-  const [{ requireSession, sessionUserId }, { sql }, { MemberService }, { MaintenanceMode }, { applicationErrorResponse }] = await Promise.all([
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ activityId: string }> },
+) {
+  const [
+    { requireSession, sessionUserId },
+    { sql },
+    { MemberService },
+    { MaintenanceMode },
+    { applicationErrorResponse },
+  ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
     import("@/server/services/member-service"),
@@ -82,11 +93,34 @@ export async function POST(request: Request, context: { params: Promise<{ activi
     import("@/server/http/application-error-response"),
   ]);
   try {
-    const [params, session] = await Promise.all([context.params, requireSession(request.headers)]);
+    const [params, session] = await Promise.all([
+      context.params,
+      requireSession(request.headers),
+    ]);
     await new MaintenanceMode(sql).assertWritesAllowed();
-    const usage = { hasFacts: async (memberId: string) => (await sql`select 1 from expense_payments where activity_member_id = ${memberId} union all select 1 from expense_shares where activity_member_id = ${memberId} union all select 1 from settlements where payer_member_id = ${memberId} or receiver_member_id = ${memberId} limit 1`).length > 0 };
-    const member = await new MemberService(sql, usage).addGuest({ session: { user: { id: sessionUserId(session) } }, activityId: params.activityId, displayName: addGuestInput.parse(await request.json()).displayName });
-    return NextResponse.json({ data: member }, { status: 201 });
+    const { displayName } = addGuestInput.parse(await request.json());
+    const usage = {
+      hasFacts: async (memberId: string) =>
+        (
+          await sql`select 1 from expense_payments where activity_member_id = ${memberId} union all select 1 from expense_shares where activity_member_id = ${memberId} union all select 1 from settlements where payer_member_id = ${memberId} or receiver_member_id = ${memberId} limit 1`
+        ).length > 0,
+    };
+    const member = await new MemberService(sql, usage).addGuest({
+      session: { user: { id: sessionUserId(session) } },
+      activityId: params.activityId,
+      displayName,
+    });
+    return NextResponse.json(
+      {
+        data: {
+          id: member.id,
+          displayName,
+          status: "ACTIVE",
+          avatarPreset: null,
+        },
+      },
+      { status: 201 },
+    );
   } catch (error) {
     const response = applicationErrorResponse(error);
     if (response) return response;

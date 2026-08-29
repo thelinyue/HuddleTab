@@ -135,7 +135,7 @@ test("移动端记一笔按钮固定在活动导航和安全区上方", () => {
           recentCurrency: "CNY",
           recentTitles: [],
         },
-        permissions: { canCreateExpense: true },
+        permissions: { canCreateExpense: true, canManageMembers: false },
       }}
       onSaved={() => undefined}
     />,

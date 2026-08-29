@@ -148,15 +148,17 @@ export async function registerTravelerThroughInvite(
 }
 
 async function setParticipantSelection(
-  form: ReturnType<Page["locator"]>,
+  page: Page,
   names: PartyNames,
   participants: readonly ScenarioMember[],
 ) {
+  await page.getByRole("button", { name: "谁参与" }).click();
   for (const member of ["owner", "a", "b", "c"] as const) {
-    await form
-      .getByLabel(`${names[member]}参与`)
-      .setChecked(participants.includes(member), { force: true });
+    const option = page.getByRole("checkbox", { name: names[member] });
+    const selected = (await option.getAttribute("aria-checked")) === "true";
+    if (selected !== participants.includes(member)) await option.click();
   }
+  await page.getByRole("button", { name: "完成", exact: true }).click();
 }
 
 async function fillExpenseForm(
@@ -170,10 +172,29 @@ async function fillExpenseForm(
     .getByLabel("金额", { exact: true })
     .fill(expense.initialAmount ?? expense.amount);
   await form.getByLabel("用途").fill(expense.title);
-  await form
-    .getByLabel("谁付款")
-    .selectOption({ label: party.names[expense.payments[0].member] });
-  await setParticipantSelection(form, party.names, expense.participants);
+  await page.getByRole("button", { name: "谁付款" }).click();
+  if (expense.payments.length === 1) {
+    await page
+      .getByRole("radio", { name: party.names[expense.payments[0].member] })
+      .click();
+  } else {
+    await page.getByRole("button", { name: "多人付款" }).click();
+    for (const member of ["owner", "a", "b", "c"] as const) {
+      const option = page.getByRole("checkbox", { name: party.names[member] });
+      const selected = (await option.getAttribute("aria-checked")) === "true";
+      const expected = expense.payments.some(
+        (payment) => payment.member === member,
+      );
+      if (selected !== expected) await option.click();
+    }
+    for (const payment of expense.payments) {
+      await page
+        .getByLabel(`${party.names[payment.member]}付款金额`)
+        .fill(payment.amount);
+    }
+    await page.getByRole("button", { name: "完成", exact: true }).click();
+  }
+  await setParticipantSelection(page, party.names, expense.participants);
 
   await form.getByRole("button", { name: "更多设置" }).click();
   await form
@@ -185,16 +206,6 @@ async function fillExpenseForm(
   await form.getByLabel("消费时间").fill(`${date}T${expense.occurredTime}`);
   if (expense.originalCurrency !== "CNY") {
     await form.getByLabel("手动输入").check();
-  }
-
-  if (expense.payments.length > 1) {
-    await form.getByRole("button", { name: "多人付款" }).click();
-    for (const payment of expense.payments) {
-      await form.getByLabel(`${party.names[payment.member]}作为付款人`).check();
-      await form
-        .getByLabel(`${party.names[payment.member]}付款金额`)
-        .fill(payment.amount);
-    }
   }
 
   await form.getByRole("button", { name: "分摊设置" }).click();

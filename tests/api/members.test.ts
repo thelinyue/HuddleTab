@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
   });
   return {
     sql,
+    addGuest: vi.fn(),
     authorize: vi.fn().mockResolvedValue({
       member: { role: "OWNER", status: "ACTIVE" },
       activity: { status: "ACTIVE" },
@@ -27,8 +28,18 @@ vi.mock("@/server/permissions/authorize-activity-operation", () => ({
 vi.mock("@/server/http/application-error-response", () => ({
   applicationErrorResponse: vi.fn().mockReturnValue(undefined),
 }));
+vi.mock("@/server/services/member-service", () => ({
+  MemberService: class {
+    addGuest = mocks.addGuest;
+  },
+}));
+vi.mock("@/server/maintenance/maintenance-mode", () => ({
+  MaintenanceMode: class {
+    assertWritesAllowed = vi.fn().mockResolvedValue(undefined);
+  },
+}));
 
-import { GET } from "@/app/api/activities/[activityId]/members/route";
+import { GET, POST } from "@/app/api/activities/[activityId]/members/route";
 
 it("成员 GET 为正式成员投影头像预设，并保持临时成员头像为空", async () => {
   mocks.sql
@@ -80,5 +91,28 @@ it("成员 GET 为正式成员投影头像预设，并保持临时成员头像�
       },
     ],
     meta: { inviteMode: "REQUIRE_APPROVAL" },
+  });
+});
+
+it("添加临时成员返回可直接加入成员选择器的完整成员信息", async () => {
+  mocks.addGuest.mockResolvedValue({ id: "member-new" });
+
+  const response = await POST(
+    new Request("http://localhost/api/activities/activity-1/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "小周" }),
+    }),
+    { params: Promise.resolve({ activityId: "activity-1" }) },
+  );
+
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({
+    data: {
+      id: "member-new",
+      displayName: "小周",
+      status: "ACTIVE",
+      avatarPreset: null,
+    },
   });
 });

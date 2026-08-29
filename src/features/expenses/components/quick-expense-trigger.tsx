@@ -10,7 +10,10 @@ import {
   motionEase,
   useMotionGSAP,
 } from "@/components/design-system/motion";
-import type { QuickExpenseContextDto } from "@/features/expenses/api";
+import {
+  addGuestMember,
+  type QuickExpenseContextDto,
+} from "@/features/expenses/api";
 import {
   QuickExpenseForm,
   type QuickExpenseStep,
@@ -135,6 +138,10 @@ export function QuickExpenseTrigger({
             recentTitles: context.preference.recentTitles,
           }}
           online={online}
+          canManageMembers={context.permissions.canManageMembers}
+          onAddGuest={(displayName) =>
+            addGuestMember(context.activity.id, displayName)
+          }
           step={step}
           completionVersion={completionVersion}
           onStepChange={setStep}

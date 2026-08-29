@@ -11,6 +11,7 @@ import { ApplicationError } from "@/server/errors/application-error";
 import {
   authorizeActivityOperation,
   evaluateActivityOperation,
+  type ActivityOperation,
 } from "@/server/permissions/authorize-activity-operation";
 import { ExpenseRepository } from "@/server/repositories/expense-repository";
 import { NotificationService } from "@/server/services/notification-service";
@@ -121,7 +122,7 @@ export class ExpenseService {
           order by member.id`;
       const recentTitles =
         await transaction`select title from expenses where activity_id = ${activityId} and deleted_at is null group by title order by max(created_at) desc, title asc limit 6`;
-      const canCreateExpense = (() => {
+      const canPerform = (operation: ActivityOperation) => {
         try {
           evaluateActivityOperation(
             {
@@ -132,14 +133,14 @@ export class ExpenseService {
               role: authorization.member.role,
               ownsResource: true,
             },
-            "EXPENSE_CREATE",
+            operation,
           );
           return true;
         } catch (error) {
           if (error instanceof ApplicationError) return false;
           throw error;
         }
-      })();
+      };
       return {
         activity: {
           id: activityId,
@@ -154,7 +155,7 @@ export class ExpenseService {
           status: member.status,
           avatarPreset:
             member.member_type === "USER"
-              ? (member.avatar_preset as AvatarPreset | null) ?? null
+              ? ((member.avatar_preset as AvatarPreset | null) ?? null)
               : null,
         })),
         preference: {
@@ -164,7 +165,10 @@ export class ExpenseService {
           recentCurrency: preference?.recent_currency ?? null,
           recentTitles: recentTitles.map((row) => row.title),
         },
-        permissions: { canCreateExpense },
+        permissions: {
+          canCreateExpense: canPerform("EXPENSE_CREATE"),
+          canManageMembers: canPerform("MEMBER_MANAGE"),
+        },
       };
     });
   }

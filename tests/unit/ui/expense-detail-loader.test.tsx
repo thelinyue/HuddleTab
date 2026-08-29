@@ -92,7 +92,7 @@ const context = {
     recentCurrency: null,
     recentTitles: [],
   },
-  permissions: { canCreateExpense: true },
+  permissions: { canCreateExpense: true, canManageMembers: false },
 };
 
 beforeEach(() => {

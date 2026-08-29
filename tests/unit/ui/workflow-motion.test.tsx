@@ -58,7 +58,7 @@ const context = {
     recentCurrency: "CNY",
     recentTitles: [],
   },
-  permissions: { canCreateExpense: true },
+  permissions: { canCreateExpense: true, canManageMembers: false },
 };
 
 afterEach(() => {

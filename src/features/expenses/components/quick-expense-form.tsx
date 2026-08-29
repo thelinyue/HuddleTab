@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { gsap } from "gsap";
@@ -15,7 +15,6 @@ import {
   getCurrencyMinorUnits,
 } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
-import { MemberAvatar } from "@/components/design-system/member-avatar";
 import { MoneyAmount } from "@/components/design-system/money-amount";
 import { Button } from "@/components/ui/button";
 import { createExpense } from "@/features/expenses/api";
@@ -24,11 +23,19 @@ import {
   expenseCategoryLabels,
   type ExpenseCategory,
 } from "@/features/expenses/categories";
-import { PaymentEditor } from "@/features/expenses/components/payment-editor";
+import {
+  PayerPicker,
+  resolvePayerPayments,
+  type PayerSelection,
+} from "@/features/expenses/components/payer-picker";
 import { SplitEditor } from "@/features/expenses/components/split-editor";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 import { splitExpense, type SplitInput } from "@/domain/splitting/split";
 import type { AvatarPreset } from "@/features/me/avatar-presets";
+import {
+  MemberPickerSheet,
+  MemberPickerTrigger,
+} from "@/features/members/components/member-picker";
 import { enqueueExpense } from "@/pwa/sync-queue/enqueue-expense";
 import { requestForegroundSync } from "@/pwa/sync-queue/sync-events";
 
@@ -44,10 +51,8 @@ type FormValues = {
   occurredAt: string;
   note: string;
   splitMode: SplitMode;
-  payerId: string;
+  payerSelection: PayerSelection;
   participantIds: string[];
-  payerIds: string[];
-  paymentEntries: Record<string, string>;
   splitEntries: Record<string, string>;
 };
 
@@ -209,6 +214,8 @@ export function QuickExpenseForm({
   members,
   preference,
   online = true,
+  canManageMembers = false,
+  onAddGuest,
   step = "ENTRY",
   completionVersion = 0,
   onStepChange = () => undefined,
@@ -230,6 +237,8 @@ export function QuickExpenseForm({
   readonly members: readonly QuickExpenseMember[];
   readonly preference: QuickExpensePreference;
   readonly online?: boolean;
+  readonly canManageMembers?: boolean;
+  readonly onAddGuest?: (displayName: string) => Promise<QuickExpenseMember>;
   readonly step?: QuickExpenseStep;
   readonly completionVersion?: number;
   readonly onStepChange?: (step: QuickExpenseStep) => void;
@@ -253,9 +262,13 @@ export function QuickExpenseForm({
   readonly onConflict?: () => void;
 }) {
   const [advanced, setAdvanced] = useState(false);
-  const [multiplePayers, setMultiplePayers] = useState(
-    () => (initialValues?.payerIds.length ?? 0) > 1,
+  const [participantPickerOpen, setParticipantPickerOpen] = useState(false);
+  const [participantDraft, setParticipantDraft] = useState<readonly string[]>(
+    [],
   );
+  const [createdMembers, setCreatedMembers] = useState<
+    readonly QuickExpenseMember[]
+  >([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -264,9 +277,15 @@ export function QuickExpenseForm({
   const [files, setFiles] = useState<readonly File[]>([]);
   const [clientMutationId] = useState(() => crypto.randomUUID());
   const stepScope = useRef<HTMLDivElement>(null);
+  const participantTriggerRef = useRef<HTMLButtonElement>(null);
   const previousStep = useRef(step);
   const previousCompletionVersion = useRef(completionVersion);
-  const activeMembers = members.filter((member) => member.status === "ACTIVE");
+  const activeMembers = [
+    ...members.filter((member) => member.status === "ACTIVE"),
+    ...createdMembers.filter(
+      (created) => !members.some((member) => member.id === created.id),
+    ),
+  ];
   const preferredParticipants = preference.recentParticipantIds.filter((id) =>
     activeMembers.some((member) => member.id === id),
   );
@@ -286,19 +305,14 @@ export function QuickExpenseForm({
       occurredAt: currentLocalDateTime(),
       note: "",
       splitMode: "EQUAL",
-      payerId: preferredPayer,
+      payerSelection: { mode: "single", memberId: preferredPayer },
       participantIds: preferredParticipants.length
         ? preferredParticipants
         : activeMembers.map((member) => member.id),
-      payerIds: preferredPayerIds.length ? preferredPayerIds : [preferredPayer],
-      paymentEntries: {},
       splitEntries: {},
     },
   });
   const values = useWatch({ control: form.control }) as FormValues;
-  const payer =
-    activeMembers.find((member) => member.id === values.payerId) ??
-    activeMembers[0];
   const totalMinorPreview = previewAmountMinor(values.amount, values.currency);
   const splitPreview = previewSplit(
     totalMinorPreview,
@@ -387,23 +401,14 @@ export function QuickExpenseForm({
       const currency = next.currency.trim().toUpperCase();
       const amountMinor = amountToMinor(next.amount, currency);
       if (!next.exchangeRate.trim()) throw new Error("汇率不能为空。");
-      const payments = multiplePayers
-        ? next.payerIds.map((memberId) => ({
-            memberId,
-            amountMinor: amountToMinor(
-              next.paymentEntries[memberId] ?? "",
-              currency,
-            ),
-          }))
-        : [{ memberId: next.payerId, amountMinor }];
-      if (!payments.length) throw new Error("至少选择一名付款人。");
-      if (
-        payments.reduce(
-          (sum, payment) => sum + BigInt(payment.amountMinor),
-          0n,
-        ) !== BigInt(amountMinor)
-      )
-        throw new Error("付款合计必须等于消费金额。");
+      const paymentResolution = resolvePayerPayments(
+        next.payerSelection,
+        BigInt(amountMinor),
+        currency,
+      );
+      if (!paymentResolution.payments) {
+        throw new Error(paymentResolution.error ?? "付款信息不完整。");
+      }
       const split =
         next.splitMode === "EQUAL"
           ? { mode: "EQUAL" as const, members: next.participantIds }
@@ -440,7 +445,7 @@ export function QuickExpenseForm({
         exchangeRateAt: exchangeRateAt.toISOString(),
         occurredAt: occurredAt.toISOString(),
         note: next.note.trim() || undefined,
-        payments,
+        payments: paymentResolution.payments,
         split,
       };
       if (submitExpense) {
@@ -620,101 +625,80 @@ export function QuickExpenseForm({
               </p>
             )}
           </div>
-          <div className="rounded-md border bg-surface px-3 py-2 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
-            <span className="type-caption block text-muted-foreground">
-              谁付款
-            </span>
-            <div className="flex min-h-11 items-center gap-2">
-              {payer ? (
-                <MemberAvatar
-                  memberId={payer.id}
-                  displayName={payer.displayName}
-                  avatarPreset={payer.avatarPreset}
-                  className="size-8"
-                />
-              ) : null}
-              <select
-                aria-label="谁付款"
-                className="type-body min-h-11 min-w-0 flex-1 appearance-none bg-transparent font-medium outline-none"
-                {...form.register("payerId")}
-              >
-                {activeMembers.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.displayName}
-                  </option>
-                ))}
-              </select>
-              <ChevronRightIcon
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-            </div>
-          </div>
-          <fieldset
-            id="quick-expense-participants"
-            aria-label="参与成员"
-            className="px-0"
-          >
-            <legend className="sr-only">参与成员</legend>
-            <div className="flex min-h-11 items-center justify-between gap-3">
-              <span className="type-label font-medium">
-                参与成员（{values.participantIds.length}人）
-              </span>
-              <button
-                type="button"
-                className="type-label min-h-11 font-medium text-primary"
-                onClick={() => onStepChange("SPLIT")}
-              >
-                分摊设置
-              </button>
-            </div>
-            <div className="mt-1 flex flex-wrap gap-3">
-              {activeMembers.map((member) => (
-                <label
-                  key={member.id}
-                  className="flex min-h-16 min-w-12 cursor-pointer flex-col items-center justify-center gap-1 rounded-sm text-center focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring"
-                >
-                  <input
-                    type="checkbox"
-                    aria-label={`${member.displayName}参与`}
-                    className="sr-only"
-                    checked={values.participantIds.includes(member.id)}
-                    onChange={(event) =>
-                      form.setValue(
-                        "participantIds",
-                        event.target.checked
-                          ? [...values.participantIds, member.id]
-                          : values.participantIds.filter(
-                              (id) => id !== member.id,
-                            ),
-                      )
-                    }
-                  />
-                  <span className="relative">
-                    <MemberAvatar
-                      memberId={member.id}
-                      displayName={member.displayName}
-                      avatarPreset={member.avatarPreset}
-                      className={`size-9 ${values.participantIds.includes(member.id) ? "ring-2 ring-primary/35 ring-offset-1" : "opacity-45 grayscale"}`}
-                    />
-                    {values.participantIds.includes(member.id) ? (
-                      <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                        <CheckIcon aria-hidden="true" className="size-2.5" />
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="type-caption max-w-16 truncate">
-                    {member.displayName}
-                  </span>
-                </label>
-              ))}
-            </div>
+          <PayerPicker
+            members={activeMembers}
+            value={values.payerSelection}
+            onChange={(selection) => form.setValue("payerSelection", selection)}
+            totalMinor={totalMinorPreview}
+            currency={values.currency}
+            canAddGuest={canManageMembers}
+            online={online}
+            onAddGuest={
+              onAddGuest
+                ? async (displayName) => {
+                    const member = await onAddGuest(displayName);
+                    setCreatedMembers((current) => [...current, member]);
+                    return member;
+                  }
+                : undefined
+            }
+          />
+          <div id="quick-expense-participants">
+            <MemberPickerTrigger
+              label="谁参与"
+              members={activeMembers}
+              selectedIds={values.participantIds}
+              onClick={() => {
+                setParticipantDraft(values.participantIds);
+                setParticipantPickerOpen(true);
+              }}
+              buttonRef={participantTriggerRef}
+            />
+            <button
+              type="button"
+              className="type-label mt-1 min-h-11 font-medium text-primary"
+              onClick={() => onStepChange("SPLIT")}
+            >
+              分摊设置
+            </button>
             {fieldErrors["quick-expense-participants"] && (
               <p className="mt-1 text-sm text-destructive">
                 {fieldErrors["quick-expense-participants"]}
               </p>
             )}
-          </fieldset>
+          </div>
+          <MemberPickerSheet
+            open={participantPickerOpen}
+            onOpenChange={setParticipantPickerOpen}
+            title="谁参与"
+            mode="multiple"
+            members={activeMembers}
+            selectedIds={participantDraft}
+            onSelectedIdsChange={setParticipantDraft}
+            onCommit={(ids) => {
+              const changed =
+                ids.length !== values.participantIds.length ||
+                ids.some((id) => !values.participantIds.includes(id));
+              form.setValue("participantIds", [...ids]);
+              if (changed && values.splitMode !== "EQUAL") {
+                form.setValue("splitEntries", {});
+              }
+              setParticipantPickerOpen(false);
+            }}
+            canComplete={participantDraft.length > 0}
+            canAddGuest={canManageMembers}
+            online={online}
+            onAddGuest={
+              onAddGuest
+                ? async (displayName) => {
+                    const member = await onAddGuest(displayName);
+                    setCreatedMembers((current) => [...current, member]);
+                    return member;
+                  }
+                : undefined
+            }
+            returnFocusRef={participantTriggerRef}
+          />
           <Button
             type="button"
             variant="outline"
@@ -748,38 +732,6 @@ export function QuickExpenseForm({
                   ))}
                 </div>
               </fieldset>
-              <button
-                type="button"
-                className="min-h-11 border px-3"
-                aria-pressed={multiplePayers}
-                onClick={() => {
-                  const enabling = !multiplePayers;
-                  setMultiplePayers(enabling);
-                  if (enabling && values.payerIds.length === 1) {
-                    form.setValue("paymentEntries", {
-                      [values.payerId]: values.amount,
-                    });
-                  }
-                }}
-              >
-                多人付款
-              </button>
-              {multiplePayers && (
-                <PaymentEditor
-                  members={activeMembers}
-                  payerIds={values.payerIds}
-                  values={values.paymentEntries}
-                  onPayerIdsChange={(payerIds) =>
-                    form.setValue("payerIds", payerIds)
-                  }
-                  onValueChange={(memberId, value) =>
-                    form.setValue("paymentEntries", {
-                      ...values.paymentEntries,
-                      [memberId]: value,
-                    })
-                  }
-                />
-              )}
               <div>
                 <label
                   htmlFor="quick-expense-currency"

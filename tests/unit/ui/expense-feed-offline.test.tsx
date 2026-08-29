@@ -58,7 +58,7 @@ test("离线入队不触发服务端流水刷新", async () => {
       entryContext={
         {
           activity: { status: "ACTIVE" },
-          permissions: { canCreateExpense: true },
+          permissions: { canCreateExpense: true, canManageMembers: false },
         } as never
       }
       onExpenseSaved={onExpenseSaved}
