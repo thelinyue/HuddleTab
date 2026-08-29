@@ -196,10 +196,12 @@ async function fillExpenseForm(
   }
   await setParticipantSelection(page, party.names, expense.participants);
 
+  await form.getByRole("button", { name: "分类" }).click();
+  await page
+    .getByRole("dialog", { name: "分类" })
+    .getByRole("radio", { name: categoryLabels[expense.category], exact: true })
+    .click();
   await form.getByRole("button", { name: "更多设置" }).click();
-  await form
-    .getByLabel(categoryLabels[expense.category], { exact: true })
-    .check();
   await form.getByLabel("币种", { exact: true }).fill(expense.originalCurrency);
   await form.getByLabel("汇率", { exact: true }).fill(expense.exchangeRate);
   await form.getByLabel("汇率时间").fill(`${date}T09:00`);

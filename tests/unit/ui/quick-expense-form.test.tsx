@@ -96,7 +96,7 @@ const preference = {
   recentCurrency: "CNY",
 };
 
-test("快捷录入按金额、用途、付款人、参与成员和更多设置排列", () => {
+test("快捷录入按金额、用途、付款人、参与成员、分类和更多设置排列", () => {
   render(
     <QuickExpenseHarness
       activity={activity}
@@ -110,6 +110,7 @@ test("快捷录入按金额、用途、付款人、参与成员和更多设置�
   const title = screen.getByLabelText("用途");
   const payer = screen.getByRole("button", { name: "谁付款" });
   const participants = screen.getByRole("button", { name: "谁参与" });
+  const category = screen.getByRole("button", { name: "分类" });
   const advanced = screen.getByRole("button", { name: "更多设置" });
   const save = screen.getByRole("button", { name: "保存" });
 
@@ -129,6 +130,11 @@ test("快捷录入按金额、用途、付款人、参与成员和更多设置�
   );
   expect(payer).toHaveTextContent("小王");
   expect(participants).toHaveTextContent("2 人");
+  expect(category).toHaveTextContent("其他");
+  expect(category.querySelector("img")).toHaveAttribute(
+    "src",
+    "/expense-categories/other.webp",
+  );
   expect(
     screen.queryByRole("combobox", { name: "谁付款" }),
   ).not.toBeInTheDocument();
@@ -163,8 +169,96 @@ test("快捷录入按金额、用途、付款人、参与成员和更多设置�
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(
+    participants.compareDocumentPosition(category) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    category.compareDocumentPosition(advanced) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
     advanced.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+});
+
+test("分类通过轻量单选 Sheet 立即更新并将焦点还给入口", async () => {
+  const user = userEvent.setup();
+  render(
+    <QuickExpenseHarness
+      activity={activity}
+      members={members}
+      preference={preference}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  const category = screen.getByRole("button", { name: "分类" });
+  await user.click(category);
+
+  const sheet = screen.getByRole("dialog", { name: "分类" });
+  const options = within(sheet).getByRole("radiogroup", { name: "分类" });
+  expect(options).toBeVisible();
+  for (const label of [
+    "餐饮",
+    "交通",
+    "住宿",
+    "门票",
+    "购物",
+    "娱乐",
+    "其他",
+  ]) {
+    expect(within(options).getByRole("radio", { name: label })).toBeVisible();
+  }
+  expect(options.querySelectorAll("img")).toHaveLength(7);
+  expect(within(options).getByRole("radio", { name: "其他" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+
+  await user.click(within(options).getByRole("radio", { name: "餐饮" }));
+
+  expect(
+    screen.queryByRole("dialog", { name: "分类" }),
+  ).not.toBeInTheDocument();
+  expect(category).toHaveTextContent("餐饮");
+  expect(category.querySelector("img")).toHaveAttribute(
+    "src",
+    "/expense-categories/food.webp",
+  );
+  expect(category).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "更多设置" }));
+  expect(
+    screen.queryByRole("radiogroup", { name: "分类" }),
+  ).not.toBeInTheDocument();
+});
+
+test("分类选择会进入创建账单提交契约", async () => {
+  const user = userEvent.setup();
+  mocks.createExpense.mockResolvedValue({ expense: { id: "expense-1" } });
+  render(
+    <QuickExpenseHarness
+      activity={activity}
+      members={members}
+      preference={preference}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.type(screen.getByLabelText("金额"), "88");
+  await user.type(screen.getByLabelText("用途"), "早餐");
+  await user.click(screen.getByRole("button", { name: "分类" }));
+  await user.click(
+    within(screen.getByRole("radiogroup", { name: "分类" })).getByRole(
+      "radio",
+      { name: "餐饮" },
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(mocks.createExpense).toHaveBeenCalledWith(
+    "a1",
+    expect.objectContaining({ category: "FOOD" }),
+  );
 });
 
 test("分摊设置在同一表单内前进和返回，并保留快速录入值", async () => {
@@ -191,6 +285,9 @@ test("分摊设置在同一表单内前进和返回，并保留快速录入值",
   expect(screen.getByLabelText("用途")).toHaveValue("晚餐");
   await user.click(screen.getByRole("button", { name: "更多设置" }));
   expect(screen.getByLabelText("汇率")).toBeVisible();
+  expect(
+    screen.queryByRole("radiogroup", { name: "分类" }),
+  ).not.toBeInTheDocument();
 });
 
 test("参与成员只有在成员面板点击完成后才更新并进入分摊设置", async () => {

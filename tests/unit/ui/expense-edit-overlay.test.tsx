@@ -2,7 +2,13 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
@@ -163,6 +169,37 @@ test("编辑账单使用现有事实预填，并携带版本提交更新", async
   );
   expect(onSaved).toHaveBeenCalledOnce();
   expect(mocks.createExpense).not.toHaveBeenCalled();
+});
+
+test("编辑账单可通过分类 Sheet 修改分类并提交", async () => {
+  const user = userEvent.setup();
+  render(
+    <ExpenseEditOverlay
+      open
+      onOpenChange={vi.fn()}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "分类" }));
+  await user.click(
+    within(screen.getByRole("dialog", { name: "分类" })).getByRole("radio", {
+      name: "娱乐",
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "保存修改" })).toBeVisible(),
+  );
+  await user.click(screen.getByRole("button", { name: "保存修改" }));
+
+  expect(mocks.updateExpense).toHaveBeenCalledWith(
+    "activity-1",
+    "expense-1",
+    expect.objectContaining({ category: "ENTERTAINMENT" }),
+  );
 });
 
 test("编辑付款人时可添加临时成员并立即选中", async () => {

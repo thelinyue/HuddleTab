@@ -18,11 +18,8 @@ import { formatMoney } from "@/domain/money/money";
 import { MoneyAmount } from "@/components/design-system/money-amount";
 import { Button } from "@/components/ui/button";
 import { createExpense } from "@/features/expenses/api";
-import {
-  expenseCategories,
-  expenseCategoryLabels,
-  type ExpenseCategory,
-} from "@/features/expenses/categories";
+import { type ExpenseCategory } from "@/features/expenses/categories";
+import { ExpenseCategoryPicker } from "@/features/expenses/components/expense-category-picker";
 import {
   PayerPicker,
   resolvePayerPayments,
@@ -699,6 +696,10 @@ export function QuickExpenseForm({
             }
             returnFocusRef={participantTriggerRef}
           />
+          <ExpenseCategoryPicker
+            value={values.category}
+            onChange={(category) => form.setValue("category", category)}
+          />
           <Button
             type="button"
             variant="outline"
@@ -714,24 +715,6 @@ export function QuickExpenseForm({
           </Button>
           {advanced && (
             <section className="space-y-4 border-t pt-4">
-              <fieldset>
-                <legend className="text-sm font-medium">分类</legend>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {expenseCategories.map((category) => (
-                    <label
-                      key={category}
-                      className="flex min-h-11 items-center gap-2 border px-3"
-                    >
-                      <input
-                        type="radio"
-                        value={category}
-                        {...form.register("category")}
-                      />
-                      {expenseCategoryLabels[category]}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
               <div>
                 <label
                   htmlFor="quick-expense-currency"

@@ -37,4 +37,24 @@ describe("产品预设图片资源", () => {
       });
     }
   });
+
+  it("提交七张快速记账分类插画", async () => {
+    for (const category of [
+      "food",
+      "transport",
+      "lodging",
+      "ticket",
+      "shopping",
+      "entertainment",
+      "other",
+    ]) {
+      const path = `public/expense-categories/${category}.webp`;
+      expect(existsSync(path), `${path} 应提交到仓库`).toBe(true);
+      await expect(sharp(path).metadata()).resolves.toMatchObject({
+        format: "webp",
+        width: 512,
+        height: 512,
+      });
+    }
+  });
 });
