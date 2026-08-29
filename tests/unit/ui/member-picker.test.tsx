@@ -113,6 +113,42 @@ test("多选成员只有点击完成才提交当前草稿", async () => {
   expect(onCommit).toHaveBeenCalledWith(["m1", "m2"]);
 });
 
+test("成员付款金额输入框与选择控件保持在同一网格行", () => {
+  render(
+    <MemberPickerSheet
+      open
+      onOpenChange={vi.fn()}
+      title="谁付款"
+      mode="multiple"
+      members={members}
+      selectedIds={["m1"]}
+      onSelectedIdsChange={vi.fn()}
+      onCommit={vi.fn()}
+      renderMemberDetails={(member, selected) =>
+        selected ? (
+          <label data-member-picker-details>
+            <span className="sr-only">{member.displayName}付款金额</span>
+            <input aria-label={`${member.displayName}付款金额`} />
+          </label>
+        ) : null
+      }
+    />,
+  );
+
+  const selection = screen.getByRole("checkbox", { name: "小王" });
+  const amountInput = screen.getByRole("textbox", { name: "小王付款金额" });
+  const row = selection.closest("[data-member-picker-row]");
+
+  expect(row).not.toBeNull();
+  expect(row).toHaveClass("grid", "grid-cols-[minmax(0,1fr)_8rem]");
+  expect(row?.children).toHaveLength(2);
+  expect(row).toContainElement(amountInput);
+  expect(row?.lastElementChild).toContainElement(amountInput);
+  expect(row?.lastElementChild?.firstElementChild).toHaveAttribute(
+    "data-member-picker-details",
+  );
+});
+
 test("添加临时成员在面板内切换，成功后加入多选草稿", async () => {
   const user = userEvent.setup();
   const onAddGuest = vi.fn().mockResolvedValue({

@@ -244,7 +244,7 @@ export function PayerPicker({
         }
         renderMemberDetails={(member, selected) =>
           draft.mode === "multiple" && selected ? (
-            <label className="flex items-center gap-3 px-13 pb-3">
+            <label className="flex min-w-0 items-center justify-end">
               <span className="sr-only">{member.displayName}付款金额</span>
               <Input
                 inputMode="decimal"

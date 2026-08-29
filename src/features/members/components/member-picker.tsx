@@ -247,14 +247,24 @@ export function MemberPickerSheet({
           >
             {availableMembers.map((member) => {
               const selected = selectedIds.includes(member.id);
+              // 付款金额输入框保持为选择按钮的兄弟节点，避免嵌套交互控件。
+              const details = renderMemberDetails?.(member, selected);
               return (
-                <div key={member.id} className="border-b last:border-b-0">
+                <div
+                  key={member.id}
+                  data-member-picker-row
+                  className={
+                    details
+                      ? "grid min-w-0 grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 border-b last:border-b-0"
+                      : "border-b last:border-b-0"
+                  }
+                >
                   <button
                     type="button"
                     role={mode === "single" ? "radio" : "checkbox"}
                     aria-checked={selected}
                     aria-label={member.displayName}
-                    className="flex min-h-14 w-full items-center gap-3 px-1 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    className="flex min-h-14 min-w-0 w-full items-center gap-3 px-1 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     onClick={() => selectMember(member.id)}
                   >
                     <MemberAvatar
@@ -273,7 +283,7 @@ export function MemberPickerSheet({
                       {selected ? <CheckIcon className="size-4" /> : null}
                     </span>
                   </button>
-                  {renderMemberDetails?.(member, selected)}
+                  {details ? <div className="min-w-0">{details}</div> : null}
                 </div>
               );
             })}
