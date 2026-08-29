@@ -188,6 +188,83 @@ test("添加临时成员在面板内切换，成功后加入多选草稿", async
   expect(await screen.findByRole("checkbox", { name: "小周" })).toBeChecked();
 });
 
+test("谁参与添加临时成员不会提交外层主表单", async () => {
+  const user = userEvent.setup();
+  const onMainSubmit = vi.fn();
+  const onAddGuest = vi.fn().mockResolvedValue({
+    id: "m3",
+    displayName: "小周",
+    avatarPreset: null,
+  });
+
+  function Harness() {
+    const [selectedIds, setSelectedIds] = useState<readonly string[]>(["m1"]);
+    return (
+      <form onSubmit={onMainSubmit}>
+        <MemberPickerSheet
+          open
+          onOpenChange={vi.fn()}
+          title="谁参与"
+          mode="multiple"
+          members={members}
+          selectedIds={selectedIds}
+          onSelectedIdsChange={setSelectedIds}
+          onCommit={vi.fn()}
+          canAddGuest
+          online
+          onAddGuest={onAddGuest}
+        />
+      </form>
+    );
+  }
+
+  render(<Harness />);
+  await user.click(screen.getByRole("button", { name: "添加临时成员" }));
+  await user.type(screen.getByRole("textbox", { name: "临时成员昵称" }), "小周");
+  await user.click(screen.getByRole("button", { name: "确认添加" }));
+
+  expect(await screen.findByRole("checkbox", { name: "小周" })).toBeChecked();
+  expect(onMainSubmit).not.toHaveBeenCalled();
+});
+
+test("谁付款添加临时成员不会提交外层主表单", async () => {
+  const user = userEvent.setup();
+  const onMainSubmit = vi.fn();
+  const onCommit = vi.fn();
+  const onOpenChange = vi.fn();
+  const onAddGuest = vi.fn().mockResolvedValue({
+    id: "m3",
+    displayName: "小周",
+    avatarPreset: null,
+  });
+
+  render(
+    <form onSubmit={onMainSubmit}>
+      <MemberPickerSheet
+        open
+        onOpenChange={onOpenChange}
+        title="谁付款"
+        mode="single"
+        members={members}
+        selectedIds={["m1"]}
+        onSelectedIdsChange={vi.fn()}
+        onCommit={onCommit}
+        canAddGuest
+        online
+        onAddGuest={onAddGuest}
+      />
+    </form>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "添加临时成员" }));
+  await user.type(screen.getByRole("textbox", { name: "临时成员昵称" }), "小周");
+  await user.click(screen.getByRole("button", { name: "确认添加" }));
+
+  expect(onCommit).toHaveBeenCalledWith(["m3"]);
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+  expect(onMainSubmit).not.toHaveBeenCalled();
+});
+
 test("离线时保留添加入口并说明需要联网", () => {
   render(
     <MemberPickerSheet

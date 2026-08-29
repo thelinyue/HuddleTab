@@ -163,6 +163,8 @@ export function MemberPickerSheet({
 
   async function addGuest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Overlay 虽通过 Portal 渲染，React 提交事件仍会沿组件树冒泡到外层账单表单。
+    event.stopPropagation();
     const displayName = guestName.trim();
     if (!displayName || !onAddGuest || guestSubmitting) return;
     setGuestSubmitting(true);
