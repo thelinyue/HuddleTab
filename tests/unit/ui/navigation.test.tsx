@@ -16,6 +16,7 @@ import { NOTIFICATION_UNREAD_COUNT_EVENT } from "@/lib/notification-unread-count
 const navigation = vi.hoisted(() => ({
   activityId: "activity-42",
   pathname: "/activities",
+  search: "",
 }));
 const motion = vi.hoisted(() => ({
   fromTo: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock("gsap/Flip", () => ({ Flip: {} }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ activityId: navigation.activityId }),
   usePathname: () => navigation.pathname,
+  useSearchParams: () => new URLSearchParams(navigation.search),
 }));
 
 function setMotionPreference(reducedMotion: boolean) {
@@ -88,6 +90,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   navigation.pathname = "/activities";
+  navigation.search = "";
 });
 
 test("一级导航只有活动、通知、我的，并提供当前项语义", () => {
@@ -266,11 +269,11 @@ test("从活动详情返回后忽略更早一轮的乱序未读响应", async ()
   expect(screen.getByRole("link", { name: "通知，1 条未读" })).toBeVisible();
 });
 
-test("活动流水同时保留全局导航", () => {
+test("活动工作台隐藏全局导航", () => {
   navigation.pathname = "/activities/activity-42";
   render(<ProductNavigation />);
 
-  expect(screen.getByRole("navigation", { name: "主导航" })).toBeVisible();
+  expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument();
 });
 
 test("活动头展示由页面提供的摘要，并链接到更多页", () => {
@@ -286,19 +289,22 @@ test("活动头展示由页面提供的摘要，并链接到更多页", () => {
   );
 
   expect(screen.getByRole("heading", { name: "周末露营" })).toBeVisible();
-  expect(screen.getByText("3天 · 3人 · 进行中")).toBeVisible();
+  expect(screen.getByRole("banner", { name: "活动信息" })).toHaveTextContent(
+    "3天 · 3人 · 进行中",
+  );
+  expect(screen.getByRole("link", { name: "查看成员，3人" })).toBeVisible();
   expect(screen.getByRole("link", { name: "返回活动列表" })).toHaveAttribute(
     "href",
     "/activities",
   );
   expect(screen.getByRole("link", { name: "活动更多" })).toHaveAttribute(
     "href",
-    "/activities/activity-42/more",
+    "/activities/activity-42?panel=manage",
   );
   expect(screen.getByRole("navigation", { name: "活动导航" })).toBeVisible();
 });
 
-test("活动头的页签在成员、结算和更多页反映当前 URL", () => {
+test("活动头的页签只保留流水与结算，并反映 query URL", () => {
   const { rerender } = render(
     <ActivityPageHeader
       activityId="activity-42"
@@ -311,12 +317,12 @@ test("活动头的页签在成员、结算和更多页反映当前 URL", () => {
   );
 
   expect(screen.queryByText(/天 ·/)).not.toBeInTheDocument();
-  for (const [pathname, label] of [
-    ["/activities/activity-42/members", "成员"],
-    ["/activities/activity-42/settlements", "结算"],
-    ["/activities/activity-42/more", "更多"],
+  for (const [pathname, search, label] of [
+    ["/activities/activity-42", "", "流水"],
+    ["/activities/activity-42", "?tab=settlement", "结算"],
   ]) {
     navigation.pathname = pathname;
+    navigation.search = search;
     rerender(
       <ActivityPageHeader
         activityId="activity-42"
@@ -334,11 +340,11 @@ test("活动头的页签在成员、结算和更多页反映当前 URL", () => {
   }
 });
 
-test("活动子页面保留全局导航", () => {
+test("活动子页面隐藏全局导航", () => {
   navigation.pathname = "/activities/activity-42/members";
   render(<ProductNavigation />);
 
-  expect(screen.getByRole("navigation", { name: "主导航" })).toBeVisible();
+  expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument();
 });
 
 test("流水页的活动导航以页签呈现", () => {
@@ -355,26 +361,19 @@ test("流水页的活动导航以页签呈现", () => {
   );
 });
 
-test("活动导航以内联页签保留四个深链接和当前项语义", () => {
-  navigation.pathname = "/activities/activity-42/members";
+test("活动导航以内联页签保留两个工作台链接和当前项语义", () => {
+  navigation.pathname = "/activities/activity-42";
+  navigation.search = "?tab=settlement";
   render(<ActivityNavigation />);
 
-  expect(screen.getAllByRole("link")).toHaveLength(4);
+  expect(screen.getAllByRole("link")).toHaveLength(2);
   expect(screen.getByRole("link", { name: "流水" })).toHaveAttribute(
     "href",
     "/activities/activity-42",
   );
   expect(screen.getByRole("link", { name: "结算" })).toHaveAttribute(
     "href",
-    "/activities/activity-42/settlements",
-  );
-  expect(screen.getByRole("link", { name: "成员" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  expect(screen.getByRole("link", { name: "更多" })).toHaveAttribute(
-    "href",
-    "/activities/activity-42/more",
+    "/activities/activity-42?tab=settlement",
   );
   const activityNavigation = screen.getByRole("navigation", {
     name: "活动导航",
@@ -392,14 +391,14 @@ test("活动导航以内联页签保留四个深链接和当前项语义", () =>
 test("活动导航切换 pathname 时在自身范围内过渡装饰性指示器", () => {
   navigation.pathname = "/activities/activity-42";
   const { rerender } = render(<ActivityNavigation />);
-  navigation.pathname = "/activities/activity-42/members";
+  navigation.search = "?tab=settlement";
   rerender(<ActivityNavigation />);
 
   expect(motion.to).toHaveBeenCalledWith(
     expect.any(HTMLSpanElement),
     expect.objectContaining({ duration: 0.18, overwrite: "auto", x: 0 }),
   );
-  expect(screen.getByRole("link", { name: "成员" })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: "结算" })).toHaveAttribute(
     "aria-current",
     "page",
   );

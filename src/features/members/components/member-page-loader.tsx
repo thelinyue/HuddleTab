@@ -13,7 +13,7 @@ type ActivitySummary = {
   readonly endDate: string | null;
   readonly memberCount: number;
 };
-export function MemberPageLoader() {
+export function MemberPageLoader({ embedded = false }: { readonly embedded?: boolean }) {
   const { activityId } = useParams<{ activityId: string }>();
   const [members, setMembers] = useState<readonly Member[] | null>(null);
   const [inviteMode, setInviteMode] = useState<
@@ -102,14 +102,16 @@ export function MemberPageLoader() {
   };
   return (
     <>
-      <ActivityPageHeader
-        activityId={activityId}
-        name={summary.activityName}
-        startDate={summary.startDate}
-        endDate={summary.endDate}
-        memberCount={summary.memberCount}
-        status={settlementContext.activity.status}
-      />
+      {!embedded ? (
+        <ActivityPageHeader
+          activityId={activityId}
+          name={summary.activityName}
+          startDate={summary.startDate}
+          endDate={summary.endDate}
+          memberCount={summary.memberCount}
+          status={settlementContext.activity.status}
+        />
+      ) : null}
       <MemberList
         members={members}
         inviteMode={inviteMode}
@@ -136,6 +138,7 @@ export function MemberPageLoader() {
           );
           load();
         }}
+        embedded={embedded}
       />
     </>
   );

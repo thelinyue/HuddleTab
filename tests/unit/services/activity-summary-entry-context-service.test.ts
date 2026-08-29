@@ -33,7 +33,11 @@ const authorization = {
   member: { id: "member-1", role: "OWNER" as const, status: "ACTIVE" as const },
 };
 
-function createSql() {
+function createSql(input: {
+  readonly totalExpenseMinor?: string;
+  readonly expenseCount?: number;
+  readonly participatingMemberCount?: number;
+} = {}) {
   const transaction = vi.fn(async (strings: TemplateStringsArray) => {
     const query = strings.join(" ");
     if (query.includes("set transaction isolation level")) return [];
@@ -50,7 +54,19 @@ function createSql() {
       return [{ id: "member-1", display_name: "Owner" }];
     }
     if (query.includes("total_expense_minor")) {
-      return [{ total_expense_minor: "0" }];
+      return [
+        {
+          total_expense_minor: input.totalExpenseMinor ?? "0",
+          expense_count: input.expenseCount ?? 0,
+        },
+      ];
+    }
+    if (query.includes("participating_member_count")) {
+      return [
+        {
+          participating_member_count: input.participatingMemberCount ?? 0,
+        },
+      ];
     }
     if (query.includes("group by original_currency")) return [];
     if (query.includes("group by category")) return [];
@@ -95,8 +111,35 @@ it("真实 ActivitySummaryService 输出页面依赖的活动摘要字段", asyn
     endDate: "2026-08-24",
     memberCount: 1,
     currentUserBalanceMinor: "0",
+    expenseCount: 0,
+    participatingMemberCount: 0,
+    averageExpenseMinor: "0",
   });
 });
+
+it("将参与分摊成员去重后的数量用于人均消费", async () => {
+  mocks.authorize.mockResolvedValue(authorization);
+  mocks.loadFacts.mockResolvedValue({
+    memberIds: ["member-1", "member-2", "member-3"],
+    payments: [],
+    shares: [],
+    settlements: [],
+  });
+  const summary = await new ActivitySummaryService(
+    createSql({
+      totalExpenseMinor: "71300",
+      expenseCount: 3,
+      participatingMemberCount: 4,
+    }) as never,
+  ).get(session, "activity-1");
+
+  expect(summary).toMatchObject({
+    expenseCount: 3,
+    participatingMemberCount: 4,
+    averageExpenseMinor: "17825",
+  });
+});
+
 
 it("真实 ExpenseService 上下文输出活动生命周期和成员头像预设", async () => {
   mocks.authorize.mockResolvedValue(authorization);

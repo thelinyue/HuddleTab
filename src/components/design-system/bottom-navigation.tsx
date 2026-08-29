@@ -29,8 +29,8 @@ function currentDestination(pathname: string): TopLevelDestination {
 }
 
 /**
- * 一级导航只有产品的三个稳定入口。流水根页保留本栏，便于返回产品主路径；更深的活动
- * 页面仍保留本栏；活动内页签只负责二级跳转，不会替代回到产品入口的能力。
+ * 一级导航只有产品的三个稳定入口。活动工作台及其表单、面板内隐藏本栏，避免与活动
+ * 内部的流水/结算导航争夺注意力；离开活动后再恢复产品级导航。
  */
 export function BottomNavigation({
   current,
@@ -162,8 +162,7 @@ export function ProductNavigation({
   readonly unreadCount?: number;
 }) {
   const pathname = usePathname();
-  const isActivityFeedRoot = /^\/activities\/[^/]+$/.test(pathname);
-  const isInsideActivitySubpage = /^\/activities\/[^/]+\/.+/.test(pathname);
+  const isInsideActivity = /^\/activities\/[^/]+(?:\/.*)?$/.test(pathname);
   const [currentUnreadCount, setCurrentUnreadCount] = useState(unreadCount);
   const unreadCountVersion = useRef(0);
   useEffect(() => {
@@ -183,7 +182,7 @@ export function ProductNavigation({
   }, []);
   useEffect(() => {
     // 流水根页沿用进入活动前的未读数；返回一级页面时再刷新，避免无意义的重复请求。
-    if (isInsideActivitySubpage || isActivityFeedRoot) return;
+    if (isInsideActivity) return;
     const requestVersion = unreadCountVersion.current + 1;
     unreadCountVersion.current = requestVersion;
     void fetch("/api/notifications", { cache: "no-store" })
@@ -199,7 +198,8 @@ export function ProductNavigation({
           setCurrentUnreadCount(body.data.unreadCount);
       })
       .catch(() => undefined);
-  }, [isActivityFeedRoot, isInsideActivitySubpage, pathname]);
+  }, [isInsideActivity, pathname]);
+  if (isInsideActivity) return null;
   return (
     <BottomNavigation
       current={currentDestination(pathname)}

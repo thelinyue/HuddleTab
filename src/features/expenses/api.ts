@@ -33,6 +33,9 @@ export interface ExpenseFeedSummaryDto {
   readonly currency: string;
   readonly revision: string;
   readonly totalExpenseMinor: string;
+  readonly expenseCount: number;
+  readonly participatingMemberCount: number;
+  readonly averageExpenseMinor: string;
   readonly startDate: string | null;
   readonly endDate: string | null;
   readonly memberCount: number;

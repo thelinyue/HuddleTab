@@ -24,6 +24,7 @@ export function ActivityPageHeader({
   endDate,
   memberCount,
   status,
+  activeTab = "feed",
   moreAction = true,
 }: {
   readonly activityId: string;
@@ -32,18 +33,19 @@ export function ActivityPageHeader({
   readonly endDate: string | null;
   readonly memberCount: number;
   readonly status: "ACTIVE" | "ENDED" | "ARCHIVED";
+  readonly activeTab?: "feed" | "settlement";
   readonly moreAction?: boolean;
 }) {
   const days = inclusiveCalendarDays(startDate, endDate);
-  const summary = [
-    days === null ? null : `${days}天`,
-    `${memberCount}人`,
-    statusLabel(status),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const statusText = statusLabel(status);
+  const query = (panel: "members" | "manage") => {
+    const params = new URLSearchParams();
+    if (activeTab === "settlement") params.set("tab", "settlement");
+    params.set("panel", panel);
+    return `/activities/${encodeURIComponent(activityId)}?${params.toString()}`;
+  };
   return (
-    <>
+    <div className="rounded-b-2xl bg-[#F8FBF6] pb-1 pt-0.5 dark:bg-primary/5">
       <header
         aria-label="活动信息"
         className="flex min-h-14 items-center gap-2"
@@ -60,11 +62,35 @@ export function ActivityPageHeader({
           <h1 className="truncate text-lg font-semibold text-foreground">
             {name}
           </h1>
-          <p className="text-sm text-muted-foreground">{summary}</p>
+          <p className="text-sm text-muted-foreground">
+            {days === null ? null : `${days}天 · `}
+            <Link
+              href={query("members")}
+              onClick={() => {
+                window.dispatchEvent(
+                  new CustomEvent("huddletab:panel-open", {
+                    detail: "members",
+                  }),
+                );
+              }}
+              className="underline-offset-2 hover:underline"
+              aria-label={`查看成员，${memberCount}人`}
+            >
+              {memberCount}人
+            </Link>
+            {` · ${statusText}`}
+          </p>
         </div>
         {moreAction ? (
           <Link
-            href={`/activities/${encodeURIComponent(activityId)}/more`}
+            href={query("manage")}
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent("huddletab:panel-open", {
+                  detail: "manage",
+                }),
+              );
+            }}
             aria-label="活动更多"
             title="活动更多"
             className="flex size-11 shrink-0 items-center justify-center text-foreground"
@@ -75,6 +101,6 @@ export function ActivityPageHeader({
       </header>
       <ActivityNavigation activityId={activityId} />
       <ActivityLifecycleNotice status={status} className="mt-3" />
-    </>
+    </div>
   );
 }

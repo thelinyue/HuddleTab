@@ -26,6 +26,7 @@ afterEach(() => {
 
 test("流水只提供名称、固定分类和我参与的筛选", async () => {
   const user = userEvent.setup();
+  const onFiltersChange = vi.fn();
   render(
     <ExpenseFeed
       activity={{
@@ -37,9 +38,12 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
         startDate: "2026-08-20",
         endDate: "2026-08-24",
         memberCount: 3,
-        currentUserBalanceMinor: "0",
+        expenseCount: 1,
+        participatingMemberCount: 2,
+        averageExpenseMinor: "150",
       }}
       timeZone="Asia/Shanghai"
+      onFiltersChange={onFiltersChange}
       expenses={[
         {
           id: "expense-1",
@@ -67,22 +71,21 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
   ).toBeVisible();
   const foodFilter = within(filterDialog).getByRole("button", { name: "餐饮" });
   expect(foodFilter).toBeVisible();
-  expect(foodFilter.querySelector("img")).toHaveAttribute(
-    "src",
-    "/expense-categories/food.webp",
-  );
-  expect(foodFilter.querySelector("img")).toHaveClass("rounded-full");
-  expect(filterDialog.querySelectorAll("img")).toHaveLength(7);
+  expect(foodFilter.querySelector("svg")).not.toBeNull();
+  expect(foodFilter.querySelector("svg")).not.toHaveClass("rounded-full");
   expect(screen.getByRole("checkbox", { name: "只看我参与的" })).toBeVisible();
   await user.type(screen.getByRole("searchbox"), "拉面");
   expect(screen.getByText("一兰拉面")).toBeVisible();
+  expect(onFiltersChange).not.toHaveBeenCalled();
+  await user.click(within(filterDialog).getByRole("button", { name: "应用筛选" }));
+  expect(onFiltersChange).toHaveBeenLastCalledWith({
+    query: "拉面",
+    category: null,
+    mine: false,
+  });
 });
 
-test.each([
-  ["1200", "应收¥12.00"],
-  ["-1200", "应付¥12.00"],
-  ["0", "已结清¥0.00"],
-])("流水消费摘要将本人净余额 %s 显示为 %s", (balance, expected) => {
+test("流水消费摘要只显示总消费、笔数和按参与成员计算的人均消费", () => {
   render(
     <ExpenseFeed
       activity={{
@@ -94,7 +97,9 @@ test.each([
         startDate: "2026-08-20",
         endDate: "2026-08-24",
         memberCount: 3,
-        currentUserBalanceMinor: balance,
+        expenseCount: 3,
+        participatingMemberCount: 4,
+        averageExpenseMinor: "1500",
       }}
       timeZone="Asia/Shanghai"
       expenses={[]}
@@ -107,11 +112,13 @@ test.each([
     />,
   );
 
-  expect(screen.getByText("5天 · 3人 · 进行中")).toBeVisible();
-  expect(screen.getByLabelText("消费摘要")).toHaveTextContent("人均¥20.00");
-  expect(screen.getByLabelText("消费摘要")).toHaveTextContent(
-    `我的结算${expected}`,
+  expect(screen.getByRole("banner", { name: "活动信息" })).toHaveTextContent(
+    "5天 · 3人 · 进行中",
   );
+  expect(screen.getByLabelText("消费摘要")).toHaveTextContent(
+    "总消费¥60.003 笔消费 · 人均消费 ¥15.00",
+  );
+  expect(screen.queryByText("我的结算")).not.toBeInTheDocument();
 });
 
 test("消费链接保留所属活动并按发生日期分组", () => {
@@ -126,7 +133,9 @@ test("消费链接保留所属活动并按发生日期分组", () => {
         startDate: "2026-08-20",
         endDate: "2026-08-24",
         memberCount: 3,
-        currentUserBalanceMinor: "0",
+        expenseCount: 2,
+        participatingMemberCount: 2,
+        averageExpenseMinor: "4000",
       }}
       timeZone="Pacific/Honolulu"
       expenses={[
@@ -159,11 +168,8 @@ test("消费链接保留所属活动并按发生日期分组", () => {
     "href",
     "/activities/activity-1/expenses/expense-1",
   );
-  expect(lunchLink.querySelector("img")).toHaveAttribute(
-    "src",
-    "/expense-categories/food.webp",
-  );
-  expect(lunchLink.querySelector("img")).toHaveClass("rounded-full");
+  expect(lunchLink.querySelector("svg")).not.toBeNull();
+  expect(lunchLink.querySelector("svg")).not.toHaveClass("rounded-full");
   expect(screen.getByRole("list", { name: "2026年8月22日" })).toBeVisible();
   expect(screen.getByRole("heading", { name: "2026年8月21日" })).toBeVisible();
 });

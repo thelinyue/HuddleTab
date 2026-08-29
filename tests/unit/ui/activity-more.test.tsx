@@ -15,6 +15,7 @@ const activityHome = vi.hoisted(() => ({ getActivityHome: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ activityId: navigation.activityId }),
   usePathname: () => navigation.pathname,
+  useSearchParams: () => new URLSearchParams(""),
 }));
 
 vi.mock("@/features/activities/api", () => ({
@@ -54,7 +55,7 @@ afterEach(() => {
   navigation.pathname = "/activities/activity-1/more";
 });
 
-test("加载更多页时提供中文状态，完成后顶部更多页签处于选中态", async () => {
+test("加载活动管理页时提供中文状态，顶部只保留流水和结算页签", async () => {
   let resolveHome: ((value: unknown) => void) | undefined;
   activityHome.getActivityHome.mockReturnValueOnce(
     new Promise((resolve) => {
@@ -87,10 +88,9 @@ test("加载更多页时提供中文状态，完成后顶部更多页签处于�
     archived: [],
   });
   await screen.findByText("周末露营");
-  expect(screen.getAllByRole("link", { name: "更多" })[0]).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
+  expect(screen.getByRole("link", { name: "流水" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "结算" })).toBeVisible();
+  expect(screen.queryByRole("link", { name: "更多" })).not.toBeInTheDocument();
 });
 
 test("更多页展示当前活动资料，且不显示没有前端契约的入口", async () => {

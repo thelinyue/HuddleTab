@@ -2,16 +2,14 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ loader: vi.fn() }));
+const mocks = vi.hoisted(() => ({ replace: vi.fn() }));
 
-vi.mock("@/features/settlements/components/settlement-page-loader", () => ({
-  SettlementPageLoader: (props: unknown) => {
-    mocks.loader(props);
-    return <p>结算路由</p>;
-  },
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ activityId: "activity-1" }),
+  useRouter: () => ({ replace: mocks.replace }),
 }));
 
 import SettlementsPage from "@/app/(product)/activities/[activityId]/settlements/page";
@@ -22,15 +20,12 @@ afterEach(() => {
   delete process.env.TZ;
 });
 
-test("结算路由显式传入部署时区并提供上海默认值", () => {
-  process.env.TZ = "Pacific/Honolulu";
-  const { rerender } = render(<SettlementsPage />);
-  expect(screen.getByText("结算路由")).toBeVisible();
-  expect(mocks.loader).toHaveBeenLastCalledWith({
-    timeZone: "Pacific/Honolulu",
-  });
-
-  delete process.env.TZ;
-  rerender(<SettlementsPage />);
-  expect(mocks.loader).toHaveBeenLastCalledWith({ timeZone: "Asia/Shanghai" });
+test("旧结算路由 replace 到活动结算 Tab", async () => {
+  render(<SettlementsPage />);
+  expect(screen.getByText("正在打开活动…")).toBeVisible();
+  await waitFor(() =>
+    expect(mocks.replace).toHaveBeenCalledWith(
+      "/activities/activity-1?tab=settlement",
+    ),
+  );
 });

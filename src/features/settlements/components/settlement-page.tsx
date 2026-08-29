@@ -63,9 +63,62 @@ function balanceDirection(value: bigint) {
       : { label: "已结清", tone: "settled" as const };
 }
 
+function BalanceList({
+  data,
+  currency,
+}: {
+  readonly data: PageData;
+  readonly currency: string;
+}) {
+  if (!data.balances.length)
+    return (
+      <EmptyState
+        icon={ScaleIcon}
+        title="没有余额"
+        description="记录消费后会在这里显示成员余额。"
+      />
+    );
+  return (
+    <ul aria-label="成员余额" className="divide-y border-y">
+      {data.balances.map((balance) => {
+        const balanceMember = member(data, balance.memberId);
+        const amountMinor = BigInt(balance.netMinor);
+        const direction = balanceDirection(amountMinor);
+        const displayName = balanceMember?.displayName ?? "未知成员";
+        return (
+          <li
+            key={balance.memberId}
+            className="flex min-h-14 items-center gap-3 py-2"
+          >
+            <MemberAvatar
+              memberId={balance.memberId}
+              displayName={displayName}
+              avatarPreset={balanceMember?.avatarPreset}
+            />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {displayName}
+            </span>
+            <span className="flex shrink-0 items-baseline gap-1 text-sm">
+              <span className="text-muted-foreground">{direction.label}</span>
+              {amountMinor !== 0n ? (
+                <MoneyAmount
+                  currency={currency}
+                  amountMinor={absoluteMinor(amountMinor)}
+                  tone={direction.tone}
+                  size="sm"
+                />
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /**
- * 页面把服务端计算出的余额、推荐与实际记录按事实层级一次展开。推荐只负责预填表单，
- * 不会直接写入结算；金额始终使用 bigint 的绝对值展示，方向由独立中文文本表达。
+ * 页面把服务端计算出的余额、推荐与实际记录按事实层级展开。推荐只负责预填表单，
+ * 成员余额作为二级入口，不会直接写入结算；金额始终使用 bigint 的绝对值展示，方向由独立中文文本表达。
  */
 export function SettlementPage({
   data,
@@ -81,6 +134,7 @@ export function SettlementPage({
   readonly onSaved?: () => void;
 }) {
   const [formOpen, setFormOpen] = useState(false);
+  const [balanceOpen, setBalanceOpen] = useState(false);
   const [initial, setInitial] = useState<SettlementFormInitial | undefined>();
   const [overSettlement, setOverSettlement] = useState<OverSettlement | null>(
     null,
@@ -94,6 +148,19 @@ export function SettlementPage({
   );
   const currentNetMinor = BigInt(currentBalance?.netMinor ?? "0");
   const currentDirection = balanceDirection(currentNetMinor);
+  const settledCount = data.balances.filter(
+    (balance) => BigInt(balance.netMinor) === 0n,
+  ).length;
+  const unsettledCount = data.balances.length - settledCount;
+  const payableCount = data.balances.filter(
+    (balance) => BigInt(balance.netMinor) < 0n,
+  ).length;
+  const receivableCount = data.balances.filter(
+    (balance) => BigInt(balance.netMinor) > 0n,
+  ).length;
+  const fullySettled = data.balances.every(
+    (balance) => BigInt(balance.netMinor) === 0n,
+  );
 
   const execute = async (
     request: CreateSettlementRequest,
@@ -143,6 +210,7 @@ export function SettlementPage({
           endDate={data.summary.endDate}
           memberCount={data.summary.memberCount}
           status={data.activity.status}
+          activeTab="settlement"
         />
 
         <main className="pb-8">
@@ -152,85 +220,25 @@ export function SettlementPage({
 
           <section
             aria-label="结算摘要"
-            className="mt-4 grid grid-cols-3 divide-x rounded-sm border bg-surface"
+            className="mt-4 rounded-2xl bg-[#F4F9F6] px-4 py-4 dark:bg-primary/10"
           >
-            <div
-              aria-label="我的结算"
-              className="min-w-0 px-2 py-3 text-center"
-            >
-              <p className="text-xs text-muted-foreground">我的结算</p>
-              <p className="mt-1 flex flex-wrap items-baseline justify-center gap-1 text-sm font-medium">
+            <div aria-label="我的结算">
+              <p className="text-xs font-medium text-muted-foreground">
+                我的结算
+              </p>
+              <p className="mt-1 flex flex-wrap items-baseline gap-1 text-xl font-semibold">
                 <span>{currentDirection.label}</span>
                 <MoneyAmount
                   currency={currency}
                   amountMinor={absoluteMinor(currentNetMinor)}
                   tone={currentDirection.tone}
-                  size="sm"
+                  size="md"
                 />
               </p>
-            </div>
-            <div aria-label="待结清" className="min-w-0 px-2 py-3 text-center">
-              <p className="text-xs text-muted-foreground">待结清</p>
-              <p className="mt-1 text-base font-semibold tabular-nums">
-                {data.recommendations.length}
+              <p className="mt-2 text-xs text-muted-foreground">
+                {unsettledCount} 人未结清 · {settledCount} 人已结清
               </p>
             </div>
-            <div aria-label="已结算" className="min-w-0 px-2 py-3 text-center">
-              <p className="text-xs text-muted-foreground">已结算</p>
-              <p className="mt-1 text-base font-semibold tabular-nums">
-                {data.settlements.length}
-              </p>
-            </div>
-          </section>
-
-          <section aria-labelledby="balance-heading" className="mt-6">
-            <h2 id="balance-heading" className="text-base font-semibold">
-              成员余额
-            </h2>
-            {data.balances.length ? (
-              <ul aria-label="成员余额" className="mt-2 divide-y border-y">
-                {data.balances.map((balance) => {
-                  const balanceMember = member(data, balance.memberId);
-                  const amountMinor = BigInt(balance.netMinor);
-                  const direction = balanceDirection(amountMinor);
-                  const displayName = balanceMember?.displayName ?? "未知成员";
-                  return (
-                    <li
-                      key={balance.memberId}
-                      className="flex min-h-14 items-center gap-3 py-2"
-                    >
-                      <MemberAvatar
-                        memberId={balance.memberId}
-                        displayName={displayName}
-                        avatarPreset={balanceMember?.avatarPreset}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {displayName}
-                      </span>
-                      <span className="flex shrink-0 items-baseline gap-1 text-sm">
-                        <span className="text-muted-foreground">
-                          {direction.label}
-                        </span>
-                        {amountMinor !== 0n ? (
-                          <MoneyAmount
-                            currency={currency}
-                            amountMinor={absoluteMinor(amountMinor)}
-                            tone={direction.tone}
-                            size="sm"
-                          />
-                        ) : null}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <EmptyState
-                icon={ScaleIcon}
-                title="没有余额"
-                description="记录消费后会在这里显示成员余额。"
-              />
-            )}
           </section>
 
           <section aria-labelledby="recommendation-heading" className="mt-6">
@@ -325,21 +333,41 @@ export function SettlementPage({
             )}
           </section>
 
-          {writable ? (
-            <button
-              type="button"
-              disabled={!online}
-              onClick={() => openForm()}
-              className="mt-6 min-h-12 w-full rounded-lg bg-primary px-4 font-medium text-primary-foreground disabled:opacity-50"
-            >
-              记录结算
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-label="成员余额"
+            aria-expanded={balanceOpen}
+            onClick={() => setBalanceOpen(true)}
+            className="mt-6 flex min-h-14 w-full items-center gap-3 border-y text-left"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">成员余额</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {receivableCount} 人应收 · {payableCount} 人应付
+              </span>
+            </span>
+            <ChevronRightIcon
+              aria-hidden="true"
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+          </button>
 
           <section aria-labelledby="history-heading" className="mt-6">
-            <h2 id="history-heading" className="text-base font-semibold">
-              实际结算记录
-            </h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="history-heading" className="text-base font-semibold">
+                实际结算记录
+              </h2>
+              {writable && fullySettled ? (
+                <button
+                  type="button"
+                  onClick={() => openForm()}
+                  disabled={!online}
+                  className="shrink-0 text-sm font-medium text-primary underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground"
+                >
+                  补录结算
+                </button>
+              ) : null}
+            </div>
             {data.settlements.length ? (
               <ul
                 aria-labelledby="history-heading"
@@ -409,8 +437,41 @@ export function SettlementPage({
               />
             )}
           </section>
+
+          {writable ? (
+            <div
+              className="sticky bottom-0 z-10 -mx-4 mt-6 bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur"
+            >
+              {fullySettled ? (
+                <button
+                  type="button"
+                  disabled
+                  className="min-h-12 w-full rounded-lg border border-border bg-muted/40 px-4 font-medium text-muted-foreground"
+                >
+                  ✓ 全部已结清
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!online}
+                  onClick={() => openForm()}
+                  className="min-h-12 w-full rounded-lg bg-primary px-4 font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  记录结算
+                </button>
+              )}
+            </div>
+          ) : null}
         </main>
       </div>
+
+      <ResponsiveFormOverlay
+        open={balanceOpen}
+        onOpenChange={setBalanceOpen}
+        title="成员余额"
+      >
+        <BalanceList data={data} currency={currency} />
+      </ResponsiveFormOverlay>
 
       <ResponsiveFormOverlay
         open={formOpen}

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ activityId: "activity-1" }),
+  useSearchParams: () => new URLSearchParams("?tab=settlement"),
 }));
 vi.mock("@/features/settlements/api", () => ({
   createSettlement: vi.fn(),

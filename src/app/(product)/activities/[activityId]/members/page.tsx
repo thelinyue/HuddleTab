@@ -1,9 +1,6 @@
-import { MemberPageLoader } from "@/features/members/components/member-page-loader";
+import { LegacyActivityRedirect } from "@/features/activities/components/legacy-activity-redirect";
 
+/** 旧成员路径只做替换跳转，成员内容统一在活动工作台的成员面板中展示。 */
 export default function MembersPage() {
-  return (
-    <div className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] min-h-dvh bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6">
-      <MemberPageLoader />
-    </div>
-  );
+  return <LegacyActivityRedirect panel="members" />;
 }

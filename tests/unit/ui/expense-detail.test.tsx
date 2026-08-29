@@ -95,13 +95,11 @@ test("账单详情按查看链路展示真实信息，并只保留分摊方式�
   expect(screen.getAllByText("¥428.00").length).toBeGreaterThan(0);
 
   const heroTitle = screen.getByRole("heading", { name: "海底捞火锅" });
-  expect(heroTitle.parentElement?.querySelector("img")).toHaveAttribute(
-    "src",
-    "/expense-categories/food.webp",
-  );
-  expect(heroTitle.parentElement?.querySelector("img")).toHaveClass(
-    "rounded-full",
-  );
+  expect(
+    heroTitle.parentElement?.querySelector(
+      'svg[data-category-icon="FOOD"]',
+    ),
+  ).toBeInTheDocument();
 
   const payments = screen.getByRole("region", { name: "付款信息" });
   expect(payments).toHaveTextContent("我付款人¥428.00");
@@ -114,11 +112,9 @@ test("账单详情按查看链路展示真实信息，并只保留分摊方式�
   ).toHaveAttribute("href", "/activities/activity-1");
   expect(expenseInfo).toHaveTextContent("分类餐饮");
   const categoryValue = within(expenseInfo).getByText("餐饮").parentElement;
-  expect(categoryValue?.querySelector("img")).toHaveAttribute(
-    "src",
-    "/expense-categories/food.webp",
-  );
-  expect(categoryValue?.querySelector("img")).toHaveClass("rounded-full");
+  expect(
+    categoryValue?.querySelector('svg[data-category-icon="FOOD"]'),
+  ).toBeInTheDocument();
   expect(expenseInfo).toHaveTextContent("备注无");
   expect(expenseInfo).not.toHaveTextContent("支付时间");
   expect(expenseInfo).not.toHaveTextContent("流水编号");

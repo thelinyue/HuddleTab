@@ -74,7 +74,7 @@ function commands(context: Context | null): readonly (keyof typeof labels)[] {
 }
 
 /** 更多页分开读取展示资料和结算上下文权限；权限仍以服务端上下文为准。 */
-export function ActivityMore() {
+export function ActivityMore({ embedded = false }: { readonly embedded?: boolean }) {
   const { activityId } = useParams<{ activityId: string }>();
   const [context, setContext] = useState<Context | null>(null);
   const [activity, setActivity] = useState<ActivityHomeItem | null>(null);
@@ -181,9 +181,13 @@ export function ActivityMore() {
   return (
     <section
       data-testid="activity-more-surface"
-      className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] min-h-dvh min-w-0 bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6"
+      className={
+        embedded
+          ? "min-w-0"
+          : "-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] min-h-dvh min-w-0 bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6"
+      }
     >
-      {activity && context ? (
+      {!embedded && activity && context ? (
         <>
           <ActivityPageHeader
             activityId={activityId}

@@ -36,7 +36,12 @@ export class ActivitySummaryService {
       const members =
         await transaction`select id, display_name from activity_members where activity_id = ${activityId} order by id`;
       const [expenseTotals] =
-        await transaction`select coalesce(sum(base_amount_minor), 0)::text as total_expense_minor from expenses where activity_id = ${activityId} and deleted_at is null`;
+        await transaction`select coalesce(sum(base_amount_minor), 0)::text as total_expense_minor, count(*)::int as expense_count from expenses where activity_id = ${activityId} and deleted_at is null`;
+      const [participatingMemberTotals] =
+        await transaction`select count(distinct share.activity_member_id)::int as participating_member_count
+          from expense_shares share
+          join expenses expense on expense.id = share.expense_id
+          where expense.activity_id = ${activityId} and expense.deleted_at is null`;
       const originalCurrencyTotals =
         await transaction`select original_currency, sum(original_amount_minor)::text as amount_minor from expenses where activity_id = ${activityId} and deleted_at is null group by original_currency order by original_currency`;
       const categoryTotals =
@@ -55,12 +60,25 @@ export class ActivitySummaryService {
       const currentUserBalanceMinor =
         ledgerRows.find((row) => row.memberId === authorization.member.id)
           ?.netMinor ?? 0n;
+      const expenseCount = Number(expenseTotals!.expense_count ?? 0);
+      const participatingMemberCount = Number(
+        participatingMemberTotals!.participating_member_count ?? 0,
+      );
+      const totalExpenseMinor = BigInt(expenseTotals!.total_expense_minor);
+      const divisor = BigInt(participatingMemberCount);
+      const averageExpenseMinor =
+        divisor === 0n
+          ? 0n
+          : (totalExpenseMinor + divisor / 2n) / divisor;
       return {
         activityName: activity!.name,
         startDate: activity!.start_date,
         endDate: activity!.end_date,
         memberCount: members.length,
         totalExpenseMinor: expenseTotals!.total_expense_minor,
+        expenseCount,
+        participatingMemberCount,
+        averageExpenseMinor: averageExpenseMinor.toString(),
         currency: authorization.activity.baseCurrency,
         revision: authorization.activity.revision.toString(),
         originalCurrencyTotals: originalCurrencyTotals.map((row) => ({

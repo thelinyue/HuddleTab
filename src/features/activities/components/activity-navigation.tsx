@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
 import { useRef } from "react";
 import { gsap } from "gsap";
 
@@ -13,10 +13,8 @@ import {
 } from "@/components/design-system/motion";
 
 const sections = [
-  { id: "feed", suffix: "", label: "流水" },
-  { id: "settlements", suffix: "/settlements", label: "结算" },
-  { id: "members", suffix: "/members", label: "成员" },
-  { id: "more", suffix: "/more", label: "更多" },
+  { id: "feed", query: "", label: "流水" },
+  { id: "settlement", query: "?tab=settlement", label: "结算" },
 ] as const;
 
 /**
@@ -29,12 +27,14 @@ export function ActivityNavigation({
   readonly activityId?: string;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const params = useParams<{ activityId: string }>();
   const resolvedActivityId = activityId ?? params?.activityId;
   const navigation = useRef<HTMLElement>(null);
   const repositionIndicator = useRef<(immediate: boolean) => void>(
     () => undefined,
   );
+  const currentTab = searchParams?.get("tab") === "settlement" ? "settlement" : "feed";
   useMotionGSAP(
     (reducedMotion) => {
       const positionCurrentIndicator = (immediate: boolean) => {
@@ -76,26 +76,25 @@ export function ActivityNavigation({
       positionCurrentIndicator(false);
     },
     {
-      dependencies: [pathname, resolvedActivityId],
+      dependencies: [pathname, resolvedActivityId, currentTab],
       revertOnUpdate: false,
       scope: navigation,
     },
   );
   useScopedResize(navigation, () => repositionIndicator.current(true));
   if (!resolvedActivityId) return null;
-  const basePath = `/activities/${resolvedActivityId}`;
+  const basePath = `/activities/${encodeURIComponent(resolvedActivityId)}`;
   return (
     <nav
       ref={navigation}
       aria-label="活动导航"
-      className="border-b border-border/70 bg-surface"
+      className="border-b border-border/70 bg-transparent"
     >
       <div className="relative">
-        <ul className="grid grid-cols-4">
-          {sections.map(({ id, suffix, label }) => {
-            const href = `${basePath}${suffix}`;
-            const active =
-              suffix === "" ? pathname === basePath : pathname === href;
+        <ul className="grid grid-cols-2">
+          {sections.map(({ id, query, label }) => {
+            const href = `${basePath}${query}`;
+            const active = pathname === basePath && currentTab === id;
             return (
               <li key={id}>
                 <Link
@@ -112,7 +111,7 @@ export function ActivityNavigation({
         <span
           aria-hidden="true"
           data-navigation-indicator
-          className="pointer-events-none absolute bottom-0 left-0 h-0.5 w-1/4 bg-primary"
+          className="pointer-events-none absolute bottom-0 left-0 h-0.5 w-1/2 bg-primary"
         />
       </div>
     </nav>

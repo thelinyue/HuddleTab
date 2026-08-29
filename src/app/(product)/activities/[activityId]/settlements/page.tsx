@@ -1,6 +1,6 @@
-import { SettlementPageLoader } from "@/features/settlements/components/settlement-page-loader";
+import { LegacyActivityRedirect } from "@/features/activities/components/legacy-activity-redirect";
 
-/** 活动结算页仅承载客户端加载器，账务事实和权限始终由 API 服务端复验。 */
+/** 旧结算路径只做替换跳转，真正的视图统一由活动工作台的结算 Tab 承载。 */
 export default function SettlementsPage() {
-  return <SettlementPageLoader timeZone={process.env.TZ ?? "Asia/Shanghai"} />;
+  return <LegacyActivityRedirect panel="settlement" />;
 }

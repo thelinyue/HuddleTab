@@ -1,7 +1,6 @@
 "use client";
 
-import { ArrowLeftIcon, EllipsisIcon } from "lucide-react";
-import Link from "next/link";
+import { FilterIcon, InfoIcon } from "lucide-react";
 import { useState } from "react";
 
 import { MoneyAmount } from "@/components/design-system/money-amount";
@@ -12,8 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
-import { ActivityNavigation } from "@/features/activities/components/activity-navigation";
-import { ActivityLifecycleNotice } from "@/features/activities/components/activity-lifecycle-notice";
+import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import type {
   ExpenseFeedSummaryDto,
   ExpenseListItemDto,
@@ -33,14 +31,15 @@ import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 
 type FeedActivity = Pick<
   ExpenseFeedSummaryDto,
-  | "currency"
-  | "totalExpenseMinor"
-  | "originalCurrencyTotals"
-  | "startDate"
-  | "endDate"
-  | "memberCount"
-  | "currentUserBalanceMinor"
-> & { readonly id: string; readonly name: string };
+  "currency" | "totalExpenseMinor" | "originalCurrencyTotals" | "startDate" | "endDate" | "memberCount"
+> & {
+  readonly id: string;
+  readonly name: string;
+  readonly expenseCount?: number;
+  readonly participatingMemberCount?: number;
+  readonly averageExpenseMinor?: string;
+  readonly currentUserBalanceMinor?: string;
+};
 
 export interface ExpenseFeedFilters {
   readonly query: string;
@@ -69,16 +68,16 @@ function fullCalendarDateLabel(value: string) {
 function expenseDateHeading(value: string, timeZone: string) {
   const today = zonedCalendarDate(new Date(), timeZone);
   const distance = inclusiveCalendarDays(value, today);
-  if (distance === 1) return "今日";
-  if (distance === 2) return "昨日";
+  if (distance === 1) {
+    const [, month, day] = value.split("-").map(Number);
+    return `今天 · ${month}月${day}日`;
+  }
+  if (distance === 2) {
+    const [, month, day] = value.split("-").map(Number);
+    return `昨天 · ${month}月${day}日`;
+  }
   return fullCalendarDateLabel(value);
 }
-
-const activityStatusLabel = {
-  ACTIVE: "进行中",
-  ENDED: "已结束",
-  ARCHIVED: "已归档",
-} as const;
 
 /**
  * 流水页保持参考稿的一屏扫描密度。筛选仍提交给服务端，只从主内容移入 Radix Overlay；
@@ -113,33 +112,29 @@ export function ExpenseFeed({
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [mine, setMine] = useState(false);
-  const updateFilters = (next: ExpenseFeedFilters) => onFiltersChange?.(next);
+  const [appliedFilters, setAppliedFilters] = useState<ExpenseFeedFilters>({
+    query: "",
+    category: null,
+    mine: false,
+  });
+  const applyFilters = () => {
+    const next = { query, category, mine };
+    setAppliedFilters(next);
+    onFiltersChange?.(next);
+    setFiltersOpen(false);
+  };
 
   const memberCount = activity.memberCount;
-  const averageMinor =
-    memberCount > 0
-      ? BigInt(activity.totalExpenseMinor) / BigInt(memberCount)
-      : 0n;
-  const balance = BigInt(activity.currentUserBalanceMinor);
-  const balanceTone =
-    balance < 0n ? "payable" : balance > 0n ? "receivable" : "settled";
-  const balanceDirection =
-    balance < 0n ? "应付" : balance > 0n ? "应收" : "已结清";
-  const balanceDirectionClassName =
-    balance < 0n
-      ? "text-[var(--amount-payable)]"
-      : balance > 0n
-        ? "text-[var(--amount-receivable)]"
-        : "text-primary";
   const status = entryContext?.activity.status;
-  const dayCount = inclusiveCalendarDays(activity.startDate, activity.endDate);
-  const meta = [
-    dayCount === null ? null : `${dayCount}天`,
-    `${memberCount}人`,
-    status ? activityStatusLabel[status] : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const expenseCount = activity.expenseCount ?? expenses.length;
+  const participatingMemberCount = activity.participatingMemberCount ?? 0;
+  const averageExpenseMinor =
+    activity.averageExpenseMinor ??
+    (participatingMemberCount > 0
+      ? (BigInt(activity.totalExpenseMinor) + BigInt(participatingMemberCount) / 2n) /
+        BigInt(participatingMemberCount)
+      : 0n
+    ).toString();
   const groupedExpenses = Object.entries(
     Object.groupBy(expenses, (expense) =>
       zonedCalendarDate(new Date(expense.occurredAt), timeZone),
@@ -147,112 +142,58 @@ export function ExpenseFeed({
   );
 
   return (
-    <div className="-mx-4 min-h-[calc(100dvh-5rem)] bg-surface px-4 pt-0.5 min-[481px]:-mx-6 min-[481px]:px-6">
-      <header className="flex min-h-14 items-start gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          asChild
-          aria-label="返回活动"
-          className="-ml-4"
-        >
-          <Link href="/activities">
-            <ArrowLeftIcon aria-hidden="true" className="size-5" />
-          </Link>
-        </Button>
-        <div className="min-w-0 flex-1 pt-1.5">
-          <h1 className="truncate text-base font-semibold leading-5">
-            {activity.name}
-          </h1>
-          <p className="mt-0.5 truncate text-[11px] leading-4 text-muted-foreground">
-            {meta}
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="筛选流水"
-          onClick={() => setFiltersOpen(true)}
-        >
-          <EllipsisIcon aria-hidden="true" className="size-5" />
-        </Button>
-      </header>
+    <div className="-mx-4 min-h-[calc(100dvh-5rem)] bg-background px-4 pt-0.5 min-[481px]:-mx-6 min-[481px]:px-6">
+      <ActivityPageHeader
+        activityId={activity.id}
+        name={activity.name}
+        startDate={activity.startDate}
+        endDate={activity.endDate}
+        memberCount={memberCount}
+        status={status ?? "ACTIVE"}
+        activeTab="feed"
+      />
 
-      <div className="-mx-4 min-[481px]:-mx-6">
-        <ActivityNavigation activityId={activity.id} />
-      </div>
-
-      {status ? (
-        <ActivityLifecycleNotice status={status} className="mt-3" />
-      ) : null}
-
-      <dl
+      <section
         aria-label="消费摘要"
-        className="mt-3 grid grid-cols-3 rounded-lg border border-border/70 bg-surface"
+        className="mt-3 rounded-2xl bg-[#F4F9F6] px-4 py-4 dark:bg-primary/10"
       >
-        <div className="min-w-0 border-r border-border/60 px-2.5 py-2.5">
-          <dt className="text-[11px] leading-4 text-muted-foreground">
-            总消费
-          </dt>
-          <dd className="mt-0.5">
+        <p className="text-xs font-medium text-muted-foreground">总消费</p>
+        <MoneyAmount
+          currency={activity.currency}
+          amountMinor={BigInt(activity.totalExpenseMinor)}
+          size="lg"
+          className="mt-0.5 text-[1.75rem] leading-8"
+        />
+        <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+          <span>
+            {expenseCount} 笔消费 · 人均消费{" "}
             <MoneyAmount
               currency={activity.currency}
-              amountMinor={BigInt(activity.totalExpenseMinor)}
+              amountMinor={BigInt(averageExpenseMinor)}
               size="sm"
-              className="font-semibold"
+              className="font-medium text-foreground"
             />
-          </dd>
-        </div>
-        <div className="min-w-0 border-r border-border/60 px-2.5 py-2.5">
-          <dt className="text-[11px] leading-4 text-muted-foreground">人均</dt>
-          <dd className="mt-0.5">
-            <MoneyAmount
-              currency={activity.currency}
-              amountMinor={averageMinor}
-              size="sm"
-              className="font-semibold"
-            />
-          </dd>
-        </div>
-        <div className="min-w-0 px-2.5 py-2.5">
-          <dt className="text-[11px] leading-4 text-muted-foreground">
-            我的结算
-          </dt>
-          <dd className="mt-0.5 flex min-w-0 items-baseline gap-1">
-            <span
-              className={`shrink-0 text-[11px] font-medium ${balanceDirectionClassName}`}
-            >
-              {balanceDirection}
-            </span>
-            <MoneyAmount
-              currency={activity.currency}
-              amountMinor={balance < 0n ? -balance : balance}
-              tone={balanceTone}
-              size="sm"
-              className="min-w-0 truncate font-semibold"
-            />
-          </dd>
-        </div>
+          </span>
+          <span title="人均消费仅为统计平均值，不代表任何成员实际应承担金额">
+            <InfoIcon aria-label="人均消费说明" className="size-3.5" />
+          </span>
+        </p>
         {activity.originalCurrencyTotals.length > 0 ? (
-          <div className="col-span-3 border-t border-border/60 px-2.5 py-1.5 text-[11px] leading-4 text-muted-foreground">
-            <dt className="sr-only">原币种合计</dt>
-            <dd className="truncate">
-              {activity.originalCurrencyTotals
-                .map((item) =>
-                  formatMoney(
-                    {
-                      currency: asCurrencyCode(item.currency),
-                      amountMinor: BigInt(item.amountMinor),
-                    },
-                    "zh-CN",
-                  ),
-                )
-                .join(" · ")}
-            </dd>
-          </div>
+          <p className="mt-2 truncate border-t border-primary/10 pt-2 text-[11px] leading-4 text-muted-foreground">
+            {activity.originalCurrencyTotals
+              .map((item) =>
+                formatMoney(
+                  {
+                    currency: asCurrencyCode(item.currency),
+                    amountMinor: BigInt(item.amountMinor),
+                  },
+                  "zh-CN",
+                ),
+              )
+              .join(" · ")}
+          </p>
         ) : null}
-      </dl>
+      </section>
 
       {entryContext?.permissions.canCreateExpense && onExpenseSaved ? (
         <QuickExpenseTrigger
@@ -262,7 +203,38 @@ export function ExpenseFeed({
         />
       ) : null}
 
-      <section aria-label="消费流水" className="mt-4">
+      <div className="mt-5 flex min-h-11 items-center justify-between border-b border-border/70">
+        <h2 className="text-sm font-semibold">全部流水</h2>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label="筛选流水"
+          onClick={() => setFiltersOpen(true)}
+          className={
+            appliedFilters.query || appliedFilters.category || appliedFilters.mine
+              ? "text-primary"
+              : "text-muted-foreground"
+          }
+        >
+          <FilterIcon aria-hidden="true" className="size-4" />
+          筛选
+          {appliedFilters.query || appliedFilters.category || appliedFilters.mine ? (
+            <span>
+              ·{" "}
+              {
+                [
+                  appliedFilters.query,
+                  appliedFilters.category,
+                  appliedFilters.mine ? "mine" : "",
+                ].filter(Boolean).length
+              }
+            </span>
+          ) : null}
+        </Button>
+      </div>
+
+      <section aria-label="消费流水" className="mt-1">
         {pendingMutations.map((mutation) => (
           <OfflineExpenseStatus
             key={mutation.id}
@@ -327,7 +299,6 @@ export function ExpenseFeed({
               onChange={(event) => {
                 const nextQuery = event.target.value;
                 setQuery(nextQuery);
-                updateFilters({ query: nextQuery, category, mine });
               }}
               className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
             />
@@ -343,7 +314,6 @@ export function ExpenseFeed({
                   onClick={() => {
                     const nextCategory = category === item ? null : item;
                     setCategory(nextCategory);
-                    updateFilters({ query, category: nextCategory, mine });
                   }}
                   className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border px-1 text-xs aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
                 >
@@ -363,12 +333,14 @@ export function ExpenseFeed({
               onChange={(event) => {
                 const nextMine = event.target.checked;
                 setMine(nextMine);
-                updateFilters({ query, category, mine: nextMine });
               }}
               className="size-4 accent-primary"
             />
             只看我参与的
           </label>
+          <Button type="button" className="w-full" onClick={applyFilters}>
+            应用筛选
+          </Button>
         </div>
       </ResponsiveFormOverlay>
     </div>
