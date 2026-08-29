@@ -252,7 +252,7 @@ export function ActivityMore() {
             </h2>
             <div className={surface}>
               <Link
-                href={`/activities/${activityId}/summary`}
+                href={`/share-summary/${activityId}`}
                 className="flex min-h-12 items-center gap-3 px-3 text-sm transition-colors hover:bg-muted/45 focus-visible:bg-muted/45"
               >
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">

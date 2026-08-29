@@ -232,7 +232,7 @@ test("更多页展示真实摘要、导出和当前生命周期状态", async ()
   expect(await screen.findByText("进行中")).toBeVisible();
   expect(screen.getByRole("link", { name: "结算摘要分享" })).toHaveAttribute(
     "href",
-    "/activities/activity-1/summary",
+    "/share-summary/activity-1",
   );
   expect(screen.getByRole("link", { name: "导出 CSV" })).toHaveAttribute(
     "href",
