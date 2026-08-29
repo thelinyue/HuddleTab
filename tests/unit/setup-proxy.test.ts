@@ -35,19 +35,22 @@ describe("首次初始化路由", () => {
       proxy(new NextRequest("http://localhost/icons/icon-192.png")),
     ).resolves.toBeDefined();
     await expect(
-      proxy(
-        new NextRequest(
-          "http://localhost/member-avatars/avatar-01.webp",
-        ),
-      ),
+      proxy(new NextRequest("http://localhost/member-avatars/avatar-01.webp")),
     ).resolves.toBeDefined();
     await expect(
-      proxy(
-        new NextRequest(
-          "http://localhost/activity-covers/cover-01.webp",
-        ),
-      ),
+      proxy(new NextRequest("http://localhost/activity-covers/cover-01.webp")),
     ).resolves.toBeDefined();
+    expect(mocks.setupRequired).not.toHaveBeenCalled();
+  });
+
+  it("分类插画静态资源不参与初始化重定向", async () => {
+    mocks.setupRequired.mockResolvedValueOnce(true);
+
+    const response = await proxy(
+      new NextRequest("http://localhost/expense-categories/food.webp"),
+    );
+
+    expect(response.headers.get("location")).toBeNull();
     expect(mocks.setupRequired).not.toHaveBeenCalled();
   });
 

@@ -23,6 +23,7 @@ import {
   expenseCategories,
   expenseCategoryLabels,
 } from "@/features/expenses/categories";
+import { ExpenseCategoryIllustration } from "@/features/expenses/components/expense-category-illustration";
 import { ExpenseListItem } from "@/features/expenses/components/expense-list-item";
 import { OfflineExpenseStatus } from "@/features/expenses/components/offline-status";
 import { QuickExpenseTrigger } from "@/features/expenses/components/quick-expense-trigger";
@@ -344,8 +345,12 @@ export function ExpenseFeed({
                     setCategory(nextCategory);
                     updateFilters({ query, category: nextCategory, mine });
                   }}
-                  className="min-h-11 rounded-lg border px-2 text-xs aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+                  className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border px-1 text-xs aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
                 >
+                  <ExpenseCategoryIllustration
+                    category={item}
+                    className="size-7"
+                  />
                   {expenseCategoryLabels[item]}
                 </button>
               ))}

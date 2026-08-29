@@ -210,6 +210,8 @@ test("分类通过轻量单选 Sheet 立即更新并将焦点还给入口", asyn
     expect(within(options).getByRole("radio", { name: label })).toBeVisible();
   }
   expect(options.querySelectorAll("img")).toHaveLength(7);
+  expect(options).toHaveClass("grid-cols-5");
+  expect(options.querySelectorAll("img.rounded-full")).toHaveLength(7);
   expect(within(options).getByRole("radio", { name: "其他" })).toHaveAttribute(
     "aria-checked",
     "true",
@@ -497,7 +499,7 @@ test.each([
   );
 });
 
-test("失败重试复用同一个 clientMutationId，并将校验错误聚焦到摘要", async () => {
+test("失败重试复用同一个 clientMutationId，并将单字段校验错误聚焦到字段", async () => {
   const user = userEvent.setup();
   const onSaved = vi.fn();
   mocks.createExpense
@@ -513,17 +515,17 @@ test("失败重试复用同一个 clientMutationId，并将校验错误聚焦到
   );
 
   await user.click(screen.getByRole("button", { name: "保存" }));
-  const summary = screen.getByRole("alert", { name: "请修正以下问题" });
-  expect(summary).toHaveFocus();
-  expect(summary).toHaveTextContent("金额不能为空");
-  expect(screen.getByRole("link", { name: "金额不能为空。" })).toHaveAttribute(
-    "href",
-    "#quick-expense-amount",
-  );
+  expect(
+    screen.queryByRole("alert", { name: "请修正以下问题" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByLabelText("金额")).toHaveFocus();
+  expect(screen.getAllByText("金额不能为空。")).toHaveLength(1);
 
   await user.type(screen.getByLabelText("金额"), "10");
   await user.type(screen.getByLabelText("用途"), "早餐");
   await user.click(screen.getByRole("button", { name: "保存" }));
+  const summary = screen.getByRole("alert", { name: "请修正以下问题" });
+  expect(summary).toHaveTextContent("网络连接失败，请重试。");
   await user.click(screen.getByRole("button", { name: "保存" }));
 
   expect(mocks.createExpense).toHaveBeenCalledTimes(2);
@@ -531,6 +533,27 @@ test("失败重试复用同一个 clientMutationId，并将校验错误聚焦到
     mocks.createExpense.mock.calls[1]?.[1].clientMutationId,
   );
   expect(onSaved).toHaveBeenCalledOnce();
+});
+
+test("用途字段校验错误只显示一处并将焦点移到用途字段", async () => {
+  const user = userEvent.setup();
+  render(
+    <QuickExpenseHarness
+      activity={activity}
+      members={members}
+      preference={preference}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.type(screen.getByLabelText("金额"), "10");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(
+    screen.queryByRole("alert", { name: "请修正以下问题" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByLabelText("用途")).toHaveFocus();
+  expect(screen.getAllByText("用途不能为空。")).toHaveLength(1);
 });
 
 test("分摊方式是四列 44px 触控选项，并为键盘焦点提供可见样式", async () => {

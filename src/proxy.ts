@@ -15,7 +15,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     pathname === "/manifest.webmanifest" ||
     pathname.startsWith("/icons/") ||
     pathname.startsWith("/member-avatars/") ||
-    pathname.startsWith("/activity-covers/")
+    pathname.startsWith("/activity-covers/") ||
+    pathname.startsWith("/expense-categories/")
   ) {
     return NextResponse.next();
   }
@@ -29,6 +30,6 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icons/|member-avatars/|activity-covers/).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icons/|member-avatars/|activity-covers/|expense-categories/).*)",
   ],
 };

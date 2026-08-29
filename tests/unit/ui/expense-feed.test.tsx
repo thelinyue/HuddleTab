@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
@@ -61,8 +61,18 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
     screen.queryByRole("searchbox", { name: "搜索消费名称" }),
   ).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "筛选流水" }));
-  expect(screen.getByRole("searchbox", { name: "搜索消费名称" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "餐饮" })).toBeVisible();
+  const filterDialog = screen.getByRole("dialog", { name: "筛选流水" });
+  expect(
+    within(filterDialog).getByRole("searchbox", { name: "搜索消费名称" }),
+  ).toBeVisible();
+  const foodFilter = within(filterDialog).getByRole("button", { name: "餐饮" });
+  expect(foodFilter).toBeVisible();
+  expect(foodFilter.querySelector("img")).toHaveAttribute(
+    "src",
+    "/expense-categories/food.webp",
+  );
+  expect(foodFilter.querySelector("img")).toHaveClass("rounded-full");
+  expect(filterDialog.querySelectorAll("img")).toHaveLength(7);
   expect(screen.getByRole("checkbox", { name: "只看我参与的" })).toBeVisible();
   await user.type(screen.getByRole("searchbox"), "拉面");
   expect(screen.getByText("一兰拉面")).toBeVisible();
@@ -144,10 +154,16 @@ test("消费链接保留所属活动并按发生日期分组", () => {
     />,
   );
 
-  expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute(
+  const lunchLink = screen.getByRole("link", { name: /午餐/ });
+  expect(lunchLink).toHaveAttribute(
     "href",
     "/activities/activity-1/expenses/expense-1",
   );
+  expect(lunchLink.querySelector("img")).toHaveAttribute(
+    "src",
+    "/expense-categories/food.webp",
+  );
+  expect(lunchLink.querySelector("img")).toHaveClass("rounded-full");
   expect(screen.getByRole("list", { name: "2026年8月22日" })).toBeVisible();
   expect(screen.getByRole("heading", { name: "2026年8月21日" })).toBeVisible();
 });

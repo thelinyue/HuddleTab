@@ -3,18 +3,10 @@
 import Link from "next/link";
 import {
   ArrowLeftIcon,
-  BedDoubleIcon,
-  BusFrontIcon,
   ChevronRightIcon,
   EllipsisIcon,
-  FerrisWheelIcon,
   PencilIcon,
-  ReceiptTextIcon,
-  ShoppingBagIcon,
-  TicketIcon,
   Trash2Icon,
-  UtensilsIcon,
-  type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -44,6 +36,7 @@ import {
   expenseCategoryLabels,
   type ExpenseCategory,
 } from "@/features/expenses/categories";
+import { ExpenseCategoryIllustration } from "@/features/expenses/components/expense-category-illustration";
 import { ExpenseAttachments } from "@/features/attachments/expense-attachments";
 
 const splitModeLabels: Record<string, string> = {
@@ -51,41 +44,6 @@ const splitModeLabels: Record<string, string> = {
   EXACT: "按金额",
   PERCENTAGE: "按比例",
   WEIGHT: "按份数",
-};
-
-const categoryAppearance: Record<
-  ExpenseCategory,
-  { readonly Icon: LucideIcon; readonly className: string }
-> = {
-  FOOD: {
-    Icon: UtensilsIcon,
-    className: "bg-orange text-white dark:text-[#241500]",
-  },
-  TRANSPORT: {
-    Icon: BusFrontIcon,
-    className: "bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
-  },
-  LODGING: {
-    Icon: BedDoubleIcon,
-    className:
-      "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-  },
-  TICKET: {
-    Icon: TicketIcon,
-    className:
-      "bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300",
-  },
-  SHOPPING: {
-    Icon: ShoppingBagIcon,
-    className:
-      "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
-  },
-  ENTERTAINMENT: {
-    Icon: FerrisWheelIcon,
-    className:
-      "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-  },
-  OTHER: { Icon: ReceiptTextIcon, className: "bg-muted text-muted-foreground" },
 };
 
 function MoneyLine({
@@ -181,8 +139,6 @@ export function ExpenseDetail({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const category = expense.category as ExpenseCategory;
-  const { Icon: CategoryIcon, className: categoryClassName } =
-    categoryAppearance[category] ?? categoryAppearance.OTHER;
   const paymentTotal = data.payments.reduce(
     (sum, payment) => sum + BigInt(payment.baseAmountMinor),
     0n,
@@ -266,12 +222,7 @@ export function ExpenseDetail({
       </header>
 
       <div className="flex flex-col items-center pb-1 pt-2 text-center">
-        <span
-          aria-hidden="true"
-          className={`flex size-11 items-center justify-center rounded-full ${categoryClassName}`}
-        >
-          <CategoryIcon className="size-5" />
-        </span>
+        <ExpenseCategoryIllustration category={category} className="size-11" />
         <h2 className="type-section-title mt-2 font-semibold">
           {expense.title}
         </h2>
@@ -340,9 +291,9 @@ export function ExpenseDetail({
           </DetailRow>
           <DetailRow label="分类">
             <span className="inline-flex items-center gap-1.5">
-              <span
-                aria-hidden="true"
-                className="size-2 rounded-full bg-orange"
+              <ExpenseCategoryIllustration
+                category={category}
+                className="size-5"
               />
               {expenseCategoryLabels[category] ?? expenseCategoryLabels.OTHER}
             </span>

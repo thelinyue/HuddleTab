@@ -1,9 +1,8 @@
-import { ShareSummaryCard } from "@/features/settlements/share-summary/components/share-summary-card";
-import { mockShareSummaryData } from "@/features/settlements/share-summary/mock-data";
+import { ShareSummaryLoader } from "@/features/settlements/share-summary/components/share-summary-loader";
 
 /**
  * 分享预览刻意脱离 `(product)` 路由组，避免导航、主题同步和交互控件进入导出画布。
- * `activityId` 仅保留为后续真实数据适配入口；首版固定渲染视觉样例。
+ * 数据请求放在加载器中，保证当前登录成员的授权摘要不会被静态路由缓存。
  */
 export default async function ShareSummaryRoute({
   params,
@@ -17,7 +16,7 @@ export default async function ShareSummaryRoute({
       data-activity-id={activityId}
       className="flex min-h-dvh min-w-[832px] justify-center bg-[#F3F5EE] px-4 py-10"
     >
-      <ShareSummaryCard data={mockShareSummaryData} />
+      <ShareSummaryLoader activityId={activityId} />
     </main>
   );
 }

@@ -273,6 +273,7 @@ export function QuickExpenseForm({
   const [versionConflict, setVersionConflict] = useState(false);
   const [files, setFiles] = useState<readonly File[]>([]);
   const [clientMutationId] = useState(() => crypto.randomUUID());
+  const hasSingleFieldError = Object.keys(fieldErrors).length === 1;
   const stepScope = useRef<HTMLDivElement>(null);
   const participantTriggerRef = useRef<HTMLButtonElement>(null);
   const previousStep = useRef(step);
@@ -372,9 +373,25 @@ export function QuickExpenseForm({
     { dependencies: [completionVersion, step], scope: stepScope },
   );
   useEffect(() => {
-    if (submitError)
-      document.getElementById("quick-expense-error-summary")?.focus();
-  }, [submitError]);
+    if (!submitError) return;
+
+    // 单字段错误已在控件附近说明，此时把焦点交给控件；多字段或提交级错误使用顶部摘要。
+    if (hasSingleFieldError) {
+      const [fieldId] = Object.keys(fieldErrors);
+      const target =
+        fieldId === "quick-expense-participants"
+          ? participantTriggerRef.current
+          : fieldId
+            ? document.getElementById(fieldId)
+            : null;
+      if (target instanceof HTMLElement) {
+        target.focus();
+        return;
+      }
+    }
+
+    document.getElementById("quick-expense-error-summary")?.focus();
+  }, [fieldErrors, hasSingleFieldError, submitError]);
   const showError = (message: string, fieldId?: string) => {
     setVersionConflict(false);
     setSubmitError(message);
@@ -499,7 +516,7 @@ export function QuickExpenseForm({
       className="flex h-full flex-col"
       noValidate
     >
-      {submitError && (
+      {submitError && !hasSingleFieldError && (
         <div
           id="quick-expense-error-summary"
           role="alert"

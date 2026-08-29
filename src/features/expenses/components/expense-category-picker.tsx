@@ -1,39 +1,15 @@
 "use client";
 
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
-import Image from "next/image";
 import { useRef, useState } from "react";
 
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { ExpenseCategoryIllustration } from "@/features/expenses/components/expense-category-illustration";
 import {
   expenseCategories,
-  expenseCategoryIllustrations,
   expenseCategoryLabels,
   type ExpenseCategory,
 } from "@/features/expenses/categories";
-
-/** 分类图片只承担视觉提示，名称和选中语义由按钮文本与 ARIA 属性提供。 */
-function CategoryIllustration({
-  category,
-  className,
-}: {
-  readonly category: ExpenseCategory;
-  readonly className: string;
-}) {
-  return (
-    <Image
-      src={expenseCategoryIllustrations[category]}
-      alt=""
-      aria-hidden="true"
-      className={className}
-      loading="lazy"
-      width={512}
-      height={512}
-      sizes="(max-width: 480px) 96px, 120px"
-      unoptimized
-    />
-  );
-}
 
 /**
  * 分类选择器把固定分类的展示、单选语义和轻量 Overlay 收在一起，调用方只需
@@ -62,10 +38,7 @@ export function ExpenseCategoryPicker({
       >
         <span className="type-caption block text-muted-foreground">分类</span>
         <span className="flex min-h-11 items-center gap-2">
-          <CategoryIllustration
-            category={value}
-            className="size-9 shrink-0 rounded-full object-contain"
-          />
+          <ExpenseCategoryIllustration category={value} className="size-9" />
           <span className="type-body min-w-0 flex-1 truncate font-medium">
             {expenseCategoryLabels[value]}
           </span>
@@ -85,7 +58,7 @@ export function ExpenseCategoryPicker({
         <fieldset
           role="radiogroup"
           aria-label="分类"
-          className="grid grid-cols-2 gap-2 min-[481px]:grid-cols-4"
+          className="grid grid-cols-5 gap-x-1 gap-y-2"
         >
           <legend className="sr-only">选择分类</legend>
           {expenseCategories.map((category) => {
@@ -96,24 +69,24 @@ export function ExpenseCategoryPicker({
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                className={`group relative flex min-h-36 flex-col items-center justify-center gap-2 rounded-md border px-2 py-3 text-center outline-none transition-colors hover:bg-muted/45 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 ${selected ? "border-primary bg-primary/10" : "border-border bg-background"}`}
+                className="group relative flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-0.5 py-1 text-center outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:ring-3 focus-visible:ring-ring/40"
                 onClick={() => {
                   onChange(category);
                   setOpen(false);
                 }}
               >
-                <CategoryIllustration
+                <ExpenseCategoryIllustration
                   category={category}
-                  className="size-24 object-contain transition-transform group-active:scale-95"
+                  className={`size-10 transition-transform group-active:scale-95 ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
                 />
-                <span className="type-label font-medium">
+                <span className="type-caption font-medium leading-4">
                   {expenseCategoryLabels[category]}
                 </span>
                 <span
                   aria-hidden="true"
-                  className={`absolute top-2 right-2 flex size-6 items-center justify-center rounded-full border ${selected ? "border-primary bg-primary text-primary-foreground" : "border-transparent"}`}
+                  className={`absolute top-0 right-0 flex size-4 items-center justify-center rounded-full border ${selected ? "border-primary bg-primary text-primary-foreground" : "border-transparent"}`}
                 >
-                  {selected ? <CheckIcon className="size-4" /> : null}
+                  {selected ? <CheckIcon className="size-3" /> : null}
                 </span>
               </button>
             );

@@ -3,19 +3,40 @@
 import "@testing-library/jest-dom/vitest";
 
 import { render, screen } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ loader: vi.fn() }));
+
+vi.mock(
+  "@/features/settlements/share-summary/components/share-summary-loader",
+  () => ({
+    ShareSummaryLoader: (props: unknown) => {
+      mocks.loader(props);
+      return <p>分享摘要加载器</p>;
+    },
+  }),
+);
 
 import ShareSummaryRoute from "@/app/share-summary/[activityId]/page";
 
-test("独立分享路由仅渲染固定的浅色结算长图", async () => {
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+test("独立分享路由把活动 ID 交给真实数据加载器", async () => {
   render(
     await ShareSummaryRoute({
-      params: Promise.resolve({ activityId: "activity-preview" }),
+      params: Promise.resolve({ activityId: "activity-actual" }),
     }),
   );
 
-  expect(document.getElementById("share-summary-card")).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "北京之旅" })).toBeVisible();
+  expect(screen.getByText("分享摘要加载器")).toBeVisible();
+  expect(mocks.loader).toHaveBeenCalledWith({
+    activityId: "activity-actual",
+  });
+  expect(
+    document.querySelector("[data-activity-id='activity-actual']"),
+  ).toBeInTheDocument();
   expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
