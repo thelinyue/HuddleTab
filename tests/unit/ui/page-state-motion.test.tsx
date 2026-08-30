@@ -104,6 +104,7 @@ test("页面框架只对非交互节点按 DOM 顺序执行 scoped reveal", () =
       <Link href="/activities/next">下一页</Link>
       <input aria-label="筛选" />
       <section>最近账目</section>
+      <section data-page-reveal="false">活动页工作台</section>
     </AppFrame>,
   );
 
@@ -131,6 +132,7 @@ test("页面框架只对非交互节点按 DOM 顺序执行 scoped reveal", () =
   expect(animatedTargets).not.toContain(button);
   expect(animatedTargets).not.toContain(link);
   expect(animatedTargets).not.toContain(input);
+  expect(animatedTargets).not.toContain(screen.getByText("活动页工作台"));
   expect(button).toBeEnabled();
   expect(frame).toContainElement(link);
 });

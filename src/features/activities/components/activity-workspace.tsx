@@ -52,8 +52,16 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
     router.replace(nextUrl, { scroll: false });
   };
 
+  /**
+   * 这个节点跨流水/结算两个 URL query 视图保持稳定，统一承载安全区、视口高度、边距和
+   * surface；子加载器只替换内部内容，避免各页面重复声明根背景或触发外壳级入场动效。
+   */
   return (
-    <>
+    <section
+      data-testid="activity-workspace-surface"
+      data-page-reveal="false"
+      className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] min-h-dvh min-w-0 bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6"
+    >
       {tab === "settlement" ? (
         <SettlementPageLoader timeZone={timeZone} />
       ) : (
@@ -81,7 +89,7 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
       >
         <ActivityMore embedded />
       </ResponsiveFormOverlay>
-    </>
+    </section>
   );
 }
 

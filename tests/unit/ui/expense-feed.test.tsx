@@ -91,7 +91,7 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
   });
 });
 
-test("流水消费摘要只显示总消费、笔数和按参与成员计算的人均消费", () => {
+test("流水消费摘要按总消费、外币原币合计、笔数和人均消费顺序展示", () => {
   render(
     <ExpenseFeed
       activity={{
@@ -99,7 +99,11 @@ test("流水消费摘要只显示总消费、笔数和按参与成员计算的�
         name: "大阪",
         currency: "CNY",
         totalExpenseMinor: "6000",
-        originalCurrencyTotals: [],
+        originalCurrencyTotals: [
+          { currency: "CNY", amountMinor: "4000" },
+          { currency: "JPY", amountMinor: "12000" },
+          { currency: "USD", amountMinor: "2000" },
+        ],
         startDate: "2026-08-20",
         endDate: "2026-08-24",
         memberCount: 3,
@@ -122,9 +126,89 @@ test("流水消费摘要只显示总消费、笔数和按参与成员计算的�
     "5天 · 3人 · 进行中",
   );
   expect(screen.getByLabelText("消费摘要")).toHaveTextContent(
-    "总消费¥60.003 笔消费 · 人均消费 ¥15.00",
+    "总消费¥60.00其中外币消费JPY 12,000 · USD 20.00 · 已折算3 笔消费 · 人均消费 ¥15.00",
   );
+  const summary = screen.getByLabelText("消费摘要");
+  const foreignLabel = within(summary).getByText("其中外币消费");
+  expect(foreignLabel).toBeVisible();
+  expect(foreignLabel.parentElement).not.toHaveClass("border-t");
+  const foreignAmounts = within(summary).getByText("JPY 12,000 · USD 20.00");
+  expect(foreignAmounts.parentElement).toHaveClass("text-sm");
+  expect(foreignAmounts.parentElement).toHaveTextContent(
+    "JPY 12,000 · USD 20.00 · 已折算",
+  );
+  expect(within(summary).getByText(/3 笔消费 · 人均消费/)).toBeVisible();
+  expect(within(summary).queryByText("CNY 40.00")).not.toBeInTheDocument();
   expect(screen.queryByText("我的结算")).not.toBeInTheDocument();
+});
+
+test("纯主币种消费不渲染外币摘要区块", () => {
+  render(
+    <ExpenseFeed
+      activity={{
+        id: "activity-1",
+        name: "大阪",
+        currency: "CNY",
+        totalExpenseMinor: "6000",
+        originalCurrencyTotals: [{ currency: "CNY", amountMinor: "6000" }],
+        startDate: null,
+        endDate: null,
+        memberCount: 2,
+        expenseCount: 1,
+        participatingMemberCount: 2,
+        averageExpenseMinor: "3000",
+      }}
+      timeZone="Asia/Shanghai"
+      expenses={[]}
+    />,
+  );
+
+  const summary = screen.getByLabelText("消费摘要");
+  expect(within(summary).queryByText("其中外币消费")).not.toBeInTheDocument();
+  expect(within(summary).queryByText(/已折算/)).not.toBeInTheDocument();
+});
+
+test("流水列表使用结算页一致的标题层级、圆角边框分组、分隔线和行内边距", () => {
+  render(
+    <ExpenseFeed
+      activity={{
+        id: "activity-1",
+        name: "大阪",
+        currency: "CNY",
+        totalExpenseMinor: "6000",
+        originalCurrencyTotals: [],
+        startDate: null,
+        endDate: null,
+        memberCount: 2,
+      }}
+      timeZone="Asia/Shanghai"
+      expenses={[
+        {
+          id: "expense-1",
+          title: "午餐",
+          category: "FOOD",
+          originalAmountMinor: "6000",
+          originalCurrency: "CNY",
+          baseAmountMinor: "6000",
+          baseCurrency: "CNY",
+          occurredAt: "2026-08-23T08:00:00.000Z",
+        },
+      ]}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "全部流水" })).toHaveClass(
+    "text-base",
+    "font-semibold",
+  );
+  const list = screen.getByRole("list", { name: "2026年8月23日" });
+  expect(list).toHaveClass("rounded-sm", "border", "divide-y");
+  const row = list.querySelector("li");
+  expect(row).toHaveClass("px-3", "py-3");
+  expect(within(row as HTMLElement).getByRole("link")).toHaveClass(
+    "px-0",
+    "py-0",
+  );
 });
 
 test("消费链接保留所属活动并按发生日期分组", () => {

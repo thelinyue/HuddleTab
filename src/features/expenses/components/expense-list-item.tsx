@@ -42,7 +42,7 @@ export function ExpenseListItem({
   return (
     <Link
       href={`/activities/${encodeURIComponent(activityId)}/expenses/${encodeURIComponent(expense.id)}`}
-      className={`flex min-h-14 items-center gap-2.5 px-1 py-2 transition-colors hover:bg-muted/60 focus-visible:rounded-md ${highlighted ? "bg-primary/10" : ""}`}
+      className={`flex min-h-14 items-center gap-2.5 px-0 py-0 transition-colors hover:bg-muted/60 focus-visible:rounded-md ${highlighted ? "bg-primary/10" : ""}`}
     >
       <ExpenseCategoryIllustration category={category} className="size-8" />
       <span className="min-w-0 flex-1">

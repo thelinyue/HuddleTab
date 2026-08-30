@@ -100,6 +100,7 @@ export function ActivityNavigation({
               <li key={id}>
                 <Link
                   href={href}
+                  scroll={false}
                   aria-current={active ? "page" : undefined}
                   className="flex min-h-12 items-center justify-center border-b-2 border-transparent px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground aria-[current=page]:border-primary aria-[current=page]:text-primary"
                 >

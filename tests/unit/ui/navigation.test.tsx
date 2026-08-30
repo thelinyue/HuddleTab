@@ -3,7 +3,29 @@
 import "@testing-library/jest-dom/vitest";
 
 import { act, cleanup, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+
+vi.mock("next/link", () => ({
+  default: ({
+    children,
+    href,
+    scroll,
+    ...props
+  }: {
+    readonly children: ReactNode;
+    readonly href: string;
+    readonly scroll?: boolean;
+  }) => (
+    <a
+      href={href}
+      data-next-scroll={scroll === undefined ? "undefined" : String(scroll)}
+      {...props}
+    >
+      {children}
+    </a>
+  ),
+}));
 
 import {
   BottomNavigation,
@@ -379,6 +401,9 @@ test("活动导航以内联页签保留两个工作台链接和当前项语义",
     "href",
     "/activities/activity-42?tab=settlement",
   );
+  for (const link of screen.getAllByRole("link")) {
+    expect(link).toHaveAttribute("data-next-scroll", "false");
+  }
   const activityNavigation = screen.getByRole("navigation", {
     name: "活动导航",
   });

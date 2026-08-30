@@ -142,6 +142,22 @@ export function ExpenseFeed({
         BigInt(participatingMemberCount)
       : 0n
     ).toString();
+  const baseCurrency = asCurrencyCode(activity.currency);
+  const foreignCurrencyTotals = activity.originalCurrencyTotals.filter(
+    (item) => asCurrencyCode(item.currency) !== baseCurrency,
+  );
+  const foreignCurrencyText = foreignCurrencyTotals
+    .map((item) =>
+      formatMoney(
+        {
+          currency: asCurrencyCode(item.currency),
+          amountMinor: BigInt(item.amountMinor),
+        },
+        "zh-CN",
+        { currencyDisplay: "code" },
+      ),
+    )
+    .join(" · ");
   const groupedExpenses = Object.entries(
     Object.groupBy(expenses, (expense) =>
       zonedCalendarDate(new Date(expense.occurredAt), timeZone),
@@ -158,7 +174,7 @@ export function ExpenseFeed({
   const membersHref = `/activities/${encodeURIComponent(activity.id)}?panel=members&invite=1`;
 
   return (
-    <div className="-mx-4 min-h-[calc(100dvh-5rem)] bg-background px-4 pt-0.5 min-[481px]:-mx-6 min-[481px]:px-6">
+    <div className="min-w-0">
       <ActivityPageHeader
         activityId={activity.id}
         name={activity.name}
@@ -196,6 +212,17 @@ export function ExpenseFeed({
           size="lg"
           className="mt-0.5 text-[1.75rem] leading-8"
         />
+        {foreignCurrencyTotals.length > 0 ? (
+          <div className="mt-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              其中外币消费
+            </p>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+              <span>{foreignCurrencyText}</span>
+              <span className="text-xs"> · 已折算</span>
+            </p>
+          </div>
+        ) : null}
         <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
           <span>
             {expenseCount} 笔消费 · 人均消费{" "}
@@ -210,21 +237,6 @@ export function ExpenseFeed({
             <InfoIcon aria-label="人均消费说明" className="size-3.5" />
           </span>
         </p>
-        {activity.originalCurrencyTotals.length > 0 ? (
-          <p className="mt-2 truncate border-t border-primary/10 pt-2 text-[11px] leading-4 text-muted-foreground">
-            {activity.originalCurrencyTotals
-              .map((item) =>
-                formatMoney(
-                  {
-                    currency: asCurrencyCode(item.currency),
-                    amountMinor: BigInt(item.amountMinor),
-                  },
-                  "zh-CN",
-                ),
-              )
-              .join(" · ")}
-          </p>
-        ) : null}
       </section>
 
       {entryContext?.permissions.canCreateExpense && onExpenseSaved ? (
@@ -235,8 +247,8 @@ export function ExpenseFeed({
         />
       ) : null}
 
-      <div className="mt-5 flex min-h-11 items-center justify-between border-b border-border/70">
-        <h2 className="text-sm font-semibold">全部流水</h2>
+      <div className="mt-6 flex min-h-11 items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">全部流水</h2>
         <Button
           type="button"
           variant="ghost"
@@ -283,20 +295,24 @@ export function ExpenseFeed({
         {groupedExpenses.map(([date, rows]) => {
           const fullDateLabel = fullCalendarDateLabel(date);
           return (
-            <section key={date} aria-labelledby={`expense-date-${date}`}>
-              <h2
+            <section
+              key={date}
+              className="mt-4"
+              aria-labelledby={`expense-date-${date}`}
+            >
+              <h3
                 id={`expense-date-${date}`}
-                className="border-b border-border/60 py-2 text-xs font-semibold"
+                className="text-xs font-semibold text-muted-foreground"
               >
                 {expenseDateHeading(date, timeZone)}
-              </h2>
+              </h3>
               <ListReveal>
                 <ul
                   aria-label={fullDateLabel}
-                  className="divide-y divide-border/60"
+                  className="mt-2 divide-y divide-border/60 overflow-hidden rounded-sm border"
                 >
                   {rows?.map((expense) => (
-                    <li key={expense.id}>
+                    <li key={expense.id} className="px-3 py-3">
                       <ListRevealItem>
                         <ExpenseListItem
                           activityId={activity.id}

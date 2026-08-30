@@ -91,9 +91,7 @@ test("结算信息按我的结算、推荐、记录和操作顺序展示", () =>
   );
 
   expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-  expect(screen.getByTestId("settlement-page-surface")).toHaveClass(
-    "bg-surface",
-  );
+  expect(screen.getByRole("main")).toHaveClass("pb-8");
   const summary = screen.getByLabelText("结算摘要");
   expect(summary).toHaveClass("rounded-2xl");
   expect(within(summary).getByLabelText("我的结算")).toHaveTextContent(

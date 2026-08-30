@@ -24,6 +24,14 @@ describe("首次初始化路由", () => {
     expect(response.headers.get("location")).toBe("http://localhost/setup");
   });
 
+  it("未初始化时访问登录页也转到初始化页面", async () => {
+    mocks.setupRequired.mockResolvedValueOnce(true);
+
+    const response = await proxy(new NextRequest("http://localhost/login"));
+
+    expect(response.headers.get("location")).toBe("http://localhost/setup");
+  });
+
   it("初始化页面、API 和 PWA 静态资源不参与重定向", async () => {
     await expect(
       proxy(new NextRequest("http://localhost/setup")),

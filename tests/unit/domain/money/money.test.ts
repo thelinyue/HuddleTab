@@ -41,4 +41,21 @@ describe("Money", () => {
       ),
     ).toBe("¥286.00");
   });
+
+  it("can format an original amount with its ISO code and currency precision", () => {
+    expect(
+      formatMoney(
+        moneyFromApi({ currency: "JPY", amountMinor: "12000" }),
+        "zh-CN",
+        { currencyDisplay: "code" },
+      ),
+    ).toBe("JPY 12,000");
+    expect(
+      formatMoney(
+        moneyFromApi({ currency: "USD", amountMinor: "2000" }),
+        "zh-CN",
+        { currencyDisplay: "code" },
+      ),
+    ).toBe("USD 20.00");
+  });
 });

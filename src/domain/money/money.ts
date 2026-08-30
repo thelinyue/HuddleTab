@@ -14,6 +14,11 @@ export interface MoneyApi {
   readonly amountMinor: string;
 }
 
+export interface MoneyFormatOptions {
+  /** 默认使用本地化货币符号；原币摘要可要求显示 ISO 4217 代码。 */
+  readonly currencyDisplay?: "symbol" | "code";
+}
+
 const INTEGER_MINOR_AMOUNT = /^-?(0|[1-9]\d*)$/;
 
 /** API 层传递十进制字符串；在 Domain 边界立刻转为 bigint，杜绝金额浮点化。 */
@@ -52,19 +57,15 @@ export function addMoney(left: Money, right: Money): Money {
  * 只将 bigint 拆成主单位和小数余数后格式化，绝不先转换完整金额为 number。
  * 这样极大金额仍保留精确值，且不同币种精度始终来自 Currency Domain。
  */
-export function formatMoney(input: Money, locale: string): string {
+export function formatMoney(
+  input: Money,
+  locale: string,
+  options: MoneyFormatOptions = {},
+): string {
   const minorUnits = getCurrencyMinorUnits(input.currency);
   const divisor = 10n ** BigInt(minorUnits);
   const isNegative = input.amountMinor < 0n;
   const absolute = isNegative ? -input.amountMinor : input.amountMinor;
-  const symbol =
-    new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: input.currency,
-      maximumFractionDigits: 0,
-    })
-      .formatToParts(0)
-      .find((part) => part.type === "currency")?.value ?? input.currency;
   const major = new Intl.NumberFormat(locale, {
     maximumFractionDigits: 0,
   }).format(absolute / divisor);
@@ -73,5 +74,17 @@ export function formatMoney(input: Money, locale: string): string {
       ? ""
       : `.${(absolute % divisor).toString().padStart(minorUnits, "0")}`;
 
+  if (options.currencyDisplay === "code") {
+    return `${isNegative ? "-" : ""}${input.currency} ${major}${fraction}`;
+  }
+
+  const symbol =
+    new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: input.currency,
+      maximumFractionDigits: 0,
+    })
+      .formatToParts(0)
+      .find((part) => part.type === "currency")?.value ?? input.currency;
   return `${isNegative ? "-" : ""}${symbol}${major}${fraction}`;
 }

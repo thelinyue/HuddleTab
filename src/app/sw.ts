@@ -8,6 +8,8 @@ import {
   type PrecacheEntry,
 } from "serwist";
 
+import { isNavigationCacheable } from "@/pwa/service-worker/navigation-cache-boundary";
+
 declare const self: ServiceWorkerGlobalScope & {
   __SW_MANIFEST: Array<PrecacheEntry>;
 };
@@ -25,8 +27,7 @@ const serwist = new Serwist({
     {
       matcher: ({ request, url }) =>
         request.mode === "navigate" &&
-        url.origin === self.location.origin &&
-        !url.pathname.startsWith("/api/"),
+        isNavigationCacheable(url, self.location.origin),
       handler: new NetworkFirst({ cacheName: "huddletab-app-shell-v1" }),
     },
     {

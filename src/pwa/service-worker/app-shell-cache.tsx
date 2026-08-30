@@ -2,11 +2,6 @@
 
 import { useEffect } from "react";
 
-/** 保留原有纯路径判定契约；真实缓存规则由 src/app/sw.ts 唯一维护。 */
-export function isAppShellCacheable(url: URL, appOrigin: string) {
-  return url.origin === appOrigin && !url.pathname.startsWith("/api/");
-}
-
 /**
  * 历史组件名保留以避免根布局产生无关改动；现在只注册由 Serwist 构建的 Worker。
  * 页面、认证/API 响应和附件不再由前台手工写入 Cache Storage，账务同步仍在前台队列执行。

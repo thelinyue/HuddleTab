@@ -199,10 +199,7 @@ export function SettlementPage({
 
   return (
     <>
-      <div
-        data-testid="settlement-page-surface"
-        className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] min-h-dvh bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6"
-      >
+      <div data-testid="settlement-page-content" className="min-w-0">
         <ActivityPageHeader
           activityId={data.activity.id}
           name={data.summary.activityName}
