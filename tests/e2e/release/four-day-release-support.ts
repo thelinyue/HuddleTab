@@ -680,7 +680,11 @@ export async function assertArchivedWriteBarriers(
           headers,
           body: JSON.stringify({ displayName: "归档后临时成员" }),
         }),
-        request(`/api/activities/${id}/invitations/link`, { method: "POST" }),
+        request(`/api/activities/${id}/invitations/link`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ replaceExisting: false }),
+        }),
       ]);
     },
     {

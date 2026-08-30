@@ -45,6 +45,83 @@ it("仅存储链接 Token 的 Hash，并可撤销注册链接 proof", async () =
   await expect(service.verify(raw)).resolves.toBe(false);
 });
 
+it("打开邀请中心只读状态，已有链接不会被静默重置", async () => {
+  const service = new InvitationService(harness.sql);
+  await expect(
+    service.getLinkStatus({ session: ownerSession, activityId }),
+  ).resolves.toEqual({ enabled: false });
+  const first = await service.createLink({
+    session: ownerSession,
+    activityId,
+    replaceExisting: false,
+  });
+  await expect(
+    service.getLinkStatus({ session: ownerSession, activityId }),
+  ).resolves.toEqual({ enabled: true });
+  await expect(
+    service.createLink({
+      session: ownerSession,
+      activityId,
+      replaceExisting: false,
+    }),
+  ).rejects.toMatchObject({
+    code: "INVITATION_LINK_ALREADY_ACTIVE",
+    status: 409,
+  });
+  await expect(service.verify(first)).resolves.toBe(true);
+  const second = await service.createLink({
+    session: ownerSession,
+    activityId,
+    replaceExisting: true,
+  });
+  await expect(service.verify(first)).resolves.toBe(false);
+  await expect(service.verify(second)).resolves.toBe(true);
+  expect(
+    await harness.sql`select event_type from activity_audit_logs where activity_id = ${activityId} and event_type in ('INVITATION_LINK_CREATED', 'INVITATION_LINK_RESET') order by created_at`,
+  ).toHaveLength(2);
+});
+
+it("并发创建邀请链接时只有一个 replaceExisting:false 请求成功", async () => {
+  const service = new InvitationService(harness.sql);
+  const results = await Promise.allSettled([
+    service.createLink({
+      session: ownerSession,
+      activityId,
+      replaceExisting: false,
+    }),
+    service.createLink({
+      session: ownerSession,
+      activityId,
+      replaceExisting: false,
+    }),
+  ]);
+
+  expect(
+    results.filter((result) => result.status === "fulfilled"),
+  ).toHaveLength(1);
+  const failed = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  expect(failed?.reason).toMatchObject({
+    code: "INVITATION_LINK_ALREADY_ACTIVE",
+    status: 409,
+  });
+  expect(
+    await harness.sql`select id from activity_invite_tokens where activity_id = ${activityId} and enabled = true`,
+  ).toHaveLength(1);
+  expect(
+    await harness.sql`select id from activity_audit_logs where activity_id = ${activityId} and event_type = 'INVITATION_LINK_CREATED'`,
+  ).toHaveLength(1);
+});
+
+it("重复关闭没有启用链接时不写虚假关闭审计", async () => {
+  const service = new InvitationService(harness.sql);
+  await service.disableLink({ session: ownerSession, activityId });
+  expect(
+    await harness.sql`select id from activity_audit_logs where activity_id = ${activityId} and event_type = 'INVITATION_LINK_DISABLED'`,
+  ).toHaveLength(0);
+});
+
 it("重置链接会立即废弃旧 Token", async () => {
   const service = new InvitationService(harness.sql);
   const oldRaw = await service.resetLink({ session: ownerSession, activityId });

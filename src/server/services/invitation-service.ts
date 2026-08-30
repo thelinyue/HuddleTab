@@ -35,41 +35,93 @@ export type InvitationJoinResult =
 export class InvitationService implements InvitationRegistrationVerifier {
   constructor(private readonly sql: ReturnType<typeof postgres>) {}
 
-  async resetLink(
+  /**
+   * 只返回当前是否存在启用中的邀请链接。Token 明文不会从数据库恢复，
+   * 因此刷新后客户端只能看到“已生效”状态，必须由管理员明确重置才会拿到新链接。
+   */
+  async getLinkStatus(
     input: ActivitySession & { readonly activityId: string },
+  ): Promise<{ readonly enabled: boolean }> {
+    return this.sql.begin(async (transaction) => {
+      await authorizeActivityOperation(transaction, {
+        session: input.session,
+        activityId: input.activityId,
+        operation: "MEMBER_MANAGE",
+      });
+      const rows = await transaction`select 1 from activity_invite_tokens
+        where activity_id = ${input.activityId} and enabled = true limit 1`;
+      return { enabled: rows.length > 0 };
+    });
+  }
+
+  /**
+   * 创建或显式重置邀请链接。先锁活动再检查旧链接，避免两个并发请求都认为
+   * 当前没有链接；普通打开邀请中心必须传 false，已有链接时稳定返回 409。
+   */
+  async createLink(
+    input: ActivitySession & {
+      readonly activityId: string;
+      readonly replaceExisting: boolean;
+    },
   ): Promise<string> {
     const raw = randomBytes(32).toString("base64url");
     await this.sql.begin(async (transaction) => {
+      await transaction`select id from activities where id = ${input.activityId} for update`;
       const actor = await authorizeActivityOperation(transaction, {
         session: input.session,
         activityId: input.activityId,
         operation: "MEMBER_MANAGE",
       });
-      await transaction`update activity_invite_tokens set enabled = false where activity_id = ${input.activityId}`;
-      await transaction`insert into activity_invite_tokens (id, activity_id, token_hash, enabled, created_by_member_id)
+      const current = await transaction`select id from activity_invite_tokens
+        where activity_id = ${input.activityId} and enabled = true limit 1`;
+      if (current.length > 0 && !input.replaceExisting) {
+        throw new ApplicationError(
+          "INVITATION_LINK_ALREADY_ACTIVE",
+          "已有邀请链接生效中，请确认后重置。",
+          409,
+        );
+      }
+      if (current.length > 0) {
+        await transaction`update activity_invite_tokens set enabled = false
+          where activity_id = ${input.activityId} and enabled = true`;
+      }
+      await transaction`insert into activity_invite_tokens
+        (id, activity_id, token_hash, enabled, created_by_member_id)
         values (${randomUUID()}, ${input.activityId}, ${tokenHash(raw)}, true, ${actor.member.id})`;
       await this.auditAndRevise(
         transaction,
         input.activityId,
         actor.member.id,
         actor.userId,
-        "INVITATION_LINK_RESET",
+        current.length > 0
+          ? "INVITATION_LINK_RESET"
+          : "INVITATION_LINK_CREATED",
         input.activityId,
       );
     });
     return raw;
   }
 
+  async resetLink(
+    input: ActivitySession & { readonly activityId: string },
+  ): Promise<string> {
+    return this.createLink({ ...input, replaceExisting: true });
+  }
+
   async disableLink(
     input: ActivitySession & { readonly activityId: string },
   ): Promise<void> {
     await this.sql.begin(async (transaction) => {
+      await transaction`select id from activities where id = ${input.activityId} for update`;
       const actor = await authorizeActivityOperation(transaction, {
         session: input.session,
         activityId: input.activityId,
         operation: "MEMBER_MANAGE",
       });
-      await transaction`update activity_invite_tokens set enabled = false where activity_id = ${input.activityId}`;
+      const disabled =
+        await transaction`update activity_invite_tokens set enabled = false
+        where activity_id = ${input.activityId} and enabled = true returning id`;
+      if (disabled.length === 0) return;
       await this.auditAndRevise(
         transaction,
         input.activityId,

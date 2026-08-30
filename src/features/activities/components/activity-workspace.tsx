@@ -12,6 +12,7 @@ import { ActivityMore } from "@/features/activities/components/activity-more";
 function withoutPanel(searchParams: { readonly toString: () => string }) {
   const next = new URLSearchParams(searchParams.toString());
   next.delete("panel");
+  next.delete("invite");
   const query = next.toString();
   return query ? `?${query}` : "";
 }

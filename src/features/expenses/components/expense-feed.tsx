@@ -2,6 +2,7 @@
 
 import { FilterIcon, InfoIcon } from "lucide-react";
 import { useState } from "react";
+import Link from "next/link";
 
 import { MoneyAmount } from "@/components/design-system/money-amount";
 import {
@@ -146,6 +147,15 @@ export function ExpenseFeed({
       zonedCalendarDate(new Date(expense.occurredAt), timeZone),
     ),
   );
+  const formalActiveMemberCount =
+    (entryContext?.members ?? []).filter(
+      (member) =>
+        member.status === "ACTIVE" && (member.memberType ?? "USER") === "USER",
+    ).length ?? 0;
+  const canManageMembers = Boolean(
+    entryContext?.permissions.canManageMembers && status === "ACTIVE",
+  );
+  const membersHref = `/activities/${encodeURIComponent(activity.id)}?panel=members&invite=1`;
 
   return (
     <div className="-mx-4 min-h-[calc(100dvh-5rem)] bg-background px-4 pt-0.5 min-[481px]:-mx-6 min-[481px]:px-6">
@@ -157,7 +167,23 @@ export function ExpenseFeed({
         memberCount={memberCount}
         status={status ?? "ACTIVE"}
         activeTab="feed"
+        canManageMembers={canManageMembers}
       />
+
+      {canManageMembers && formalActiveMemberCount === 1 ? (
+        <Link
+          href={membersHref}
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent("huddletab:panel-open", { detail: "members" }),
+            );
+          }}
+          className="mt-3 flex min-h-11 items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
+        >
+          邀请成员一起记账
+          <span aria-hidden="true">›</span>
+        </Link>
+      ) : null}
 
       <section
         aria-label="消费摘要"

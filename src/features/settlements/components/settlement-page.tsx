@@ -211,6 +211,11 @@ export function SettlementPage({
           memberCount={data.summary.memberCount}
           status={data.activity.status}
           activeTab="settlement"
+          canManageMembers={
+            data.activity.status === "ACTIVE" &&
+            data.activity.currentMemberStatus === "ACTIVE" &&
+            data.activity.currentMemberRole !== "MEMBER"
+          }
         />
 
         <main className="pb-8">

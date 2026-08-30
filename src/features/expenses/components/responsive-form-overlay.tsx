@@ -178,6 +178,7 @@ export function ResponsiveFormOverlay({
         }
         data-keyboard-aware={keyboardAware ? "true" : undefined}
         data-keyboard-inset={keyboardAware ? viewport.keyboardInset : undefined}
+        opaqueOnEnter={mobileFullScreen}
         closeButtonClassName={
           mobileFullScreen
             ? "top-[calc(env(safe-area-inset-top)+0.25rem)] right-auto left-1"

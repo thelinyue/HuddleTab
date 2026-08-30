@@ -58,6 +58,7 @@ export interface QuickExpenseContextDto {
     readonly id: string;
     readonly displayName: string;
     readonly status: "ACTIVE" | "LEFT";
+    readonly memberType?: "USER" | "GUEST";
     readonly avatarPreset?: AvatarPreset | null;
   }[];
   readonly preference: {

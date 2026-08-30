@@ -76,7 +76,11 @@ export async function openRegistrationThroughUi(page: Page) {
 
 export async function createActivityThroughUi(page: Page, name: string) {
   await page.goto("/activities");
-  await page.locator('button[aria-label="创建活动"]').click();
+  await page.locator('button[aria-label="新建或加入活动"]').click();
+  await page
+    .getByRole("button", { name: "创建活动", exact: true })
+    .first()
+    .click();
   await page.getByLabel("活动名称").fill(name);
   await page.getByLabel("地点").fill("上海");
   await page

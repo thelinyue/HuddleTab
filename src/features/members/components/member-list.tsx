@@ -4,10 +4,6 @@ import { useState, type FormEvent } from "react";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
-  CopyIcon,
-  Link2Icon,
-  Link2OffIcon,
-  RefreshCwIcon,
   UserPlusIcon,
   UserRoundPlusIcon,
 } from "lucide-react";
@@ -28,9 +24,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { useOnlineStatus } from "@/features/expenses/components/offline-status";
 import type { AvatarPreset } from "@/features/me/avatar-presets";
 import { MemberBalance } from "@/features/members/components/member-balance";
-import { MemberInviteDialog } from "@/features/members/components/member-invite-dialog";
+import { MemberInviteCenter } from "@/features/members/components/member-invite-center";
 import {
   identityLabel,
   MemberManagementSheet,
@@ -54,14 +51,17 @@ type EmbeddedView =
   | { readonly type: "detail"; readonly member: MemberListRow };
 
 /**
- * 成员页按“操作、活跃成员、邀请方式、已离开”组织。成员行本身只负责打开查看层，
+ * 成员页按“操作、活跃成员、已离开”组织。成员行本身只负责打开查看层，
  * 独立成员页沿用 Overlay，嵌入活动面板时则切换同一面板内的本地视图，避免焦点层级嵌套。
  */
 export function MemberList({
   members,
-  inviteMode,
   onAddGuest,
   onCreateInvite,
+  inviteEnabled = false,
+  initialInviteOpen = false,
+  inviteStatusError = null,
+  onRetryInviteStatus,
   onDisableInvite,
   onRemove,
   balances = [],
@@ -71,7 +71,13 @@ export function MemberList({
   readonly members: readonly MemberListRow[];
   readonly inviteMode: "DIRECT_JOIN" | "REQUIRE_APPROVAL";
   readonly onAddGuest?: (displayName: string) => Promise<void>;
-  readonly onCreateInvite?: () => Promise<string>;
+  readonly onCreateInvite?: (replaceExisting?: boolean) => Promise<string>;
+  /** 服务端只返回是否有启用链接，明文永远不从服务端恢复。 */
+  readonly inviteEnabled?: boolean;
+  readonly initialInviteOpen?: boolean;
+  /** 邀请状态读取失败时不允许把未知状态误判成“无链接”。 */
+  readonly inviteStatusError?: string | null;
+  readonly onRetryInviteStatus?: () => Promise<void>;
   readonly onDisableInvite?: () => Promise<void>;
   readonly onRemove?: (memberId: string) => Promise<void>;
   readonly balances?: readonly {
@@ -89,19 +95,27 @@ export function MemberList({
   const [selectedMember, setSelectedMember] = useState<MemberListRow | null>(
     null,
   );
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [isInviteOpen, setIsInviteOpen] = useState(
+    initialInviteOpen && !embedded,
+  );
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteLocalState, setInviteLocalState] = useState<
+    "ACTIVE" | "DISABLED" | null
+  >(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
-  const [embeddedView, setEmbeddedView] = useState<EmbeddedView>({
-    type: "list",
-  });
+  const [embeddedView, setEmbeddedView] = useState<EmbeddedView>(
+    initialInviteOpen && onCreateInvite ? { type: "invite" } : { type: "list" },
+  );
   const [embeddedRemoveOpen, setEmbeddedRemoveOpen] = useState(false);
   const [embeddedRemoving, setEmbeddedRemoving] = useState(false);
   const [embeddedRemoveError, setEmbeddedRemoveError] = useState<string | null>(
     null,
   );
+  const online = useOnlineStatus();
+  const hasActiveInvite =
+    inviteLocalState === null ? inviteEnabled : inviteLocalState === "ACTIVE";
   const canManage = members.some((member) => member.permissions.canManage);
   const activeMembers = members.filter((member) => member.status === "ACTIVE");
   const leftMembers = members.filter((member) => member.status === "LEFT");
@@ -130,14 +144,15 @@ export function MemberList({
     }
   }
 
-  async function createInvite() {
+  async function createInvite(replaceExisting = false) {
     if (!onCreateInvite || inviteLoading) return;
     setInviteLoading(true);
     setInviteError(null);
     setInviteNotice(null);
     try {
-      const path = await onCreateInvite();
+      const path = await onCreateInvite(replaceExisting);
       setInviteUrl(new URL(path, window.location.origin).toString());
+      setInviteLocalState("ACTIVE");
     } catch (reason) {
       setInviteError(
         reason instanceof Error
@@ -151,7 +166,6 @@ export function MemberList({
 
   async function openInvite() {
     if (!embedded) setIsInviteOpen(true);
-    if (!inviteUrl) await createInvite();
   }
 
   async function disableInvite() {
@@ -162,6 +176,7 @@ export function MemberList({
     try {
       await onDisableInvite();
       setInviteUrl(null);
+      setInviteLocalState("DISABLED");
       if (!embedded) setIsInviteOpen(false);
     } catch (reason) {
       setInviteError(
@@ -171,16 +186,6 @@ export function MemberList({
       );
     } finally {
       setInviteLoading(false);
-    }
-  }
-
-  async function copyInvite() {
-    if (!inviteUrl) return;
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
-      setInviteNotice("邀请链接已复制。");
-    } catch {
-      setInviteNotice("浏览器未允许自动复制，请手动选择邀请链接。");
     }
   }
 
@@ -323,63 +328,20 @@ export function MemberList({
       ) : null}
 
       {embedded && embeddedView.type === "invite" ? (
-        <div className="grid gap-4 pt-2">
-          <p className="text-sm text-muted-foreground">
-            分享链接后，对方登录或注册即可继续加入活动。
-          </p>
-          {inviteLoading ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              正在生成邀请链接…
-            </p>
-          ) : null}
-          {inviteUrl ? (
-            <div className="grid gap-2">
-              <Label htmlFor="embedded-member-invite-url">邀请链接</Label>
-              <Input
-                id="embedded-member-invite-url"
-                aria-label="邀请链接"
-                value={inviteUrl}
-                readOnly
-                className="font-mono text-xs"
-                onFocus={(event) => event.currentTarget.select()}
-              />
-              <Button type="button" onClick={() => void copyInvite()}>
-                <CopyIcon aria-hidden="true" />
-                复制链接
-              </Button>
-            </div>
-          ) : null}
-          {inviteError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {inviteError}
-            </p>
-          ) : null}
-          {inviteNotice ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              {inviteNotice}
-            </p>
-          ) : null}
-          <div className="grid gap-2 min-[480px]:grid-cols-2">
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={!inviteUrl || inviteLoading}
-              onClick={() => void disableInvite()}
-            >
-              <Link2OffIcon aria-hidden="true" />
-              关闭邀请
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={inviteLoading}
-              onClick={() => void createInvite()}
-            >
-              <RefreshCwIcon aria-hidden="true" />
-              重置链接
-            </Button>
-          </div>
-        </div>
+        <MemberInviteCenter
+          inviteUrl={inviteUrl}
+          inviteEnabled={hasActiveInvite}
+          online={online}
+          loading={inviteLoading}
+          error={inviteError}
+          statusError={inviteStatusError}
+          notice={inviteNotice}
+          onCreate={() => createInvite(false)}
+          onReset={() => createInvite(true)}
+          onDisable={disableInvite}
+          onRetry={onRetryInviteStatus}
+          onNotice={setInviteNotice}
+        />
       ) : null}
 
       {embedded && embeddedMember ? (
@@ -485,42 +447,6 @@ export function MemberList({
             )}
           </section>
 
-          {canManage && onCreateInvite && onDisableInvite ? (
-            <section className="mt-8" aria-labelledby="invite-method-heading">
-              <h2
-                id="invite-method-heading"
-                className="text-base font-semibold"
-              >
-                邀请方式
-              </h2>
-              <button
-                type="button"
-                aria-label="链接加入"
-                className="mt-2 grid min-h-[72px] w-full grid-cols-[44px_minmax(0,1fr)_16px] items-center gap-3 border-y py-3 text-left transition-colors hover:bg-muted/45 focus-visible:bg-muted/45"
-                onClick={() => {
-                  if (embedded) setEmbeddedView({ type: "invite" });
-                  void openInvite();
-                }}
-              >
-                <span className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Link2Icon aria-hidden="true" className="size-5" />
-                </span>
-                <span className="min-w-0">
-                  <strong className="block text-sm font-semibold">
-                    链接加入
-                  </strong>
-                  <span className="mt-0.5 block text-sm text-muted-foreground">
-                    {inviteMode === "DIRECT_JOIN" ? "直接加入" : "需管理员审批"}
-                  </span>
-                </span>
-                <ChevronRightIcon
-                  aria-hidden="true"
-                  className="size-4 text-muted-foreground/70"
-                />
-              </button>
-            </section>
-          ) : null}
-
           {leftMembers.length ? (
             <section className="mt-8" aria-labelledby="left-members-heading">
               <h2 id="left-members-heading" className="text-base font-semibold">
@@ -571,15 +497,27 @@ export function MemberList({
           </ResponsiveFormOverlay>
 
           {onCreateInvite && onDisableInvite ? (
-            <MemberInviteDialog
+            <ResponsiveFormOverlay
               open={isInviteOpen}
               onOpenChange={setIsInviteOpen}
-              inviteUrl={inviteUrl}
-              loading={inviteLoading}
-              error={inviteError}
-              onRegenerate={createInvite}
-              onDisable={disableInvite}
-            />
+              title="邀请成员"
+              mobileFullScreen
+            >
+              <MemberInviteCenter
+                inviteUrl={inviteUrl}
+                inviteEnabled={hasActiveInvite}
+                online={online}
+                loading={inviteLoading}
+                error={inviteError}
+                statusError={inviteStatusError}
+                notice={inviteNotice}
+                onCreate={() => createInvite(false)}
+                onReset={() => createInvite(true)}
+                onDisable={disableInvite}
+                onRetry={onRetryInviteStatus}
+                onNotice={setInviteNotice}
+              />
+            </ResponsiveFormOverlay>
           ) : null}
 
           {selectedMember ? (

@@ -123,6 +123,10 @@ test("快速记账在移动端使用全高 Sheet 和左侧中文关闭按钮", (
     "data-[side=bottom]:rounded-none",
     "data-[side=bottom]:border-0",
   );
+  expect(screen.getByRole("dialog")).toHaveAttribute(
+    "data-motion-opaque",
+    "true",
+  );
   expect(screen.getByRole("heading", { name: "记一笔" })).toBeVisible();
   expect(screen.getByRole("button", { name: "关闭" })).toHaveClass(
     "left-1",

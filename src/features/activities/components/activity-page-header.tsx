@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, MoreHorizontalIcon } from "lucide-react";
+import { ArrowLeftIcon, MoreHorizontalIcon, UserPlusIcon } from "lucide-react";
 import Link from "next/link";
 
 import { ActivityNavigation } from "@/features/activities/components/activity-navigation";
@@ -26,6 +26,7 @@ export function ActivityPageHeader({
   status,
   activeTab = "feed",
   moreAction = true,
+  canManageMembers = false,
 }: {
   readonly activityId: string;
   readonly name: string;
@@ -35,13 +36,16 @@ export function ActivityPageHeader({
   readonly status: "ACTIVE" | "ENDED" | "ARCHIVED";
   readonly activeTab?: "feed" | "settlement";
   readonly moreAction?: boolean;
+  /** 由已授权页面上下文传入，避免页头自行请求或猜测当前用户角色。 */
+  readonly canManageMembers?: boolean;
 }) {
   const days = inclusiveCalendarDays(startDate, endDate);
   const statusText = statusLabel(status);
-  const query = (panel: "members" | "manage") => {
+  const query = (panel: "members" | "manage", invite = false) => {
     const params = new URLSearchParams();
     if (activeTab === "settlement") params.set("tab", "settlement");
     params.set("panel", panel);
+    if (invite) params.set("invite", "1");
     return `/activities/${encodeURIComponent(activityId)}?${params.toString()}`;
   };
   return (
@@ -73,7 +77,7 @@ export function ActivityPageHeader({
                   }),
                 );
               }}
-              className="underline-offset-2 hover:underline"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center underline-offset-2 hover:underline"
               aria-label={`查看成员，${memberCount}人`}
             >
               {memberCount}人
@@ -81,6 +85,23 @@ export function ActivityPageHeader({
             {` · ${statusText}`}
           </p>
         </div>
+        {canManageMembers && status === "ACTIVE" ? (
+          <Link
+            href={query("members", true)}
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent("huddletab:panel-open", {
+                  detail: "members",
+                }),
+              );
+            }}
+            aria-label="邀请成员"
+            title="邀请成员"
+            className="flex size-11 shrink-0 items-center justify-center text-foreground"
+          >
+            <UserPlusIcon aria-hidden="true" className="size-5" />
+          </Link>
+        ) : null}
         {moreAction ? (
           <Link
             href={query("manage")}

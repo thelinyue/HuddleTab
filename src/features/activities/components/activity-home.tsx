@@ -11,6 +11,7 @@ import {
 import { ActivityListItem } from "@/features/activities/components/activity-list-item";
 import { CreateActivityForm } from "@/features/activities/components/create-activity-form";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { JoinActivityForm } from "@/features/activities/components/join-activity-form";
 import { EmptyState } from "@/components/design-system/empty-state";
 import {
   ListReveal,
@@ -50,6 +51,8 @@ function ActivityGroup({
 /** 首页只格式化服务器返回的汇总；跨活动应收、应付保留为两个独立数字。 */
 export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const hasActivities =
     data.active.length + data.ended.length + data.archived.length > 0;
   return (
@@ -61,8 +64,9 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
             size="icon"
             variant="ghost"
             className="rounded-full hover:bg-primary/8"
-            aria-label="创建活动"
-            onClick={() => setCreating(true)}
+            aria-label="新建或加入活动"
+            title="新建或加入活动"
+            onClick={() => setActionsOpen(true)}
           >
             <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
               <PlusIcon aria-hidden="true" className="size-4" />
@@ -75,6 +79,42 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
           title="创建活动"
         >
           <CreateActivityForm />
+        </ResponsiveFormOverlay>
+        <ResponsiveFormOverlay
+          open={actionsOpen}
+          onOpenChange={setActionsOpen}
+          title="新建或加入活动"
+        >
+          <div className="grid gap-3 pt-2">
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => {
+                setActionsOpen(false);
+                setCreating(true);
+              }}
+            >
+              创建活动
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              onClick={() => {
+                setActionsOpen(false);
+                setJoining(true);
+              }}
+            >
+              加入活动
+            </Button>
+          </div>
+        </ResponsiveFormOverlay>
+        <ResponsiveFormOverlay
+          open={joining}
+          onOpenChange={setJoining}
+          title="加入活动"
+        >
+          <JoinActivityForm />
         </ResponsiveFormOverlay>
         <dl aria-label="跨活动账务摘要" className="mt-3 grid grid-cols-2 gap-2">
           {data.summaries.flatMap((summary) => {
@@ -115,7 +155,14 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
             icon={PlusIcon}
             title="还没有活动"
             description="创建第一个活动后，就可以开始记录消费。"
-            action={<Button onClick={() => setCreating(true)}>创建活动</Button>}
+            action={
+              <div className="grid gap-2">
+                <Button onClick={() => setCreating(true)}>创建活动</Button>
+                <Button variant="outline" onClick={() => setJoining(true)}>
+                  加入已有活动
+                </Button>
+              </div>
+            }
           />
         )}
         <ActivityGroup title="进行中的活动" items={data.active} />

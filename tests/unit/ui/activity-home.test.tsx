@@ -2,10 +2,21 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  within,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { ActivityHome } from "@/features/activities/components/activity-home";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -77,10 +88,9 @@ test("活动首页按参考稿呈现紧凑标题、账务摘要和生命周期�
     }),
   ).toBeVisible();
   expect(screen.getAllByRole("presentation")).toHaveLength(2);
-  expect(screen.getByRole("button", { name: "创建活动" })).toHaveAttribute(
-    "data-size",
-    "icon",
-  );
+  expect(
+    screen.getByRole("button", { name: "新建或加入活动" }),
+  ).toHaveAttribute("data-size", "icon");
 });
 
 test("没有活动时显示可恢复的空状态", () => {
@@ -91,14 +101,46 @@ test("没有活动时显示可恢复的空状态", () => {
   );
 
   expect(screen.getByRole("heading", { name: "还没有活动" })).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "新建或加入活动" }),
+  ).toHaveAttribute("data-size", "icon");
   const createActions = screen.getAllByRole("button", { name: "创建活动" });
-  expect(createActions).toHaveLength(2);
+  expect(createActions).toHaveLength(1);
+  expect(createActions[0]).toHaveTextContent("创建活动");
+});
+
+test("加号打开新建或加入操作面板，并能切换到两种表单", async () => {
+  const user = userEvent.setup();
+  const data = { summaries: [], active: [], ended: [], archived: [] };
+  render(<ActivityHome data={data} />);
+
+  await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
+  const actionDialog = screen.getByRole("dialog", { name: "新建或加入活动" });
   expect(
-    createActions.find((button) => button.dataset.size === "icon"),
-  ).toBeDefined();
+    within(actionDialog).getByRole("button", { name: "创建活动" }),
+  ).toBeVisible();
   expect(
-    createActions.find((button) => button.dataset.size === "default"),
-  ).toHaveTextContent("创建活动");
+    within(actionDialog).getByRole("button", { name: "加入活动" }),
+  ).toBeVisible();
+  await user.click(
+    within(actionDialog).getByRole("button", { name: "加入活动" }),
+  );
+  expect(screen.getByRole("dialog", { name: "加入活动" })).toBeVisible();
+  expect(screen.getByRole("textbox", { name: "邀请链接" })).toBeVisible();
+
+  cleanup();
+  render(<ActivityHome data={data} />);
+  await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
+  await user.click(
+    within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole(
+      "button",
+      { name: "创建活动" },
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("dialog", { name: "创建活动" })).toBeVisible(),
+  );
+  expect(screen.getByRole("textbox", { name: "活动名称" })).toBeVisible();
 });
 
 test("已结清活动只显示结清状态，不重复显示零金额", () => {

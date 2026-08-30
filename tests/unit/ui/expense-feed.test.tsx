@@ -183,3 +183,129 @@ test("消费链接保留所属活动并按发生日期分组", () => {
   expect(screen.getByRole("list", { name: "2026年8月22日" })).toBeVisible();
   expect(screen.getByRole("heading", { name: "2026年8月21日" })).toBeVisible();
 });
+
+test("仅一个 active 正式成员时在摘要前展示邀请提示，临时成员不计入", () => {
+  render(
+    <ExpenseFeed
+      activity={{
+        id: "activity-1",
+        name: "大阪",
+        currency: "CNY",
+        totalExpenseMinor: "0",
+        originalCurrencyTotals: [],
+        startDate: "2026-08-20",
+        endDate: "2026-08-24",
+        memberCount: 2,
+      }}
+      timeZone="Asia/Shanghai"
+      expenses={[]}
+      entryContext={
+        {
+          activity: { status: "ACTIVE" },
+          members: [
+            {
+              id: "owner",
+              displayName: "Owner",
+              status: "ACTIVE",
+              memberType: "USER",
+            },
+            {
+              id: "guest",
+              displayName: "Guest",
+              status: "ACTIVE",
+              memberType: "GUEST",
+            },
+          ],
+          permissions: { canCreateExpense: true, canManageMembers: true },
+        } as never
+      }
+    />,
+  );
+  expect(
+    screen.getByRole("link", { name: /邀请成员一起记账/ }),
+  ).toHaveAttribute("href", "/activities/activity-1?panel=members&invite=1");
+});
+
+test.each([
+  [
+    "两个 active 正式成员",
+    [
+      {
+        id: "owner",
+        displayName: "Owner",
+        status: "ACTIVE",
+        memberType: "USER",
+      },
+      {
+        id: "member",
+        displayName: "Member",
+        status: "ACTIVE",
+        memberType: "USER",
+      },
+    ],
+    "ACTIVE",
+    true,
+  ],
+  [
+    "仅一个 active 正式成员但无管理权限",
+    [
+      {
+        id: "owner",
+        displayName: "Owner",
+        status: "ACTIVE",
+        memberType: "USER",
+      },
+    ],
+    "ACTIVE",
+    false,
+  ],
+  [
+    "活动已结束",
+    [
+      {
+        id: "owner",
+        displayName: "Owner",
+        status: "ACTIVE",
+        memberType: "USER",
+      },
+    ],
+    "ENDED",
+    true,
+  ],
+  [
+    "仅已离开正式成员",
+    [{ id: "owner", displayName: "Owner", status: "LEFT", memberType: "USER" }],
+    "ACTIVE",
+    true,
+  ],
+] as const)(
+  "%s 时不展示邀请提示",
+  (_label, members, status, canManageMembers) => {
+    render(
+      <ExpenseFeed
+        activity={{
+          id: "activity-1",
+          name: "大阪",
+          currency: "CNY",
+          totalExpenseMinor: "0",
+          originalCurrencyTotals: [],
+          startDate: null,
+          endDate: null,
+          memberCount: members.length,
+        }}
+        timeZone="Asia/Shanghai"
+        expenses={[]}
+        entryContext={
+          {
+            activity: { status },
+            members,
+            permissions: { canCreateExpense: false, canManageMembers },
+          } as never
+        }
+      />,
+    );
+    expect(
+      screen.queryByRole("link", { name: /邀请成员一起记账/ }),
+    ).not.toBeInTheDocument();
+  },
+);

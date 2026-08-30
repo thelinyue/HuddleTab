@@ -273,7 +273,7 @@ test("添加临时成员使用响应式 Overlay，成功后关闭并清空表单
   );
 });
 
-test("顶部邀请按钮与链接加入行复用邀请 Overlay，并按模式显示说明", async () => {
+test("顶部邀请按钮打开邀请中心且不重复渲染链接加入入口", async () => {
   const user = userEvent.setup();
   const onCreateInvite = vi.fn().mockResolvedValue("/join/invite-token-value");
   render(
@@ -286,8 +286,12 @@ test("顶部邀请按钮与链接加入行复用邀请 Overlay，并按模式显
     />,
   );
 
-  expect(screen.getByRole("heading", { name: "邀请方式" })).toBeVisible();
-  expect(screen.getByText("需管理员审批")).toBeVisible();
+  expect(
+    screen.queryByRole("heading", { name: "邀请方式" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "链接加入" }),
+  ).not.toBeInTheDocument();
   expect(screen.queryByText("邀请码")).not.toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "新增" }),
@@ -295,10 +299,10 @@ test("顶部邀请按钮与链接加入行复用邀请 Overlay，并按模式显
 
   await user.click(screen.getByRole("button", { name: "邀请成员" }));
   expect(await screen.findByRole("dialog", { name: "邀请成员" })).toBeVisible();
+  expect(onCreateInvite).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "生成邀请链接" }));
+  expect(onCreateInvite).toHaveBeenCalledWith(false);
   await user.keyboard("{Escape}");
-  await user.click(screen.getByRole("button", { name: "链接加入" }));
-  expect(await screen.findByRole("dialog", { name: "邀请成员" })).toBeVisible();
-  expect(onCreateInvite).toHaveBeenCalledTimes(1);
 });
 
 test("无离开成员时不渲染已离开分组", () => {

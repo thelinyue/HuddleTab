@@ -153,6 +153,7 @@ export class ExpenseService {
           id: member.id,
           displayName: member.display_name,
           status: member.status,
+          memberType: member.member_type,
           avatarPreset:
             member.member_type === "USER"
               ? ((member.avatar_preset as AvatarPreset | null) ?? null)

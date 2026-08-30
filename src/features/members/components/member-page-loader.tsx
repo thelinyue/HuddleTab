@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { MemberList } from "@/features/members/components/member-list";
 import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import type { SettlementPageContextDto } from "@/features/settlements/api";
@@ -19,15 +19,23 @@ export function MemberPageLoader({
   readonly embedded?: boolean;
 }) {
   const { activityId } = useParams<{ activityId: string }>();
+  const searchParams = useSearchParams();
+  const initialInviteOpen = searchParams.get("invite") === "1";
   const [members, setMembers] = useState<readonly Member[] | null>(null);
   const [inviteMode, setInviteMode] = useState<
     "DIRECT_JOIN" | "REQUIRE_APPROVAL" | null
   >(null);
+  const [inviteEnabled, setInviteEnabled] = useState(false);
+  const [inviteStatusError, setInviteStatusError] = useState<string | null>(
+    null,
+  );
   const [settlementContext, setSettlementContext] =
     useState<SettlementPageContextDto | null>(null);
   const [summary, setSummary] = useState<ActivitySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const load = () => {
+  const load = useCallback(() => {
+    setError(null);
+    setInviteStatusError(null);
     void Promise.all([
       fetch(`/api/activities/${activityId}/members`, { cache: "no-store" }),
       fetch(`/api/activities/${activityId}/settlements/context`, {
@@ -52,19 +60,52 @@ export function MemberPageLoader({
           { readonly data: SettlementPageContextDto },
           { readonly data: ActivitySummary },
         ];
+        const canManage = membersBody.data.some(
+          (member) => member.permissions.canManage,
+        );
+        let nextInviteEnabled = false;
+        let nextInviteStatusError: string | null = null;
+        if (canManage && contextBody.data.activity.status === "ACTIVE") {
+          try {
+            const inviteResponse = await fetch(
+              `/api/activities/${activityId}/invitations/link`,
+              { cache: "no-store" },
+            );
+            if (!inviteResponse.ok) throw new Error("邀请状态读取失败。");
+            const inviteBody = (await inviteResponse.json()) as {
+              readonly data: { readonly enabled: boolean };
+            };
+            nextInviteEnabled = inviteBody.data.enabled;
+          } catch {
+            nextInviteStatusError = "邀请状态加载失败，请重试。";
+          }
+        }
         return [
           membersBody.data,
           membersBody.meta.inviteMode,
           contextBody.data,
           summaryBody.data,
+          nextInviteEnabled,
+          nextInviteStatusError,
         ] as const;
       })
-      .then(([nextMembers, nextInviteMode, nextContext, nextSummary]) => {
-        setMembers(nextMembers);
-        setInviteMode(nextInviteMode);
-        setSettlementContext(nextContext);
-        setSummary(nextSummary);
-      })
+      .then(
+        ([
+          nextMembers,
+          nextInviteMode,
+          nextContext,
+          nextSummary,
+          nextInviteEnabled,
+          nextInviteStatusError,
+        ]) => {
+          setMembers(nextMembers);
+          setInviteMode(nextInviteMode);
+          setSettlementContext(nextContext);
+          setSummary(nextSummary);
+          setInviteEnabled(nextInviteEnabled);
+          setInviteStatusError(nextInviteStatusError);
+        },
+      )
       .catch((reason: unknown) =>
         setError(
           reason instanceof Error
@@ -72,8 +113,12 @@ export function MemberPageLoader({
             : "成员列表加载失败，请稍后重试。",
         ),
       );
-  };
-  useEffect(load, [activityId]);
+  }, [activityId]);
+  useEffect(() => {
+    // 加载器需要在首次挂载时发起请求，并由请求结果更新各个加载状态。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
   if (error)
     return (
       <p role="alert" className="py-8 text-destructive">
@@ -89,10 +134,14 @@ export function MemberPageLoader({
       { error?: { message?: string } } | undefined;
     throw new Error(body?.error?.message ?? "成员操作失败，请稍后重试。");
   };
-  const createInvite = async () => {
+  const createInvite = async (replaceExisting = false) => {
     const response = await fetch(
       `/api/activities/${activityId}/invitations/link`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replaceExisting }),
+      },
     );
     if (!response.ok) {
       const body = (await response.json().catch(() => undefined)) as
@@ -104,6 +153,27 @@ export function MemberPageLoader({
     };
     return body.data.invitePath;
   };
+  const canManageMembers =
+    settlementContext.activity.status === "ACTIVE" &&
+    members.some((member) => member.permissions.canManage);
+  const retryInviteStatus = async () => {
+    if (!canManageMembers || settlementContext.activity.status !== "ACTIVE")
+      return;
+    try {
+      const response = await fetch(
+        `/api/activities/${activityId}/invitations/link`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error("邀请状态读取失败。");
+      const body = (await response.json()) as {
+        readonly data: { readonly enabled: boolean };
+      };
+      setInviteEnabled(body.data.enabled);
+      setInviteStatusError(null);
+    } catch {
+      setInviteStatusError("邀请状态加载失败，请重试。");
+    }
+  };
   return (
     <>
       {!embedded ? (
@@ -114,19 +184,31 @@ export function MemberPageLoader({
           endDate={summary.endDate}
           memberCount={summary.memberCount}
           status={settlementContext.activity.status}
+          canManageMembers={canManageMembers}
         />
       ) : null}
       <MemberList
         members={members}
         inviteMode={inviteMode}
+        inviteEnabled={inviteEnabled}
+        initialInviteOpen={initialInviteOpen && canManageMembers}
+        inviteStatusError={inviteStatusError}
+        onRetryInviteStatus={canManageMembers ? retryInviteStatus : undefined}
         balances={settlementContext.balances}
         currency={settlementContext.activity.currency}
-        onCreateInvite={createInvite}
-        onDisableInvite={async () => {
-          await request(`/api/activities/${activityId}/invitations/link`, {
-            method: "DELETE",
-          });
-        }}
+        onCreateInvite={canManageMembers ? createInvite : undefined}
+        onDisableInvite={
+          canManageMembers
+            ? async () => {
+                await request(
+                  `/api/activities/${activityId}/invitations/link`,
+                  {
+                    method: "DELETE",
+                  },
+                );
+              }
+            : undefined
+        }
         onAddGuest={async (displayName) => {
           await request(`/api/activities/${activityId}/members`, {
             method: "POST",

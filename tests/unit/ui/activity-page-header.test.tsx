@@ -31,3 +31,63 @@ test.each([
     expect(notice).toHaveTextContent(description);
   },
 );
+
+test("活动进行中且当前用户可管理成员时展示 44px 邀请入口", () => {
+  render(
+    <ActivityPageHeader
+      activityId="activity-1"
+      name="日本大阪之旅"
+      startDate="2026-08-20"
+      endDate="2026-08-22"
+      memberCount={1}
+      status="ACTIVE"
+      canManageMembers
+    />,
+  );
+  const invite = screen.getByRole("link", { name: "邀请成员" });
+  expect(invite).toHaveClass("size-11");
+  expect(invite).toHaveAttribute(
+    "href",
+    "/activities/activity-1?panel=members&invite=1",
+  );
+  expect(screen.getByRole("link", { name: /查看成员/ })).toHaveClass(
+    "min-h-11",
+  );
+});
+
+test.each(["ENDED", "ARCHIVED"] as const)(
+  "%s 活动不展示邀请管理入口",
+  (status) => {
+    render(
+      <ActivityPageHeader
+        activityId="activity-1"
+        name="日本大阪之旅"
+        startDate="2026-08-20"
+        endDate="2026-08-22"
+        memberCount={1}
+        status={status}
+        canManageMembers
+      />,
+    );
+    expect(
+      screen.queryByRole("link", { name: "邀请成员" }),
+    ).not.toBeInTheDocument();
+  },
+);
+
+test("活动进行中但普通成员不可见邀请管理入口", () => {
+  render(
+    <ActivityPageHeader
+      activityId="activity-1"
+      name="日本大阪之旅"
+      startDate="2026-08-20"
+      endDate="2026-08-22"
+      memberCount={2}
+      status="ACTIVE"
+      canManageMembers={false}
+    />,
+  );
+  expect(
+    screen.queryByRole("link", { name: "邀请成员" }),
+  ).not.toBeInTheDocument();
+});

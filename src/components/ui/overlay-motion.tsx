@@ -159,10 +159,13 @@ function useOverlayMotion({
   forwardedContentRef,
   kind,
   side = "right",
+  opaqueOnEnter = false,
 }: {
   readonly forwardedContentRef?: Ref<HTMLDivElement>;
   readonly kind: OverlayMotionKind;
   readonly side?: SheetSide;
+  /** 全屏移动面板在滑入期间保持不透明，避免活动内容从面板底下穿透。 */
+  readonly opaqueOnEnter?: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentElementRef = useRef<HTMLDivElement>(null);
@@ -196,7 +199,9 @@ function useOverlayMotion({
 
       const displaced =
         kind === "sheet"
-          ? getSheetTransform(side)
+          ? opaqueOnEnter
+            ? { scale: 1, x: 0, y: 0 }
+            : getSheetTransform(side)
           : { scale: 0.98, x: 0, y: 8 };
       const settled = { autoAlpha: 1, scale: 1, x: 0, y: 0 };
 
@@ -220,7 +225,7 @@ function useOverlayMotion({
         }
         gsap.fromTo(
           content,
-          { autoAlpha: 0, ...displaced },
+          { autoAlpha: opaqueOnEnter ? 1 : 0, ...displaced },
           {
             ...settled,
             duration: motionDuration.brief,
@@ -254,7 +259,14 @@ function useOverlayMotion({
       });
     },
     {
-      dependencies: [phase, kind, side, completeExit, contentReady],
+      dependencies: [
+        phase,
+        kind,
+        side,
+        opaqueOnEnter,
+        completeExit,
+        contentReady,
+      ],
       scope: contentElementRef,
     },
   );
