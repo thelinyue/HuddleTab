@@ -136,10 +136,7 @@ function clearPreviousScreenshots() {
   }
 }
 
-test("生成 14 张我的模块视觉验收截图", async (
-  { page, browser },
-  testInfo,
-) => {
+test("生成 14 张我的模块视觉验收截图", async ({ page, browser }, testInfo) => {
   test.skip(
     testInfo.project.name !== "desktop-chromium",
     "视觉矩阵只由 desktop-chromium 串行清理并写入共享截图目录。",

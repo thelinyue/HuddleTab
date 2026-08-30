@@ -195,6 +195,12 @@ export function ExpenseFeedLoader({ timeZone }: { readonly timeZone: string }) {
   };
   return (
     <>
+      {entryContext && (
+        <SyncTriggers
+          userId={entryContext.activity.currentUserId}
+          onCompleted={() => refresh()}
+        />
+      )}
       <ExpenseFeed
         activity={{ id: activityId, name: summary.activityName, ...summary }}
         expenses={expenses}
@@ -234,10 +240,6 @@ export function ExpenseFeedLoader({ timeZone }: { readonly timeZone: string }) {
       />
       {entryContext && (
         <>
-          <SyncTriggers
-            userId={entryContext.activity.currentUserId}
-            onCompleted={() => refresh()}
-          />
           <UpdateBanner userId={entryContext.activity.currentUserId} />
         </>
       )}

@@ -67,9 +67,7 @@ export class ActivitySummaryService {
       const totalExpenseMinor = BigInt(expenseTotals!.total_expense_minor);
       const divisor = BigInt(participatingMemberCount);
       const averageExpenseMinor =
-        divisor === 0n
-          ? 0n
-          : (totalExpenseMinor + divisor / 2n) / divisor;
+        divisor === 0n ? 0n : (totalExpenseMinor + divisor / 2n) / divisor;
       return {
         activityName: activity!.name,
         startDate: activity!.start_date,

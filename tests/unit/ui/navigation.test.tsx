@@ -273,7 +273,9 @@ test("活动工作台隐藏全局导航", () => {
   navigation.pathname = "/activities/activity-42";
   render(<ProductNavigation />);
 
-  expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("navigation", { name: "主导航" }),
+  ).not.toBeInTheDocument();
 });
 
 test("活动头展示由页面提供的摘要，并链接到更多页", () => {
@@ -344,7 +346,9 @@ test("活动子页面隐藏全局导航", () => {
   navigation.pathname = "/activities/activity-42/members";
   render(<ProductNavigation />);
 
-  expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("navigation", { name: "主导航" }),
+  ).not.toBeInTheDocument();
 });
 
 test("流水页的活动导航以页签呈现", () => {

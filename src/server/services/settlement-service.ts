@@ -83,7 +83,7 @@ export class SettlementService {
           status: member.status,
           avatarPreset:
             member.member_type === "USER"
-              ? (member.avatar_preset as AvatarPreset | null) ?? null
+              ? ((member.avatar_preset as AvatarPreset | null) ?? null)
               : null,
         })),
         balances: balances.map((balance) => ({

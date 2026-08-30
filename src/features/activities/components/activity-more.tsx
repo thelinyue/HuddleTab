@@ -74,7 +74,11 @@ function commands(context: Context | null): readonly (keyof typeof labels)[] {
 }
 
 /** 更多页分开读取展示资料和结算上下文权限；权限仍以服务端上下文为准。 */
-export function ActivityMore({ embedded = false }: { readonly embedded?: boolean }) {
+export function ActivityMore({
+  embedded = false,
+}: {
+  readonly embedded?: boolean;
+}) {
   const { activityId } = useParams<{ activityId: string }>();
   const [context, setContext] = useState<Context | null>(null);
   const [activity, setActivity] = useState<ActivityHomeItem | null>(null);

@@ -84,6 +84,23 @@ test("浮动记账入口按下反馈不阻塞打开表单", async () => {
   expect(trigger).toContainElement(pressCall?.[0] as HTMLElement);
 });
 
+test("浏览器没有 crypto.randomUUID 时点击记一笔仍能打开表单", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  vi.stubGlobal("crypto", {
+    getRandomValues: (bytes: Uint8Array) => {
+      bytes.fill(7);
+      return bytes;
+    },
+  });
+  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+
+  await user.click(screen.getByRole("button", { name: "记一笔" }));
+
+  expect(screen.getByRole("heading", { name: "记一笔" })).toBeVisible();
+  expect(screen.getByLabelText("金额", { exact: true })).toBeEnabled();
+});
+
 test("快速记账完成分摊步骤后保留输入并给出短反馈", async () => {
   const user = userEvent.setup();
   setMotionPreference(false);

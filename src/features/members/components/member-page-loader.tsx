@@ -13,7 +13,11 @@ type ActivitySummary = {
   readonly endDate: string | null;
   readonly memberCount: number;
 };
-export function MemberPageLoader({ embedded = false }: { readonly embedded?: boolean }) {
+export function MemberPageLoader({
+  embedded = false,
+}: {
+  readonly embedded?: boolean;
+}) {
   const { activityId } = useParams<{ activityId: string }>();
   const [members, setMembers] = useState<readonly Member[] | null>(null);
   const [inviteMode, setInviteMode] = useState<

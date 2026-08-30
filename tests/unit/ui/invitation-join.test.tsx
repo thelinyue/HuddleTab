@@ -17,16 +17,14 @@ const token = "secure_invite_token_123";
 test("未登录时保留 token 并跳转登录", async () => {
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            error: { code: "UNAUTHENTICATED", message: "请登录" },
-          }),
-          { status: 401, headers: { "Content-Type": "application/json" } },
-        ),
+    vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: "UNAUTHENTICATED", message: "请登录" },
+        }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
       ),
+    ),
   );
   const assign = vi.fn();
   vi.stubGlobal("location", {
@@ -49,13 +47,11 @@ test.each(["JOINED", "ALREADY_MEMBER"] as const)(
   async (status) => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json({
-            data: { status, activityId: "activity-1", memberId: "member-1" },
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: { status, activityId: "activity-1", memberId: "member-1" },
+        }),
+      ),
     );
     const replace = vi.fn();
     vi.stubGlobal("location", {

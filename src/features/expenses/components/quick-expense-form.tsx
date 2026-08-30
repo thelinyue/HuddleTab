@@ -28,6 +28,7 @@ import {
 import { SplitEditor } from "@/features/expenses/components/split-editor";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 import { splitExpense, type SplitInput } from "@/domain/splitting/split";
+import { createClientId } from "@/lib/client-id";
 import type { AvatarPreset } from "@/features/me/avatar-presets";
 import {
   MemberPickerSheet,
@@ -272,7 +273,7 @@ export function QuickExpenseForm({
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
   const [versionConflict, setVersionConflict] = useState(false);
   const [files, setFiles] = useState<readonly File[]>([]);
-  const [clientMutationId] = useState(() => crypto.randomUUID());
+  const [clientMutationId] = useState(createClientId);
   const hasSingleFieldError = Object.keys(fieldErrors).length === 1;
   const stepScope = useRef<HTMLDivElement>(null);
   const participantTriggerRef = useRef<HTMLButtonElement>(null);

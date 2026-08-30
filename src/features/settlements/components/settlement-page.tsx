@@ -439,9 +439,7 @@ export function SettlementPage({
           </section>
 
           {writable ? (
-            <div
-              className="sticky bottom-0 z-10 -mx-4 mt-6 bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur"
-            >
+            <div className="sticky bottom-0 z-10 -mx-4 mt-6 bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
               {fullySettled ? (
                 <button
                   type="button"

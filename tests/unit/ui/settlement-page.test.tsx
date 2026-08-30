@@ -48,8 +48,18 @@ const data = {
     memberCount: 2,
   },
   members: [
-    { id: "m1", displayName: "小王", status: "ACTIVE" as const, avatarPreset: 2 as const },
-    { id: "m2", displayName: "小李", status: "ACTIVE" as const, avatarPreset: 5 as const },
+    {
+      id: "m1",
+      displayName: "小王",
+      status: "ACTIVE" as const,
+      avatarPreset: 2 as const,
+    },
+    {
+      id: "m2",
+      displayName: "小李",
+      status: "ACTIVE" as const,
+      avatarPreset: 5 as const,
+    },
   ],
   balances: [
     { memberId: "m1", netMinor: "-32650" },
@@ -122,7 +132,9 @@ test("全部成员余额归零时弱化主操作，并保留补录入口", () =>
 
   expect(screen.getByRole("button", { name: "✓ 全部已结清" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "补录结算" })).toBeVisible();
-  expect(screen.queryByRole("button", { name: "记录结算" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "记录结算" }),
+  ).not.toBeInTheDocument();
 });
 
 test("推荐转账整行预填结算，不显示重复操作文案", async () => {
@@ -187,7 +199,9 @@ test("成员余额作为二级入口打开，并使用头像、方向文字和�
   );
 
   await user.click(screen.getByRole("button", { name: /成员余额/ }));
-  const balances = within(screen.getByRole("dialog", { name: "成员余额" })).getByRole("list", { name: "成员余额" });
+  const balances = within(
+    screen.getByRole("dialog", { name: "成员余额" }),
+  ).getByRole("list", { name: "成员余额" });
   expect(within(balances).getByText("小王").closest("li")).toHaveTextContent(
     "应付¥326.50",
   );

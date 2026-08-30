@@ -77,7 +77,9 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
   await user.type(screen.getByRole("searchbox"), "拉面");
   expect(screen.getByText("一兰拉面")).toBeVisible();
   expect(onFiltersChange).not.toHaveBeenCalled();
-  await user.click(within(filterDialog).getByRole("button", { name: "应用筛选" }));
+  await user.click(
+    within(filterDialog).getByRole("button", { name: "应用筛选" }),
+  );
   expect(onFiltersChange).toHaveBeenLastCalledWith({
     query: "拉面",
     category: null,

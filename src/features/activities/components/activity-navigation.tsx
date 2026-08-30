@@ -34,7 +34,8 @@ export function ActivityNavigation({
   const repositionIndicator = useRef<(immediate: boolean) => void>(
     () => undefined,
   );
-  const currentTab = searchParams?.get("tab") === "settlement" ? "settlement" : "feed";
+  const currentTab =
+    searchParams?.get("tab") === "settlement" ? "settlement" : "feed";
   useMotionGSAP(
     (reducedMotion) => {
       const positionCurrentIndicator = (immediate: boolean) => {

@@ -134,7 +134,9 @@ export function MePage() {
         <SettingsRow
           Icon={MailIcon}
           title="邮箱"
-          description={profile.emailBound ? "用于账户安全与找回" : "尚未绑定真实邮箱"}
+          description={
+            profile.emailBound ? "用于账户安全与找回" : "尚未绑定真实邮箱"
+          }
           trailing={
             <span
               className={`type-label ${profile.emailBound ? "text-success" : "text-warning"}`}

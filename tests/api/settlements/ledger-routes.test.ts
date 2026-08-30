@@ -87,15 +87,27 @@ it("结算上下文投影正式成员头像预设，访客固定为空", async (
   mocks.getPageContext.mockResolvedValue({
     activity: { id: "activity-1", name: "旅行", currency: "CNY" },
     members: [
-      { id: "member-user", displayName: "小李", status: "ACTIVE", avatarPreset: 5 },
-      { id: "member-guest", displayName: "临时成员", status: "ACTIVE", avatarPreset: null },
+      {
+        id: "member-user",
+        displayName: "小李",
+        status: "ACTIVE",
+        avatarPreset: 5,
+      },
+      {
+        id: "member-guest",
+        displayName: "临时成员",
+        status: "ACTIVE",
+        avatarPreset: null,
+      },
     ],
     balances: [],
     recommendations: [],
   });
 
   const response = await getSettlementContext(
-    new Request("http://localhost/api/activities/activity-1/settlements/context"),
+    new Request(
+      "http://localhost/api/activities/activity-1/settlements/context",
+    ),
     context,
   );
 

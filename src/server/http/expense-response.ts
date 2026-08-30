@@ -56,7 +56,8 @@ export function serializeExpensePayment(row: Row) {
     memberId: asString(row.activity_member_id),
     memberDisplayName: asString(row.member_display_name),
     avatarPreset:
-      row.member_avatar_preset === undefined || row.member_avatar_preset === null
+      row.member_avatar_preset === undefined ||
+      row.member_avatar_preset === null
         ? null
         : (Number(row.member_avatar_preset) as AvatarPreset),
     originalAmountMinor: asString(row.original_amount_minor),
@@ -69,7 +70,8 @@ export function serializeExpenseShare(row: Row) {
     memberId: asString(row.activity_member_id),
     memberDisplayName: asString(row.member_display_name),
     avatarPreset:
-      row.member_avatar_preset === undefined || row.member_avatar_preset === null
+      row.member_avatar_preset === undefined ||
+      row.member_avatar_preset === null
         ? null
         : (Number(row.member_avatar_preset) as AvatarPreset),
     splitInputMinor:

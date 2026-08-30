@@ -59,8 +59,7 @@ export class ExpenseRepository {
       activityId,
       expenseId,
     );
-    const [creator] =
-      await transaction`select member.display_name,
+    const [creator] = await transaction`select member.display_name,
         case when member.member_type = 'USER' then profile.avatar_preset else null end as avatar_preset
         from activity_members member
         left join user_profiles profile on profile.user_id = member.user_id

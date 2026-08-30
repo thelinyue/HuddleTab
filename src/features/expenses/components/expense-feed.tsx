@@ -31,7 +31,12 @@ import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 
 type FeedActivity = Pick<
   ExpenseFeedSummaryDto,
-  "currency" | "totalExpenseMinor" | "originalCurrencyTotals" | "startDate" | "endDate" | "memberCount"
+  | "currency"
+  | "totalExpenseMinor"
+  | "originalCurrencyTotals"
+  | "startDate"
+  | "endDate"
+  | "memberCount"
 > & {
   readonly id: string;
   readonly name: string;
@@ -131,7 +136,8 @@ export function ExpenseFeed({
   const averageExpenseMinor =
     activity.averageExpenseMinor ??
     (participatingMemberCount > 0
-      ? (BigInt(activity.totalExpenseMinor) + BigInt(participatingMemberCount) / 2n) /
+      ? (BigInt(activity.totalExpenseMinor) +
+          BigInt(participatingMemberCount) / 2n) /
         BigInt(participatingMemberCount)
       : 0n
     ).toString();
@@ -212,14 +218,18 @@ export function ExpenseFeed({
           aria-label="筛选流水"
           onClick={() => setFiltersOpen(true)}
           className={
-            appliedFilters.query || appliedFilters.category || appliedFilters.mine
+            appliedFilters.query ||
+            appliedFilters.category ||
+            appliedFilters.mine
               ? "text-primary"
               : "text-muted-foreground"
           }
         >
           <FilterIcon aria-hidden="true" className="size-4" />
           筛选
-          {appliedFilters.query || appliedFilters.category || appliedFilters.mine ? (
+          {appliedFilters.query ||
+          appliedFilters.category ||
+          appliedFilters.mine ? (
             <span>
               ·{" "}
               {

@@ -79,7 +79,9 @@ test("已绑定邮箱使用服务端脱敏值和真实验证状态，并提供�
   expect(screen.getByText("未验证")).toBeVisible();
   expect(screen.queryByText("已验证")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "更换邮箱" })).toBeVisible();
-  expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "退出登录" }),
+  ).not.toBeInTheDocument();
   expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();
 });
 
@@ -107,7 +109,9 @@ test("新密码与确认密码不一致时不提交并显示中文错误", async
     "true",
   );
   expect(fetchMock).not.toHaveBeenCalled();
-  expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "退出登录" }),
+  ).not.toBeInTheDocument();
   expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();
 });
 
@@ -144,7 +148,9 @@ test("主题页展示壳层已同步的服务器偏好且不重复应用或提�
   expect(await screen.findByRole("radio", { name: "暗色" })).toBeChecked();
   expect(theme.applyThemePreference).not.toHaveBeenCalled();
   expect(theme.updateThemePreference).not.toHaveBeenCalled();
-  expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "退出登录" }),
+  ).not.toBeInTheDocument();
   expect(document.querySelector('a[href="/me/theme"]')).not.toBeInTheDocument();
 });
 

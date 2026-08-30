@@ -1,5 +1,6 @@
 import { prepareExpense } from "@/domain/expenses/prepare-expense";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
+import { createClientId } from "@/lib/client-id";
 import { openHuddleTabDb } from "@/pwa/indexed-db/database";
 import type { PendingExpenseMutation } from "@/pwa/indexed-db/schema";
 
@@ -40,7 +41,7 @@ export async function enqueueExpense(input: {
           },
   });
   const now = Date.now();
-  const id = crypto.randomUUID();
+  const id = createClientId();
   const mutation: PendingExpenseMutation = {
     id,
     userId: input.userId,
@@ -54,11 +55,11 @@ export async function enqueueExpense(input: {
     updatedAt: now,
   };
   const attachments = input.files.map((file) => ({
-    id: crypto.randomUUID(),
+    id: createClientId(),
     userId: input.userId,
     activityId: input.activityId,
     mutationId: id,
-    clientAttachmentId: crypto.randomUUID(),
+    clientAttachmentId: createClientId(),
     fileName: file.name,
     mimeType: file.type,
     blob: file,

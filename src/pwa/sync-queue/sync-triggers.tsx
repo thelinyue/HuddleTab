@@ -2,10 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { StateNotice } from "@/components/design-system/state-notice";
+import { Button } from "@/components/ui/button";
 import { createExpense } from "@/features/expenses/api";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 import { AttachmentRepository } from "@/pwa/indexed-db/attachment-repository";
-import { recoverInterruptedSyncing } from "@/pwa/indexed-db/database";
+import {
+  openHuddleTabDb,
+  recoverInterruptedSyncing,
+} from "@/pwa/indexed-db/database";
 import type { PendingAttachment } from "@/pwa/indexed-db/schema";
 import { MutationRepository } from "@/pwa/indexed-db/mutation-repository";
 import { SyncCoordinator } from "@/pwa/sync-queue/sync-coordinator";
@@ -17,6 +22,23 @@ type AttachmentFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 const foregroundRuns = new Map<string, Promise<void>>();
+
+/** 只把确实可以再次发送的账单或附件报告给页面，避免无条件打扰用户。 */
+async function hasRetryableQueue(userId: string) {
+  const database = await openHuddleTabDb(userId);
+  try {
+    const [mutations, attachments] = await Promise.all([
+      database.getAll("pending_mutations"),
+      database.getAll("pending_attachments"),
+    ]);
+    return (
+      mutations.some((item) => item.status === "RETRYABLE") ||
+      attachments.some((item) => item.status === "RETRYABLE")
+    );
+  } finally {
+    database.close();
+  }
+}
 
 /**
  * 离线附件必须经由与账单绑定的私有 API 上传。失败对象保留服务端状态和错误码，
@@ -106,16 +128,29 @@ export function SyncTriggers({
 }) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasRetryable, setHasRetryable] = useState(false);
   const onCompletedRef = useRef(onCompleted);
   useEffect(() => {
     onCompletedRef.current = onCompleted;
   }, [onCompleted]);
+  const refreshRetryableState = useCallback(async () => {
+    try {
+      setHasRetryable(await hasRetryableQueue(userId));
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "同步状态读取失败，请稍后重试。",
+      );
+    }
+  }, [userId]);
   const runManually = useCallback(async () => {
     setSyncing(true);
     setError(null);
     try {
       await syncForegroundQueue(userId, createExpense, true);
       onCompletedRef.current?.();
+      await refreshRetryableState();
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "同步未完成，请稍后重试。",
@@ -123,14 +158,18 @@ export function SyncTriggers({
     } finally {
       setSyncing(false);
     }
-  }, [userId]);
+  }, [refreshRetryableState, userId]);
   useEffect(() => {
     let mounted = true;
     const runAutomatically = async (retryNow = false) => {
-      if (!navigator.onLine) return;
+      if (!navigator.onLine) {
+        await refreshRetryableState();
+        return;
+      }
       try {
         await syncForegroundQueue(userId, createExpense, retryNow);
         if (mounted) onCompletedRef.current?.();
+        if (mounted) await refreshRetryableState();
       } catch (reason) {
         if (mounted)
           setError(
@@ -153,22 +192,25 @@ export function SyncTriggers({
         onForegroundSyncRequested,
       );
     };
-  }, [userId]);
+  }, [refreshRetryableState, userId]);
+  if (!hasRetryable && !error) return null;
   return (
-    <div className="mt-4">
-      <button
-        type="button"
-        disabled={syncing}
-        onClick={() => void runManually()}
-        className="min-h-11 border px-3 text-sm"
-      >
-        {syncing ? "正在同步" : "重试同步"}
-      </button>
-      {error && (
-        <p role="alert" className="mt-2 text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </div>
+    <StateNotice
+      tone="error"
+      role="alert"
+      title="同步失败"
+      description={error ?? "存在待重试的同步任务。"}
+      className="mb-3"
+      action={
+        <Button
+          type="button"
+          size="sm"
+          disabled={syncing}
+          onClick={() => void runManually()}
+        >
+          {syncing ? "正在同步" : "重试同步"}
+        </Button>
+      }
+    />
   );
 }

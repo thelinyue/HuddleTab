@@ -33,11 +33,13 @@ const authorization = {
   member: { id: "member-1", role: "OWNER" as const, status: "ACTIVE" as const },
 };
 
-function createSql(input: {
-  readonly totalExpenseMinor?: string;
-  readonly expenseCount?: number;
-  readonly participatingMemberCount?: number;
-} = {}) {
+function createSql(
+  input: {
+    readonly totalExpenseMinor?: string;
+    readonly expenseCount?: number;
+    readonly participatingMemberCount?: number;
+  } = {},
+) {
   const transaction = vi.fn(async (strings: TemplateStringsArray) => {
     const query = strings.join(" ");
     if (query.includes("set transaction isolation level")) return [];
@@ -139,7 +141,6 @@ it("将参与分摊成员去重后的数量用于人均消费", async () => {
     averageExpenseMinor: "17825",
   });
 });
-
 
 it("真实 ExpenseService 上下文输出活动生命周期和成员头像预设", async () => {
   mocks.authorize.mockResolvedValue(authorization);

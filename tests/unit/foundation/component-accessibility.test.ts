@@ -45,10 +45,9 @@ describe("基础交互组件", () => {
       "data-avatar-color-index",
       colorIndex,
     );
-    expect(screen.getByLabelText("访客的头像").querySelector("img")).toHaveAttribute(
-      "src",
-      source,
-    );
+    expect(
+      screen.getByLabelText("访客的头像").querySelector("img"),
+    ).toHaveAttribute("src", source);
   });
 
   it("keeps a real member image ahead of the preset fallback", () => {
@@ -61,10 +60,9 @@ describe("基础交互组件", () => {
       }),
     );
 
-    expect(screen.getByLabelText("小王的头像").querySelector("img")).toHaveAttribute(
-      "src",
-      "/uploads/member-42.webp",
-    );
+    expect(
+      screen.getByLabelText("小王的头像").querySelector("img"),
+    ).toHaveAttribute("src", "/uploads/member-42.webp");
   });
 
   it("uses the selected avatar preset before the stable hash fallback", () => {

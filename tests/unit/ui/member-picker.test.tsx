@@ -220,7 +220,10 @@ test("谁参与添加临时成员不会提交外层主表单", async () => {
 
   render(<Harness />);
   await user.click(screen.getByRole("button", { name: "添加临时成员" }));
-  await user.type(screen.getByRole("textbox", { name: "临时成员昵称" }), "小周");
+  await user.type(
+    screen.getByRole("textbox", { name: "临时成员昵称" }),
+    "小周",
+  );
   await user.click(screen.getByRole("button", { name: "确认添加" }));
 
   expect(await screen.findByRole("checkbox", { name: "小周" })).toBeChecked();
@@ -257,7 +260,10 @@ test("谁付款添加临时成员不会提交外层主表单", async () => {
   );
 
   await user.click(screen.getByRole("button", { name: "添加临时成员" }));
-  await user.type(screen.getByRole("textbox", { name: "临时成员昵称" }), "小周");
+  await user.type(
+    screen.getByRole("textbox", { name: "临时成员昵称" }),
+    "小周",
+  );
   await user.click(screen.getByRole("button", { name: "确认添加" }));
 
   expect(onCommit).toHaveBeenCalledWith(["m3"]);

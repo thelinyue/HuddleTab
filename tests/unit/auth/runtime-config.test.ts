@@ -54,10 +54,7 @@ describe("认证运行时配置", () => {
           env: { BETTER_AUTH_URL: "http://127.0.0.1:49267" },
         }),
       ).toMatchObject({
-        trustedOrigins: [
-          "http://127.0.0.1:49267",
-          "http://localhost:49267",
-        ],
+        trustedOrigins: ["http://127.0.0.1:49267", "http://localhost:49267"],
       });
     } finally {
       rmSync(dataDir, { recursive: true, force: true });

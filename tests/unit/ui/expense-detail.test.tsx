@@ -96,9 +96,7 @@ test("账单详情按查看链路展示真实信息，并只保留分摊方式�
 
   const heroTitle = screen.getByRole("heading", { name: "海底捞火锅" });
   expect(
-    heroTitle.parentElement?.querySelector(
-      'svg[data-category-icon="FOOD"]',
-    ),
+    heroTitle.parentElement?.querySelector('svg[data-category-icon="FOOD"]'),
   ).toBeInTheDocument();
 
   const payments = screen.getByRole("region", { name: "付款信息" });

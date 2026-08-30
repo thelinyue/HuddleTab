@@ -259,17 +259,17 @@ export function MemberList({
     embeddedView.type === "detail" ? embeddedView.member : null;
   const embeddedRemovable = Boolean(
     embeddedMember &&
-      onRemove &&
-      embeddedMember.permissions.canManage &&
-      embeddedMember.status === "ACTIVE" &&
-      embeddedMember.role !== "OWNER",
+    onRemove &&
+    embeddedMember.permissions.canManage &&
+    embeddedMember.status === "ACTIVE" &&
+    embeddedMember.role !== "OWNER",
   );
   const embeddedViewTitle =
     embeddedView.type === "invite"
       ? "邀请成员"
       : embeddedView.type === "guest"
         ? "添加临时成员"
-        : embeddedMember?.displayName ?? "成员详情";
+        : (embeddedMember?.displayName ?? "成员详情");
 
   return (
     <section aria-label="成员" className="pt-5">
@@ -487,7 +487,10 @@ export function MemberList({
 
           {canManage && onCreateInvite && onDisableInvite ? (
             <section className="mt-8" aria-labelledby="invite-method-heading">
-              <h2 id="invite-method-heading" className="text-base font-semibold">
+              <h2
+                id="invite-method-heading"
+                className="text-base font-semibold"
+              >
                 邀请方式
               </h2>
               <button
@@ -503,7 +506,9 @@ export function MemberList({
                   <Link2Icon aria-hidden="true" className="size-5" />
                 </span>
                 <span className="min-w-0">
-                  <strong className="block text-sm font-semibold">链接加入</strong>
+                  <strong className="block text-sm font-semibold">
+                    链接加入
+                  </strong>
                   <span className="mt-0.5 block text-sm text-muted-foreground">
                     {inviteMode === "DIRECT_JOIN" ? "直接加入" : "需管理员审批"}
                   </span>
@@ -594,7 +599,10 @@ export function MemberList({
       ) : null}
 
       {embedded && embeddedMember ? (
-        <AlertDialog open={embeddedRemoveOpen} onOpenChange={setEmbeddedRemoveOpen}>
+        <AlertDialog
+          open={embeddedRemoveOpen}
+          onOpenChange={setEmbeddedRemoveOpen}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>确认移除成员</AlertDialogTitle>
@@ -603,7 +611,9 @@ export function MemberList({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={embeddedRemoving}>取消</AlertDialogCancel>
+              <AlertDialogCancel disabled={embeddedRemoving}>
+                取消
+              </AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
                 disabled={embeddedRemoving}

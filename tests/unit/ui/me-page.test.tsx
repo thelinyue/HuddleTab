@@ -81,9 +81,10 @@ test("个人页使用真实账户路由组织资料与设置，并保留主页�
     "href",
     "/me/password",
   );
-  expect(
-    screen.getByRole("link", { name: "主题：跟随系统" }),
-  ).toHaveAttribute("href", "/me/theme");
+  expect(screen.getByRole("link", { name: "主题：跟随系统" })).toHaveAttribute(
+    "href",
+    "/me/theme",
+  );
   expect(screen.getByRole("link", { name: "系统管理" })).toHaveAttribute(
     "href",
     "/admin",
@@ -122,7 +123,9 @@ test("非系统管理员不展示系统管理入口", async () => {
   render(<MePage />);
 
   await screen.findByRole("heading", { name: "我的" });
-  expect(screen.queryByRole("heading", { name: "管理" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "管理" }),
+  ).not.toBeInTheDocument();
   expect(
     screen.queryByRole("link", { name: "系统管理" }),
   ).not.toBeInTheDocument();

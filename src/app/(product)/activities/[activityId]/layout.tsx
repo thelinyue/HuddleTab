@@ -6,9 +6,5 @@ export default function ActivityLayout({
 }: Readonly<{
   children: ReactNode;
 }>) {
-  return (
-    <section className="min-w-0">
-      {children}
-    </section>
-  );
+  return <section className="min-w-0">{children}</section>;
 }
