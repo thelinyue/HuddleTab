@@ -50,7 +50,7 @@ test("用户只通过页面完成初始化、创建活动、注册和记账", as
   await page.getByRole("button", { name: "分类" }).click();
   const categoryDialog = page.getByRole("dialog", { name: "分类" });
   const categoryImages = categoryDialog.locator(
-    'img[src^="/expense-categories/"]',
+    "img[data-category-illustration]",
   );
   await expect(
     categoryDialog.getByRole("radiogroup", { name: "分类" }),

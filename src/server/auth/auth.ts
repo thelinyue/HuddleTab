@@ -39,8 +39,8 @@ const loginRateLimitHook = createAuthMiddleware(async (context) => {
 
   const identity =
     context.path === "/sign-in/username"
-      ? context.body.username
-      : context.body.email;
+      ? context.body?.username
+      : context.body?.email;
   if (typeof identity !== "string") return;
 
   try {

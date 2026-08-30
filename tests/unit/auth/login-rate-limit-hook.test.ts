@@ -87,4 +87,19 @@ describe("登录限流 Hook", () => {
       { limit: 10, windowSeconds: 600 },
     );
   });
+
+  it("请求体缺失时跳过限流并继续认证流程", async () => {
+    mocks.consume.mockClear();
+
+    for (const path of ["/sign-in/username", "/sign-in/email"]) {
+      await expect(
+        beforeHook({
+          path,
+          request: new Request(`http://localhost/api/auth${path}`),
+        }),
+      ).resolves.toBeUndefined();
+    }
+
+    expect(mocks.consume).not.toHaveBeenCalled();
+  });
 });

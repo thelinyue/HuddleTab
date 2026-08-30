@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: huddletab
+      POSTGRES_USER: huddletab
+      POSTGRES_PASSWORD: huddletab
+    volumes:
+      - ./huddletab-data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: ghcr.io/thelinyue/huddletab:0.0.1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://huddletab:huddletab@postgres:5432/huddletab
+      BETTER_AUTH_URL: http://localhost:5660
+      APP_BASE_URL: http://localhost:5660
+      DATA_DIR: /data
+      TRUST_PROXY: "false"
+      TZ: Asia/Shanghai
+    ports:
+      - "5660:5660"
+    volumes:
+      - ./huddletab-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5660/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
