@@ -155,10 +155,26 @@ test("快速记账进入参与成员时不叠加第二个业务 Dialog", async (
 
   expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
   expect(screen.getByRole("dialog", { name: "谁参与" })).toBeVisible();
-  expect(screen.queryByLabelText("金额", { exact: true })).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText("金额", { exact: true }),
+  ).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "返回快速记账" }));
   expect(screen.getByLabelText("金额", { exact: true })).toBeVisible();
+});
+
+test("快速记账参与成员的 Close 关闭整个 Sheet 并恢复入口焦点", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+
+  const trigger = screen.getByRole("button", { name: "记一笔" });
+  await user.click(trigger);
+  await user.click(screen.getByRole("button", { name: "谁参与" }));
+  await user.click(screen.getByRole("button", { name: "关闭" }));
+
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
 });
 
 test("快速记账从添加临时成员返回时先退回付款人再回到根视图", async () => {

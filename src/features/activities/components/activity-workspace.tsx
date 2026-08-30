@@ -74,6 +74,13 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
   }, []);
 
   useEffect(() => {
+    if (panel === "members") return;
+    // 成员 Sheet 关闭后清空上一次会话的本地首视图，重新打开必须从根视图开始。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMembersInitialView("list");
+  }, [panel]);
+
+  useEffect(() => {
     if (!searchParams.has("invite")) return;
     // 旧链接中的 invite 仅做一次兼容清理，内部子视图始终由本地状态管理。
     router.replace(

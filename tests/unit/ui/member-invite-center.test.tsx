@@ -246,6 +246,84 @@ test("重置和关闭邀请使用独立确认层，取消不触发操作", async
   expect(onDisable).toHaveBeenCalledOnce();
 });
 
+test("MemberList 重置邀请失败时确认层保持打开并显示错误", async () => {
+  const user = userEvent.setup();
+  const onCreateInvite = vi
+    .fn()
+    .mockResolvedValueOnce(`/join/${token}`)
+    .mockRejectedValueOnce(new Error("重置接口失败"));
+  const owner = {
+    id: "owner",
+    displayName: "Owner",
+    role: "OWNER" as const,
+    status: "ACTIVE" as const,
+    memberType: "USER" as const,
+    permissions: { canManage: true },
+  };
+
+  render(
+    <MemberList
+      members={[owner]}
+      inviteMode="DIRECT_JOIN"
+      embedded
+      onCreateInvite={onCreateInvite}
+      onDisableInvite={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "邀请成员" }));
+  await user.click(screen.getByRole("button", { name: "生成邀请链接" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "重置链接" })).toBeVisible(),
+  );
+  await user.click(screen.getByRole("button", { name: "重置链接" }));
+  const dialog = screen.getByRole("alertdialog", { name: "重置邀请链接" });
+  await user.click(within(dialog).getByRole("button", { name: "确认重置" }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("alertdialog", { name: "重置邀请链接" })).toBeVisible();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("重置接口失败");
+  });
+});
+
+test("MemberList 关闭邀请失败时确认层保持打开并显示错误", async () => {
+  const user = userEvent.setup();
+  const onCreateInvite = vi.fn().mockResolvedValue(`/join/${token}`);
+  const onDisableInvite = vi.fn().mockRejectedValue(new Error("关闭接口失败"));
+  const owner = {
+    id: "owner",
+    displayName: "Owner",
+    role: "OWNER" as const,
+    status: "ACTIVE" as const,
+    memberType: "USER" as const,
+    permissions: { canManage: true },
+  };
+
+  render(
+    <MemberList
+      members={[owner]}
+      inviteMode="DIRECT_JOIN"
+      embedded
+      onCreateInvite={onCreateInvite}
+      onDisableInvite={onDisableInvite}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "邀请成员" }));
+  await user.click(screen.getByRole("button", { name: "生成邀请链接" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "关闭邀请" })).toBeVisible(),
+  );
+  await user.click(screen.getByRole("button", { name: "关闭邀请" }));
+  const dialog = screen.getByRole("alertdialog", { name: "关闭邀请" });
+  await user.click(within(dialog).getByRole("button", { name: "确认关闭" }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("alertdialog", { name: "关闭邀请" })).toBeVisible();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("关闭接口失败");
+  });
+});
+
 test("嵌入成员流程使用单一导航 Overlay，邀请视图 Back 回成员根视图", async () => {
   const user = userEvent.setup();
   const owner = {

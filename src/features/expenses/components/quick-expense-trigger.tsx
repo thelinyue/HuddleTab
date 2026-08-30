@@ -117,6 +117,7 @@ export function QuickExpenseTrigger({
         }
         mobileFullScreen
         keyboardAware
+        returnFocusRef={triggerScope}
         onBack={
           navigationView === "entry"
             ? undefined

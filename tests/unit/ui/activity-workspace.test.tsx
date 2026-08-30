@@ -23,7 +23,13 @@ vi.mock("@/features/settlements/components/settlement-page-loader", () => ({
   SettlementPageLoader: () => <p data-testid="settlement-loader">结算加载器</p>,
 }));
 vi.mock("@/features/members/components/member-page-loader", () => ({
-  MemberPageLoader: () => null,
+  MemberPageLoader: ({
+    open,
+    initialView,
+  }: {
+    readonly open: boolean;
+    readonly initialView: "list" | "invite";
+  }) => (open ? <p data-testid="member-loader-view">{initialView}</p> : null),
 }));
 vi.mock("@/features/activities/components/activity-more", () => ({
   ActivityMore: () => null,
@@ -74,4 +80,28 @@ test("旧邀请参数只被规范化为成员 Sheet 开关，不驱动内部子�
       { scroll: false },
     ),
   );
+});
+
+test("成员 Sheet 关闭后再次打开时从成员根视图开始", async () => {
+  mocks.query = "?panel=members";
+  const { rerender } = render(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+
+  window.dispatchEvent(
+    new CustomEvent("huddletab:panel-open", {
+      detail: { panel: "members", initialView: "invite" },
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("member-loader-view")).toHaveTextContent(
+      "invite",
+    ),
+  );
+
+  mocks.query = "";
+  rerender(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+  expect(screen.queryByTestId("member-loader-view")).not.toBeInTheDocument();
+
+  mocks.query = "?panel=members";
+  rerender(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+  expect(screen.getByTestId("member-loader-view")).toHaveTextContent("list");
 });

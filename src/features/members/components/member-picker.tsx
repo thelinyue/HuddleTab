@@ -1,10 +1,8 @@
 "use client";
 
 import {
-  ArrowLeftIcon,
   CheckIcon,
   ChevronRightIcon,
-  XIcon,
   UserRoundPlusIcon,
 } from "lucide-react";
 import {
@@ -19,7 +17,7 @@ import { MemberAvatar } from "@/components/design-system/member-avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import type { AvatarPreset } from "@/features/me/avatar-presets";
 
 export interface MemberPickerMember {
@@ -224,6 +222,12 @@ export function MemberPickerSheet({
               autoFocus
               required
               onChange={(event) => setGuestName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void submitGuest();
+                }
+              }}
             />
           </div>
           {guestError ? (
@@ -362,42 +366,22 @@ export function MemberPickerSheet({
     ) : null;
   }
   return (
-    <ResponsiveFormOverlay
+    <NavigationOverlay
       open={open}
       onOpenChange={updateOpen}
       title={view === "add-guest" ? "添加临时成员" : title}
       returnFocusRef={returnFocusRef}
-      headerStart={
+      onBack={
         view === "add-guest" ? (
-          <button
-            type="button"
-            aria-label="返回成员列表"
-            className="inline-flex size-11 items-center justify-center rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            onClick={() => {
-              setGuestError(null);
-              updateView("members");
-            }}
-          >
-            <ArrowLeftIcon aria-hidden="true" className="size-5" />
-          </button>
+          () => {
+            setGuestError(null);
+            updateView("members");
+          }
         ) : undefined
       }
-      headerEnd={
-        view === "add-guest" ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="关闭"
-            title="关闭"
-            onClick={() => updateOpen(false)}
-          >
-            <XIcon aria-hidden="true" />
-          </Button>
-        ) : undefined
-      }
+      backLabel="成员列表"
     >
       {pickerContent}
-    </ResponsiveFormOverlay>
+    </NavigationOverlay>
   );
 }

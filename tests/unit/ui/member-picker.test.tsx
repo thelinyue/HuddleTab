@@ -188,7 +188,7 @@ test("添加临时成员在面板内切换，成功后加入多选草稿", async
   expect(await screen.findByRole("checkbox", { name: "小周" })).toBeChecked();
 });
 
-test("独立成员选择器的添加临时成员子视图仍保留 Close", async () => {
+test("独立成员选择器根和子视图共用一个 Header", async () => {
   const user = userEvent.setup();
 
   render(
@@ -207,8 +207,19 @@ test("独立成员选择器的添加临时成员子视图仍保留 Close", async
     />,
   );
 
+  const rootDialog = screen.getByRole("dialog", { name: "谁参与" });
+  expect(screen.getAllByRole("heading", { name: "谁参与" })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "关闭" })).toHaveLength(1);
+  expect(
+    screen.queryByRole("button", { name: "返回成员列表" }),
+  ).not.toBeInTheDocument();
+
   await user.click(screen.getByRole("button", { name: "添加临时成员" }));
 
+  expect(screen.getByRole("dialog", { name: "添加临时成员" })).toBe(rootDialog);
+  expect(screen.getAllByRole("heading", { name: "添加临时成员" })).toHaveLength(
+    1,
+  );
   expect(screen.getAllByRole("button", { name: "关闭" })).toHaveLength(1);
   expect(screen.getAllByRole("button", { name: "返回成员列表" })).toHaveLength(
     1,
@@ -242,6 +253,44 @@ test("内嵌添加临时成员由统一 Header 管理返回视图", () => {
     screen.queryByRole("button", { name: "返回成员列表" }),
   ).not.toBeInTheDocument();
   expect(container.querySelectorAll("form")).toHaveLength(1);
+});
+
+test("内嵌添加临时成员按 Enter 不会提交外层表单", async () => {
+  const user = userEvent.setup();
+  const onMainSubmit = vi.fn();
+  const onAddGuest = vi.fn().mockResolvedValue({
+    id: "m3",
+    displayName: "小周",
+    avatarPreset: null,
+  });
+
+  render(
+    <form onSubmit={onMainSubmit}>
+      <MemberPickerSheet
+        open
+        inline
+        view="add-guest"
+        onOpenChange={vi.fn()}
+        title="谁参与"
+        mode="multiple"
+        members={members}
+        selectedIds={["m1"]}
+        onSelectedIdsChange={vi.fn()}
+        onCommit={vi.fn()}
+        onViewChange={vi.fn()}
+        canAddGuest
+        online
+        onAddGuest={onAddGuest}
+      />
+    </form>,
+  );
+
+  const input = screen.getByRole("textbox", { name: "临时成员昵称" });
+  await user.type(input, "小周");
+  await user.keyboard("{Enter}");
+
+  expect(onAddGuest).toHaveBeenCalledWith("小周");
+  expect(onMainSubmit).not.toHaveBeenCalled();
 });
 
 test("谁参与添加临时成员不会提交外层主表单", async () => {

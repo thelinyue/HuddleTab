@@ -177,11 +177,12 @@ export function MemberList({
       setInviteUrl(new URL(path, window.location.origin).toString());
       setInviteLocalState("ACTIVE");
     } catch (reason) {
-      setInviteError(
+      const error =
         reason instanceof Error
-          ? reason.message
-          : "邀请链接生成失败，请稍后重试。",
-      );
+          ? reason
+          : new Error("邀请链接生成失败，请稍后重试。");
+      setInviteError(error.message);
+      if (replaceExisting) throw error;
     } finally {
       setInviteLoading(false);
     }
@@ -202,11 +203,12 @@ export function MemberList({
       setInviteLocalState("DISABLED");
       if (!embedded) setIsInviteOpen(false);
     } catch (reason) {
-      setInviteError(
+      const error =
         reason instanceof Error
-          ? reason.message
-          : "邀请链接关闭失败，请稍后重试。",
-      );
+          ? reason
+          : new Error("邀请链接关闭失败，请稍后重试。");
+      setInviteError(error.message);
+      throw error;
     } finally {
       setInviteLoading(false);
     }
