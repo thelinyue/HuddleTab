@@ -18,7 +18,7 @@ services:
       POSTGRES_USER: huddletab
       POSTGRES_PASSWORD: huddletab
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - ./huddletab-data/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
@@ -41,7 +41,8 @@ services:
     ports:
       - "5660:5660"
     volumes:
-      - ./huddletab-data:/data
+      - ./huddletab-data/uploads:/data/uploads
+      - ./huddletab-data/backups:/data/backups
     healthcheck:
       test:
         [
@@ -53,9 +54,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
-
-volumes:
-  postgres-data:
 ```
 
 启动服务：
@@ -74,11 +72,11 @@ docker compose logs -f app
 
 首次未初始化启动时，初始化 Token 只会在本次 `app` 容器日志中输出一次。该日志包含敏感信息，只应提供给部署管理员。
 
-应用数据保存在 Docker named volume 和当前目录的 `huddletab-data` 中：
+应用数据保存在 Compose 文件所在目录的相对路径中：
 
-- `postgres-data`：PostgreSQL 数据，由 Docker 管理
-- `huddletab-data/uploads`：上传附件
-- `huddletab-data/backups`：备份归档
+- `./huddletab-data/postgres`：PostgreSQL 数据
+- `./huddletab-data/uploads`：上传附件
+- `./huddletab-data/backups`：备份归档
 
 ## 常用操作
 
