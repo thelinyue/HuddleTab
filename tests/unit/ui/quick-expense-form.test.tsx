@@ -132,7 +132,7 @@ test("快捷录入按金额、用途、付款人、参与成员、分类和更�
   expect(participants).toHaveTextContent("2 人");
   expect(category).toHaveTextContent("其他");
   expect(
-    category.querySelector('svg[data-category-icon="OTHER"]'),
+    category.querySelector('img[data-category-illustration="OTHER"]'),
   ).toBeInTheDocument();
   expect(
     screen.queryByRole("combobox", { name: "谁付款" }),
@@ -208,9 +208,11 @@ test("分类通过轻量单选 Sheet 立即更新并将焦点还给入口", asyn
   ]) {
     expect(within(options).getByRole("radio", { name: label })).toBeVisible();
   }
-  expect(options.querySelectorAll("svg[data-category-icon]")).toHaveLength(7);
+  expect(
+    options.querySelectorAll("img[data-category-illustration]"),
+  ).toHaveLength(7);
   expect(options).toHaveClass("grid-cols-5");
-  expect(options.querySelectorAll("svg.rounded-full")).toHaveLength(0);
+  expect(options.querySelectorAll("img.rounded-full")).toHaveLength(0);
   expect(within(options).getByRole("radio", { name: "其他" })).toHaveAttribute(
     "aria-checked",
     "true",
@@ -223,7 +225,7 @@ test("分类通过轻量单选 Sheet 立即更新并将焦点还给入口", asyn
   ).not.toBeInTheDocument();
   expect(category).toHaveTextContent("餐饮");
   expect(
-    category.querySelector('svg[data-category-icon="FOOD"]'),
+    category.querySelector('img[data-category-illustration="FOOD"]'),
   ).toBeInTheDocument();
   expect(category).toHaveFocus();
   await user.click(screen.getByRole("button", { name: "更多设置" }));

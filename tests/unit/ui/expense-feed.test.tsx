@@ -71,8 +71,12 @@ test("流水只提供名称、固定分类和我参与的筛选", async () => {
   ).toBeVisible();
   const foodFilter = within(filterDialog).getByRole("button", { name: "餐饮" });
   expect(foodFilter).toBeVisible();
-  expect(foodFilter.querySelector("svg")).not.toBeNull();
-  expect(foodFilter.querySelector("svg")).not.toHaveClass("rounded-full");
+  expect(
+    foodFilter.querySelector('img[data-category-illustration="FOOD"]'),
+  ).not.toBeNull();
+  expect(
+    foodFilter.querySelector('img[data-category-illustration="FOOD"]'),
+  ).not.toHaveClass("rounded-full");
   expect(screen.getByRole("checkbox", { name: "只看我参与的" })).toBeVisible();
   await user.type(screen.getByRole("searchbox"), "拉面");
   expect(screen.getByText("一兰拉面")).toBeVisible();
@@ -170,8 +174,12 @@ test("消费链接保留所属活动并按发生日期分组", () => {
     "href",
     "/activities/activity-1/expenses/expense-1",
   );
-  expect(lunchLink.querySelector("svg")).not.toBeNull();
-  expect(lunchLink.querySelector("svg")).not.toHaveClass("rounded-full");
+  expect(
+    lunchLink.querySelector('img[data-category-illustration="FOOD"]'),
+  ).not.toBeNull();
+  expect(
+    lunchLink.querySelector('img[data-category-illustration="FOOD"]'),
+  ).not.toHaveClass("rounded-full");
   expect(screen.getByRole("list", { name: "2026年8月22日" })).toBeVisible();
   expect(screen.getByRole("heading", { name: "2026年8月21日" })).toBeVisible();
 });

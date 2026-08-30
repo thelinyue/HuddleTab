@@ -55,44 +55,60 @@ export function ExpenseCategoryPicker({
         title="分类"
         returnFocusRef={triggerRef}
       >
-        <fieldset
-          role="radiogroup"
-          aria-label="分类"
-          className="grid grid-cols-5 gap-x-1 gap-y-2"
-        >
-          <legend className="sr-only">选择分类</legend>
-          {expenseCategories.map((category) => {
-            const selected = category === value;
-            return (
-              <button
-                key={category}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                className="group relative flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-0.5 py-1 text-center outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:ring-3 focus-visible:ring-ring/40"
-                onClick={() => {
-                  onChange(category);
-                  setOpen(false);
-                }}
-              >
-                <ExpenseCategoryIllustration
-                  category={category}
-                  className={`size-10 transition-transform group-active:scale-95 ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
-                />
-                <span className="type-caption font-medium leading-4">
-                  {expenseCategoryLabels[category]}
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={`absolute top-0 right-0 flex size-4 items-center justify-center rounded-full border ${selected ? "border-primary bg-primary text-primary-foreground" : "border-transparent"}`}
-                >
-                  {selected ? <CheckIcon className="size-3" /> : null}
-                </span>
-              </button>
-            );
-          })}
-        </fieldset>
+        <ExpenseCategoryOptions
+          value={value}
+          onChange={(category) => {
+            onChange(category);
+            setOpen(false);
+          }}
+        />
       </ResponsiveFormOverlay>
     </>
+  );
+}
+
+/** 直接渲染分类选项，供详情页字段编辑器避免再套一层分类触发器。 */
+export function ExpenseCategoryOptions({
+  value,
+  onChange,
+}: {
+  readonly value: ExpenseCategory;
+  readonly onChange: (category: ExpenseCategory) => void;
+}) {
+  return (
+    <fieldset
+      role="radiogroup"
+      aria-label="分类"
+      className="grid grid-cols-5 gap-x-1 gap-y-2"
+    >
+      <legend className="sr-only">选择分类</legend>
+      {expenseCategories.map((category) => {
+        const selected = category === value;
+        return (
+          <button
+            key={category}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            className="group relative flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-0.5 py-1 text-center outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:ring-3 focus-visible:ring-ring/40"
+            onClick={() => onChange(category)}
+          >
+            <ExpenseCategoryIllustration
+              category={category}
+              className={`size-10 transition-transform group-active:scale-95 ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+            />
+            <span className="type-caption font-medium leading-4">
+              {expenseCategoryLabels[category]}
+            </span>
+            <span
+              aria-hidden="true"
+              className={`absolute top-0 right-0 flex size-4 items-center justify-center rounded-full border ${selected ? "border-primary bg-primary text-primary-foreground" : "border-transparent"}`}
+            >
+              {selected ? <CheckIcon className="size-3" /> : null}
+            </span>
+          </button>
+        );
+      })}
+    </fieldset>
   );
 }

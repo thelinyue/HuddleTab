@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
@@ -31,6 +31,15 @@ import { SyncTriggers } from "@/pwa/sync-queue/sync-triggers";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "数据加载失败，请稍后重试。";
+}
+
+/** 详情和编辑上下文必须同时刷新，避免下一次编辑继续使用旧版本或旧分摊事实。 */
+async function loadExpenseDetailPage(activityId: string, expenseId: string) {
+  return Promise.all([
+    getExpenseDetail(activityId, expenseId),
+    getExpenseFeedSummary(activityId),
+    getQuickExpenseContext(activityId),
+  ]);
 }
 
 type ExpenseFeedSnapshot = {
@@ -260,16 +269,16 @@ export function ExpenseDetailLoader({
   const [data, setData] = useState<ExpenseDetailResponse | null>(null);
   const [activityName, setActivityName] = useState<string | null>(null);
   const [context, setContext] = useState<QuickExpenseContextDto | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [refreshToken, setRefreshToken] = useState(0);
+  const [editTarget, setEditTarget] = useState<
+    | import("@/features/expenses/components/expense-update").ExpenseEditTarget
+    | null
+  >(null);
+  const editReturnFocusRef = useRef<HTMLElement | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([
-      getExpenseDetail(activityId, expenseId),
-      getExpenseFeedSummary(activityId),
-      getQuickExpenseContext(activityId),
-    ])
+    void loadExpenseDetailPage(activityId, expenseId)
       .then(([nextData, summary, nextContext]) => {
         if (cancelled) return;
         setData(nextData);
@@ -283,7 +292,7 @@ export function ExpenseDetailLoader({
     return () => {
       cancelled = true;
     };
-  }, [activityId, expenseId, refreshToken]);
+  }, [activityId, expenseId]);
   if (error)
     return (
       <p role="alert" className="py-8 text-destructive">
@@ -292,15 +301,31 @@ export function ExpenseDetailLoader({
     );
   if (!data || !activityName || !context)
     return <p className="py-8 text-muted-foreground">正在加载消费详情…</p>;
+  const refreshDetail = async () => {
+    const [nextData, summary, nextContext] = await loadExpenseDetailPage(
+      activityId,
+      expenseId,
+    );
+    setData(nextData);
+    setActivityName(summary.activityName);
+    setContext(nextContext);
+    setError(null);
+  };
   return (
     <>
       <ExpenseDetail
         data={data}
         activityName={activityName}
         timeZone={timeZone}
-        onEdit={
-          data.permissions.canUpdate ? () => setEditOpen(true) : undefined
+        onEditTarget={
+          data.permissions.canUpdate
+            ? (target) => {
+                setSaveStatus(null);
+                setEditTarget(target);
+              }
+            : undefined
         }
+        editReturnFocusRef={editReturnFocusRef}
         onDelete={
           data.permissions.canDelete
             ? async () => {
@@ -315,13 +340,27 @@ export function ExpenseDetailLoader({
             : undefined
         }
       />
+      {saveStatus ? (
+        <p role="status" aria-live="polite" className="sr-only">
+          {saveStatus}
+        </p>
+      ) : null}
       <ExpenseEditOverlay
-        open={editOpen}
-        onOpenChange={setEditOpen}
+        key={editTarget ?? "closed"}
+        open={editTarget !== null}
+        target={editTarget ?? "TITLE"}
+        onOpenChange={(open) => {
+          if (!open) setEditTarget(null);
+        }}
         data={data}
         context={context}
         timeZone={timeZone}
-        onSaved={() => setRefreshToken((value) => value + 1)}
+        returnFocusRef={editReturnFocusRef}
+        onReloadLatest={refreshDetail}
+        onSaved={async () => {
+          await refreshDetail();
+          setSaveStatus("账单已更新");
+        }}
       />
     </>
   );

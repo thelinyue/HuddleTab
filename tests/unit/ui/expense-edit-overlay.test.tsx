@@ -131,12 +131,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("编辑账单使用现有事实预填，并携带版本提交更新", async () => {
+test("标题字段使用现有事实预填，并携带版本提交完整更新", async () => {
   const user = userEvent.setup();
   const onSaved = vi.fn();
   render(
     <ExpenseEditOverlay
       open
+      target="TITLE"
       onOpenChange={vi.fn()}
       onSaved={onSaved}
       timeZone="Asia/Shanghai"
@@ -146,17 +147,20 @@ test("编辑账单使用现有事实预填，并携带版本提交更新", async
   );
 
   expect(
-    await screen.findByRole("heading", { name: "编辑账单" }),
+    await screen.findByRole("heading", { name: "编辑标题" }),
   ).toBeVisible();
-  expect(screen.getByLabelText("金额")).toHaveValue("428.00");
-  expect(screen.getByLabelText("用途")).toHaveValue("海底捞火锅");
-  await user.click(screen.getByRole("button", { name: "保存修改" }));
+  const title = screen.getByLabelText("标题");
+  expect(title).toHaveValue("海底捞火锅");
+  await user.clear(title);
+  await user.type(title, "修改后的火锅");
+  await user.click(screen.getByRole("button", { name: "保存" }));
 
   expect(mocks.updateExpense).toHaveBeenCalledWith(
     "activity-1",
     "expense-1",
     expect.objectContaining({
       version: 3,
+      title: "修改后的火锅",
       originalAmountMinor: "42800",
       split: {
         mode: "PERCENTAGE",
@@ -171,11 +175,12 @@ test("编辑账单使用现有事实预填，并携带版本提交更新", async
   expect(mocks.createExpense).not.toHaveBeenCalled();
 });
 
-test("编辑账单可通过分类 Sheet 修改分类并提交", async () => {
+test("分类字段选择后立即提交完整更新", async () => {
   const user = userEvent.setup();
   render(
     <ExpenseEditOverlay
       open
+      target="CATEGORY"
       onOpenChange={vi.fn()}
       onSaved={vi.fn()}
       timeZone="Asia/Shanghai"
@@ -184,16 +189,9 @@ test("编辑账单可通过分类 Sheet 修改分类并提交", async () => {
     />,
   );
 
-  await user.click(await screen.findByRole("button", { name: "分类" }));
-  await user.click(
-    within(screen.getByRole("dialog", { name: "分类" })).getByRole("radio", {
-      name: "娱乐",
-    }),
-  );
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "保存修改" })).toBeVisible(),
-  );
-  await user.click(screen.getByRole("button", { name: "保存修改" }));
+  const dialog = await screen.findByRole("dialog", { name: "编辑分类" });
+  await user.click(within(dialog).getByRole("radio", { name: "娱乐" }));
+  await waitFor(() => expect(mocks.updateExpense).toHaveBeenCalledOnce());
 
   expect(mocks.updateExpense).toHaveBeenCalledWith(
     "activity-1",
@@ -213,6 +211,7 @@ test("编辑付款人时可添加临时成员并立即选中", async () => {
   render(
     <ExpenseEditOverlay
       open
+      target="PAYMENTS"
       onOpenChange={vi.fn()}
       onSaved={vi.fn()}
       timeZone="Asia/Shanghai"
@@ -227,9 +226,13 @@ test("编辑付款人时可添加临时成员并立即选中", async () => {
   await user.click(screen.getByRole("button", { name: "确认添加" }));
 
   expect(mocks.addGuestMember).toHaveBeenCalledWith("activity-1", "阿岚");
-  expect(
-    document.querySelector('#quick-expense-form button[aria-label="谁付款"]'),
-  ).toHaveTextContent("阿岚");
+  await waitFor(() =>
+    expect(
+      document.querySelector(
+        '[data-overlay-body="scroll"] button[aria-label="谁付款"]',
+      ),
+    ).toHaveTextContent("阿岚"),
+  );
 });
 
 test("版本冲突时保留用户输入，并可退出编辑查看最新内容", async () => {
@@ -242,6 +245,7 @@ test("版本冲突时保留用户输入，并可退出编辑查看最新内容",
   render(
     <ExpenseEditOverlay
       open
+      target="TITLE"
       onOpenChange={onOpenChange}
       onSaved={onSaved}
       timeZone="Asia/Shanghai"
@@ -250,14 +254,193 @@ test("版本冲突时保留用户输入，并可退出编辑查看最新内容",
     />,
   );
 
-  const title = await screen.findByLabelText("用途");
+  const title = await screen.findByLabelText("标题");
   await user.clear(title);
   await user.type(title, "修改后的聚餐");
-  await user.click(screen.getByRole("button", { name: "保存修改" }));
+  await user.click(screen.getByRole("button", { name: "保存" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent("当前输入已保留");
   expect(title).toHaveValue("修改后的聚餐");
   await user.click(screen.getByRole("button", { name: "查看最新内容" }));
   expect(onOpenChange).toHaveBeenCalledWith(false);
   expect(onSaved).toHaveBeenCalledOnce();
+});
+
+test("编辑协调器按目标打开标题 Sheet，而不是完整编辑账单表单", async () => {
+  render(
+    <ExpenseEditOverlay
+      open
+      target="TITLE"
+      onOpenChange={vi.fn()}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  expect(
+    await screen.findByRole("heading", { name: "编辑标题" }),
+  ).toBeVisible();
+  expect(screen.getByLabelText("标题")).toHaveValue("海底捞火锅");
+  expect(screen.queryByLabelText("金额")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "保存" })).toBeVisible();
+});
+
+test("分类选择后立即提交完整 PUT 草稿并携带版本与新 mutation id", async () => {
+  const user = userEvent.setup();
+  render(
+    <ExpenseEditOverlay
+      open
+      target="CATEGORY"
+      onOpenChange={vi.fn()}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  const dialog = await screen.findByRole("dialog", { name: "编辑分类" });
+  expect(
+    within(dialog).queryByRole("button", { name: "分类" }),
+  ).not.toBeInTheDocument();
+  await user.click(within(dialog).getByRole("radio", { name: "娱乐" }));
+
+  await waitFor(() => expect(mocks.updateExpense).toHaveBeenCalledOnce());
+  const request = mocks.updateExpense.mock.calls[0]?.[2];
+  expect(request).toMatchObject({
+    version: 3,
+    category: "ENTERTAINMENT",
+    title: "海底捞火锅",
+    originalAmountMinor: "42800",
+    payments: [{ memberId: "m1", amountMinor: "42800" }],
+    split: {
+      mode: "PERCENTAGE",
+      entries: [
+        { memberId: "m1", value: "2500" },
+        { memberId: "m2", value: "7500" },
+      ],
+    },
+  });
+  expect(request.clientMutationId).toEqual(expect.any(String));
+});
+
+test("金额字段调用系统数字键盘并保留显式保存", async () => {
+  render(
+    <ExpenseEditOverlay
+      open
+      target="AMOUNT"
+      onOpenChange={vi.fn()}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  const amount = await screen.findByLabelText("金额");
+  expect(amount).toHaveAttribute("type", "text");
+  expect(amount).toHaveAttribute("inputmode", "decimal");
+  expect(amount).toHaveAttribute("enterkeyhint", "done");
+  expect(screen.getByRole("button", { name: "保存" })).toBeVisible();
+  expect(screen.getByRole("dialog", { name: "编辑金额" })).toHaveClass(
+    "rounded-t-lg",
+  );
+  expect(screen.getByRole("dialog", { name: "编辑金额" })).not.toHaveClass(
+    "data-[side=bottom]:h-dvh",
+  );
+});
+
+test("字段未修改时关闭编辑器且不发送更新请求", async () => {
+  const user = userEvent.setup();
+  const onOpenChange = vi.fn();
+  render(
+    <ExpenseEditOverlay
+      open
+      target="TITLE"
+      onOpenChange={onOpenChange}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "保存" }));
+
+  expect(mocks.updateExpense).not.toHaveBeenCalled();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+test("选择当前分类不发送更新请求", async () => {
+  const user = userEvent.setup();
+  const onOpenChange = vi.fn();
+  render(
+    <ExpenseEditOverlay
+      open
+      target="CATEGORY"
+      onOpenChange={onOpenChange}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  const dialog = await screen.findByRole("dialog", { name: "编辑分类" });
+  await user.click(within(dialog).getByRole("radio", { name: "餐饮" }));
+
+  expect(mocks.updateExpense).not.toHaveBeenCalled();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+test("均摊编辑添加临时成员后自动参与，仍需完成才更新账单", async () => {
+  const user = userEvent.setup();
+  mocks.addGuestMember.mockResolvedValue({
+    id: "guest-1",
+    displayName: "阿岚",
+    status: "ACTIVE",
+    avatarPreset: null,
+  });
+  render(
+    <ExpenseEditOverlay
+      open
+      target="SPLIT"
+      onOpenChange={vi.fn()}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={{
+        ...data,
+        expense: { ...data.expense, splitMode: "EQUAL" },
+        shares: data.shares.map((share) => ({
+          ...share,
+          splitInputMinor: null,
+        })),
+      }}
+    />,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "参与成员" }));
+  await user.click(screen.getByRole("button", { name: "添加临时成员" }));
+  await user.type(screen.getByLabelText("临时成员昵称"), "阿岚");
+  await user.click(screen.getByRole("button", { name: "确认添加" }));
+
+  expect(await screen.findByRole("checkbox", { name: "阿岚" })).toBeChecked();
+  expect(mocks.updateExpense).not.toHaveBeenCalled();
+  await user.click(
+    within(screen.getByRole("dialog", { name: "参与成员" })).getByRole(
+      "button",
+      { name: "完成" },
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("dialog", { name: "参与成员" }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(screen.getByRole("button", { name: "参与成员" })).toHaveTextContent(
+    "3 人",
+  );
 });

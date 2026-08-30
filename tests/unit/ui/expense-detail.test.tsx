@@ -96,28 +96,30 @@ test("账单详情按查看链路展示真实信息，并只保留分摊方式�
 
   const heroTitle = screen.getByRole("heading", { name: "海底捞火锅" });
   expect(
-    heroTitle.parentElement?.querySelector('svg[data-category-icon="FOOD"]'),
+    heroTitle.parentElement?.querySelector(
+      'img[data-category-illustration="FOOD"]',
+    ),
   ).toBeInTheDocument();
 
-  const payments = screen.getByRole("region", { name: "付款信息" });
+  const payments = screen.getByRole("region", { name: "付款" });
   expect(payments).toHaveTextContent("我付款人¥428.00");
   expect(payments).toHaveTextContent("支付合计¥428.00");
 
   const expenseInfo = screen.getByRole("region", { name: "消费信息" });
+  expect(expenseInfo).not.toHaveClass("shadow-sm", "rounded-sm");
   expect(expenseInfo).toHaveTextContent("消费时间2026-08-27 16:00");
-  expect(
-    within(expenseInfo).getByRole("link", { name: "查看活动 日本大阪之旅" }),
-  ).toHaveAttribute("href", "/activities/activity-1");
+  expect(within(expenseInfo).getByText("日本大阪之旅")).toBeInTheDocument();
+  expect(within(expenseInfo).queryByRole("link")).not.toBeInTheDocument();
   expect(expenseInfo).toHaveTextContent("分类餐饮");
   const categoryValue = within(expenseInfo).getByText("餐饮").parentElement;
   expect(
-    categoryValue?.querySelector('svg[data-category-icon="FOOD"]'),
+    categoryValue?.querySelector('img[data-category-illustration="FOOD"]'),
   ).toBeInTheDocument();
   expect(expenseInfo).toHaveTextContent("备注无");
   expect(expenseInfo).not.toHaveTextContent("支付时间");
   expect(expenseInfo).not.toHaveTextContent("流水编号");
 
-  const splitInfo = screen.getByRole("region", { name: "分摊信息" });
+  const splitInfo = screen.getByRole("region", { name: "分摊" });
   expect(
     within(splitInfo).getByRole("link", { name: "查看分摊明细" }),
   ).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1/split");
@@ -125,6 +127,7 @@ test("账单详情按查看链路展示真实信息，并只保留分摊方式�
   expect(within(splitInfo).getAllByRole("img")).toHaveLength(4);
 
   const creationInfo = screen.getByRole("region", { name: "创建信息" });
+  expect(creationInfo).toHaveClass("text-muted-foreground");
   expect(creationInfo).toHaveTextContent("创建人我");
   expect(creationInfo).toHaveTextContent("创建时间2026-08-27 16:03");
   expect(
@@ -146,12 +149,12 @@ test("账单详情将创建人、付款人与分摊成员的头像预设传到�
 
   expect(
     screen
-      .getByRole("region", { name: "付款信息" })
+      .getByRole("region", { name: "付款" })
       .querySelector('[role="img"] img'),
   ).toHaveAttribute("src", "/member-avatars/avatar-02.webp");
   expect(
     screen
-      .getByRole("region", { name: "分摊信息" })
+      .getByRole("region", { name: "分摊" })
       .querySelectorAll('[role="img"] img')[2],
   ).toHaveAttribute("src", "/member-avatars/avatar-03.webp");
   expect(
@@ -190,9 +193,9 @@ test("创建人没有预设时按创建成员 ID 回退头像，而非首笔付�
   ).toHaveAttribute("src", "/member-avatars/avatar-06.webp");
 });
 
-test("有管理权限时通过单一菜单编辑或二次确认删除账单", async () => {
+test("有管理权限时提供字段入口和底部删除确认", async () => {
   const user = userEvent.setup();
-  const onEdit = vi.fn();
+  const onEditTarget = vi.fn();
   const onDelete = vi.fn().mockResolvedValue(undefined);
   render(
     <ExpenseDetail
@@ -202,19 +205,20 @@ test("有管理权限时通过单一菜单编辑或二次确认删除账单", as
       }}
       activityName="日本大阪之旅"
       timeZone="Asia/Shanghai"
-      onEdit={onEdit}
+      onEditTarget={onEditTarget}
       onDelete={onDelete}
     />,
   );
 
-  await user.click(screen.getByRole("button", { name: "账单操作" }));
-  await user.click(screen.getByRole("menuitem", { name: "编辑账单" }));
-  expect(onEdit).toHaveBeenCalledOnce();
-
-  await user.click(screen.getByRole("button", { name: "账单操作" }));
-  await user.click(screen.getByRole("menuitem", { name: "删除账单" }));
+  await user.click(screen.getByRole("button", { name: "编辑标题" }));
+  expect(onEditTarget).toHaveBeenCalledWith("TITLE");
+  expect(
+    screen.getByRole("button", { name: "编辑标题" }).querySelector("h2"),
+  ).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "删除账单" }));
   const dialog = screen.getByRole("alertdialog", { name: "确认删除账单" });
-  expect(dialog).toHaveTextContent("删除后，这笔账单将不再计入活动账务");
+  expect(dialog).toHaveTextContent("¥428.00");
+  expect(dialog).toHaveTextContent("结算结果");
   await user.click(within(dialog).getByRole("button", { name: "确认删除" }));
   expect(onDelete).toHaveBeenCalledOnce();
 });
@@ -233,8 +237,7 @@ test("删除失败时保留确认框并展示可理解的错误", async () => {
     />,
   );
 
-  await user.click(screen.getByRole("button", { name: "账单操作" }));
-  await user.click(screen.getByRole("menuitem", { name: "删除账单" }));
+  await user.click(screen.getByRole("button", { name: "删除账单" }));
   const dialog = screen.getByRole("alertdialog", { name: "确认删除账单" });
   await user.click(within(dialog).getByRole("button", { name: "确认删除" }));
 
@@ -242,4 +245,55 @@ test("删除失败时保留确认框并展示可理解的错误", async () => {
     "账单已被其他成员修改。",
   );
   expect(dialog).toBeInTheDocument();
+});
+
+test("有更新权限时分字段入口独立出现，活动保持只读且删除位于底部", async () => {
+  const user = userEvent.setup();
+  const onEditTarget = vi.fn();
+  const onDelete = vi.fn().mockResolvedValue(undefined);
+  render(
+    <ExpenseDetail
+      data={{
+        ...detail,
+        permissions: { canUpdate: true, canDelete: true },
+      }}
+      activityName="日本大阪之旅"
+      timeZone="Asia/Shanghai"
+      onEditTarget={onEditTarget}
+      onDelete={onDelete}
+    />,
+  );
+
+  expect(
+    screen.queryByRole("button", { name: "账单操作" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("menuitem", { name: "编辑账单" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("link", { name: "查看活动 日本大阪之旅" }),
+  ).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "编辑标题" }));
+  expect(onEditTarget).toHaveBeenCalledWith("TITLE");
+  await user.click(screen.getByRole("button", { name: "编辑金额" }));
+  expect(onEditTarget).toHaveBeenCalledWith("AMOUNT");
+  await user.click(screen.getByRole("button", { name: "编辑消费时间" }));
+  expect(onEditTarget).toHaveBeenCalledWith("OCCURRED_AT");
+  await user.click(screen.getByRole("button", { name: "编辑分类" }));
+  expect(onEditTarget).toHaveBeenCalledWith("CATEGORY");
+  await user.click(screen.getByRole("button", { name: "编辑备注" }));
+  expect(onEditTarget).toHaveBeenCalledWith("NOTE");
+  await user.click(screen.getByRole("button", { name: "编辑付款" }));
+  expect(onEditTarget).toHaveBeenCalledWith("PAYMENTS");
+  await user.click(screen.getByRole("button", { name: "编辑分摊方式" }));
+  expect(onEditTarget).toHaveBeenCalledWith("SPLIT");
+
+  const deleteButton = screen.getByRole("button", { name: "删除账单" });
+  expect(deleteButton).toHaveClass("text-destructive");
+  expect(
+    deleteButton.compareDocumentPosition(
+      screen.getByRole("region", { name: "创建信息" }),
+    ),
+  ).toBe(Node.DOCUMENT_POSITION_PRECEDING);
 });

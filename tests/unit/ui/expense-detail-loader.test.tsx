@@ -2,7 +2,13 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
@@ -110,6 +116,7 @@ beforeEach(() => {
   });
   mocks.getQuickExpenseContext.mockResolvedValue(context);
   mocks.deleteExpense.mockResolvedValue(undefined);
+  mocks.updateExpense.mockResolvedValue({ id: "expense-1" });
 });
 
 afterEach(() => {
@@ -127,12 +134,11 @@ test("详情加载器提供活动名称和真实编辑上下文", async () => {
   ).toBeVisible();
   expect(mocks.getExpenseFeedSummary).toHaveBeenCalledWith("activity-1");
   expect(mocks.getQuickExpenseContext).toHaveBeenCalledWith("activity-1");
-  await user.click(screen.getByRole("button", { name: "账单操作" }));
-  await user.click(screen.getByRole("menuitem", { name: "编辑账单" }));
+  await user.click(screen.getByRole("button", { name: "编辑标题" }));
   expect(
-    await screen.findByRole("heading", { name: "编辑账单" }),
+    await screen.findByRole("heading", { name: "编辑标题" }),
   ).toBeVisible();
-  expect(screen.getByLabelText("金额")).toHaveValue("428.00");
+  expect(screen.getByLabelText("标题")).toHaveValue("海底捞火锅");
 });
 
 test("删除账单携带当前版本并返回活动流水", async () => {
@@ -140,8 +146,7 @@ test("删除账单携带当前版本并返回活动流水", async () => {
   render(<ExpenseDetailLoader timeZone="Asia/Shanghai" />);
   await screen.findByRole("heading", { name: "账单详情" });
 
-  await user.click(screen.getByRole("button", { name: "账单操作" }));
-  await user.click(screen.getByRole("menuitem", { name: "删除账单" }));
+  await user.click(screen.getByRole("button", { name: "删除账单" }));
   const dialog = screen.getByRole("alertdialog", { name: "确认删除账单" });
   await user.click(within(dialog).getByRole("button", { name: "确认删除" }));
 
@@ -152,4 +157,27 @@ test("删除账单携带当前版本并返回活动流水", async () => {
   );
   expect(mocks.replace).toHaveBeenCalledWith("/activities/activity-1");
   expect(mocks.refresh).toHaveBeenCalledOnce();
+});
+
+test("字段保存后刷新权威详情、非抢焦点提示并返回原字段", async () => {
+  const user = userEvent.setup();
+  mocks.getExpenseDetail.mockResolvedValueOnce(detail).mockResolvedValueOnce({
+    ...detail,
+    expense: { ...detail.expense, title: "修改后的火锅", version: 5 },
+  });
+  render(<ExpenseDetailLoader timeZone="Asia/Shanghai" />);
+
+  const editTitle = await screen.findByRole("button", { name: "编辑标题" });
+  await user.click(editTitle);
+  const title = await screen.findByLabelText("标题");
+  await user.clear(title);
+  await user.type(title, "修改后的火锅");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(await screen.findByRole("status")).toHaveTextContent("账单已更新");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "编辑标题" })).toHaveFocus(),
+  );
+  expect(mocks.getExpenseDetail).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("heading", { name: "修改后的火锅" })).toBeVisible();
 });
