@@ -32,12 +32,9 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://huddletab:huddletab@postgres:5432/huddletab
-      BETTER_AUTH_URL: http://localhost:5660
-      APP_BASE_URL: http://localhost:5660
-      DATA_DIR: /data
-      TRUST_PROXY: "false"
-      TZ: Asia/Shanghai
+      DATABASE_URL: "postgresql://huddletab:huddletab@postgres:5432/huddletab"
+      BETTER_AUTH_URL: "http://localhost:5660"
+      DATA_DIR: "/data"
     ports:
       - "5660:5660"
     volumes:
