@@ -18,7 +18,7 @@ services:
       POSTGRES_USER: huddletab
       POSTGRES_PASSWORD: huddletab
     volumes:
-      - ./huddletab-data/postgres:/var/lib/postgresql
+      - ./data/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
@@ -41,8 +41,7 @@ services:
     ports:
       - "5660:5660"
     volumes:
-      - ./huddletab-data/uploads:/data/uploads
-      - ./huddletab-data/backups:/data/backups
+      - ./data:/data
     healthcheck:
       test:
         [
@@ -74,9 +73,9 @@ docker compose logs -f app
 
 应用数据保存在 Compose 文件所在目录的相对路径中：
 
-- `./huddletab-data/postgres`：PostgreSQL 数据
-- `./huddletab-data/uploads`：上传附件
-- `./huddletab-data/backups`：备份归档
+- `./data/postgres`：PostgreSQL 数据
+- `./data/uploads`：上传附件
+- `./data/backups`：备份归档
 
 ## 常用操作
 
