@@ -2,17 +2,18 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   query: "",
+  router: { back: vi.fn(), replace: vi.fn() },
 }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ activityId: "activity-1" }),
-  useRouter: () => ({ back: vi.fn(), replace: vi.fn() }),
+  useRouter: () => mocks.router,
   useSearchParams: () => new URLSearchParams(mocks.query),
 }));
 vi.mock("@/features/expenses/components/expense-loaders", () => ({
@@ -22,7 +23,13 @@ vi.mock("@/features/settlements/components/settlement-page-loader", () => ({
   SettlementPageLoader: () => <p data-testid="settlement-loader">结算加载器</p>,
 }));
 vi.mock("@/features/members/components/member-page-loader", () => ({
-  MemberPageLoader: () => null,
+  MemberPageLoader: ({
+    open,
+    initialView,
+  }: {
+    readonly open: boolean;
+    readonly initialView: "list" | "invite";
+  }) => (open ? <p data-testid="member-loader-view">{initialView}</p> : null),
 }));
 vi.mock("@/features/activities/components/activity-more", () => ({
   ActivityMore: () => null,
@@ -37,6 +44,8 @@ import { ActivityWorkspace } from "@/features/activities/components/activity-wor
 afterEach(() => {
   cleanup();
   mocks.query = "";
+  mocks.router.back.mockReset();
+  mocks.router.replace.mockReset();
   vi.clearAllMocks();
 });
 
@@ -58,4 +67,41 @@ test("活动工作台以稳定共享 surface 承载两个页签并保留 surface
 
   expect(screen.getByTestId("activity-workspace-surface")).toBe(surface);
   expect(screen.getByTestId("settlement-loader")).toBeVisible();
+});
+
+test("旧邀请参数只被规范化为成员 Sheet 开关，不驱动内部子视图", async () => {
+  mocks.query = "?panel=members&invite=1";
+
+  render(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+
+  await waitFor(() =>
+    expect(mocks.router.replace).toHaveBeenCalledWith(
+      "/activities/activity-1?panel=members",
+      { scroll: false },
+    ),
+  );
+});
+
+test("成员 Sheet 关闭后再次打开时从成员根视图开始", async () => {
+  mocks.query = "?panel=members";
+  const { rerender } = render(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+
+  window.dispatchEvent(
+    new CustomEvent("huddletab:panel-open", {
+      detail: { panel: "members", initialView: "invite" },
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("member-loader-view")).toHaveTextContent(
+      "invite",
+    ),
+  );
+
+  mocks.query = "";
+  rerender(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+  expect(screen.queryByTestId("member-loader-view")).not.toBeInTheDocument();
+
+  mocks.query = "?panel=members";
+  rerender(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+  expect(screen.getByTestId("member-loader-view")).toHaveTextContent("list");
 });

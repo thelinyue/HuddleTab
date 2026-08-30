@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftIcon, PlusIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 import { gsap } from "gsap";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -16,9 +16,10 @@ import {
 } from "@/features/expenses/api";
 import {
   QuickExpenseForm,
+  type QuickExpenseNavigationView,
   type QuickExpenseStep,
 } from "@/features/expenses/components/quick-expense-form";
-import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import { useOnlineStatus } from "@/features/expenses/components/offline-status";
 
 /** 快速记账入口仅管理弹层和保存后的反馈，账单表单本身可被离线流程复用。 */
@@ -33,6 +34,8 @@ export function QuickExpenseTrigger({
 }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<QuickExpenseStep>("ENTRY");
+  const [navigationView, setNavigationView] =
+    useState<QuickExpenseNavigationView>("entry");
   const [splitValid, setSplitValid] = useState(false);
   const [completionVersion, setCompletionVersion] = useState(0);
   const [pressVersion, setPressVersion] = useState(0);
@@ -67,6 +70,7 @@ export function QuickExpenseTrigger({
     setOpen(nextOpen);
     if (!nextOpen) {
       setStep("ENTRY");
+      setNavigationView("entry");
       setSplitValid(false);
     }
   };
@@ -79,6 +83,7 @@ export function QuickExpenseTrigger({
         onClick={() => {
           setPressVersion((version) => version + 1);
           setStep("ENTRY");
+          setNavigationView("entry");
           setSplitValid(false);
           setOpen(true);
         }}
@@ -92,25 +97,52 @@ export function QuickExpenseTrigger({
           <PlusIcon className="size-6" />
         </span>
       </button>
-      <ResponsiveFormOverlay
+      <NavigationOverlay
         open={open}
         onOpenChange={updateOpen}
-        title={step === "SPLIT" ? "分摊设置" : "记一笔"}
-        mobileFullScreen
-        headerStart={
-          step === "SPLIT" ? (
-            <button
-              type="button"
-              aria-label="返回快速记账"
-              onClick={() => setStep("ENTRY")}
-              className="inline-flex size-11 items-center justify-center rounded-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            >
-              <ArrowLeftIcon aria-hidden="true" className="size-5" />
-            </button>
-          ) : undefined
+        title={
+          navigationView === "split"
+            ? "分摊设置"
+            : navigationView === "participants"
+              ? "谁参与"
+              : navigationView === "participants-add-guest"
+                ? "添加临时成员"
+                : navigationView === "payer"
+                  ? "谁付款"
+                  : navigationView === "payer-add-guest"
+                    ? "添加临时成员"
+                    : navigationView === "category"
+                      ? "分类"
+                      : "记一笔"
         }
-        headerEnd={
-          step === "SPLIT" ? (
+        mobileFullScreen
+        keyboardAware
+        returnFocusRef={triggerScope}
+        onBack={
+          navigationView === "entry"
+            ? undefined
+            : () => {
+                if (navigationView === "payer-add-guest") {
+                  setNavigationView("payer");
+                  return;
+                }
+                if (navigationView === "participants-add-guest") {
+                  setNavigationView("participants");
+                  return;
+                }
+                setStep("ENTRY");
+                setNavigationView("entry");
+              }
+        }
+        backLabel={
+          navigationView === "payer-add-guest"
+            ? "谁付款"
+            : navigationView === "participants-add-guest"
+              ? "谁参与"
+              : "快速记账"
+        }
+        footer={
+          navigationView === "split" ? (
             <button
               type="button"
               aria-label="完成"
@@ -118,12 +150,13 @@ export function QuickExpenseTrigger({
               onClick={() => {
                 setCompletionVersion((version) => version + 1);
                 setStep("ENTRY");
+                setNavigationView("entry");
               }}
-              className="type-label inline-flex min-h-11 items-center justify-center rounded-sm px-3 font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:text-muted-foreground"
+              className="type-label inline-flex min-h-11 w-full items-center justify-center rounded-sm px-3 font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:text-muted-foreground"
             >
               完成
             </button>
-          ) : undefined
+          ) : null
         }
       >
         <QuickExpenseForm
@@ -144,8 +177,16 @@ export function QuickExpenseTrigger({
           }
           step={step}
           completionVersion={completionVersion}
-          onStepChange={setStep}
+          onStepChange={(nextStep) => {
+            setStep(nextStep);
+            setNavigationView(nextStep === "SPLIT" ? "split" : "entry");
+          }}
           onSplitValidityChange={setSplitValid}
+          navigationView={navigationView}
+          onNavigationViewChange={(view) => {
+            setNavigationView(view);
+            if (view !== "split") setStep("ENTRY");
+          }}
           onSaved={(expense) => {
             updateOpen(false);
             onSaved(expense.id);
@@ -157,7 +198,7 @@ export function QuickExpenseTrigger({
             onQueued?.(mutationId);
           }}
         />
-      </ResponsiveFormOverlay>
+      </NavigationOverlay>
     </>
   );
 }

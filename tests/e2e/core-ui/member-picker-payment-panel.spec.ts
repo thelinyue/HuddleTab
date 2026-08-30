@@ -114,8 +114,19 @@ test("统一成员与付款面板在手机和桌面保持一致交互", async ({
     path: testInfo.outputPath("member-picker-390x844-dark.png"),
     animations: "disabled",
   });
-  await mobileParticipants.getByRole("button", { name: "关闭" }).click();
-  await expect(participantTrigger).toBeFocused();
+
+  await mobileParticipants
+    .getByRole("button", { name: "返回快速记账" })
+    .click();
+  await expect(page.getByRole("heading", { name: "记一笔" })).toBeVisible();
+
+  await participantTrigger.click();
+  const reopenedParticipants = page.getByRole("dialog", { name: "谁参与" });
+  await expect(reopenedParticipants).toBeVisible();
+  await reopenedParticipants.getByRole("button", { name: "关闭" }).click();
+  await expect(page.getByRole("dialog", { name: "谁参与" })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "记一笔" })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "记一笔" })).toBeFocused();
 
   await openExpenseForm(
     page,

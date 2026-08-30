@@ -171,7 +171,7 @@ export function ExpenseFeed({
   const canManageMembers = Boolean(
     entryContext?.permissions.canManageMembers && status === "ACTIVE",
   );
-  const membersHref = `/activities/${encodeURIComponent(activity.id)}?panel=members&invite=1`;
+  const membersHref = `/activities/${encodeURIComponent(activity.id)}?panel=members`;
 
   return (
     <div className="min-w-0">
@@ -191,7 +191,9 @@ export function ExpenseFeed({
           href={membersHref}
           onClick={() => {
             window.dispatchEvent(
-              new CustomEvent("huddletab:panel-open", { detail: "members" }),
+              new CustomEvent("huddletab:panel-open", {
+                detail: { panel: "members", initialView: "invite" },
+              }),
             );
           }}
           className="mt-3 flex min-h-11 items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"

@@ -144,6 +144,81 @@ test("从分摊步骤返回录入页时不误报完成反馈", async () => {
   );
 });
 
+test("快速记账进入参与成员时不叠加第二个业务 Dialog", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+
+  await user.click(screen.getByRole("button", { name: "记一笔" }));
+  expect(screen.getByLabelText("金额", { exact: true })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "谁参与" }));
+
+  expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+  expect(screen.getByRole("dialog", { name: "谁参与" })).toBeVisible();
+  expect(
+    screen.queryByLabelText("金额", { exact: true }),
+  ).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "返回快速记账" }));
+  expect(screen.getByLabelText("金额", { exact: true })).toBeVisible();
+});
+
+test("快速记账参与成员的 Close 关闭整个 Sheet 并恢复入口焦点", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+
+  const trigger = screen.getByRole("button", { name: "记一笔" });
+  await user.click(trigger);
+  await user.click(screen.getByRole("button", { name: "谁参与" }));
+  await user.click(screen.getByRole("button", { name: "关闭" }));
+
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+});
+
+test("快速记账从添加临时成员返回时先退回付款人再回到根视图", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  render(
+    <QuickExpenseTrigger
+      context={{
+        ...context,
+        members: [
+          ...context.members,
+          { id: "member-2", displayName: "小李", status: "ACTIVE" as const },
+        ],
+        permissions: { canCreateExpense: true, canManageMembers: true },
+      }}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "记一笔" }));
+  await user.click(screen.getByRole("button", { name: "谁付款" }));
+  await user.click(screen.getByRole("button", { name: "添加临时成员" }));
+  expect(screen.getByRole("heading", { name: "添加临时成员" })).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "返回谁付款" }));
+  expect(screen.getByRole("heading", { name: "谁付款" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "返回快速记账" }));
+  expect(screen.getByRole("heading", { name: "记一笔" })).toBeVisible();
+});
+
+test("快速记账进入分类子视图时隐藏根触发器", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+
+  await user.click(screen.getByRole("button", { name: "记一笔" }));
+  await user.click(screen.getByRole("button", { name: "分类" }));
+
+  expect(screen.getByRole("heading", { name: "分类" })).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "分类" }),
+  ).not.toBeInTheDocument();
+});
+
 test("PWA 更新横幅 reveal 后仍可操作更新按钮", async () => {
   const user = userEvent.setup();
   setMotionPreference(false);

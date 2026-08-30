@@ -48,7 +48,7 @@ test("活动进行中且当前用户可管理成员时展示 44px 邀请入口",
   expect(invite).toHaveClass("size-11");
   expect(invite).toHaveAttribute(
     "href",
-    "/activities/activity-1?panel=members&invite=1",
+    "/activities/activity-1?panel=members",
   );
   expect(screen.getByRole("link", { name: /查看成员/ })).toHaveClass(
     "min-h-11",

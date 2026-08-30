@@ -10,6 +10,16 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import Image from "next/image";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +60,13 @@ export function MemberInviteCenter({
     readonly dataUrl: string;
   } | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [confirmation, setConfirmation] = useState<"reset" | "disable" | null>(
+    null,
+  );
+  const [confirming, setConfirming] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -101,13 +118,30 @@ export function MemberInviteCenter({
     }
   };
 
-  const reset = () => {
-    if (
-      (inviteEnabled || inviteUrl) &&
-      !window.confirm("重置后旧邀请链接会立即失效，确定继续吗？")
-    )
-      return;
-    void onReset();
+  const openConfirmation = (next: "reset" | "disable") => {
+    setConfirmationError(null);
+    setConfirmation(next);
+  };
+
+  const confirmChange = async () => {
+    if (!confirmation || confirming) return;
+    setConfirming(true);
+    setConfirmationError(null);
+    try {
+      if (confirmation === "reset") await onReset();
+      else await onDisable();
+      setConfirmation(null);
+    } catch (reason) {
+      setConfirmationError(
+        reason instanceof Error
+          ? reason.message
+          : confirmation === "reset"
+            ? "重置邀请链接失败，请稍后重试。"
+            : "关闭邀请失败，请稍后重试。",
+      );
+    } finally {
+      setConfirming(false);
+    }
   };
 
   const retry = async () => {
@@ -227,7 +261,7 @@ export function MemberInviteCenter({
             type="button"
             variant="destructive"
             disabled={!inviteEnabled || !online || loading}
-            onClick={() => void onDisable()}
+            onClick={() => openConfirmation("disable")}
           >
             <Link2OffIcon aria-hidden="true" />
             关闭邀请
@@ -236,13 +270,57 @@ export function MemberInviteCenter({
             type="button"
             variant="outline"
             disabled={!online || loading}
-            onClick={reset}
+            onClick={() => openConfirmation("reset")}
           >
             <RefreshCwIcon aria-hidden="true" />
             重置链接
           </Button>
         </div>
       ) : null}
+      <AlertDialog
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open && !confirming) {
+            setConfirmation(null);
+            setConfirmationError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmation === "reset" ? "重置邀请链接" : "关闭邀请"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmation === "reset"
+                ? "确认后旧邀请链接会立即失效，已经分享的链接将无法继续加入。"
+                : "确认后当前邀请链接将立即失效，成员无法继续通过它加入活动。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {confirmationError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {confirmationError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirming}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={confirming}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmChange();
+              }}
+            >
+              {confirming
+                ? "处理中…"
+                : confirmation === "reset"
+                  ? "确认重置"
+                  : "确认关闭"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

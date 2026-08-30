@@ -143,6 +143,32 @@ test("加号打开新建或加入操作面板，并能切换到两种表单", as
   expect(screen.getByRole("textbox", { name: "活动名称" })).toBeVisible();
 });
 
+test("活动操作与创建/加入共用同一个导航 Overlay，并可返回操作根视图", async () => {
+  const user = userEvent.setup();
+  render(
+    <ActivityHome
+      data={{ summaries: [], active: [], ended: [], archived: [] }}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
+  const rootDialog = screen.getByRole("dialog", { name: "新建或加入活动" });
+  await user.click(
+    within(rootDialog).getByRole("button", { name: "创建活动" }),
+  );
+
+  const createDialog = screen.getByRole("dialog", { name: "创建活动" });
+  expect(createDialog).toBe(rootDialog);
+  expect(
+    screen.getByRole("button", { name: "返回新建或加入活动" }),
+  ).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "返回新建或加入活动" }));
+  expect(screen.getByRole("dialog", { name: "新建或加入活动" })).toBe(
+    rootDialog,
+  );
+});
+
 test("已结清活动只显示结清状态，不重复显示零金额", () => {
   render(
     <ActivityHome
