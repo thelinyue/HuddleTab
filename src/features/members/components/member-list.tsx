@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
-  ChevronLeftIcon,
   ChevronRightIcon,
   UserPlusIcon,
   UserRoundPlusIcon,
@@ -23,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
 import { useOnlineStatus } from "@/features/expenses/components/offline-status";
 import type { AvatarPreset } from "@/features/me/avatar-presets";
@@ -67,6 +67,9 @@ export function MemberList({
   balances = [],
   currency = "CNY",
   embedded = false,
+  embeddedOpen = true,
+  onEmbeddedOpenChange,
+  initialView,
 }: {
   readonly members: readonly MemberListRow[];
   readonly inviteMode: "DIRECT_JOIN" | "REQUIRE_APPROVAL";
@@ -87,6 +90,10 @@ export function MemberList({
   readonly currency?: string;
   /** 嵌入活动面板时在同一 Sheet/Dialog 内切换子视图，避免再开嵌套 Overlay。 */
   readonly embedded?: boolean;
+  /** 嵌入成员 Sheet 的开关由 URL 面板协调器传入，内部关闭时重置本地栈。 */
+  readonly embeddedOpen?: boolean;
+  readonly onEmbeddedOpenChange?: (open: boolean) => void;
+  readonly initialView?: "list" | "invite";
 }) {
   const [guestName, setGuestName] = useState("");
   const [guestError, setGuestError] = useState<string | null>(null);
@@ -106,14 +113,19 @@ export function MemberList({
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [embeddedView, setEmbeddedView] = useState<EmbeddedView>(
-    initialInviteOpen && onCreateInvite ? { type: "invite" } : { type: "list" },
+    (initialView === "invite" || (initialInviteOpen && onCreateInvite)) &&
+      onCreateInvite
+      ? { type: "invite" }
+      : { type: "list" },
   );
   const [embeddedRemoveOpen, setEmbeddedRemoveOpen] = useState(false);
   const [embeddedRemoving, setEmbeddedRemoving] = useState(false);
   const [embeddedRemoveError, setEmbeddedRemoveError] = useState<string | null>(
     null,
   );
+  const [localEmbeddedOpen, setLocalEmbeddedOpen] = useState(true);
   const online = useOnlineStatus();
+  const canEnterInvite = Boolean(onCreateInvite);
   const hasActiveInvite =
     inviteLocalState === null ? inviteEnabled : inviteLocalState === "ACTIVE";
   const canManage = members.some((member) => member.permissions.canManage);
@@ -122,6 +134,17 @@ export function MemberList({
   const balancesByMemberId = new Map(
     balances.map((balance) => [balance.memberId, BigInt(balance.netMinor)]),
   );
+
+  useEffect(() => {
+    if (!embedded || !embeddedOpen) return;
+    // URL/入口事件只决定新会话的首个子视图，之后的 Back 由本地栈独立管理。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEmbeddedView(
+      initialView === "invite" && canEnterInvite
+        ? { type: "invite" }
+        : { type: "list" },
+    );
+  }, [embedded, embeddedOpen, initialView, canEnterInvite]);
 
   async function addGuest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -276,30 +299,17 @@ export function MemberList({
         ? "添加临时成员"
         : (embeddedMember?.displayName ?? "成员详情");
 
-  return (
-    <section aria-label="成员" className="pt-5">
-      {embedded && embeddedView.type !== "list" ? (
-        <div className="mb-4 flex min-h-10 items-center gap-2 border-b pb-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="返回成员列表"
-            onClick={() => {
-              setEmbeddedRemoveOpen(false);
-              setEmbeddedView({ type: "list" });
-            }}
-          >
-            <ChevronLeftIcon aria-hidden="true" className="size-4" />
-            成员
-          </Button>
-          <h2 className="min-w-0 flex-1 truncate text-center text-base font-semibold">
-            {embeddedViewTitle}
-          </h2>
-          <span className="size-16 shrink-0" aria-hidden="true" />
-        </div>
-      ) : null}
+  const handleEmbeddedOpenChange = (open: boolean) => {
+    if (!onEmbeddedOpenChange) setLocalEmbeddedOpen(open);
+    if (!open) {
+      setEmbeddedRemoveOpen(false);
+      setEmbeddedView({ type: "list" });
+    }
+    onEmbeddedOpenChange?.(open);
+  };
 
+  const memberContent = (
+    <section aria-label="成员" className="pt-5">
       {embedded && embeddedView.type === "guest" ? (
         <form
           className="grid gap-4 pt-2"
@@ -564,5 +574,26 @@ export function MemberList({
         </AlertDialog>
       ) : null}
     </section>
+  );
+
+  if (!embedded) return memberContent;
+  return (
+    <NavigationOverlay
+      open={onEmbeddedOpenChange ? embeddedOpen : localEmbeddedOpen}
+      onOpenChange={handleEmbeddedOpenChange}
+      title={embeddedView.type === "list" ? "成员" : embeddedViewTitle}
+      onBack={
+        embeddedView.type === "list"
+          ? undefined
+          : () => {
+              setEmbeddedRemoveOpen(false);
+              setEmbeddedView({ type: "list" });
+            }
+      }
+      backLabel="成员"
+      mobileFullScreen
+    >
+      {memberContent}
+    </NavigationOverlay>
   );
 }

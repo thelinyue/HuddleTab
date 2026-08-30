@@ -41,11 +41,10 @@ export function ActivityPageHeader({
 }) {
   const days = inclusiveCalendarDays(startDate, endDate);
   const statusText = statusLabel(status);
-  const query = (panel: "members" | "manage", invite = false) => {
+  const query = (panel: "members" | "manage") => {
     const params = new URLSearchParams();
     if (activeTab === "settlement") params.set("tab", "settlement");
     params.set("panel", panel);
-    if (invite) params.set("invite", "1");
     return `/activities/${encodeURIComponent(activityId)}?${params.toString()}`;
   };
   return (
@@ -87,11 +86,11 @@ export function ActivityPageHeader({
         </div>
         {canManageMembers && status === "ACTIVE" ? (
           <Link
-            href={query("members", true)}
+            href={query("members")}
             onClick={() => {
               window.dispatchEvent(
                 new CustomEvent("huddletab:panel-open", {
-                  detail: "members",
+                  detail: { panel: "members", initialView: "invite" },
                 }),
               );
             }}

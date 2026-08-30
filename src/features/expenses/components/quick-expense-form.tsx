@@ -57,6 +57,15 @@ type FormValues = {
 export type QuickExpenseInitialValues = FormValues;
 
 export type QuickExpenseStep = "ENTRY" | "SPLIT";
+/** 快速记账内部导航只在当前业务 Overlay 中切换，不写入路由。 */
+export type QuickExpenseNavigationView =
+  | "entry"
+  | "split"
+  | "participants"
+  | "participants-add-guest"
+  | "payer"
+  | "payer-add-guest"
+  | "category";
 
 function amountToMinor(value: string, currency: string): string {
   const precision = getCurrencyMinorUnits(currency.trim().toUpperCase());
@@ -225,6 +234,8 @@ export function QuickExpenseForm({
   submitLabel = "保存",
   allowAttachments = true,
   onConflict,
+  navigationView = "entry",
+  onNavigationViewChange,
 }: {
   readonly activity: {
     readonly id: string;
@@ -258,9 +269,14 @@ export function QuickExpenseForm({
   readonly submitLabel?: string;
   readonly allowAttachments?: boolean;
   readonly onConflict?: () => void;
+  readonly navigationView?: QuickExpenseNavigationView;
+  readonly onNavigationViewChange?: (view: QuickExpenseNavigationView) => void;
 }) {
   const [advanced, setAdvanced] = useState(false);
   const [participantPickerOpen, setParticipantPickerOpen] = useState(false);
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const inlineNavigation = Boolean(onNavigationViewChange);
+  const showEntryFields = !inlineNavigation || navigationView === "entry";
   const [participantDraft, setParticipantDraft] = useState<readonly string[]>(
     [],
   );
@@ -563,83 +579,87 @@ export function QuickExpenseForm({
           hidden={step !== "ENTRY"}
           className="flex min-h-full flex-col gap-4 py-2"
         >
-          <div className="text-center">
-            <label htmlFor="quick-expense-amount" className="sr-only">
-              金额
-            </label>
-            <div className="flex min-h-11 items-baseline justify-center gap-2">
-              <span
-                aria-hidden="true"
-                className="font-amount type-amount font-medium text-foreground"
-              >
-                {currencySymbol(values.currency)}
-              </span>
-              <input
-                id="quick-expense-amount"
-                inputMode="decimal"
-                autoFocus
-                placeholder="0.00"
-                className="font-amount type-display-amount min-h-11 w-48 max-w-3/4 bg-transparent text-center font-semibold text-primary outline-none placeholder:text-muted-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
-                aria-describedby={
-                  fieldErrors["quick-expense-amount"]
-                    ? "quick-expense-amount-error"
-                    : undefined
-                }
-                {...form.register("amount")}
-              />
-            </div>
-            <p
-              aria-hidden="true"
-              className="type-caption text-muted-foreground"
-            >
-              金额
-            </p>
-            {fieldErrors["quick-expense-amount"] && (
-              <p
-                id="quick-expense-amount-error"
-                className="mt-1 text-sm text-destructive"
-              >
-                {fieldErrors["quick-expense-amount"]}
-              </p>
-            )}
-          </div>
-          <div>
-            <label
-              htmlFor="quick-expense-title"
-              className="block rounded-md border bg-surface px-3 py-2 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
-            >
-              <span className="type-caption block text-muted-foreground">
-                用途
-              </span>
-              <input
-                id="quick-expense-title"
-                className="type-body min-h-6 w-full bg-transparent outline-none placeholder:text-muted-foreground/60"
-                list="quick-expense-recent-titles"
-                placeholder="例如：晚餐"
-                aria-invalid={Boolean(fieldErrors["quick-expense-title"])}
-                aria-describedby={
-                  fieldErrors["quick-expense-title"]
-                    ? "quick-expense-title-error"
-                    : undefined
-                }
-                {...form.register("title")}
-              />
-            </label>
-            <datalist id="quick-expense-recent-titles">
-              {(preference.recentTitles ?? []).slice(0, 6).map((title) => (
-                <option key={title} value={title} />
-              ))}
-            </datalist>
-            {fieldErrors["quick-expense-title"] && (
-              <p
-                id="quick-expense-title-error"
-                className="mt-1 text-sm text-destructive"
-              >
-                {fieldErrors["quick-expense-title"]}
-              </p>
-            )}
-          </div>
+          {showEntryFields ? (
+            <>
+              <div className="text-center">
+                <label htmlFor="quick-expense-amount" className="sr-only">
+                  金额
+                </label>
+                <div className="flex min-h-11 items-baseline justify-center gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="font-amount type-amount font-medium text-foreground"
+                  >
+                    {currencySymbol(values.currency)}
+                  </span>
+                  <input
+                    id="quick-expense-amount"
+                    inputMode="decimal"
+                    autoFocus
+                    placeholder="0.00"
+                    className="font-amount type-display-amount min-h-11 w-48 max-w-3/4 bg-transparent text-center font-semibold text-primary outline-none placeholder:text-muted-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
+                    aria-describedby={
+                      fieldErrors["quick-expense-amount"]
+                        ? "quick-expense-amount-error"
+                        : undefined
+                    }
+                    {...form.register("amount")}
+                  />
+                </div>
+                <p
+                  aria-hidden="true"
+                  className="type-caption text-muted-foreground"
+                >
+                  金额
+                </p>
+                {fieldErrors["quick-expense-amount"] && (
+                  <p
+                    id="quick-expense-amount-error"
+                    className="mt-1 text-sm text-destructive"
+                  >
+                    {fieldErrors["quick-expense-amount"]}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="quick-expense-title"
+                  className="block rounded-md border bg-surface px-3 py-2 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
+                >
+                  <span className="type-caption block text-muted-foreground">
+                    用途
+                  </span>
+                  <input
+                    id="quick-expense-title"
+                    className="type-body min-h-6 w-full bg-transparent outline-none placeholder:text-muted-foreground/60"
+                    list="quick-expense-recent-titles"
+                    placeholder="例如：晚餐"
+                    aria-invalid={Boolean(fieldErrors["quick-expense-title"])}
+                    aria-describedby={
+                      fieldErrors["quick-expense-title"]
+                        ? "quick-expense-title-error"
+                        : undefined
+                    }
+                    {...form.register("title")}
+                  />
+                </label>
+                <datalist id="quick-expense-recent-titles">
+                  {(preference.recentTitles ?? []).slice(0, 6).map((title) => (
+                    <option key={title} value={title} />
+                  ))}
+                </datalist>
+                {fieldErrors["quick-expense-title"] && (
+                  <p
+                    id="quick-expense-title-error"
+                    className="mt-1 text-sm text-destructive"
+                  >
+                    {fieldErrors["quick-expense-title"]}
+                  </p>
+                )}
+              </div>
+            </>
+          ) : null}
           <PayerPicker
             members={activeMembers}
             value={values.payerSelection}
@@ -657,38 +677,75 @@ export function QuickExpenseForm({
                   }
                 : undefined
             }
+            open={
+              inlineNavigation
+                ? navigationView === "payer" ||
+                  navigationView === "payer-add-guest"
+                : undefined
+            }
+            view={
+              inlineNavigation && navigationView === "payer-add-guest"
+                ? "add-guest"
+                : "members"
+            }
+            showTrigger={!inlineNavigation || navigationView === "entry"}
+            inline={inlineNavigation}
+            onOpenChange={(open) =>
+              onNavigationViewChange?.(open ? "payer" : "entry")
+            }
+            onViewChange={(view) =>
+              onNavigationViewChange?.(
+                view === "add-guest" ? "payer-add-guest" : "payer",
+              )
+            }
           />
-          <div id="quick-expense-participants">
-            <MemberPickerTrigger
-              label="谁参与"
-              members={activeMembers}
-              selectedIds={values.participantIds}
-              onClick={() => {
-                setParticipantDraft(values.participantIds);
-                setParticipantPickerOpen(true);
-              }}
-              buttonRef={participantTriggerRef}
-            />
-            <button
-              type="button"
-              className="type-label mt-1 min-h-11 font-medium text-primary"
-              onClick={() => onStepChange("SPLIT")}
-            >
-              分摊设置
-            </button>
-            {fieldErrors["quick-expense-participants"] && (
-              <p className="mt-1 text-sm text-destructive">
-                {fieldErrors["quick-expense-participants"]}
-              </p>
-            )}
-          </div>
+          {(!inlineNavigation || navigationView === "entry") && (
+            <div id="quick-expense-participants">
+              <MemberPickerTrigger
+                label="谁参与"
+                members={activeMembers}
+                selectedIds={values.participantIds}
+                onClick={() => {
+                  setParticipantDraft(values.participantIds);
+                  setParticipantPickerOpen(true);
+                  onNavigationViewChange?.("participants");
+                }}
+                buttonRef={participantTriggerRef}
+              />
+              <button
+                type="button"
+                className="type-label mt-1 min-h-11 font-medium text-primary"
+                onClick={() => onStepChange("SPLIT")}
+              >
+                分摊设置
+              </button>
+              {fieldErrors["quick-expense-participants"] && (
+                <p className="mt-1 text-sm text-destructive">
+                  {fieldErrors["quick-expense-participants"]}
+                </p>
+              )}
+            </div>
+          )}
           <MemberPickerSheet
-            open={participantPickerOpen}
-            onOpenChange={setParticipantPickerOpen}
+            open={
+              inlineNavigation
+                ? navigationView === "participants" ||
+                  navigationView === "participants-add-guest"
+                : participantPickerOpen
+            }
+            onOpenChange={(open) => {
+              setParticipantPickerOpen(open);
+              onNavigationViewChange?.(open ? "participants" : "entry");
+            }}
             title="谁参与"
             mode="multiple"
             members={activeMembers}
             selectedIds={participantDraft}
+            view={
+              inlineNavigation && navigationView === "participants-add-guest"
+                ? "add-guest"
+                : "members"
+            }
             onSelectedIdsChange={setParticipantDraft}
             onCommit={(ids) => {
               const changed =
@@ -699,6 +756,7 @@ export function QuickExpenseForm({
                 form.setValue("splitEntries", {});
               }
               setParticipantPickerOpen(false);
+              onNavigationViewChange?.("entry");
             }}
             canComplete={participantDraft.length > 0}
             canAddGuest={canManageMembers}
@@ -713,26 +771,47 @@ export function QuickExpenseForm({
                 : undefined
             }
             returnFocusRef={participantTriggerRef}
+            inline={inlineNavigation}
+            onViewChange={(view) =>
+              onNavigationViewChange?.(
+                view === "add-guest"
+                  ? "participants-add-guest"
+                  : "participants",
+              )
+            }
           />
           <ExpenseCategoryPicker
             value={values.category}
             onChange={(category) => form.setValue("category", category)}
+            open={
+              inlineNavigation
+                ? navigationView === "category"
+                : categoryPickerOpen
+            }
+            showTrigger={!inlineNavigation || navigationView === "entry"}
+            onOpenChange={(open) => {
+              setCategoryPickerOpen(open);
+              onNavigationViewChange?.(open ? "category" : "entry");
+            }}
+            inline={inlineNavigation}
           />
-          <Button
-            type="button"
-            variant="outline"
-            className="type-body w-full justify-between rounded-md px-3 font-medium"
-            aria-expanded={advanced}
-            onClick={() => setAdvanced((value) => !value)}
-          >
-            <span>更多设置</span>
-            <ChevronRightIcon
-              aria-hidden="true"
-              className={`size-4 text-muted-foreground transition-transform ${advanced ? "rotate-90" : ""}`}
-            />
-          </Button>
-          {advanced && (
-            <section className="space-y-4 border-t pt-4">
+          {showEntryFields ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="type-body w-full justify-between rounded-md px-3 font-medium"
+                aria-expanded={advanced}
+                onClick={() => setAdvanced((value) => !value)}
+              >
+                <span>更多设置</span>
+                <ChevronRightIcon
+                  aria-hidden="true"
+                  className={`size-4 text-muted-foreground transition-transform ${advanced ? "rotate-90" : ""}`}
+                />
+              </Button>
+              {advanced && (
+                <section className="space-y-4 border-t pt-4">
               <div>
                 <label
                   htmlFor="quick-expense-currency"
@@ -855,15 +934,17 @@ export function QuickExpenseForm({
                   {...form.register("note")}
                 />
               </div>
-            </section>
-          )}
-          <Button
-            type="submit"
-            size="lg"
-            className="type-section-title mt-auto h-12 w-full rounded-md font-semibold"
-          >
-            {submitLabel}
-          </Button>
+                </section>
+              )}
+              <Button
+                type="submit"
+                size="lg"
+                className="type-section-title mt-auto h-12 w-full rounded-md font-semibold"
+              >
+                {submitLabel}
+              </Button>
+            </>
+          ) : null}
         </div>
         {step === "SPLIT" && (
           <section className="grid gap-4 py-2" aria-label="分摊设置内容">

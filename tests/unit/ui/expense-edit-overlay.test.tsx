@@ -235,6 +235,38 @@ test("编辑付款人时可添加临时成员并立即选中", async () => {
   );
 });
 
+test("付款编辑进入成员选择时复用外层 Dialog 和统一 Header", async () => {
+  const user = userEvent.setup();
+  render(
+    <ExpenseEditOverlay
+      open
+      target="PAYMENTS"
+      onOpenChange={vi.fn()}
+      onSaved={vi.fn()}
+      timeZone="Asia/Shanghai"
+      context={context}
+      data={data}
+    />,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "谁付款" }));
+
+  expect(
+    document.querySelectorAll(
+      '[data-slot="dialog-content"], [data-slot="sheet-content"]',
+    ),
+  ).toHaveLength(1);
+  expect(screen.getByRole("heading", { name: "谁付款" })).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "添加临时成员" }));
+  expect(screen.getByRole("heading", { name: "添加临时成员" })).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "返回成员列表" }),
+  ).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "返回谁付款" }));
+  expect(screen.getByRole("heading", { name: "谁付款" })).toBeVisible();
+});
+
 test("版本冲突时保留用户输入，并可退出编辑查看最新内容", async () => {
   const user = userEvent.setup();
   const onSaved = vi.fn();

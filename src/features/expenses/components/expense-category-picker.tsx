@@ -18,51 +18,84 @@ import {
 export function ExpenseCategoryPicker({
   value,
   onChange,
+  open: controlledOpen,
+  onOpenChange,
+  showTrigger = true,
+  inline = false,
 }: {
   readonly value: ExpenseCategory;
   readonly onChange: (category: ExpenseCategory) => void;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly showTrigger?: boolean;
+  /** 在业务导航壳中只渲染选项内容，不创建新的 Dialog。 */
+  readonly inline?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const open = controlledOpen ?? internalOpen;
+  const updateOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label="分类"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className="w-full rounded-md border bg-surface px-3 py-2 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
-        onClick={() => setOpen(true)}
-      >
-        <span className="type-caption block text-muted-foreground">分类</span>
-        <span className="flex min-h-11 items-center gap-2">
-          <ExpenseCategoryIllustration category={value} className="size-9" />
-          <span className="type-body min-w-0 flex-1 truncate font-medium">
-            {expenseCategoryLabels[value]}
+      {showTrigger ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label="分类"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="w-full rounded-md border bg-surface px-3 py-2 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+          onClick={() => updateOpen(true)}
+        >
+          <span className="type-caption block text-muted-foreground">分类</span>
+          <span className="flex min-h-11 items-center gap-2">
+            <ExpenseCategoryIllustration category={value} className="size-9" />
+            <span className="type-body min-w-0 flex-1 truncate font-medium">
+              {expenseCategoryLabels[value]}
+            </span>
+            <ChevronRightIcon
+              aria-hidden="true"
+              className="size-4 shrink-0 text-muted-foreground"
+            />
           </span>
-          <ChevronRightIcon
-            aria-hidden="true"
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-        </span>
-      </button>
+        </button>
+      ) : null}
 
-      <ResponsiveFormOverlay
-        open={open}
-        onOpenChange={setOpen}
-        title="分类"
-        returnFocusRef={triggerRef}
-      >
-        <ExpenseCategoryOptions
-          value={value}
-          onChange={(category) => {
-            onChange(category);
-            setOpen(false);
-          }}
-        />
-      </ResponsiveFormOverlay>
+      {inline ? (
+        open ? (
+          <div
+            data-category-picker-inline
+            className="min-h-0 overflow-y-auto py-2"
+          >
+            <ExpenseCategoryOptions
+              value={value}
+              onChange={(category) => {
+                onChange(category);
+                updateOpen(false);
+              }}
+            />
+          </div>
+        ) : null
+      ) : (
+        <ResponsiveFormOverlay
+          open={open}
+          onOpenChange={updateOpen}
+          title="分类"
+          returnFocusRef={triggerRef}
+        >
+          <ExpenseCategoryOptions
+            value={value}
+            onChange={(category) => {
+              onChange(category);
+              updateOpen(false);
+            }}
+          />
+        </ResponsiveFormOverlay>
+      )}
     </>
   );
 }

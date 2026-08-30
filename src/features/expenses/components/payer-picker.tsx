@@ -10,6 +10,7 @@ import {
   MemberPickerSheet,
   MemberPickerTrigger,
   type MemberPickerMember,
+  type MemberPickerView,
 } from "@/features/members/components/member-picker";
 
 export type PayerSelection =
@@ -141,6 +142,12 @@ export function PayerPicker({
   canAddGuest = false,
   online,
   onAddGuest,
+  open: controlledOpen,
+  view: controlledView,
+  showTrigger = true,
+  inline = false,
+  onViewChange,
+  onOpenChange,
 }: {
   readonly members: readonly MemberPickerMember[];
   readonly value: PayerSelection;
@@ -150,9 +157,18 @@ export function PayerPicker({
   readonly canAddGuest?: boolean;
   readonly online: boolean;
   readonly onAddGuest?: (displayName: string) => Promise<MemberPickerMember>;
+  readonly open?: boolean;
+  readonly view?: MemberPickerView;
+  readonly showTrigger?: boolean;
+  readonly inline?: boolean;
+  readonly onViewChange?: (view: MemberPickerView) => void;
+  readonly onOpenChange?: (open: boolean) => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [internalView, setInternalView] = useState<MemberPickerView>("members");
+  const open = controlledOpen ?? internalOpen;
+  const view = controlledView ?? internalView;
   const [draft, setDraft] = useState<PayerSelection>(() =>
     cloneSelection(value),
   );
@@ -162,9 +178,20 @@ export function PayerPicker({
     value.mode === "single" ? [value.memberId] : value.memberIds;
   const resolution = resolvePayerPayments(draft, totalMinor, currency);
 
+  const updateOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
+
+  const updateView = (nextView: MemberPickerView) => {
+    if (controlledView === undefined) setInternalView(nextView);
+    onViewChange?.(nextView);
+  };
+
   const openPicker = () => {
     setDraft(cloneSelection(value));
-    setOpen(true);
+    updateView("members");
+    updateOpen(true);
   };
 
   const switchToMultiple = () => {
@@ -186,20 +213,23 @@ export function PayerPicker({
 
   return (
     <>
-      <MemberPickerTrigger
-        label="谁付款"
-        members={members}
-        selectedIds={committedIds}
-        onClick={openPicker}
-        buttonRef={triggerRef}
-      />
+      {showTrigger ? (
+        <MemberPickerTrigger
+          label="谁付款"
+          members={members}
+          selectedIds={committedIds}
+          onClick={openPicker}
+          buttonRef={triggerRef}
+        />
+      ) : null}
       <MemberPickerSheet
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={updateOpen}
         title="谁付款"
         mode={draft.mode === "single" ? "single" : "multiple"}
         members={members}
         selectedIds={selectedIds}
+        view={view}
         onSelectedIdsChange={(ids) => {
           setDraft((current) =>
             current.mode === "single"
@@ -213,7 +243,7 @@ export function PayerPicker({
           } else {
             onChange({ ...draft, memberIds: ids });
           }
-          setOpen(false);
+          updateOpen(false);
         }}
         canAddGuest={canAddGuest}
         online={online}
@@ -300,6 +330,8 @@ export function PayerPicker({
         }
         canComplete={draft.mode === "multiple" && resolution.payments !== null}
         returnFocusRef={triggerRef}
+        inline={inline}
+        onViewChange={updateView}
       />
     </>
   );

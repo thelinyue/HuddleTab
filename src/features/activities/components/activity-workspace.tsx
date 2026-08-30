@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
 import { ExpenseFeedLoader } from "@/features/expenses/components/expense-loaders";
@@ -17,6 +17,16 @@ function withoutPanel(searchParams: { readonly toString: () => string }) {
   return query ? `?${query}` : "";
 }
 
+function withoutInvite(searchParams: {
+  readonly has: (name: string) => boolean;
+  readonly toString: () => string;
+}) {
+  const next = new URLSearchParams(searchParams.toString());
+  next.delete("invite");
+  const query = next.toString();
+  return query ? `?${query}` : "";
+}
+
 /**
  * 活动工作台只根据 URL 决定两种主视图和两个低频面板。主视图保持独立加载器，
  * 面板关闭只移除 panel 参数，因此不会丢失当前 Tab 或刷新整个活动上下文。
@@ -26,14 +36,35 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const openedPanel = useRef<string | null>(null);
+  const [membersInitialView, setMembersInitialView] = useState<
+    "list" | "invite"
+  >("list");
   const tab = searchParams.get("tab") === "settlement" ? "settlement" : "feed";
   const panel = searchParams.get("panel");
 
   useEffect(() => {
     const markPanelOpen = (event: Event) => {
-      const detail = (event as CustomEvent<string>).detail;
-      if (detail === "members" || detail === "manage") {
-        openedPanel.current = detail;
+      const detail = (
+        event as CustomEvent<
+          | string
+          | {
+              readonly panel: "members" | "manage";
+              readonly initialView?: "list" | "invite";
+            }
+        >
+      ).detail;
+      if (typeof detail === "string") {
+        if (detail === "members" || detail === "manage") {
+          openedPanel.current = detail;
+          if (detail === "members") setMembersInitialView("list");
+        }
+        return;
+      }
+      if (detail?.panel === "members" || detail?.panel === "manage") {
+        openedPanel.current = detail.panel;
+        if (detail.panel === "members") {
+          setMembersInitialView(detail.initialView ?? "list");
+        }
       }
     };
     window.addEventListener("huddletab:panel-open", markPanelOpen);
@@ -42,10 +73,20 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!searchParams.has("invite")) return;
+    // 旧链接中的 invite 仅做一次兼容清理，内部子视图始终由本地状态管理。
+    router.replace(
+      `/activities/${encodeURIComponent(activityId)}${withoutInvite(searchParams)}`,
+      { scroll: false },
+    );
+  }, [activityId, router, searchParams]);
+
   const closePanel = () => {
     const nextUrl = `/activities/${encodeURIComponent(activityId)}${withoutPanel(searchParams)}`;
     if (openedPanel.current === panel) {
       openedPanel.current = null;
+      if (panel === "members") setMembersInitialView("list");
       router.back();
       return;
     }
@@ -68,16 +109,14 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
         <ExpenseFeedLoader timeZone={timeZone} />
       )}
 
-      <ResponsiveFormOverlay
+      <MemberPageLoader
+        embedded
         open={panel === "members"}
+        initialView={panel === "members" ? membersInitialView : "list"}
         onOpenChange={(open) => {
           if (!open) closePanel();
         }}
-        title="成员"
-        mobileFullScreen
-      >
-        <MemberPageLoader embedded />
-      </ResponsiveFormOverlay>
+      />
 
       <ResponsiveFormOverlay
         open={panel === "manage"}

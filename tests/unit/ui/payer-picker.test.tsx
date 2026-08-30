@@ -118,3 +118,25 @@ test("多人付款在同一面板选择成员、分配金额并提交", async ()
     amountInputs: { m1: "60", m2: "40" },
   });
 });
+
+test("内嵌付款选择器可由协调器受控打开添加临时成员视图", () => {
+  render(
+    <PayerPicker
+      open
+      inline
+      view="add-guest"
+      members={members}
+      value={{ mode: "single", memberId: "m1" }}
+      onChange={vi.fn()}
+      totalMinor={10_000n}
+      currency="CNY"
+      canAddGuest
+      online
+      onAddGuest={vi.fn()}
+      onViewChange={vi.fn()}
+      onOpenChange={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("textbox", { name: "临时成员昵称" })).toBeVisible();
+});

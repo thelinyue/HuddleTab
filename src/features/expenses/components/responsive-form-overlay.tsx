@@ -122,7 +122,11 @@ export function ResponsiveFormOverlay({
             {headerStart ? (
               <div className="justify-self-start">{headerStart}</div>
             ) : null}
-            <DialogTitle className={headerStart ? "text-center" : undefined}>
+            <DialogTitle
+              className={
+                headerStart ? "min-w-0 truncate text-center" : undefined
+              }
+            >
               {title}
             </DialogTitle>
             {headerStart ? (
@@ -188,11 +192,15 @@ export function ResponsiveFormOverlay({
       >
         <SheetHeader
           className={
-            mobileFullScreen
-              ? `min-h-12 shrink-0 items-center pt-[env(safe-area-inset-top)] pb-0 ${
-                  headerStart ? "grid grid-cols-3 px-1" : "justify-center px-14"
+            headerStart
+              ? `grid min-h-12 shrink-0 grid-cols-3 items-center ${
+                  mobileFullScreen
+                    ? "pt-[env(safe-area-inset-top)] pb-0 px-1"
+                    : ""
                 }`
-              : undefined
+              : mobileFullScreen
+                ? "min-h-12 shrink-0 items-center justify-center pt-[env(safe-area-inset-top)] pb-0 px-14"
+                : undefined
           }
         >
           {headerStart ? (
@@ -201,9 +209,9 @@ export function ResponsiveFormOverlay({
           <SheetTitle
             className={
               mobileFullScreen
-                ? "type-section-title text-center"
+                ? "type-section-title min-w-0 truncate text-center"
                 : headerStart
-                  ? "text-center"
+                  ? "min-w-0 truncate text-center"
                   : undefined
             }
           >

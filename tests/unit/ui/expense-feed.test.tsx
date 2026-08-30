@@ -307,7 +307,7 @@ test("仅一个 active 正式成员时在摘要前展示邀请提示，临时成
   );
   expect(
     screen.getByRole("link", { name: /邀请成员一起记账/ }),
-  ).toHaveAttribute("href", "/activities/activity-1?panel=members&invite=1");
+  ).toHaveAttribute("href", "/activities/activity-1?panel=members");
 });
 
 test.each([

@@ -18,7 +18,7 @@ import {
   PayerPicker,
   resolvePayerPayments,
 } from "@/features/expenses/components/payer-picker";
-import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import { SplitEditor } from "@/features/expenses/components/split-editor";
 import {
   amountToMinor,
@@ -41,6 +41,13 @@ const splitModeLabels = {
   PERCENTAGE: "按比例",
   WEIGHT: "按份数",
 } as const;
+
+type ExpenseEditNavigationView =
+  | "root"
+  | "payer"
+  | "payer-add-guest"
+  | "participants"
+  | "participants-add-guest";
 
 type EditorProps = {
   readonly data: ExpenseDetailResponse;
@@ -274,12 +281,16 @@ function PaymentEditor({
   online,
   onSave,
   onValidityChange,
+  navigationView,
+  onNavigationViewChange,
 }: {
   readonly draft: ExpenseUpdateDraft;
   readonly context: QuickExpenseContextDto;
   readonly online: boolean;
   readonly onSave: (draft: ExpenseUpdateDraft) => Promise<void>;
   readonly onValidityChange: (valid: boolean) => void;
+  readonly navigationView: ExpenseEditNavigationView;
+  readonly onNavigationViewChange: (view: ExpenseEditNavigationView) => void;
 }) {
   const [value, setValue] = useState(draft);
   const [createdMembers, setCreatedMembers] = useState<
@@ -299,47 +310,66 @@ function PaymentEditor({
     value.currency,
   );
   const valid = total !== null && resolution.payments !== null;
+  const members = [
+    ...context.members.filter((member) => member.status === "ACTIVE"),
+    ...createdMembers.filter(
+      (created) => !context.members.some((member) => member.id === created.id),
+    ),
+  ];
+  const picker = (
+    <PayerPicker
+      members={members}
+      value={value.payerSelection}
+      onChange={(payerSelection) =>
+        setValue((current) => ({ ...current, payerSelection }))
+      }
+      totalMinor={total}
+      currency={value.currency}
+      canAddGuest={context.permissions.canManageMembers}
+      online={online}
+      onAddGuest={async (displayName) => {
+        const member = await addGuestMember(context.activity.id, displayName);
+        setCreatedMembers((current) => [...current, member]);
+        return member;
+      }}
+      open={navigationView !== "root"}
+      view={navigationView === "payer-add-guest" ? "add-guest" : "members"}
+      showTrigger={navigationView === "root"}
+      inline
+      onOpenChange={(open) => onNavigationViewChange(open ? "payer" : "root")}
+      onViewChange={(view) =>
+        onNavigationViewChange(
+          view === "add-guest" ? "payer-add-guest" : "payer",
+        )
+      }
+    />
+  );
   useEffect(() => onValidityChange(valid), [onValidityChange, valid]);
   return (
-    <form
-      id="expense-edit-payments-form"
-      className="grid gap-4 py-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        setError(null);
-        void onSave(value).catch((reason) => {
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "账单更新失败，请稍后重试。",
-          );
-        });
-      }}
-    >
-      <PayerPicker
-        members={[
-          ...context.members.filter((member) => member.status === "ACTIVE"),
-          ...createdMembers.filter(
-            (created) =>
-              !context.members.some((member) => member.id === created.id),
-          ),
-        ]}
-        value={value.payerSelection}
-        onChange={(payerSelection) =>
-          setValue((current) => ({ ...current, payerSelection }))
-        }
-        totalMinor={total}
-        currency={value.currency}
-        canAddGuest={context.permissions.canManageMembers}
-        online={online}
-        onAddGuest={async (displayName) => {
-          const member = await addGuestMember(context.activity.id, displayName);
-          setCreatedMembers((current) => [...current, member]);
-          return member;
-        }}
-      />
+    <>
+      {navigationView === "root" ? (
+        <form
+          id="expense-edit-payments-form"
+          className="grid gap-4 py-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setError(null);
+            void onSave(value).catch((reason) => {
+              setError(
+                reason instanceof Error
+                  ? reason.message
+                  : "账单更新失败，请稍后重试。",
+              );
+            });
+          }}
+        >
+          {picker}
+        </form>
+      ) : (
+        <div className="grid gap-4 py-2">{picker}</div>
+      )}
       {error ? <ErrorMessage message={error} /> : null}
-    </form>
+    </>
   );
 }
 
@@ -349,18 +379,21 @@ function SplitEditorFlow({
   online,
   onSave,
   onValidityChange,
+  navigationView,
+  onNavigationViewChange,
 }: {
   readonly draft: ExpenseUpdateDraft;
   readonly context: QuickExpenseContextDto;
   readonly online: boolean;
   readonly onSave: (draft: ExpenseUpdateDraft) => Promise<void>;
   readonly onValidityChange: (valid: boolean) => void;
+  readonly navigationView: ExpenseEditNavigationView;
+  readonly onNavigationViewChange: (view: ExpenseEditNavigationView) => void;
 }) {
   const [value, setValue] = useState(draft);
   const [createdMembers, setCreatedMembers] = useState<
     readonly QuickExpenseMember[]
   >([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerDraft, setPickerDraft] = useState<readonly string[]>(
     draft.participantIds,
   );
@@ -380,22 +413,52 @@ function SplitEditorFlow({
     () => onValidityChange(selectedMembers.length > 0 && preview !== null),
     [onValidityChange, preview, selectedMembers.length],
   );
-  return (
-    <form
-      id="expense-edit-split-form"
-      className="grid gap-4 py-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        setError(null);
-        void onSave(value).catch((reason) => {
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "账单更新失败，请稍后重试。",
-          );
-        });
+  const picker = (
+    <MemberPickerSheet
+      open={navigationView !== "root"}
+      onOpenChange={(open) =>
+        onNavigationViewChange(open ? "participants" : "root")
+      }
+      title="参与成员"
+      mode="multiple"
+      members={members}
+      selectedIds={pickerDraft}
+      view={
+        navigationView === "participants-add-guest" ? "add-guest" : "members"
+      }
+      onSelectedIdsChange={setPickerDraft}
+      onCommit={(ids) => {
+        const changed =
+          ids.length !== value.participantIds.length ||
+          ids.some((id) => !value.participantIds.includes(id));
+        setValue((current) => ({
+          ...current,
+          participantIds: [...ids],
+          splitEntries:
+            changed && current.splitMode !== "EQUAL"
+              ? {}
+              : current.splitEntries,
+        }));
+        onNavigationViewChange("root");
       }}
-    >
+      canComplete={pickerDraft.length > 0}
+      canAddGuest={context.permissions.canManageMembers}
+      online={online}
+      onAddGuest={async (displayName) => {
+        const member = await addGuestMember(context.activity.id, displayName);
+        setCreatedMembers((current) => [...current, member]);
+        return member;
+      }}
+      inline
+      onViewChange={(view) =>
+        onNavigationViewChange(
+          view === "add-guest" ? "participants-add-guest" : "participants",
+        )
+      }
+    />
+  );
+  const fields = (
+    <>
       <div>
         <fieldset role="radiogroup" aria-label="分摊方式">
           <legend className="type-label font-medium">分摊方式</legend>
@@ -428,41 +491,9 @@ function SplitEditorFlow({
         selectedIds={value.participantIds}
         onClick={() => {
           setPickerDraft(value.participantIds);
-          setPickerOpen(true);
+          onNavigationViewChange("participants");
         }}
         buttonRef={triggerRef}
-      />
-      <MemberPickerSheet
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        title="参与成员"
-        mode="multiple"
-        members={members}
-        selectedIds={pickerDraft}
-        onSelectedIdsChange={setPickerDraft}
-        onCommit={(ids) => {
-          const changed =
-            ids.length !== value.participantIds.length ||
-            ids.some((id) => !value.participantIds.includes(id));
-          setValue((current) => ({
-            ...current,
-            participantIds: [...ids],
-            splitEntries:
-              changed && current.splitMode !== "EQUAL"
-                ? {}
-                : current.splitEntries,
-          }));
-          setPickerOpen(false);
-        }}
-        canComplete={pickerDraft.length > 0}
-        canAddGuest={context.permissions.canManageMembers}
-        online={online}
-        onAddGuest={async (displayName) => {
-          const member = await addGuestMember(context.activity.id, displayName);
-          setCreatedMembers((current) => [...current, member]);
-          return member;
-        }}
-        returnFocusRef={triggerRef}
       />
       <SplitEditor
         members={members}
@@ -478,8 +509,34 @@ function SplitEditorFlow({
           }))
         }
       />
+    </>
+  );
+  return (
+    <>
+      {navigationView === "root" ? (
+        <form
+          id="expense-edit-split-form"
+          className="grid gap-4 py-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setError(null);
+            void onSave(value).catch((reason) => {
+              setError(
+                reason instanceof Error
+                  ? reason.message
+                  : "账单更新失败，请稍后重试。",
+              );
+            });
+          }}
+        >
+          {fields}
+          {picker}
+        </form>
+      ) : (
+        <div className="grid gap-4 py-2">{picker}</div>
+      )}
       {error ? <ErrorMessage message={error} /> : null}
-    </form>
+    </>
   );
 }
 
@@ -565,8 +622,16 @@ export function ExpenseEditOverlay({
   const [conflict, setConflict] = useState(false);
   const [coordinatorSaving, setCoordinatorSaving] = useState(false);
   const [completionValid, setCompletionValid] = useState(true);
+  const [navigationView, setNavigationView] =
+    useState<ExpenseEditNavigationView>("root");
   const savingRef = useRef(false);
   const online = useOnlineStatus();
+
+  useEffect(() => {
+    // target/open 代表一次新的编辑会话，必须清空上一会话遗留的本地导航栈。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNavigationView("root");
+  }, [open, target]);
 
   const save = async (candidate: ExpenseUpdateDraft) => {
     if (savingRef.current) return;
@@ -623,11 +688,35 @@ export function ExpenseEditOverlay({
     </div>
   ) : null;
 
+  const navigationTitle =
+    navigationView === "payer"
+      ? "谁付款"
+      : navigationView === "payer-add-guest"
+        ? "添加临时成员"
+        : navigationView === "participants"
+          ? "参与成员"
+          : navigationView === "participants-add-guest"
+            ? "添加临时成员"
+            : titleForTarget(target);
+  const navigateBack = () => {
+    setNavigationView((current) =>
+      current === "payer-add-guest"
+        ? "payer"
+        : current === "participants-add-guest"
+          ? "participants"
+          : "root",
+    );
+  };
+  const updateOpen = (nextOpen: boolean) => {
+    if (!nextOpen) setNavigationView("root");
+    onOpenChange(nextOpen);
+  };
+
   if (target === "CATEGORY") {
     return (
-      <ResponsiveFormOverlay
+      <NavigationOverlay
         open={open}
-        onOpenChange={onOpenChange}
+        onOpenChange={updateOpen}
         title={titleForTarget(target)}
         returnFocusRef={returnFocusRef}
       >
@@ -639,26 +728,32 @@ export function ExpenseEditOverlay({
             void save({ ...initialDraft, category }).catch(() => undefined)
           }
         />
-      </ResponsiveFormOverlay>
+      </NavigationOverlay>
     );
   }
 
   if (target === "SPLIT") {
     return (
-      <ResponsiveFormOverlay
+      <NavigationOverlay
         open={open}
-        onOpenChange={onOpenChange}
-        title={titleForTarget(target)}
+        onOpenChange={updateOpen}
+        title={navigationTitle}
         mobileFullScreen
         keyboardAware
+        onBack={navigationView === "root" ? undefined : navigateBack}
+        backLabel={
+          navigationView === "participants-add-guest" ? "参与成员" : "分摊设置"
+        }
         returnFocusRef={returnFocusRef}
         footer={
-          <SaveFooter
-            formId="expense-edit-split-form"
-            saving={coordinatorSaving}
-            label="完成"
-            disabled={!completionValid}
-          />
+          navigationView === "root" ? (
+            <SaveFooter
+              formId="expense-edit-split-form"
+              saving={coordinatorSaving}
+              label="完成"
+              disabled={!completionValid}
+            />
+          ) : null
         }
       >
         <SplitEditorFlow
@@ -668,28 +763,34 @@ export function ExpenseEditOverlay({
           online={online}
           onSave={save}
           onValidityChange={setCompletionValid}
+          navigationView={navigationView}
+          onNavigationViewChange={setNavigationView}
         />
         {errorContent}
-      </ResponsiveFormOverlay>
+      </NavigationOverlay>
     );
   }
 
   if (target === "PAYMENTS") {
     return (
-      <ResponsiveFormOverlay
+      <NavigationOverlay
         open={open}
-        onOpenChange={onOpenChange}
-        title={titleForTarget(target)}
+        onOpenChange={updateOpen}
+        title={navigationTitle}
         mobileFullScreen
         keyboardAware
+        onBack={navigationView === "root" ? undefined : navigateBack}
+        backLabel={navigationView === "payer-add-guest" ? "谁付款" : "付款信息"}
         returnFocusRef={returnFocusRef}
         footer={
-          <SaveFooter
-            formId="expense-edit-payments-form"
-            saving={coordinatorSaving}
-            label="完成"
-            disabled={!completionValid}
-          />
+          navigationView === "root" ? (
+            <SaveFooter
+              formId="expense-edit-payments-form"
+              saving={coordinatorSaving}
+              label="完成"
+              disabled={!completionValid}
+            />
+          ) : null
         }
       >
         <PaymentEditor
@@ -699,9 +800,11 @@ export function ExpenseEditOverlay({
           online={online}
           onSave={save}
           onValidityChange={setCompletionValid}
+          navigationView={navigationView}
+          onNavigationViewChange={setNavigationView}
         />
         {errorContent}
-      </ResponsiveFormOverlay>
+      </NavigationOverlay>
     );
   }
 
@@ -716,9 +819,9 @@ export function ExpenseEditOverlay({
       <NoteEditor draft={initialDraft} onSave={save} />
     );
   return (
-    <ResponsiveFormOverlay
+    <NavigationOverlay
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={updateOpen}
       title={titleForTarget(target)}
       keyboardAware
       returnFocusRef={returnFocusRef}
@@ -735,7 +838,7 @@ export function ExpenseEditOverlay({
         {content}
       </div>
       {errorContent}
-    </ResponsiveFormOverlay>
+    </NavigationOverlay>
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { MemberList } from "@/features/members/components/member-list";
 import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import type { SettlementPageContextDto } from "@/features/settlements/api";
@@ -15,12 +15,16 @@ type ActivitySummary = {
 };
 export function MemberPageLoader({
   embedded = false,
+  open = true,
+  initialView = "list",
+  onOpenChange,
 }: {
   readonly embedded?: boolean;
+  readonly open?: boolean;
+  readonly initialView?: "list" | "invite";
+  readonly onOpenChange?: (open: boolean) => void;
 }) {
   const { activityId } = useParams<{ activityId: string }>();
-  const searchParams = useSearchParams();
-  const initialInviteOpen = searchParams.get("invite") === "1";
   const [members, setMembers] = useState<readonly Member[] | null>(null);
   const [inviteMode, setInviteMode] = useState<
     "DIRECT_JOIN" | "REQUIRE_APPROVAL" | null
@@ -191,7 +195,10 @@ export function MemberPageLoader({
         members={members}
         inviteMode={inviteMode}
         inviteEnabled={inviteEnabled}
-        initialInviteOpen={initialInviteOpen && canManageMembers}
+        initialInviteOpen={false}
+        initialView={
+          initialView === "invite" && canManageMembers ? "invite" : "list"
+        }
         inviteStatusError={inviteStatusError}
         onRetryInviteStatus={canManageMembers ? retryInviteStatus : undefined}
         balances={settlementContext.balances}
@@ -225,6 +232,8 @@ export function MemberPageLoader({
           load();
         }}
         embedded={embedded}
+        embeddedOpen={open}
+        onEmbeddedOpenChange={onOpenChange}
       />
     </>
   );
