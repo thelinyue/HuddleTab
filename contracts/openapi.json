@@ -1,0 +1,2814 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HuddleTab API",
+    "description": "",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/activities": {
+      "get": {
+        "tags": [],
+        "operationId": "listActivities",
+        "responses": {
+          "200": {
+            "description": "当前用户可访问的活动",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "createActivity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateActivityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "活动已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "活动输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "getActivity",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "活动详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "活动不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/expenses": {
+      "get": {
+        "tags": [],
+        "operationId": "listExpenses",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Expense 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseListEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "createExpense",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "幂等重放",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedExpenseEnvelope"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Expense 已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedExpenseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "幂等键冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "账单输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/expenses/{expense_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "getExpense",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expense_id",
+            "in": "path",
+            "description": "Expense UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Expense 详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Expense 不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "updateExpense",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expense_id",
+            "in": "path",
+            "description": "Expense UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateExpenseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Expense 已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "版本冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "账单输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "deleteExpense",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expense_id",
+            "in": "path",
+            "description": "Expense UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteExpenseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Expense 已软删除",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedExpenseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "版本冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/invitations": {
+      "get": {
+        "tags": [],
+        "operationId": "list_invitations",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "邀请列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "create_invitation",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "邀请已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedInvitationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "邀请信息无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/invitations/{invitation_id}": {
+      "delete": {
+        "tags": [],
+        "operationId": "revoke_invitation",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invitation_id",
+            "in": "path",
+            "description": "邀请 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "邀请已撤销",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "邀请不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/ledger": {
+      "get": {
+        "tags": [],
+        "operationId": "ledger",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "权威 Ledger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无读取权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "账务事实不完整",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/members": {
+      "get": {
+        "tags": [],
+        "operationId": "listActivityMembers",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "活动成员列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityMemberListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "活动不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/members/guests": {
+      "post": {
+        "tags": [],
+        "operationId": "create_guest",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGuestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Guest 已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "成员信息无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/recommendations": {
+      "get": {
+        "tags": [],
+        "operationId": "recommendations",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "确定性结算建议",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无读取权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/settlements": {
+      "get": {
+        "tags": [],
+        "operationId": "listSettlements",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settlement 列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementListEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "createSettlement",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSettlementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "幂等重放",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedSettlementEnvelope"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Settlement 已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedSettlementEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "幂等键冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "结算输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/settlements/{settlement_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "getSettlement",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "settlement_id",
+            "in": "path",
+            "description": "Settlement UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settlement 详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Settlement 不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "updateSettlement",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "settlement_id",
+            "in": "path",
+            "description": "Settlement UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettlementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settlement 已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "版本冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "voidSettlement",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "settlement_id",
+            "in": "path",
+            "description": "Settlement UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidSettlementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settlement 已 VOID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettlementEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "版本冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/csrf": {
+      "get": {
+        "tags": [],
+        "summary": "为未登录请求创建短期 pre-auth context，并返回只与该 context 匹配的 CSRF token。",
+        "operationId": "csrf",
+        "responses": {
+          "200": {
+            "description": "获取 CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsrfEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务内部错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "凭据错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [],
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "注销成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": [],
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "邀请注册成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "注册信息无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "邀请无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "用户名已存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "tags": [],
+        "operationId": "session",
+        "responses": {
+          "200": {
+            "description": "当前 Session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "服务正常",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务内部错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invitations/{token}": {
+      "get": {
+        "tags": [],
+        "operationId": "preview_invitation",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "邀请明文 token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "邀请公开预览",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPreviewEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "邀请无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invitations/{token}/join": {
+      "post": {
+        "tags": [],
+        "operationId": "join_invitation",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "邀请明文 token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "已加入活动",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinInvitationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "邀请无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/password": {
+      "put": {
+        "tags": [],
+        "operationId": "change_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "密码已修改",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangePasswordEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "新密码无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录或当前密码错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActivityData": {
+        "type": "object",
+        "required": [
+          "activityId",
+          "ownerMemberId",
+          "name",
+          "baseCurrency",
+          "status",
+          "version",
+          "revision",
+          "currentMemberId",
+          "currentMemberRole"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "baseCurrency": {
+            "type": "string"
+          },
+          "currentMemberId": {
+            "type": "string"
+          },
+          "currentMemberRole": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ownerMemberId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivityEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActivityData"
+          }
+        }
+      },
+      "ActivityListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityData"
+            }
+          }
+        }
+      },
+      "ActivityMemberData": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "activityId",
+          "displayName",
+          "role",
+          "status",
+          "version"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "userId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivityMemberListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityMemberData"
+            }
+          }
+        }
+      },
+      "BalanceData": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "netMinor"
+        ],
+        "properties": {
+          "memberId": {
+            "type": "string"
+          },
+          "netMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "ChangePasswordData": {
+        "type": "object",
+        "required": [
+          "changed"
+        ],
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ChangePasswordEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ChangePasswordData"
+          }
+        }
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string"
+          },
+          "newPassword": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateActivityRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "baseCurrency"
+        ],
+        "properties": {
+          "baseCurrency": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateGuestRequest": {
+        "type": "object",
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateInvitationRequest": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "maxUses": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "targetUsername": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateSettlementRequest": {
+        "type": "object",
+        "required": [
+          "clientMutationId",
+          "payerMemberId",
+          "receiverMemberId",
+          "currency",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "clientMutationId": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "payerMemberId": {
+            "type": "string"
+          },
+          "receiverMemberId": {
+            "type": "string"
+          }
+        }
+      },
+      "CreatedExpenseData": {
+        "type": "object",
+        "required": [
+          "expense",
+          "payments",
+          "shares",
+          "idempotentReplay"
+        ],
+        "properties": {
+          "expense": {
+            "$ref": "#/components/schemas/ExpenseData"
+          },
+          "idempotentReplay": {
+            "type": "boolean"
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseFactData"
+            }
+          },
+          "shares": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseFactData"
+            }
+          }
+        }
+      },
+      "CreatedExpenseEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CreatedExpenseData"
+          }
+        }
+      },
+      "CreatedInvitationData": {
+        "type": "object",
+        "required": [
+          "invitationId",
+          "activityId",
+          "kind",
+          "token",
+          "expiresAt",
+          "useCount",
+          "version",
+          "revision"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "invitationId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "maxUses": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "targetUsername": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token": {
+            "type": "string"
+          },
+          "useCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "CreatedInvitationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CreatedInvitationData"
+          }
+        }
+      },
+      "CreatedSettlementData": {
+        "type": "object",
+        "required": [
+          "settlement",
+          "idempotentReplay"
+        ],
+        "properties": {
+          "idempotentReplay": {
+            "type": "boolean"
+          },
+          "settlement": {
+            "$ref": "#/components/schemas/SettlementData"
+          }
+        }
+      },
+      "CreatedSettlementEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CreatedSettlementData"
+          }
+        }
+      },
+      "CsrfData": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "CsrfEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CsrfData"
+          }
+        }
+      },
+      "DeleteExpenseRequest": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletedExpenseData": {
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "revision"
+        ],
+        "properties": {
+          "revision": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletedExpenseEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DeletedExpenseData"
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "fieldErrors",
+          "details",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "fieldErrors": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        }
+      },
+      "ExpenseAggregateData": {
+        "type": "object",
+        "required": [
+          "expense",
+          "payments",
+          "shares"
+        ],
+        "properties": {
+          "expense": {
+            "$ref": "#/components/schemas/ExpenseData"
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseFactData"
+            }
+          },
+          "shares": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseFactData"
+            }
+          }
+        }
+      },
+      "ExpenseData": {
+        "type": "object",
+        "required": [
+          "expenseId",
+          "activityId",
+          "clientMutationId",
+          "title",
+          "category",
+          "occurredAt",
+          "originalCurrency",
+          "originalAmountMinor",
+          "baseCurrency",
+          "baseAmountMinor",
+          "exchangeRateKind",
+          "exchangeRate",
+          "splitMode",
+          "version",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "baseAmountMinor": {
+            "type": "string"
+          },
+          "baseCurrency": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "clientMutationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "exchangeRate": {
+            "type": "string"
+          },
+          "exchangeRateKind": {
+            "type": "string"
+          },
+          "expenseId": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "originalAmountMinor": {
+            "type": "string"
+          },
+          "originalCurrency": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "splitMode": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "ExpenseDraftRequest": {
+        "type": "object",
+        "required": [
+          "clientMutationId",
+          "title",
+          "category",
+          "occurredAt",
+          "originalCurrency",
+          "originalAmountMinor",
+          "exchangeRateKind",
+          "exchangeRate",
+          "payments",
+          "split"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "clientMutationId": {
+            "type": "string"
+          },
+          "exchangeRate": {
+            "type": "string"
+          },
+          "exchangeRateKind": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "originalAmountMinor": {
+            "type": "string"
+          },
+          "originalCurrency": {
+            "type": "string"
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpensePaymentRequest"
+            }
+          },
+          "split": {
+            "$ref": "#/components/schemas/ExpenseSplitRequest"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ExpenseEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExpenseAggregateData"
+          }
+        }
+      },
+      "ExpenseFactData": {
+        "type": "object",
+        "required": [
+          "factId",
+          "memberId",
+          "originalAmountMinor",
+          "baseAmountMinor"
+        ],
+        "properties": {
+          "baseAmountMinor": {
+            "type": "string"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "originalAmountMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "ExpenseListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseAggregateData"
+            }
+          }
+        }
+      },
+      "ExpensePaymentRequest": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          }
+        }
+      },
+      "ExpenseSplitEntryRequest": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "value"
+        ],
+        "properties": {
+          "memberId": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "ExpenseSplitRequest": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "entries": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExpenseSplitEntryRequest"
+            }
+          },
+          "members": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string"
+          }
+        }
+      },
+      "GuestData": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "activityId",
+          "displayName",
+          "role",
+          "status",
+          "version",
+          "revision"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "userId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "GuestEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GuestData"
+          }
+        }
+      },
+      "HealthData": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HealthData"
+          }
+        }
+      },
+      "InvitationData": {
+        "type": "object",
+        "required": [
+          "invitationId",
+          "activityId",
+          "kind",
+          "expiresAt",
+          "useCount",
+          "version",
+          "revision"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "invitationId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "maxUses": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetUsername": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "useCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "InvitationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InvitationData"
+          }
+        }
+      },
+      "InvitationListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvitationData"
+            }
+          }
+        }
+      },
+      "InvitationPreviewData": {
+        "type": "object",
+        "required": [
+          "activityId",
+          "activityName",
+          "activeMemberCount",
+          "kind",
+          "expiresAt"
+        ],
+        "properties": {
+          "activeMemberCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "activityId": {
+            "type": "string"
+          },
+          "activityName": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        }
+      },
+      "InvitationPreviewEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InvitationPreviewData"
+          }
+        }
+      },
+      "JoinInvitationData": {
+        "type": "object",
+        "required": [
+          "status",
+          "activityId",
+          "memberId",
+          "revision"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "JoinInvitationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JoinInvitationData"
+          }
+        }
+      },
+      "LedgerData": {
+        "type": "object",
+        "required": [
+          "baseCurrency",
+          "revision",
+          "balances"
+        ],
+        "properties": {
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BalanceData"
+            }
+          },
+          "baseCurrency": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          }
+        }
+      },
+      "LedgerEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LedgerData"
+          }
+        }
+      },
+      "LoginData": {
+        "type": "object",
+        "required": [
+          "userId",
+          "username",
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LoginEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LoginData"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LogoutData": {
+        "type": "object",
+        "required": [
+          "loggedOut"
+        ],
+        "properties": {
+          "loggedOut": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LogoutEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LogoutData"
+          }
+        }
+      },
+      "RecommendationData": {
+        "type": "object",
+        "required": [
+          "baseCurrency",
+          "revision",
+          "recommendations"
+        ],
+        "properties": {
+          "baseCurrency": {
+            "type": "string"
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecommendationItemData"
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        }
+      },
+      "RecommendationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RecommendationData"
+          }
+        }
+      },
+      "RecommendationItemData": {
+        "type": "object",
+        "required": [
+          "payerMemberId",
+          "receiverMemberId",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "payerMemberId": {
+            "type": "string"
+          },
+          "receiverMemberId": {
+            "type": "string"
+          }
+        }
+      },
+      "RegisterData": {
+        "type": "object",
+        "required": [
+          "userId",
+          "username",
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "RegisterEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RegisterData"
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password",
+          "displayName",
+          "invitationToken"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "invitationToken": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionData": {
+        "type": "object",
+        "required": [
+          "userId",
+          "username",
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SessionData"
+          }
+        }
+      },
+      "SettlementData": {
+        "type": "object",
+        "required": [
+          "settlementId",
+          "activityId",
+          "clientMutationId",
+          "payerMemberId",
+          "receiverMemberId",
+          "currency",
+          "amountMinor",
+          "status",
+          "version",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "amountMinor": {
+            "type": "string"
+          },
+          "clientMutationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "payerMemberId": {
+            "type": "string"
+          },
+          "receiverMemberId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "settlementId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "voidedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SettlementEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SettlementEnvelopeData"
+          }
+        }
+      },
+      "SettlementEnvelopeData": {
+        "type": "object",
+        "required": [
+          "settlement"
+        ],
+        "properties": {
+          "settlement": {
+            "$ref": "#/components/schemas/SettlementData"
+          }
+        }
+      },
+      "SettlementListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementData"
+            }
+          }
+        }
+      },
+      "UpdateExpenseRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ExpenseDraftRequest"
+          },
+          {
+            "type": "object",
+            "required": [
+              "version"
+            ],
+            "properties": {
+              "version": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "UpdateSettlementRequest": {
+        "type": "object",
+        "required": [
+          "version",
+          "payerMemberId",
+          "receiverMemberId",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "payerMemberId": {
+            "type": "string"
+          },
+          "receiverMemberId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "VoidSettlementRequest": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

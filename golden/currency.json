@@ -1,0 +1,17 @@
+{
+  "currencies": [
+    { "input": " CNY ", "code": "CNY", "exponent": 2 },
+    { "input": "usd", "code": "USD", "exponent": 2 },
+    { "input": "JPY", "code": "JPY", "exponent": 0 },
+    { "input": "bhd", "code": "BHD", "exponent": 3 },
+    { "input": "CLF", "code": "CLF", "exponent": 4 }
+  ],
+  "invalidCurrencies": ["", "CN", "USDT", "12A", "ZZZ"],
+  "amounts": [
+    { "input": "0", "value": "0" },
+    { "input": "-0", "value": "0" },
+    { "input": "9223372036854775807", "value": "9223372036854775807" },
+    { "input": "-9223372036854775808", "value": "-9223372036854775808" }
+  ],
+  "invalidAmounts": ["", "+1", "01", "-01", "1.0", " 1", "1 ", "9223372036854775808", "-9223372036854775809"]
+}

@@ -1,29 +1,34 @@
-FROM node:24-bookworm-slim AS build
-WORKDIR /app
+FROM node:24-bookworm-slim AS frontend-build
+WORKDIR /build/frontend
 
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
-COPY . .
+COPY frontend/ ./
 RUN npm run build
 
-FROM node:24-bookworm-slim AS runtime
-ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=5660
+FROM rust:1.97-bookworm AS server-build
+WORKDIR /build/server
+
+COPY server/ ./
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl tzdata \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd --gid 10001 huddletab \
+  && useradd --uid 10001 --gid huddletab --no-create-home --shell /usr/sbin/nologin huddletab \
+  && install -d -o huddletab -g huddletab /app/frontend/dist /data
+
+COPY --from=server-build /build/server/target/release/huddletab /usr/local/bin/huddletab
+COPY --from=frontend-build --chown=huddletab:huddletab /build/frontend/dist/ /app/frontend/dist/
+
+ENV RUST_LOG=huddletab_server=info TZ=Asia/Shanghai
 WORKDIR /app
-
-RUN mkdir -p /data/uploads
-
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
-COPY --from=build /app/drizzle ./drizzle
-COPY --from=build /app/src/server/db/migrate.ts ./src/server/db/migrate.ts
-COPY --from=build /app/src/server/db/factory.ts ./src/server/db/factory.ts
-COPY --from=build /app/docker/entrypoint.sh ./docker/entrypoint.sh
-
-RUN sed -i 's/\r$//' ./docker/entrypoint.sh \
-  && chmod +x ./docker/entrypoint.sh
-
+USER 10001:10001
 EXPOSE 5660
 
-ENTRYPOINT ["/app/docker/entrypoint.sh"]
+ENTRYPOINT ["huddletab"]
+CMD ["serve", "--static-dir", "/app/frontend/dist"]

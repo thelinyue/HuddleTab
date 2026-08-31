@@ -14,29 +14,24 @@ services:
       retries: 20
 
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-huddletab}:${POSTGRES_PASSWORD:-huddletab}@postgres:5432/${POSTGRES_DB:-huddletab}
-      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5660}
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
       DATA_DIR: /data
-      TRUST_PROXY: ${TRUST_PROXY:-false}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
+      RUST_LOG: ${RUST_LOG:-huddletab_server=info}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${APP_PORT:-5660}:5660"
     volumes:
       - ${DATA_HOST_DIR:-./data}/app:/data
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:5660/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
-        ]
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5660/api/health"]
       interval: 10s
       timeout: 5s
       retries: 20

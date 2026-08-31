@@ -1,0 +1,16 @@
+//! 基础设施层实现数据库、认证、时钟与文件系统端口。
+
+pub mod accounting_repository;
+pub mod activity_repository;
+pub mod app_secret;
+pub mod auth_repository;
+pub mod clock;
+pub mod collaboration_repository;
+pub mod csrf;
+pub mod database;
+pub mod expense_repository;
+pub mod invitation_token;
+pub mod password;
+pub mod registration_repository;
+pub mod session;
+pub mod settlement_repository;
