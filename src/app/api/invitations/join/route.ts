@@ -17,7 +17,6 @@ export async function POST(request: Request) {
     { requireSession, sessionUserId },
     { InvitationService },
     { sql },
-    { MaintenanceMode },
     { RateLimiter },
     { authRuntimeConfig },
     { resolveClientIp },
@@ -26,7 +25,6 @@ export async function POST(request: Request) {
     import("@/server/auth/session"),
     import("@/server/services/invitation-service"),
     import("@/server/db/client"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/security/rate-limiter"),
     import("@/server/auth/runtime-config"),
     import("@/server/security/client-ip"),
@@ -43,7 +41,6 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const userId = sessionUserId(session);
     const clientIp = resolveClientIp({
       trustedProxy: process.env.TRUST_PROXY === "true",

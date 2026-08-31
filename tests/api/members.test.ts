@@ -33,11 +33,6 @@ vi.mock("@/server/services/member-service", () => ({
     addGuest = mocks.addGuest;
   },
 }));
-vi.mock("@/server/maintenance/maintenance-mode", () => ({
-  MaintenanceMode: class {
-    assertWritesAllowed = vi.fn().mockResolvedValue(undefined);
-  },
-}));
 
 import { GET, POST } from "@/app/api/activities/[activityId]/members/route";
 

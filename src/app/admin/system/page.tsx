@@ -8,7 +8,6 @@ import { AppFrame } from "@/components/design-system/app-frame";
 type Storage = {
   readonly databaseBytes: string;
   readonly uploadsBytes: string;
-  readonly backupsBytes: string;
   readonly totalBytes: string;
 };
 
@@ -115,11 +114,6 @@ export default function AdminSystemPage() {
               icon={<FolderArchive aria-hidden="true" />}
               label="上传文件"
               value={formatBytes(storage.uploadsBytes)}
-            />
-            <Metric
-              icon={<FolderArchive aria-hidden="true" />}
-              label="备份文件"
-              value={formatBytes(storage.backupsBytes)}
             />
             <Metric
               label="合计"

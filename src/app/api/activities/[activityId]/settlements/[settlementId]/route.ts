@@ -36,13 +36,11 @@ export async function PUT(request: Request, context: ItemContext) {
   const [
     { requireSession, sessionUserId },
     { sql },
-    { MaintenanceMode },
     { SettlementService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/settlement-service"),
     import("@/server/http/application-error-response"),
   ]);
@@ -51,7 +49,6 @@ export async function PUT(request: Request, context: ItemContext) {
       context.params,
       requireSession(request.headers),
     ]);
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const input = await updateSettlementInput.parseAsync(await request.json());
     const result = await new SettlementService(sql).update(
       { user: { id: sessionUserId(session) } },
@@ -73,13 +70,11 @@ export async function DELETE(request: Request, context: ItemContext) {
   const [
     { requireSession, sessionUserId },
     { sql },
-    { MaintenanceMode },
     { SettlementService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/settlement-service"),
     import("@/server/http/application-error-response"),
   ]);
@@ -88,7 +83,6 @@ export async function DELETE(request: Request, context: ItemContext) {
       context.params,
       requireSession(request.headers),
     ]);
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const input = await deleteSettlementInput.parseAsync(await request.json());
     await new SettlementService(sql).remove(
       { user: { id: sessionUserId(session) } },

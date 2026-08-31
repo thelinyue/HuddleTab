@@ -28,7 +28,7 @@ services:
     ports:
       - "${APP_PORT:-5660}:5660"
     volumes:
-      - ${DATA_HOST_DIR:-./data}:/data
+      - ${DATA_HOST_DIR:-./data}/app:/data
     healthcheck:
       test:
         [

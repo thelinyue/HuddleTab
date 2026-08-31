@@ -7,18 +7,12 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
-  assertWritesAllowed: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/server/auth/session", () => ({
   requireSession: vi.fn().mockResolvedValue({ user: { id: "user-1" } }),
   sessionUserId: vi.fn().mockReturnValue("user-1"),
 }));
 vi.mock("@/server/db/client", () => ({ sql: {} }));
-vi.mock("@/server/maintenance/maintenance-mode", () => ({
-  MaintenanceMode: class {
-    assertWritesAllowed = mocks.assertWritesAllowed;
-  },
-}));
 vi.mock("@/server/services/settlement-service", () => ({
   SettlementService: class {
     list = mocks.list;

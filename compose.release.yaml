@@ -30,8 +30,7 @@ services:
     ports:
       - "5660:5660"
     volumes:
-      - ./huddletab-data/uploads:/data/uploads
-      - ./huddletab-data/backups:/data/backups
+      - ./huddletab-data/app:/data
     healthcheck:
       test:
         [

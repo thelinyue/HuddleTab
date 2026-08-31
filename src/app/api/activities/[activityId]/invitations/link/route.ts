@@ -70,13 +70,11 @@ async function updateInvitation(
     { requireSession, sessionUserId },
     { InvitationService },
     { sql },
-    { MaintenanceMode },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/services/invitation-service"),
     import("@/server/db/client"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/http/application-error-response"),
   ]);
   try {
@@ -84,7 +82,6 @@ async function updateInvitation(
       context.params,
       requireSession(request.headers),
     ]);
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const service = new InvitationService(sql);
     const input = {
       session: { user: { id: sessionUserId(session) } },

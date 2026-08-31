@@ -16,13 +16,11 @@ export async function POST(
     { requireSession, sessionUserId },
     { InvitationService },
     { sql },
-    { MaintenanceMode },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/services/invitation-service"),
     import("@/server/db/client"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/http/application-error-response"),
   ]);
   try {
@@ -30,7 +28,6 @@ export async function POST(
       context.params,
       requireSession(request.headers),
     ]);
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const body = await decisionInput.parseAsync(await request.json());
     await new InvitationService(sql).decideJoinRequest({
       session: { user: { id: sessionUserId(session) } },

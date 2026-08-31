@@ -9,6 +9,16 @@ const scriptSource = isDevelopment
 const contentSecurityPolicy = `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; script-src ${scriptSource}; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:; manifest-src 'self'; worker-src 'self' blob:`;
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+  outputFileTracingIncludes: {
+    "/*": [
+      "src/server/db/migrate.ts",
+      "src/server/db/factory.ts",
+      "drizzle/**/*",
+      "node_modules/drizzle-orm/**/*",
+      "node_modules/postgres/**/*",
+    ],
+  },
   allowedDevOrigins: ["127.0.0.1"],
   poweredByHeader: false,
   async headers() {

@@ -11,13 +11,11 @@ export async function DELETE(
     { requireSession, sessionUserId },
     { sql },
     { MemberService },
-    { MaintenanceMode },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
     import("@/server/services/member-service"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/http/application-error-response"),
   ]);
   try {
@@ -25,7 +23,6 @@ export async function DELETE(
       context.params,
       requireSession(request.headers),
     ]);
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const usage = {
       hasFacts: async (memberId: string) =>
         (

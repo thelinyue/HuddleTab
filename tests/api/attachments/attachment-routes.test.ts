@@ -3,7 +3,6 @@ import { expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   upload: vi.fn(),
   download: vi.fn(),
-  assertWritesAllowed: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/server/auth/session", () => ({
@@ -11,11 +10,6 @@ vi.mock("@/server/auth/session", () => ({
   sessionUserId: vi.fn().mockReturnValue("alice"),
 }));
 vi.mock("@/server/db/client", () => ({ sql: {} }));
-vi.mock("@/server/maintenance/maintenance-mode", () => ({
-  MaintenanceMode: class {
-    assertWritesAllowed = mocks.assertWritesAllowed;
-  },
-}));
 vi.mock("@/server/services/attachment-service", () => ({
   AttachmentService: class {
     upload = mocks.upload;

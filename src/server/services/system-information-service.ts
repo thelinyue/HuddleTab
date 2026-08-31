@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 
 import type postgres from "postgres";
 
-export type StorageDirectory = "uploads" | "backups";
+export type StorageDirectory = "uploads";
 
 export interface SystemInformationProbe {
   databaseBytes(): Promise<bigint>;
@@ -17,7 +17,7 @@ interface SystemInformationOptions {
   readonly dataDirectory?: string;
 }
 
-const storageDirectories = new Set<StorageDirectory>(["uploads", "backups"]);
+const storageDirectories = new Set<StorageDirectory>(["uploads"]);
 
 function defaultDataDirectory() {
   return resolve(
@@ -53,7 +53,7 @@ export class SystemProbe implements SystemInformationProbe {
 
   async directoryBytes(name: StorageDirectory): Promise<bigint> {
     if (!storageDirectories.has(name)) {
-      throw new Error("仅允许统计 uploads 或 backups 目录。");
+      throw new Error("仅允许统计 uploads 目录。");
     }
     return directoryBytes(join(this.dataDirectory, name));
   }
@@ -121,16 +121,14 @@ export class SystemInformationService {
   }
 
   async storage() {
-    const [databaseBytes, uploadsBytes, backupsBytes] = await Promise.all([
+    const [databaseBytes, uploadsBytes] = await Promise.all([
       this.probe.databaseBytes(),
       this.probe.directoryBytes("uploads"),
-      this.probe.directoryBytes("backups"),
     ]);
     return {
       databaseBytes: databaseBytes.toString(),
       uploadsBytes: uploadsBytes.toString(),
-      backupsBytes: backupsBytes.toString(),
-      totalBytes: (databaseBytes + uploadsBytes + backupsBytes).toString(),
+      totalBytes: (databaseBytes + uploadsBytes).toString(),
     };
   }
 

@@ -28,11 +28,11 @@ afterEach(async () => {
 });
 
 describe("SystemInformationService", () => {
-  it("返回数据库、上传、备份及总计的十进制字节字符串", async () => {
+  it("返回数据库、上传及总计的十进制字节字符串", async () => {
     const service = new SystemInformationService(
       {
         databaseBytes: async () => 100n,
-        directoryBytes: async (name) => (name === "uploads" ? 20n : 5n),
+        directoryBytes: async () => 20n,
         databaseVersion: async () => "PostgreSQL 18.0",
       },
       {
@@ -45,8 +45,7 @@ describe("SystemInformationService", () => {
     await expect(service.storage()).resolves.toEqual({
       databaseBytes: "100",
       uploadsBytes: "20",
-      backupsBytes: "5",
-      totalBytes: "125",
+      totalBytes: "120",
     });
   });
 
@@ -54,7 +53,7 @@ describe("SystemInformationService", () => {
     const service = new SystemInformationService(
       {
         databaseBytes: async () => 9_007_199_254_740_993n,
-        directoryBytes: async (name) => (name === "uploads" ? 7n : 11n),
+        directoryBytes: async () => 7n,
         databaseVersion: async () => "PostgreSQL 18.0",
       },
       { appVersion: "dev", pwaVersion: "dev", dataDirectory: "/data" },
@@ -63,8 +62,7 @@ describe("SystemInformationService", () => {
     await expect(service.storage()).resolves.toEqual({
       databaseBytes: "9007199254740993",
       uploadsBytes: "7",
-      backupsBytes: "11",
-      totalBytes: "9007199254741011",
+      totalBytes: "9007199254741000",
     });
   });
 
@@ -87,23 +85,12 @@ describe("SystemInformationService", () => {
       await writeFile(target, Buffer.alloc(97));
       await symlink(target, join(dataDirectory, "uploads", "outside-link"));
 
-      await mkdir(join(dataDirectory, "outside-backups"));
-      await writeFile(
-        join(dataDirectory, "outside-backups", "archive.tar.gz"),
-        Buffer.alloc(101),
-      );
-      await symlink(
-        join(dataDirectory, "outside-backups"),
-        join(dataDirectory, "backups"),
-      );
-
       const probe = new SystemProbe(
         vi.fn() as unknown as ReturnType<typeof postgres>,
         dataDirectory,
       );
 
       await expect(probe.directoryBytes("uploads")).resolves.toBe(20n);
-      await expect(probe.directoryBytes("backups")).resolves.toBe(0n);
     },
   );
 
@@ -114,11 +101,11 @@ describe("SystemInformationService", () => {
     );
 
     await expect(probe.directoryBytes("../uploads" as never)).rejects.toThrow(
-      "仅允许统计 uploads 或 backups 目录。",
+      "仅允许统计 uploads 目录。",
     );
     await expect(
       probe.directoryBytes("uploads/nested" as never),
-    ).rejects.toThrow("仅允许统计 uploads 或 backups 目录。");
+    ).rejects.toThrow("仅允许统计 uploads 目录。");
   });
 
   it("探针使用数据库自身大小与版本查询", async () => {

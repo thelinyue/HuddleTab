@@ -1,5 +1,4 @@
 import {
-  ArchiveRestoreIcon,
   ChevronRightIcon,
   MonitorCogIcon,
   SlidersHorizontalIcon,
@@ -23,12 +22,6 @@ const adminEntries = [
     label: "系统设置",
     description: "注册策略与服务运行设置",
     Icon: SlidersHorizontalIcon,
-  },
-  {
-    href: "/admin/backups",
-    label: "备份与恢复",
-    description: "创建、查看与恢复系统备份",
-    Icon: ArchiveRestoreIcon,
   },
   {
     href: "/admin/system",

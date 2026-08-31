@@ -83,13 +83,11 @@ export async function POST(
     { requireSession, sessionUserId },
     { sql },
     { MemberService },
-    { MaintenanceMode },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
     import("@/server/services/member-service"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/http/application-error-response"),
   ]);
   try {
@@ -97,7 +95,6 @@ export async function POST(
       context.params,
       requireSession(request.headers),
     ]);
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const { displayName } = addGuestInput.parse(await request.json());
     const usage = {
       hasFacts: async (memberId: string) =>

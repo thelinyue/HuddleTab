@@ -1,2 +1,0 @@
-ALTER TABLE "user_profiles" ADD COLUMN "avatar_preset" integer;--> statement-breakpoint
-ALTER TABLE "user_profiles" ADD CONSTRAINT "user_profiles_avatar_preset_check" CHECK ("user_profiles"."avatar_preset" between 1 and 6);

@@ -1,5 +1,5 @@
 ﻿<#
-  生产升级演练：只运行已提交 Migration，先请求备份并保留旧镜像 ID。
+  生产升级演练：升级前由宿主备份体系保护数据，只运行已提交 Migration，并保留旧镜像 ID。
   会话 Cookie 只传给本地 HTTP 请求，绝不写入 PowerShell 输出或命令历史。
 #>
 [CmdletBinding()]
@@ -24,17 +24,12 @@ function Invoke-UpgradeStep([string]$Name, [scriptblock]$Action) {
 
 try {
   $sessionCookie = Require-Environment "VERIFY_SESSION_COOKIE"
-  $headers = @{ Cookie = $sessionCookie; "Content-Type" = "application/json" }
   # 复用本次显式提供的管理员测试会话，避免升级验收使用另一份未声明的凭证。
   $env:SMOKE_SESSION_COOKIE = $sessionCookie
   $env:SMOKE_BASE_URL = $BaseUrl
   $oldImage = (& docker compose -f $ComposeFile images -q app).Trim()
   if ([string]::IsNullOrWhiteSpace($oldImage)) { throw "未找到当前 app 镜像，请先启动 Compose。" }
 
-  Invoke-UpgradeStep "backup" {
-    $response = Invoke-WebRequest -Uri "$($BaseUrl.TrimEnd('/'))/api/admin/backups" -Method Post -Headers $headers -Body '{"confirmed":true}' -UseBasicParsing
-    if ($response.StatusCode -ne 201) { throw "备份接口返回 HTTP $($response.StatusCode)。" }
-  }
   Invoke-UpgradeStep "build" {
     & docker compose -f $ComposeFile build app
     if ($LASTEXITCODE -ne 0) { throw "Docker 构建失败，退出码：$LASTEXITCODE。" }

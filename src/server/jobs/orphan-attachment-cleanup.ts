@@ -4,13 +4,10 @@ import { join, relative, resolve, sep } from "node:path";
 
 import type postgres from "postgres";
 
-import { MaintenanceMode } from "@/server/maintenance/maintenance-mode";
-
 type CleanupLogger = Pick<Console, "info">;
 
 type OrphanAttachmentCleanupOptions = {
   readonly uploadsRoot?: string;
-  readonly isMaintenanceActive?: () => boolean | Promise<boolean>;
   readonly now?: () => Date;
   readonly logger?: CleanupLogger;
   readonly removeFile?: (path: string) => Promise<void>;
@@ -27,9 +24,7 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 type StartedCleanup = Pick<OrphanAttachmentCleanup, "run">;
 type ScheduleOptions = {
-  readonly createCleanup?: (
-    isMaintenanceActive: () => Promise<boolean>,
-  ) => StartedCleanup;
+  readonly createCleanup?: () => StartedCleanup;
   readonly setInterval?: (
     callback: () => void,
     delay: number,
@@ -39,11 +34,10 @@ type ScheduleOptions = {
 
 /**
  * 孤立附件只可能产生于“文件已写入、元数据事务尚未提交”时进程异常中断的窗口。
- * 清理器始终以数据库元数据为准，并在维护模式下完全跳过，避免恢复期间误删文件。
+ * 清理器始终以数据库元数据为准，避免把尚未写入元数据的附件误判为有效文件。
  */
 export class OrphanAttachmentCleanup {
   private readonly uploadsRoot: string;
-  private readonly isMaintenanceActive: () => boolean | Promise<boolean>;
   private readonly now: () => Date;
   private readonly logger: CleanupLogger;
   private readonly removeFile: (path: string) => Promise<void>;
@@ -56,17 +50,12 @@ export class OrphanAttachmentCleanup {
       options.uploadsRoot ??
         join(process.env.DATA_DIR ?? join(process.cwd(), "data"), "uploads"),
     );
-    this.isMaintenanceActive = options.isMaintenanceActive ?? (() => false);
     this.now = options.now ?? (() => new Date());
     this.logger = options.logger ?? console;
     this.removeFile = options.removeFile ?? ((path) => rm(path));
   }
 
   async run(): Promise<CleanupResult> {
-    if (await this.isMaintenanceActive()) {
-      return { scanned: 0, deleted: 0, skipped: true };
-    }
-
     const files = await this.listFiles(this.uploadsRoot);
     const threshold = this.now().getTime() - ORPHAN_AGE_MS;
     let deleted = 0;
@@ -123,17 +112,13 @@ export class OrphanAttachmentCleanup {
 }
 
 /**
- * 容器进程中的单实例回收任务。维护状态从权威数据库读取，而不是依赖可能过期的
- * 环境变量；任何清理失败只写中文部署日志，不能终止正在运行的 Web 应用。
+ * 容器进程中的单实例回收任务。任何清理失败只写中文部署日志，不能终止正在运行的 Web 应用。
  */
 export function startOrphanAttachmentCleanup(
   sql: ReturnType<typeof postgres>,
   options: ScheduleOptions = {},
 ) {
-  const isMaintenanceActive = () => new MaintenanceMode(sql).isActive();
-  const cleanup =
-    options.createCleanup?.(isMaintenanceActive) ??
-    new OrphanAttachmentCleanup(sql, { isMaintenanceActive });
+  const cleanup = options.createCleanup?.() ?? new OrphanAttachmentCleanup(sql);
   const logger = options.logger ?? console;
   let running = false;
   const run = async () => {

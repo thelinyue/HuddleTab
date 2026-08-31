@@ -33,19 +33,16 @@ export async function POST(request: Request) {
   const [
     { requireSession, sessionUserId },
     { sql },
-    { MaintenanceMode },
     { ActivityService },
     { applicationErrorResponse },
   ] = await Promise.all([
     import("@/server/auth/session"),
     import("@/server/db/client"),
-    import("@/server/maintenance/maintenance-mode"),
     import("@/server/services/activity-service"),
     import("@/server/http/application-error-response"),
   ]);
   try {
     const session = await requireSession(request.headers);
-    await new MaintenanceMode(sql).assertWritesAllowed();
     const body = await createActivityInput.parseAsync(await request.json());
     const userId = sessionUserId(session);
     const [profile] =

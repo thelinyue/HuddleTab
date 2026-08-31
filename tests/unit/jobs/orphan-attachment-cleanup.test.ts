@@ -64,28 +64,6 @@ describe("孤立附件清理", () => {
     );
   });
 
-  it("维护模式启用时不查询、不删除并返回跳过结果", async () => {
-    const root = await createTemporaryRoot();
-    const orphanKey = "activity/expense/orphan.webp";
-    await createFile(root, orphanKey, new Date("2026-08-25T11:59:59.000Z"));
-    const sql = vi.fn();
-    const logger = { info: vi.fn() };
-
-    const result = await new OrphanAttachmentCleanup(sql as never, {
-      uploadsRoot: root,
-      now: () => now,
-      isMaintenanceActive: () => true,
-      logger,
-    }).run();
-
-    await expect(fileExists(join(root, ...orphanKey.split("/")))).resolves.toBe(
-      true,
-    );
-    expect(sql).not.toHaveBeenCalled();
-    expect(logger.info).not.toHaveBeenCalled();
-    expect(result).toEqual({ scanned: 0, deleted: 0, skipped: true });
-  });
-
   it("将元数据查询失败直接返回给调用方", async () => {
     const root = await createTemporaryRoot();
     const orphanKey = "activity/expense/orphan.webp";

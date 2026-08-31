@@ -14,11 +14,6 @@ vi.mock("@/server/auth/session", () => ({
   sessionUserId: vi.fn().mockReturnValue("alice"),
 }));
 vi.mock("@/server/db/client", () => ({ sql: {} }));
-vi.mock("@/server/maintenance/maintenance-mode", () => ({
-  MaintenanceMode: class {
-    assertWritesAllowed = vi.fn();
-  },
-}));
 vi.mock("@/server/services/invitation-service", () => ({
   InvitationService: class {
     resetLink = mocks.resetLink;

@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 describe("database migration foundation", () => {
@@ -12,11 +11,7 @@ describe("database migration foundation", () => {
     try {
       const result = spawnSync(
         process.execPath,
-        [
-          "--import",
-          pathToFileURL(resolve("node_modules/tsx/dist/loader.mjs")).href,
-          resolve("src/server/db/migrate.ts"),
-        ],
+        [resolve("src/server/db/migrate.ts")],
         {
           cwd: emptyWorkspace,
           encoding: "utf8",

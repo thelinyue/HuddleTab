@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { createDatabaseClient } from "./factory";
+import { createDatabaseClient } from "./factory.ts";
 
 const migrationsFolder = resolve(process.cwd(), "drizzle");
 let sql: ReturnType<typeof createDatabaseClient>["sql"] | undefined;

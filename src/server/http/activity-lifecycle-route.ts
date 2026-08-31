@@ -12,13 +12,11 @@ export function makeLifecycleRoute(action: LifecycleAction) {
       { requireSession, sessionUserId },
       { ActivityLifecycleService },
       { sql },
-      { MaintenanceMode },
       { applicationErrorResponse },
     ] = await Promise.all([
       import("@/server/auth/session"),
       import("@/server/services/activity-lifecycle-service"),
       import("@/server/db/client"),
-      import("@/server/maintenance/maintenance-mode"),
       import("@/server/http/application-error-response"),
     ]);
     try {
@@ -26,7 +24,6 @@ export function makeLifecycleRoute(action: LifecycleAction) {
         context.params,
         requireSession(request.headers),
       ]);
-      await new MaintenanceMode(sql).assertWritesAllowed();
       await new ActivityLifecycleService(sql).transition({
         session: { user: { id: sessionUserId(session) } },
         activityId: params.activityId,

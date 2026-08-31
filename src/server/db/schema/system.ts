@@ -80,7 +80,6 @@ export const systemSettings = pgTable("system_settings", {
   registrationPolicy: registrationPolicy("registration_policy")
     .notNull()
     .default("INVITE_ONLY"),
-  maintenanceMode: boolean("maintenance_mode").notNull().default(false),
   smtpEnabled: boolean("smtp_enabled").notNull().default(false),
   smtpHost: text("smtp_host"),
   smtpPort: integer("smtp_port"),

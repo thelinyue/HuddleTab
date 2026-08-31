@@ -31,8 +31,7 @@ it("系统管理员可以读取存储统计和系统信息", async () => {
   mocks.storage.mockResolvedValue({
     databaseBytes: "100",
     uploadsBytes: "20",
-    backupsBytes: "5",
-    totalBytes: "125",
+    totalBytes: "120",
   });
   mocks.information.mockResolvedValue({
     appVersion: "1.0.0",

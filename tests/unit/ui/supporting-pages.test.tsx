@@ -18,7 +18,7 @@ import AdminPage from "@/app/admin/page";
 
 afterEach(cleanup);
 
-test("系统管理首页仅提供四个已实现管理页面的导航", () => {
+test("系统管理首页仅提供三个已实现管理页面的导航", () => {
   render(<AdminPage />);
 
   expect(screen.getByRole("heading", { name: "系统管理" })).toBeVisible();
@@ -34,15 +34,11 @@ test("系统管理首页仅提供四个已实现管理页面的导航", () => {
     "href",
     "/admin/settings",
   );
-  expect(screen.getByRole("link", { name: "备份与恢复" })).toHaveAttribute(
-    "href",
-    "/admin/backups",
-  );
   expect(screen.getByRole("link", { name: "系统信息" })).toHaveAttribute(
     "href",
     "/admin/system",
   );
-  expect(screen.getAllByRole("link")).toHaveLength(5);
+  expect(screen.getAllByRole("link")).toHaveLength(4);
   expect(screen.queryByText(/SMTP/)).not.toBeInTheDocument();
 });
 
