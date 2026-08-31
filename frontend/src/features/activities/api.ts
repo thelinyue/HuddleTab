@@ -11,6 +11,21 @@ export type CreateActivityInput = components["schemas"]["CreateActivityRequest"]
 export type Invitation = components["schemas"]["InvitationData"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationData"];
 export type CreateInvitationInput = components["schemas"]["CreateInvitationRequest"];
+export type InvitationIntent =
+  | { mode: "link" }
+  | { mode: "direct"; targetUsername: string };
+
+/** 将界面邀请意图集中映射为 OpenAPI 请求，避免组件散落协议常量和使用次数规则。 */
+export function invitationRequest(intent: InvitationIntent): CreateInvitationInput {
+  if (intent.mode === "link") {
+    return { kind: "LINK", maxUses: null, targetUsername: null };
+  }
+  return {
+    kind: "DIRECT",
+    maxUses: 1,
+    targetUsername: intent.targetUsername,
+  };
+}
 
 async function listActivities(): Promise<Activity[]> {
   return unwrap(await apiClient.GET("/api/activities")).data;
@@ -137,7 +152,8 @@ export function useInvitationsQuery(userId: string, activityId: string, enabled:
 export function useCreateInvitationMutation(userId: string, activityId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateInvitationInput) => createInvitation(activityId, input),
+    mutationFn: (intent: InvitationIntent) =>
+      createInvitation(activityId, invitationRequest(intent)),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
   });

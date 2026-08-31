@@ -237,6 +237,8 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .form-overlay__scrim { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgb(8 20 15 / 46%); }
 .form-overlay__sheet { position: relative; display: flex; width: min(100%, 720px); max-height: 88dvh; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-overlay); }
 .form-overlay__header { display: flex; min-height: 56px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); padding: 6px 10px 6px 18px; }
+.form-overlay__header-main { display: flex; min-width: 0; align-items: center; gap: 2px; }
+.form-overlay__header-main:has(.icon-button) { margin-left: -10px; }
 .form-overlay__header h2 { font-size: 17px; }
 .form-overlay__body { min-height: 0; overflow-y: auto; padding: 18px; }
 .expense-editor--compact .panel__header { margin-bottom: 10px; }
@@ -264,6 +266,10 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .member-center, .activity-more { display: grid; gap: 24px; }
 .member-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .member-actions > form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.member-invite-panel { display: grid; gap: 20px; }
+.invite-mode-panel { display: grid; gap: 14px; }
+.invite-mode-panel > p { color: var(--muted-foreground); font-size: 14px; }
+.invite-mode-panel > .button { width: 100%; }
 .member-section h2, .activity-more h2 { margin-bottom: 8px; font-size: 15px; }
 .member-list, .settings-list { border-top: 1px solid var(--border); }
 .settings-list > div { display: flex; min-height: 52px; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); padding: 8px 4px; }
@@ -334,6 +340,7 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .management-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .issued-invite { display: grid; gap: 8px; margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px; }
 .issued-invite code { overflow-wrap: anywhere; border-radius: 6px; padding: 10px; background: var(--surface-muted); font-size: 12px; }
+.issued-invite small { max-width: 52ch; }
 .compact-list > div { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
 .compact-list > div:last-child { border-bottom: 0; }
 .compact-list span { display: grid; min-width: 0; }

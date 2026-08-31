@@ -1,12 +1,12 @@
 # HuddleTab React/Vite + Rust/Axum 迁移交接
 
-更新时间：2026-08-31
+更新时间：2026-09-01
 
 ## 1. 当前结论
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动、成员、邀请、记账、账本、推荐转账和结算可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。
 
-当前状态不能描述为“完整迁移完成”。通知、修改密码以外的账户设置、活动编辑与删除、定向邀请、CSV/分享，以及 Phase 2/3 能力仍未实现。
+当前状态不能描述为“完整迁移完成”。通知、修改密码以外的账户设置、活动编辑与删除、CSV/分享，以及 Phase 2/3 能力仍未实现。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、修改密码流程和本文档已形成同一个 Git 检查点。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、修改密码流程、定向邀请前端流程和本文档已形成同一个 Git 检查点。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -122,7 +122,7 @@ huddletab openapi
 | 修改密码 API 与页面 | 可用 | `/me/password`；成功后轮换 Session 并清理旧 CSRF token |
 | 活动列表、详情、创建 | 可用 | 管理 Overlay 当前只读 |
 | 成员列表、临时成员 | 可用 | 成员是唯一账务身份 |
-| 链接邀请创建、列表、撤销 | 可用 | 定向邀请表单未迁移 |
+| 链接与定向邀请创建、列表、撤销 | 可用 | 定向邀请按用户名绑定且固定单次使用；明文口令只保留在当前组件内存 |
 | Expense CRUD | 可用 | 支持幂等、版本冲突、软删除和双金额事实 |
 | 多付款人、四种分摊、手工汇率 | 可用 | IDENTITY/MANUAL；Provider 属于 Phase 2 |
 | Ledger、成员余额、推荐转账 | 可用 | 全部由 Rust 权威计算 |
@@ -153,6 +153,8 @@ huddletab openapi
 
 前端全局 401 中间件对 `/api/me/password` 做了明确豁免：该接口的 401 同时可能表示“当前密码错误”和“Session 已失效”，当前页面优先保留表单并展示服务端中文错误。成功改密只调用 `clearCsrfToken()`，不清空 TanStack Session cache；下一次写操作会在新 Session 上下文获取 CSRF token。
 
+定向邀请前端流程已按真实 OpenAPI DTO 接入：Owner 在 `ACTIVE` 活动的成员 Overlay 中进入邀请子面板，选择“定向邀请”并输入目标用户名；adapter 固定映射为 `DIRECT`、`maxUses: 1`。普通成员和非活动状态不会发起必然返回 403 的邀请列表请求；已撤销、已过期或已用尽的邀请不会显示在“有效邀请”中。服务端定向邀请注册、加入和撤销仍由既有 `collaboration_api` 集成测试覆盖，本轮未修改 Rust 或 OpenAPI。
+
 已检查桌面与移动端尺寸：
 
 ```text
@@ -165,11 +167,12 @@ huddletab openapi
 ```text
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a05631-f9b2-7cf1-8bc3-d299acfdcdb3\huddletab-rust-v002
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a05834-e7c5-76e3-b28f-d9030154f213\password-e2e-output
+C:\Users\林樾\.codex\visualizations\2026\08\31\01a05883-1c70-7162-b722-d65070b30e4b\direct-invite-implementation
 ```
 
 最近已知通过的检查：
 
-- Frontend Vitest：6 个测试文件、14 个测试通过。
+- Frontend Vitest：7 个测试文件、22 个测试通过；其中定向邀请相关测试为 2 个文件、9 个测试通过。
 - Frontend TypeScript typecheck 通过。
 - Frontend production build 通过。
 - Rust `cargo test --all-targets --all-features`：34 个测试通过；12 个需要 `TEST_DATABASE_URL` 的用例按显式条件跳过。
@@ -191,6 +194,7 @@ C:\Users\林樾\.codex\visualizations\2026\08\31\01a05834-e7c5-76e3-b28f-d903015
 | --- | --- |
 | 应用 | 已停止；提交前经授权终止占用构建产物的本地 `huddletab.exe` |
 | 健康检查 | `5661` 当前不可用 |
+| Vite 前端预览 | `http://127.0.0.1:5174`；仅前端进程，真实请求仍代理到 `127.0.0.1:5660` |
 | WSL PostgreSQL 容器 | `huddletab-rust-dev-postgres-6831` |
 | PostgreSQL 主机端口 | `127.0.0.1:55432` |
 
@@ -258,6 +262,7 @@ npm --prefix frontend run typecheck
 | --- | --- |
 | 活动流水排序/渲染 | `npm --prefix frontend test -- --run src/features/accounting/pages.test.ts` |
 | 活动两视图路由 | `npm --prefix frontend test -- --run src/app/router.test.tsx` |
+| 成员与邀请前端 | `npm --prefix frontend test -- --run src/features/activities/api.test.ts src/features/activities/pages.test.tsx` |
 | 一般前端类型改动 | `npm --prefix frontend run typecheck` |
 | 前端构建/PWA 配置 | `npm --prefix frontend run build` |
 | 账务 API | `cargo test --manifest-path server/Cargo.toml --test accounting_api` |
@@ -270,11 +275,10 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 为成员 Overlay 增加定向邀请入口与 adapter。
-2. 设计并实现活动编辑、生命周期和删除 API，再接入管理 Overlay；不要只做前端假交互。
-3. 补齐 CSV 与结算分享，完成 `v0.0.2` 明确范围内的外围功能。
-4. 完成 Phase 1 仍缺少的真实安全/并发/E2E 验收后，再进入 Phase 2。
-5. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider。
+1. 设计并实现活动编辑、生命周期和删除 API，再接入管理 Overlay；不要只做前端假交互。
+2. 补齐 CSV 与结算分享，完成 `v0.0.2` 明确范围内的外围功能。
+3. 完成 Phase 1 仍缺少的真实安全/并发/E2E 验收后，再进入 Phase 2。
+4. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider。
 
 每完成一项，只运行对应测试和一个真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
 
@@ -283,4 +287,4 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/specs/2026-08-31-huddletab-rust-replatform-design.md`
 - `docs/superpowers/plans/2026-08-31-huddletab-rust-replatform.md`
 
-两份文档描述目标架构和完整阶段计划；本交接文档描述 2026-08-31 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。
+两份文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-01 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。

@@ -34,6 +34,9 @@ import { ProductBottomNavigation } from "../../components/product-bottom-navigat
 import { useActivityLedgersQuery } from "../accounting/api";
 import {
   type Activity,
+  type CreatedInvitation,
+  type Invitation,
+  type InvitationIntent,
   useActivitiesQuery,
   useActivityQuery,
   useCreateActivityMutation,
@@ -66,14 +69,17 @@ function stableIndex(value: string, length: number): number {
   return hash % length;
 }
 
-function Overlay({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+function Overlay({ open, title, onBack, onClose, children }: { open: boolean; title: string; onBack?: () => void; onClose: () => void; children: ReactNode }) {
   if (!open) return null;
   return (
     <div className="form-overlay" role="presentation">
       <button className="form-overlay__scrim" type="button" aria-label={`关闭${title}`} onClick={onClose} />
       <section className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
         <header className="form-overlay__header">
-          <h2 id="overlay-title">{title}</h2>
+          <div className="form-overlay__header-main">
+            {onBack ? <button className="icon-button" type="button" aria-label="返回成员" onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : null}
+            <h2 id="overlay-title">{title}</h2>
+          </div>
           <button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><X aria-hidden="true" size={20} /></button>
         </header>
         <div className="form-overlay__body">{children}</div>
@@ -129,7 +135,7 @@ export function ActivityWorkspace() {
         </header>
         <main className="workspace-content"><Outlet /></main>
       </section>
-      <Overlay open={panel === "members"} title="成员" onClose={closePanel}><MembersPage /></Overlay>
+      {panel === "members" ? <MembersOverlay onClose={closePanel} /> : null}
       <Overlay open={panel === "manage"} title="活动管理" onClose={closePanel}><MorePage /></Overlay>
     </WorkspaceContext.Provider>
   );
@@ -222,28 +228,126 @@ export function ActivitiesPage() {
   );
 }
 
-export function MembersPage() {
+function MembersOverlay({ onClose }: { onClose: () => void }) {
+  const [view, setView] = useState<"list" | "invite">("list");
+  return (
+    <Overlay
+      open
+      title={view === "list" ? "成员" : "邀请成员"}
+      onBack={view === "invite" ? () => setView("list") : undefined}
+      onClose={onClose}
+    >
+      <MembersPage key={view} view={view} onInvite={() => setView("invite")} />
+    </Overlay>
+  );
+}
+
+export function MemberInvitationPanel({
+  onCreate,
+}: {
+  onCreate: (intent: InvitationIntent) => Promise<CreatedInvitation>;
+}) {
+  const [mode, setMode] = useState<"link" | "direct">("link");
+  const [targetUsername, setTargetUsername] = useState("");
+  const [createdToken, setCreatedToken] = useState<string>();
+  const [error, setError] = useState<unknown>();
+  const [submitting, setSubmitting] = useState(false);
+
+  const selectMode = (nextMode: "link" | "direct") => {
+    setMode(nextMode);
+    setCreatedToken(undefined);
+    setError(undefined);
+  };
+
+  const create = async (intent: InvitationIntent) => {
+    setSubmitting(true);
+    setCreatedToken(undefined);
+    setError(undefined);
+    try {
+      const invitation = await onCreate(intent);
+      setCreatedToken(invitation.token);
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="member-invite-panel">
+      <div className="segmented" role="group" aria-label="邀请方式">
+        <button type="button" aria-pressed={mode === "link"} disabled={submitting} onClick={() => selectMode("link")}>链接邀请</button>
+        <button type="button" aria-pressed={mode === "direct"} disabled={submitting} onClick={() => selectMode("direct")}>定向邀请</button>
+      </div>
+
+      {mode === "link" ? (
+        <section className="invite-mode-panel" aria-label="链接邀请">
+          <p>生成可分享的邀请口令，对方登录或注册后即可加入活动。</p>
+          <Button busy={submitting} onClick={() => void create({ mode: "link" })}><LinkIcon aria-hidden="true" size={18} />生成链接邀请</Button>
+        </section>
+      ) : (
+        <form className="invite-mode-panel" onSubmit={(event) => { event.preventDefault(); void create({ mode: "direct", targetUsername }); }}>
+          <Field label="目标用户名" hint="只有该用户名可使用此口令；对方可以登录或注册。">
+            <Input
+              value={targetUsername}
+              onChange={(event) => setTargetUsername(event.target.value)}
+              autoComplete="username"
+              autoCapitalize="none"
+              minLength={3}
+              maxLength={32}
+              required
+              autoFocus
+            />
+          </Field>
+          <Button type="submit" busy={submitting}><UserPlus aria-hidden="true" size={18} />创建定向邀请</Button>
+        </form>
+      )}
+
+      {createdToken ? <div className="issued-invite" role="status" aria-live="polite"><strong>邀请口令已创建</strong><code>{createdToken}</code><small>口令只在本次创建后显示，请及时发送给对方。</small></div> : null}
+      {error ? <ErrorNotice error={error} /> : null}
+    </div>
+  );
+}
+
+function MemberInvitationView({ userId, activityId }: { userId: string; activityId: string }) {
+  const createInvitation = useCreateInvitationMutation(userId, activityId);
+  return <MemberInvitationPanel onCreate={createInvitation.mutateAsync} />;
+}
+
+function activeInvitations(invitations: readonly Invitation[], now: number): Invitation[] {
+  return invitations.filter((invitation) =>
+    !invitation.revokedAt &&
+    Date.parse(invitation.expiresAt) > now &&
+    (invitation.maxUses == null || invitation.useCount < invitation.maxUses),
+  );
+}
+
+export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invite"; onInvite?: () => void }) {
   const { session, activity } = useWorkspace();
   const members = useMembersQuery(session.userId, activity.activityId);
-  const invitations = useInvitationsQuery(session.userId, activity.activityId, true);
+  const canManage = activity.status === "ACTIVE" && activity.currentMemberRole === "OWNER";
+  const invitations = useInvitationsQuery(session.userId, activity.activityId, canManage);
   const createGuest = useCreateGuestMutation(session.userId, activity.activityId);
-  const createInvitation = useCreateInvitationMutation(session.userId, activity.activityId);
   const revokeInvitation = useRevokeInvitationMutation(session.userId, activity.activityId);
   const [guestName, setGuestName] = useState("");
-  const [createdToken, setCreatedToken] = useState<string>();
 
   if (members.isPending) return <LoadingState label="正在读取成员…" />;
   if (members.error) return <ErrorNotice error={members.error} />;
+  if (view === "invite" && canManage) {
+    return <MemberInvitationView userId={session.userId} activityId={activity.activityId} />;
+  }
+  const visibleInvitations = canManage
+    ? activeInvitations(invitations.data ?? [], Date.now())
+    : [];
   return (
     <div className="member-center">
-      <div className="member-actions">
-        <Button onClick={() => void createInvitation.mutateAsync({ kind: "LINK", maxUses: null, targetUsername: null }).then((result) => setCreatedToken(result.token))}><UserPlus aria-hidden="true" size={18} /> 邀请成员</Button>
+      {canManage ? <div className="member-actions">
+        <Button onClick={onInvite}><UserPlus aria-hidden="true" size={18} /> 邀请成员</Button>
         <form onSubmit={(event) => { event.preventDefault(); void createGuest.mutateAsync(guestName).then(() => setGuestName("")); }}><Input aria-label="临时成员名称" value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="临时成员名称" required /><Button variant="secondary" type="submit" busy={createGuest.isPending}>添加</Button></form>
-      </div>
-      {createdToken ? <div className="issued-invite" role="status"><strong>邀请口令已创建</strong><code>{createdToken}</code></div> : null}
-      {createGuest.error || createInvitation.error ? <ErrorNotice error={createGuest.error ?? createInvitation.error} /> : null}
+      </div> : null}
+      {createGuest.error ? <ErrorNotice error={createGuest.error} /> : null}
       <section className="member-section"><h2>活动成员 · {members.data?.length ?? 0}人</h2><div className="member-list">{members.data?.map((member) => <div className="member-row" key={member.memberId}><MemberAvatar memberId={member.memberId} displayName={member.displayName} /><span><strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong><small>{member.userId ? "正式成员" : "临时成员"}</small></span><span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : "成员"}</span></div>)}</div></section>
-      {invitations.data?.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{invitations.data.filter((invite) => !invite.revokedAt).map((invite) => <div key={invite.invitationId}><span><strong>{invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入"}</strong><small>已使用 {invite.useCount}{invite.maxUses ? ` / ${invite.maxUses}` : ""}</small></span><Button variant="ghost" busy={revokeInvitation.isPending} onClick={() => revokeInvitation.mutate(invite.invitationId)}>撤销</Button></div>)}</div></section> : null}
+      {visibleInvitations.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{visibleInvitations.map((invite) => <div key={invite.invitationId}><span><strong>{invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入"}</strong><small>已使用 {invite.useCount}{invite.maxUses ? ` / ${invite.maxUses}` : ""}</small></span><Button variant="ghost" busy={revokeInvitation.isPending} onClick={() => revokeInvitation.mutate(invite.invitationId)}>撤销</Button></div>)}</div></section> : null}
     </div>
   );
 }
