@@ -29,6 +29,10 @@ import { SplitEditor } from "@/features/expenses/components/split-editor";
 import type { CreateExpenseRequest } from "@/features/expenses/contracts";
 import { splitExpense, type SplitInput } from "@/domain/splitting/split";
 import { createClientId } from "@/lib/client-id";
+import {
+  formatZonedDateTimeInput,
+  zonedDateTimeToIso,
+} from "@/lib/time-zone";
 import type { AvatarPreset } from "@/features/me/avatar-presets";
 import {
   MemberPickerSheet,
@@ -87,13 +91,6 @@ function decimalToHundredths(value: string, label: string): string {
     BigInt(match[1]) * 100n +
     BigInt((match[2] ?? "").padEnd(2, "0"))
   ).toString();
-}
-
-function currentLocalDateTime(): string {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
 }
 
 function currencySymbol(currency: string): string {
@@ -236,6 +233,7 @@ export function QuickExpenseForm({
   onConflict,
   navigationView = "entry",
   onNavigationViewChange,
+  timeZone,
 }: {
   readonly activity: {
     readonly id: string;
@@ -271,6 +269,7 @@ export function QuickExpenseForm({
   readonly onConflict?: () => void;
   readonly navigationView?: QuickExpenseNavigationView;
   readonly onNavigationViewChange?: (view: QuickExpenseNavigationView) => void;
+  readonly timeZone: string;
 }) {
   const [advanced, setAdvanced] = useState(false);
   const [participantPickerOpen, setParticipantPickerOpen] = useState(false);
@@ -316,8 +315,8 @@ export function QuickExpenseForm({
       currency: preference.recentCurrency ?? activity.baseCurrency,
       exchangeRate: "1",
       exchangeRateSource: "IDENTITY",
-      exchangeRateAt: currentLocalDateTime(),
-      occurredAt: currentLocalDateTime(),
+      exchangeRateAt: formatZonedDateTimeInput(new Date(), timeZone),
+      occurredAt: formatZonedDateTimeInput(new Date(), timeZone),
       note: "",
       splitMode: "EQUAL",
       payerSelection: { mode: "single", memberId: preferredPayer },
@@ -456,12 +455,8 @@ export function QuickExpenseForm({
                       ),
               })),
             } as const);
-      const exchangeRateAt = new Date(next.exchangeRateAt);
-      const occurredAt = new Date(next.occurredAt);
-      if (Number.isNaN(exchangeRateAt.valueOf()))
-        throw new Error("汇率时间格式不正确。");
-      if (Number.isNaN(occurredAt.valueOf()))
-        throw new Error("消费时间格式不正确。");
+      const exchangeRateAt = zonedDateTimeToIso(next.exchangeRateAt, timeZone);
+      const occurredAt = zonedDateTimeToIso(next.occurredAt, timeZone);
       const request: CreateExpenseRequest = {
         clientMutationId,
         title: next.title.trim(),
@@ -473,8 +468,8 @@ export function QuickExpenseForm({
           currency === activity.baseCurrency
             ? "IDENTITY"
             : next.exchangeRateSource,
-        exchangeRateAt: exchangeRateAt.toISOString(),
-        occurredAt: occurredAt.toISOString(),
+        exchangeRateAt,
+        occurredAt,
         note: next.note.trim() || undefined,
         payments: paymentResolution.payments,
         split,

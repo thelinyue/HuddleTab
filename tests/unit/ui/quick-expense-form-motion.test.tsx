@@ -31,10 +31,20 @@ vi.mock("gsap/Flip", () => ({ Flip: {} }));
 import { QuickExpenseForm } from "@/features/expenses/components/quick-expense-form";
 
 function QuickExpenseHarness(
-  props: Omit<ComponentProps<typeof QuickExpenseForm>, "step" | "onStepChange">,
+  props: Omit<
+    ComponentProps<typeof QuickExpenseForm>,
+    "step" | "onStepChange" | "timeZone"
+  >,
 ) {
   const [step, setStep] = useState<"ENTRY" | "SPLIT">("ENTRY");
-  return <QuickExpenseForm {...props} step={step} onStepChange={setStep} />;
+  return (
+    <QuickExpenseForm
+      {...props}
+      timeZone="Asia/Shanghai"
+      step={step}
+      onStepChange={setStep}
+    />
+  );
 }
 
 const activity = {

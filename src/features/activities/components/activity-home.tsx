@@ -51,7 +51,13 @@ function ActivityGroup({
 }
 
 /** 首页只格式化服务器返回的汇总；跨活动应收、应付保留为两个独立数字。 */
-export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
+export function ActivityHome({
+  data,
+  timeZone,
+}: {
+  readonly data: ActivityHomeDto;
+  readonly timeZone: string;
+}) {
   const [actionView, setActionView] = useState<
     "actions" | "create" | "join" | null
   >(null);
@@ -95,7 +101,7 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
           backLabel="新建或加入活动"
         >
           {actionView === "create" ? (
-            <CreateActivityForm />
+            <CreateActivityForm timeZone={timeZone} />
           ) : actionView === "join" ? (
             <JoinActivityForm />
           ) : (
@@ -205,7 +211,7 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
 }
 
 /** 页面加载层只处理加载与错误状态，保持实际展示组件可由纯数据测试。 */
-export function ActivityHomeLoader() {
+export function ActivityHomeLoader({ timeZone }: { readonly timeZone: string }) {
   const [data, setData] = useState<ActivityHomeDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -226,5 +232,5 @@ export function ActivityHomeLoader() {
       </p>
     );
   if (!data) return <p className="text-muted-foreground">正在加载活动…</p>;
-  return <ActivityHome data={data} />;
+  return <ActivityHome data={data} timeZone={timeZone} />;
 }

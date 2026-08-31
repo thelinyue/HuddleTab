@@ -2,7 +2,13 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -17,10 +23,13 @@ import { QuickExpenseForm } from "@/features/expenses/components/quick-expense-f
 
 type HarnessProps = Omit<
   ComponentProps<typeof QuickExpenseForm>,
-  "step" | "onStepChange" | "onSplitValidityChange"
->;
+  "step" | "onStepChange" | "onSplitValidityChange" | "timeZone"
+> & { readonly timeZone?: string };
 
-function QuickExpenseHarness(props: HarnessProps) {
+function QuickExpenseHarness({
+  timeZone = "Asia/Shanghai",
+  ...props
+}: HarnessProps) {
   const [step, setStep] = useState<"ENTRY" | "SPLIT">("ENTRY");
   const [splitValid, setSplitValid] = useState(false);
 
@@ -49,6 +58,7 @@ function QuickExpenseHarness(props: HarnessProps) {
       ) : null}
       <QuickExpenseForm
         {...props}
+        timeZone={timeZone}
         step={step}
         onStepChange={setStep}
         onSplitValidityChange={setSplitValid}
@@ -71,6 +81,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   mocks.createExpense.mockReset();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -95,6 +106,41 @@ const preference = {
   recentPayerIds: ["m1"],
   recentCurrency: "CNY",
 };
+
+test("默认时间和提交瞬间都使用部署 TZ 而不是浏览器时区", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-31T01:53:00.000Z"));
+  mocks.createExpense.mockResolvedValue({ expense: { id: "expense-1" } });
+  render(
+    <QuickExpenseHarness
+      activity={activity}
+      members={members}
+      preference={preference}
+      timeZone="Pacific/Honolulu"
+      onSaved={vi.fn()}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "更多设置" }));
+  expect(screen.getByLabelText("消费时间")).toHaveValue("2026-08-30T15:53");
+  expect(screen.getByLabelText("汇率时间")).toHaveValue("2026-08-30T15:53");
+
+  fireEvent.change(screen.getByLabelText("金额"), { target: { value: "10" } });
+  fireEvent.change(screen.getByLabelText("用途"), {
+    target: { value: "早餐" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await vi.waitFor(() =>
+    expect(mocks.createExpense).toHaveBeenCalledWith(
+      "a1",
+      expect.objectContaining({
+        exchangeRateAt: "2026-08-31T01:53:00.000Z",
+        occurredAt: "2026-08-31T01:53:00.000Z",
+      }),
+    ),
+  );
+});
 
 test("快捷录入按金额、用途、付款人、参与成员、分类和更多设置排列", () => {
   render(

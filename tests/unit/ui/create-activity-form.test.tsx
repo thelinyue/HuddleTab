@@ -2,11 +2,26 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
 import { CreateActivityForm } from "@/features/activities/components/create-activity-form";
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+test("开始日期默认使用部署 TZ 的当天", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-31T01:00:00.000Z"));
+
+  render(<CreateActivityForm timeZone="Pacific/Honolulu" />);
+
+  expect(screen.getByLabelText("开始日期")).toHaveValue("2026-08-30");
+});
 
 test("创建活动提交表单后进入活动页", async () => {
   const user = userEvent.setup();
@@ -18,7 +33,7 @@ test("创建活动提交表单后进入活动页", async () => {
   const assign = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("location", { assign, origin: "http://localhost" });
-  render(<CreateActivityForm />);
+  render(<CreateActivityForm timeZone="Asia/Shanghai" />);
   await user.type(screen.getByLabelText("活动名称"), "周末露营");
   await user.clear(screen.getByLabelText("开始日期"));
   await user.type(screen.getByLabelText("开始日期"), "2026-08-27");

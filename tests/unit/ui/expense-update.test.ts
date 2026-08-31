@@ -64,7 +64,7 @@ test("单付款金额变化派生付款金额，并保留完整 PUT 事实和版
     ...draft,
     amount: "500.00",
     note: "",
-  });
+  }, "Asia/Shanghai");
 
   expect(request).toMatchObject({
     version: 7,
@@ -88,8 +88,21 @@ test("多人付款和 EXACT 分摊未守恒时阻止完整更新", () => {
       },
       splitMode: "EXACT",
       splitEntries: { m1: "100.00", m2: "100.00" },
-    }),
+    }, "Asia/Shanghai"),
   ).toThrow("付款合计必须等于消费金额");
+});
+
+test("编辑表单按部署 TZ 将墙上时间还原为原 UTC 瞬间", () => {
+  const draft = expenseUpdateDraft(data, "Pacific/Honolulu");
+  const request = buildUpdateExpenseRequest(
+    data,
+    draft,
+    "Pacific/Honolulu",
+  );
+
+  expect(draft.occurredAt).toBe("2026-08-26T22:00");
+  expect(request.occurredAt).toBe("2026-08-27T08:00:00.000Z");
+  expect(request.exchangeRateAt).toBe("2026-08-27T08:00:00.000Z");
 });
 
 test.each([
@@ -103,7 +116,7 @@ test.each([
       ...draft,
       splitMode: mode,
       splitEntries,
-    });
+    }, "Asia/Shanghai");
     expect(request.split).toMatchObject({
       mode,
       entries: [

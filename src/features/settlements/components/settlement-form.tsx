@@ -3,6 +3,10 @@
 import { useRef, useState } from "react";
 
 import { useFormMotion } from "@/components/design-system/form-motion";
+import {
+  formatZonedDateTimeInput,
+  zonedDateTimeToIso,
+} from "@/lib/time-zone";
 import { getCurrencyMinorUnits } from "@/domain/currency/currency";
 import {
   minorToInput,
@@ -30,13 +34,6 @@ function amountToMinor(value: string, currency: string): string {
   return amount.toString();
 }
 
-function currentLocalDateTime(): string {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
-}
-
 /**
  * Settlement 表单收集现实中发生的转账事实。Member 与 LEFT 的付款人固定为本人；
  * 后端仍以相同身份和活动生命周期重新授权，UI 锁定只是减少无效输入。
@@ -46,10 +43,12 @@ export function SettlementForm({
   initial,
   online = true,
   onSubmit,
+  timeZone,
 }: {
   readonly context: SettlementPageContextDto;
   readonly initial?: SettlementFormInitial;
   readonly online?: boolean;
+  readonly timeZone: string;
   readonly onSubmit: (
     request: CreateSettlementRequest,
     amountText: string,
@@ -69,7 +68,9 @@ export function SettlementForm({
   const [amount, setAmount] = useState(
     initial ? minorToInput(initial.amountMinor, context.activity.currency) : "",
   );
-  const [occurredAt, setOccurredAt] = useState(currentLocalDateTime());
+  const [occurredAt, setOccurredAt] = useState(() =>
+    formatZonedDateTimeInput(new Date(), timeZone),
+  );
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const scope = useRef<HTMLFormElement>(null);
@@ -83,15 +84,13 @@ export function SettlementForm({
       if (!receiverMemberId) throw new Error("请选择收款人。");
       if (payerMemberId === receiverMemberId)
         throw new Error("付款人和收款人不能相同。");
-      const occurred = new Date(occurredAt);
-      if (Number.isNaN(occurred.valueOf()))
-        throw new Error("结算时间格式不正确。");
+      const occurred = zonedDateTimeToIso(occurredAt, timeZone);
       await onSubmit(
         {
           payerMemberId,
           receiverMemberId,
           amountMinor: amountToMinor(amount, context.activity.currency),
-          occurredAt: occurred.toISOString(),
+          occurredAt: occurred,
           note: note.trim() || undefined,
           confirmOverSettlement: false,
         },

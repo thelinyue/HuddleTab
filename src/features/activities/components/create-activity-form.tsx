@@ -5,9 +5,10 @@ import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { formatZonedDateInput } from "@/lib/time-zone";
 
 /** 活动创建表单只收集现有 API 契约字段，成功后整页进入新活动的流水页。 */
-export function CreateActivityForm() {
+export function CreateActivityForm({ timeZone }: { readonly timeZone: string }) {
   const [error, setError] = useState<string | null>(null);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,7 +50,7 @@ export function CreateActivityForm() {
         id="startDate"
         label="开始日期"
         type="date"
-        defaultValue={new Date().toISOString().slice(0, 10)}
+        defaultValue={formatZonedDateInput(new Date(), timeZone)}
       />
       <Field id="endDate" label="结束日期" type="date" required={false} />
       {error ? (

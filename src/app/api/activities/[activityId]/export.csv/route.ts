@@ -1,4 +1,5 @@
 import { serializeExpenseCsv } from "@/server/export/expense-csv";
+import { DEFAULT_TIME_ZONE } from "@/lib/time-zone";
 
 export const dynamic = "force-dynamic";
 
@@ -27,13 +28,16 @@ export async function GET(
       { user: { id: sessionUserId(session) } },
       params.activityId,
     );
-    return new Response(serializeExpenseCsv(rows), {
-      headers: {
-        "Cache-Control": "private, no-store",
-        "Content-Disposition": 'attachment; filename="activity-export.csv"',
-        "Content-Type": "text/csv; charset=utf-8",
+    return new Response(
+      serializeExpenseCsv(rows, process.env.TZ ?? DEFAULT_TIME_ZONE),
+      {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "Content-Disposition": 'attachment; filename="activity-export.csv"',
+          "Content-Type": "text/csv; charset=utf-8",
+        },
       },
-    });
+    );
   } catch (error) {
     const response = applicationErrorResponse(error);
     if (response) return response;

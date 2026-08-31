@@ -38,6 +38,7 @@ afterEach(() => {
 test("活动首页按参考稿呈现紧凑标题、账务摘要和生命周期列表", () => {
   render(
     <ActivityHome
+      timeZone="Asia/Shanghai"
       data={{
         summaries: [
           {
@@ -96,6 +97,7 @@ test("活动首页按参考稿呈现紧凑标题、账务摘要和生命周期�
 test("没有活动时用场景插画突出创建入口并弱化加入入口", () => {
   const { container } = render(
     <ActivityHome
+      timeZone="Asia/Shanghai"
       data={{ summaries: [], active: [], ended: [], archived: [] }}
     />,
   );
@@ -129,13 +131,13 @@ test("没有活动时用场景插画突出创建入口并弱化加入入口", ()
 test("空白态创建和加入入口分别打开对应表单", async () => {
   const user = userEvent.setup();
   const data = { summaries: [], active: [], ended: [], archived: [] };
-  render(<ActivityHome data={data} />);
+  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
 
   await user.click(screen.getByRole("button", { name: "创建活动" }));
   expect(screen.getByRole("dialog", { name: "创建活动" })).toBeVisible();
 
   cleanup();
-  render(<ActivityHome data={data} />);
+  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
   await user.click(screen.getByRole("button", { name: "加入已有活动" }));
   expect(screen.getByRole("dialog", { name: "加入活动" })).toBeVisible();
 });
@@ -143,6 +145,7 @@ test("空白态创建和加入入口分别打开对应表单", async () => {
 test("已有活动时不显示空白态插画", () => {
   const { container } = render(
     <ActivityHome
+      timeZone="Asia/Shanghai"
       data={{
         summaries: [],
         active: [
@@ -167,7 +170,7 @@ test("已有活动时不显示空白态插画", () => {
 test("加号打开新建或加入操作面板，并能切换到两种表单", async () => {
   const user = userEvent.setup();
   const data = { summaries: [], active: [], ended: [], archived: [] };
-  render(<ActivityHome data={data} />);
+  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
 
   await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
   const actionDialog = screen.getByRole("dialog", { name: "新建或加入活动" });
@@ -184,7 +187,7 @@ test("加号打开新建或加入操作面板，并能切换到两种表单", as
   expect(screen.getByRole("textbox", { name: "邀请链接" })).toBeVisible();
 
   cleanup();
-  render(<ActivityHome data={data} />);
+  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
   await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
   await user.click(
     within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole(
@@ -202,6 +205,7 @@ test("活动操作与创建/加入共用同一个导航 Overlay，并可返回�
   const user = userEvent.setup();
   render(
     <ActivityHome
+      timeZone="Asia/Shanghai"
       data={{ summaries: [], active: [], ended: [], archived: [] }}
     />,
   );
@@ -227,6 +231,7 @@ test("活动操作与创建/加入共用同一个导航 Overlay，并可返回�
 test("已结清活动只显示结清状态，不重复显示零金额", () => {
   render(
     <ActivityHome
+      timeZone="Asia/Shanghai"
       data={{
         summaries: [],
         active: [
@@ -253,6 +258,7 @@ test("有起止日期时用包含首尾的活动天数压缩列表元数据", ()
 
   render(
     <ActivityHome
+      timeZone="Asia/Shanghai"
       data={{
         summaries: [],
         active: [

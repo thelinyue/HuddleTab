@@ -122,6 +122,7 @@ test("共享标题允许合法的长无空格文本在窄屏内断行", () => {
 test("记一笔按钮避让安全区并锚定居中活动工作区", () => {
   render(
     <QuickExpenseTrigger
+      timeZone="Asia/Shanghai"
       context={{
         activity: {
           id: "activity-1",

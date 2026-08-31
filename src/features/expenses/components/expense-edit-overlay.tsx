@@ -652,7 +652,7 @@ export function ExpenseEditOverlay({
       await updateExpense(
         data.expense.activityId,
         data.expense.id,
-        buildUpdateExpenseRequest(data, candidate),
+        buildUpdateExpenseRequest(data, candidate, timeZone),
       );
       await onSaved();
       onOpenChange(false);

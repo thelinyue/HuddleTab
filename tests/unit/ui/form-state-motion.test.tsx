@@ -156,7 +156,13 @@ test("初始化表单分阶段入场，校验错误不清空受控字段", async
 
 test("结算错误 reveal 不移动焦点或重置用户输入", async () => {
   setMotionPreference(false);
-  render(<SettlementForm context={settlementContext} onSubmit={vi.fn()} />);
+  render(
+    <SettlementForm
+      context={settlementContext}
+      timeZone="Asia/Shanghai"
+      onSubmit={vi.fn()}
+    />,
+  );
 
   const submit = screen.getByRole("button", { name: "确认已支付" });
   const entryTargets = mocks.fromTo.mock.calls[0]?.[0] as HTMLElement[];

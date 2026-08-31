@@ -12,6 +12,7 @@ import { resolveClientIp } from "@/server/security/client-ip";
 import { RateLimiter } from "@/server/security/rate-limiter";
 
 import { authRuntimeConfig } from "./runtime-config";
+import { authLogger } from "./logger";
 import { normalizeUsername } from "./username";
 
 const rateLimiter = new RateLimiter(sql, authRuntimeConfig.secret);
@@ -77,6 +78,7 @@ export const auth = betterAuth({
   baseURL: authRuntimeConfig.baseURL,
   secret: authRuntimeConfig.secret,
   trustedOrigins: [...authRuntimeConfig.trustedOrigins],
+  logger: authLogger,
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,

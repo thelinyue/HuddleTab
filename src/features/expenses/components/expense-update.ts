@@ -7,6 +7,7 @@ import type { UpdateExpenseRequest } from "@/features/expenses/contracts";
 import type { PayerSelection } from "@/features/expenses/components/payer-picker";
 import { resolvePayerPayments } from "@/features/expenses/components/payer-picker";
 import { createClientId } from "@/lib/client-id";
+import { zonedDateTimeToIso } from "@/lib/time-zone";
 
 export type ExpenseEditTarget =
   | "TITLE"
@@ -275,6 +276,7 @@ export function previewExpenseSplit(
 export function buildUpdateExpenseRequest(
   data: ExpenseDetailResponse,
   draft: ExpenseUpdateDraft,
+  timeZone: string,
 ): UpdateExpenseRequest {
   const currency = draft.currency.trim().toUpperCase();
   const originalAmountMinor = amountToMinor(draft.amount, currency);
@@ -287,14 +289,8 @@ export function buildUpdateExpenseRequest(
   if (!paymentResolution.payments) {
     throw new Error(paymentResolution.error ?? "付款信息不完整。");
   }
-  const exchangeRateAt = new Date(draft.exchangeRateAt);
-  const occurredAt = new Date(draft.occurredAt);
-  if (Number.isNaN(exchangeRateAt.valueOf())) {
-    throw new Error("汇率时间格式不正确。");
-  }
-  if (Number.isNaN(occurredAt.valueOf())) {
-    throw new Error("消费时间格式不正确。");
-  }
+  const exchangeRateAt = zonedDateTimeToIso(draft.exchangeRateAt, timeZone);
+  const occurredAt = zonedDateTimeToIso(draft.occurredAt, timeZone);
   const title = draft.title.trim();
   if (!title) throw new Error("用途不能为空。");
   if (title.length > 120) throw new Error("用途最多 120 个字符。");
@@ -312,8 +308,8 @@ export function buildUpdateExpenseRequest(
       currency === data.expense.baseCurrency
         ? "IDENTITY"
         : draft.exchangeRateSource,
-    exchangeRateAt: exchangeRateAt.toISOString(),
-    occurredAt: occurredAt.toISOString(),
+    exchangeRateAt,
+    occurredAt,
     note: draft.note.trim() || undefined,
     payments: paymentResolution.payments,
     split: buildSplit(draft, totalMinor),

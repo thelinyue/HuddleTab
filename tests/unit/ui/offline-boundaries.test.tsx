@@ -59,6 +59,7 @@ test("离线时完整消费只入本地队列，不发起网络保存", async ()
     <QuickExpenseForm
       activity={activity}
       members={members}
+      timeZone="Asia/Shanghai"
       preference={{
         recentParticipantIds: ["member-1"],
         recentPayerIds: ["member-1"],
@@ -93,6 +94,7 @@ test("在线请求发生网络故障时沿用同一账单进入本地队列", as
     <QuickExpenseForm
       activity={activity}
       members={members}
+      timeZone="Asia/Shanghai"
       preference={{
         recentParticipantIds: ["member-1"],
         recentPayerIds: ["member-1"],
@@ -124,6 +126,7 @@ test("在线时选择附件也先进入原子本地队列，避免账单与附�
     <QuickExpenseForm
       activity={activity}
       members={members}
+      timeZone="Asia/Shanghai"
       preference={{
         recentParticipantIds: ["member-1"],
         recentPayerIds: ["member-1"],
@@ -156,6 +159,7 @@ test("本地入队失败仍显示可读错误", async () => {
     <QuickExpenseForm
       activity={activity}
       members={members}
+      timeZone="Asia/Shanghai"
       preference={{
         recentParticipantIds: ["member-1"],
         recentPayerIds: ["member-1"],
@@ -281,6 +285,7 @@ test("离线时不允许记录 Settlement，并明确说明原因", () => {
     <SettlementForm
       context={settlementContext}
       online={false}
+      timeZone="Asia/Shanghai"
       onSubmit={vi.fn()}
     />,
   );

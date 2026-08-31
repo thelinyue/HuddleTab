@@ -70,7 +70,13 @@ afterEach(() => {
 test("浮动记账入口按下反馈不阻塞打开表单", async () => {
   const user = userEvent.setup();
   setMotionPreference(false);
-  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+  render(
+    <QuickExpenseTrigger
+      context={context}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
 
   const trigger = screen.getByRole("button", { name: "记一笔" });
   await user.click(trigger);
@@ -93,7 +99,13 @@ test("浏览器没有 crypto.randomUUID 时点击记一笔仍能打开表单", a
       return bytes;
     },
   });
-  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+  render(
+    <QuickExpenseTrigger
+      context={context}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
 
   await user.click(screen.getByRole("button", { name: "记一笔" }));
 
@@ -104,7 +116,13 @@ test("浏览器没有 crypto.randomUUID 时点击记一笔仍能打开表单", a
 test("快速记账完成分摊步骤后保留输入并给出短反馈", async () => {
   const user = userEvent.setup();
   setMotionPreference(false);
-  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+  render(
+    <QuickExpenseTrigger
+      context={context}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
 
   await user.click(screen.getByRole("button", { name: "记一笔" }));
   const amount = screen.getByLabelText("金额", { exact: true });
@@ -128,7 +146,13 @@ test("快速记账完成分摊步骤后保留输入并给出短反馈", async ()
 test("从分摊步骤返回录入页时不误报完成反馈", async () => {
   const user = userEvent.setup();
   setMotionPreference(false);
-  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+  render(
+    <QuickExpenseTrigger
+      context={context}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
 
   await user.click(screen.getByRole("button", { name: "记一笔" }));
   await user.type(screen.getByLabelText("金额", { exact: true }), "88.00");
@@ -147,7 +171,13 @@ test("从分摊步骤返回录入页时不误报完成反馈", async () => {
 test("快速记账进入参与成员时不叠加第二个业务 Dialog", async () => {
   const user = userEvent.setup();
   setMotionPreference(true);
-  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+  render(
+    <QuickExpenseTrigger
+      context={context}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
 
   await user.click(screen.getByRole("button", { name: "记一笔" }));
   expect(screen.getByLabelText("金额", { exact: true })).toBeVisible();
@@ -166,7 +196,13 @@ test("快速记账进入参与成员时不叠加第二个业务 Dialog", async (
 test("快速记账参与成员的 Close 关闭整个 Sheet 并恢复入口焦点", async () => {
   const user = userEvent.setup();
   setMotionPreference(true);
-  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+  render(
+    <QuickExpenseTrigger
+      context={context}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
 
   const trigger = screen.getByRole("button", { name: "记一笔" });
   await user.click(trigger);
@@ -182,6 +218,7 @@ test("快速记账从添加临时成员返回时先退回付款人再回到根�
   setMotionPreference(true);
   render(
     <QuickExpenseTrigger
+      timeZone="Asia/Shanghai"
       context={{
         ...context,
         members: [
@@ -208,7 +245,13 @@ test("快速记账从添加临时成员返回时先退回付款人再回到根�
 test("快速记账进入分类子视图时隐藏根触发器", async () => {
   const user = userEvent.setup();
   setMotionPreference(true);
-  render(<QuickExpenseTrigger context={context} onSaved={vi.fn()} />);
+  render(
+    <QuickExpenseTrigger
+      context={context}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
 
   await user.click(screen.getByRole("button", { name: "记一笔" }));
   await user.click(screen.getByRole("button", { name: "分类" }));

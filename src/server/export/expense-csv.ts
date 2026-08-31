@@ -1,3 +1,5 @@
+import { formatZonedTimestamp } from "@/lib/time-zone";
+
 export interface ExpenseExportRow {
   readonly occurredAt: string;
   readonly title: string;
@@ -38,10 +40,13 @@ const header = [
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 /** CSV 仅导出已授权 Expense 事实；固定列和成员顺序由调用方在查询阶段保证。 */
-export function serializeExpenseCsv(rows: readonly ExpenseExportRow[]): string {
+export function serializeExpenseCsv(
+  rows: readonly ExpenseExportRow[],
+  timeZone: string,
+): string {
   const body = rows.map((row) =>
     [
-      row.occurredAt,
+      formatZonedTimestamp(new Date(row.occurredAt), timeZone),
       row.title,
       row.category,
       row.originalAmount,
@@ -54,7 +59,7 @@ export function serializeExpenseCsv(rows: readonly ExpenseExportRow[]): string {
         .join(" | "),
       row.splitMode,
       row.creatorName,
-      row.createdAt,
+      formatZonedTimestamp(new Date(row.createdAt), timeZone),
       row.note ?? "",
     ]
       .map((value) => quote(String(value)))
