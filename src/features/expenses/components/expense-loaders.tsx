@@ -28,6 +28,7 @@ import { MutationRepository } from "@/pwa/indexed-db/mutation-repository";
 import { AttachmentRepository } from "@/pwa/indexed-db/attachment-repository";
 import { SnapshotRepository } from "@/pwa/indexed-db/snapshot-repository";
 import { SyncTriggers } from "@/pwa/sync-queue/sync-triggers";
+import type { ActivityWorkspaceHeaderData } from "@/features/activities/components/activity-workspace-header-data";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "数据加载失败，请稍后重试。";
@@ -87,7 +88,13 @@ async function getCachedExpenseFeed(activityId: string) {
 }
 
 /** 加载器负责向服务端提交冻结筛选条件，展示组件不以客户端副本冒充权威筛选结果。 */
-export function ExpenseFeedLoader({ timeZone }: { readonly timeZone: string }) {
+export function ExpenseFeedLoader({
+  timeZone,
+  onHeaderData,
+}: {
+  readonly timeZone: string;
+  readonly onHeaderData?: (data: ActivityWorkspaceHeaderData) => void;
+}) {
   const { activityId } = useParams<{ activityId: string }>();
   const [summary, setSummary] = useState<ExpenseFeedSummaryDto | null>(null);
   const [expenses, setExpenses] = useState<readonly ExpenseListItemDto[]>([]);
@@ -124,6 +131,14 @@ export function ExpenseFeedLoader({ timeZone }: { readonly timeZone: string }) {
       setEntryContext(cached.entryContext);
       setPendingMutations(nextPendingMutations);
       setError(null);
+      onHeaderData?.({
+        activityId,
+        name: cached.summary.activityName,
+        startDate: cached.summary.startDate,
+        endDate: cached.summary.endDate,
+        memberCount: cached.summary.memberCount,
+        status: cached.entryContext.activity.status,
+      });
       return true;
     };
     const load = async () => {
@@ -162,6 +177,14 @@ export function ExpenseFeedLoader({ timeZone }: { readonly timeZone: string }) {
         setEntryContext(nextEntryContext);
         setPendingMutations(nextPendingMutations);
         setError(null);
+        onHeaderData?.({
+          activityId,
+          name: nextSummary.activityName,
+          startDate: nextSummary.startDate,
+          endDate: nextSummary.endDate,
+          memberCount: nextSummary.memberCount,
+          status: nextEntryContext.activity.status,
+        });
       } catch (reason) {
         try {
           if (await restoreCached()) return;
@@ -175,7 +198,7 @@ export function ExpenseFeedLoader({ timeZone }: { readonly timeZone: string }) {
     return () => {
       cancelled = true;
     };
-  }, [activityId, filters, refreshToken]);
+  }, [activityId, filters, onHeaderData, refreshToken]);
   if (error)
     return (
       <p role="alert" className="py-8 text-destructive">

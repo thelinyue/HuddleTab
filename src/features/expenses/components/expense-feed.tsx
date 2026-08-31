@@ -1,6 +1,6 @@
 "use client";
 
-import { FilterIcon, InfoIcon } from "lucide-react";
+import { ChevronRightIcon, FilterIcon, InfoIcon } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 
@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
-import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import type {
   ExpenseFeedSummaryDto,
   ExpenseListItemDto,
@@ -130,7 +129,6 @@ export function ExpenseFeed({
     setFiltersOpen(false);
   };
 
-  const memberCount = activity.memberCount;
   const status = entryContext?.activity.status;
   const expenseCount = activity.expenseCount ?? expenses.length;
   const participatingMemberCount = activity.participatingMemberCount ?? 0;
@@ -174,18 +172,7 @@ export function ExpenseFeed({
   const membersHref = `/activities/${encodeURIComponent(activity.id)}?panel=members`;
 
   return (
-    <div className="min-w-0">
-      <ActivityPageHeader
-        activityId={activity.id}
-        name={activity.name}
-        startDate={activity.startDate}
-        endDate={activity.endDate}
-        memberCount={memberCount}
-        status={status ?? "ACTIVE"}
-        activeTab="feed"
-        canManageMembers={canManageMembers}
-      />
-
+    <div className="min-w-0 pb-20">
       {canManageMembers && formalActiveMemberCount === 1 ? (
         <Link
           href={membersHref}
@@ -196,23 +183,33 @@ export function ExpenseFeed({
               }),
             );
           }}
-          className="mt-3 flex min-h-11 items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
+          className="mt-4 flex min-h-14 items-center gap-3 rounded-sm border border-primary/10 bg-summary px-3 py-2.5 transition-colors hover:bg-summary/80"
         >
-          邀请成员一起记账
-          <span aria-hidden="true">›</span>
+          <span className="min-w-0 flex-1">
+            <strong className="block text-sm font-semibold text-foreground">
+              邀请成员一起记账
+            </strong>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              分享链接或二维码即可加入
+            </span>
+          </span>
+          <ChevronRightIcon
+            aria-hidden="true"
+            className="size-5 shrink-0 text-muted-foreground"
+          />
         </Link>
       ) : null}
 
       <section
         aria-label="消费摘要"
-        className="mt-3 rounded-2xl bg-[#F4F9F6] px-4 py-4 dark:bg-primary/10"
+        className="mt-4 rounded-sm bg-summary px-4 py-4"
       >
         <p className="text-xs font-medium text-muted-foreground">总消费</p>
         <MoneyAmount
           currency={activity.currency}
           amountMinor={BigInt(activity.totalExpenseMinor)}
           size="lg"
-          className="mt-0.5 text-[1.75rem] leading-8"
+          className="type-display-amount mt-0.5"
         />
         {foreignCurrencyTotals.length > 0 ? (
           <div className="mt-2">
@@ -244,6 +241,7 @@ export function ExpenseFeed({
       {entryContext?.permissions.canCreateExpense && onExpenseSaved ? (
         <QuickExpenseTrigger
           context={entryContext}
+          timeZone={timeZone}
           onSaved={onExpenseSaved}
           onQueued={onExpenseQueued}
         />
@@ -311,7 +309,7 @@ export function ExpenseFeed({
               <ListReveal>
                 <ul
                   aria-label={fullDateLabel}
-                  className="mt-2 divide-y divide-border/60 overflow-hidden rounded-sm border"
+                  className="mt-2 divide-y divide-border/60 overflow-hidden rounded-sm border bg-surface"
                 >
                   {rows?.map((expense) => (
                     <li key={expense.id} className="px-3 py-3">

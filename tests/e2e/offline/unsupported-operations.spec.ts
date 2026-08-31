@@ -9,13 +9,13 @@ test("离线时 Settlement 与活动生命周期命令没有可用的提交路�
   const { activityId } = await prepareOfflineUser(page);
 
   await page.goto(`/activities/${activityId}/settlements`);
-  const recordSettlement = page.getByRole("button", { name: "记录结算" });
+  const recordSettlement = page.getByRole("button", { name: "补记结算" });
   await expect(recordSettlement).toBeVisible();
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event("offline")));
   await expect(recordSettlement).toBeDisabled();
   await expect(
-    page.getByText("结算必须联网后记录。", { exact: true }),
+    page.getByText("当前离线，联网后可记录结算。", { exact: true }),
   ).toBeVisible();
 
   await context.setOffline(false);

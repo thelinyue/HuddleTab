@@ -15,12 +15,15 @@ import {
   type ExpenseFeedSummaryDto,
 } from "@/features/expenses/api";
 import { SettlementPage } from "@/features/settlements/components/settlement-page";
+import type { ActivityWorkspaceHeaderData } from "@/features/activities/components/activity-workspace-header-data";
 
 /** 加载器只协调权威快照刷新，展示与提交流程保留在可独立测试的 SettlementPage。 */
 export function SettlementPageLoader({
   timeZone,
+  onHeaderData,
 }: {
   readonly timeZone: string;
+  readonly onHeaderData?: (data: ActivityWorkspaceHeaderData) => void;
 }) {
   const { activityId } = useParams<{ activityId: string }>();
   const [context, setContext] = useState<SettlementPageContextDto | null>(null);
@@ -41,6 +44,14 @@ export function SettlementPageLoader({
         setSettlements(nextSettlements);
         setSummary(nextSummary);
         setError(null);
+        onHeaderData?.({
+          activityId,
+          name: nextSummary.activityName,
+          startDate: nextSummary.startDate,
+          endDate: nextSummary.endDate,
+          memberCount: nextSummary.memberCount,
+          status: nextContext.activity.status,
+        });
       })
       .catch((reason: unknown) => {
         if (!cancelled)
@@ -53,7 +64,7 @@ export function SettlementPageLoader({
     return () => {
       cancelled = true;
     };
-  }, [activityId, refresh]);
+  }, [activityId, onHeaderData, refresh]);
   if (error)
     return (
       <p role="alert" className="py-8 text-destructive">

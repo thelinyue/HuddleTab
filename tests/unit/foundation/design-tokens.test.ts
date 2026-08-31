@@ -62,6 +62,13 @@ describe("HuddleTab design tokens", () => {
     expect(css).toContain("--success:");
   });
 
+  it("defines shared activity workspace and summary surface semantics", () => {
+    expect(css).toContain("--workspace-background:");
+    expect(css).toContain("--summary-surface:");
+    expect(css).toContain("--color-workspace:");
+    expect(css).toContain("--color-summary:");
+  });
+
   it("defines the V1 radius scale", () => {
     expect(css).toContain("--radius-sm: 0.5rem;");
     expect(css).toContain("--radius-md: 0.75rem;");

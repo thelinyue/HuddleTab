@@ -14,6 +14,7 @@ import { SyncStatus } from "@/components/design-system/sync-status";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QuickExpenseTrigger } from "@/features/expenses/components/quick-expense-trigger";
+import ActivityLayout from "@/app/(product)/activities/[activityId]/layout";
 
 test("核心容器在中等屏幕增加边距，并保持单列与底部安全区", () => {
   render(
@@ -79,6 +80,7 @@ test("共享展示原语保留标题、金额语义和同步状态文本", () =>
         actions={<button type="button">更多</button>}
       />
       <MoneyAmount currency="CNY" amountMinor={12345n} tone="receivable" />
+      <MoneyAmount currency="CNY" amountMinor={0n} tone="settled" />
       <SyncStatus tone="pending" />
     </>,
   );
@@ -92,6 +94,7 @@ test("共享展示原语保留标题、金额语义和同步状态文本", () =>
     "data-money-tone",
     "receivable",
   );
+  expect(screen.getByText("¥0.00")).toHaveClass("text-success");
   expect(screen.getByText("等待同步")).toBeVisible();
 });
 
@@ -116,7 +119,7 @@ test("共享标题允许合法的长无空格文本在窄屏内断行", () => {
   }
 });
 
-test("移动端记一笔按钮固定在活动导航和安全区上方", () => {
+test("记一笔按钮避让安全区并锚定居中活动工作区", () => {
   render(
     <QuickExpenseTrigger
       context={{
@@ -142,8 +145,22 @@ test("移动端记一笔按钮固定在活动导航和安全区上方", () => {
   );
 
   expect(screen.getByRole("button", { name: "记一笔" })).toHaveClass(
-    "bottom-[calc(4.5rem+env(safe-area-inset-bottom))]",
+    "bottom-[calc(1rem+env(safe-area-inset-bottom))]",
+    "right-[max(calc(1rem+env(safe-area-inset-right)),calc((100vw-800px)/2+1.5rem))]",
     "size-14",
     "rounded-full",
+  );
+});
+
+test("活动布局退出外层位移动画，避免 fixed FAB 改为相对容器定位", () => {
+  render(
+    <ActivityLayout>
+      <p>活动工作区</p>
+    </ActivityLayout>,
+  );
+
+  expect(screen.getByText("活动工作区").parentElement).toHaveAttribute(
+    "data-page-reveal",
+    "false",
   );
 });

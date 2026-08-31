@@ -3,9 +3,8 @@
 import {
   ArrowRightIcon,
   ChevronRightIcon,
-  ReceiptTextIcon,
+  CheckIcon,
   ScaleIcon,
-  WalletCardsIcon,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -14,7 +13,6 @@ import { MemberAvatar } from "@/components/design-system/member-avatar";
 import { MoneyAmount } from "@/components/design-system/money-amount";
 import { asCurrencyCode } from "@/domain/currency/currency";
 import { formatMoney } from "@/domain/money/money";
-import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import type { ExpenseFeedSummaryDto } from "@/features/expenses/api";
 import {
   OfflineStatus,
@@ -148,14 +146,18 @@ export function SettlementPage({
   );
   const currentNetMinor = BigInt(currentBalance?.netMinor ?? "0");
   const currentDirection = balanceDirection(currentNetMinor);
-  const settledCount = data.balances.filter(
+  // 摘要和成员入口描述的是“我之外”的协作对象；余额 Sheet 则保留全员，方便解释总账来源。
+  const otherBalances = data.balances.filter(
+    (balance) => balance.memberId !== data.activity.currentMemberId,
+  );
+  const settledCount = otherBalances.filter(
     (balance) => BigInt(balance.netMinor) === 0n,
   ).length;
-  const unsettledCount = data.balances.length - settledCount;
-  const payableCount = data.balances.filter(
+  const unsettledCount = otherBalances.length - settledCount;
+  const payableCount = otherBalances.filter(
     (balance) => BigInt(balance.netMinor) < 0n,
   ).length;
-  const receivableCount = data.balances.filter(
+  const receivableCount = otherBalances.filter(
     (balance) => BigInt(balance.netMinor) > 0n,
   ).length;
   const fullySettled = data.balances.every(
@@ -199,42 +201,35 @@ export function SettlementPage({
 
   return (
     <>
-      <div data-testid="settlement-page-content" className="min-w-0">
-        <ActivityPageHeader
-          activityId={data.activity.id}
-          name={data.summary.activityName}
-          startDate={data.summary.startDate}
-          endDate={data.summary.endDate}
-          memberCount={data.summary.memberCount}
-          status={data.activity.status}
-          activeTab="settlement"
-          canManageMembers={
-            data.activity.status === "ACTIVE" &&
-            data.activity.currentMemberStatus === "ACTIVE" &&
-            data.activity.currentMemberRole !== "MEMBER"
-          }
-        />
-
-        <main className="pb-8">
+      <div
+        data-testid="settlement-page-content"
+        className="flex min-w-0 flex-1 flex-col"
+      >
+        <main
+          className={`flex flex-1 flex-col${writable ? "" : " pb-8"}`}
+        >
           {writable && !online ? (
-            <OfflineStatus>结算必须联网后记录。</OfflineStatus>
+            <OfflineStatus>当前离线，联网后可记录结算。</OfflineStatus>
           ) : null}
 
           <section
             aria-label="结算摘要"
-            className="mt-4 rounded-2xl bg-[#F4F9F6] px-4 py-4 dark:bg-primary/10"
+            className="mt-4 rounded-sm bg-summary px-4 py-4"
           >
             <div aria-label="我的结算">
               <p className="text-xs font-medium text-muted-foreground">
                 我的结算
               </p>
-              <p className="mt-1 flex flex-wrap items-baseline gap-1 text-xl font-semibold">
-                <span>{currentDirection.label}</span>
+              <p className="mt-0.5 flex flex-wrap items-baseline gap-1">
+                <span className="text-xl font-semibold">
+                  {currentDirection.label}
+                </span>
                 <MoneyAmount
                   currency={currency}
                   amountMinor={absoluteMinor(currentNetMinor)}
                   tone={currentDirection.tone}
-                  size="md"
+                  size="lg"
+                  className="type-display-amount"
                 />
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -287,12 +282,17 @@ export function SettlementPage({
                           {receiverName}
                         </span>
                       </span>
-                      <MoneyAmount
-                        currency={currency}
-                        amountMinor={amountMinor}
-                        size="sm"
-                        className="shrink-0 font-semibold"
-                      />
+                      <span className="shrink-0 text-right">
+                        <MoneyAmount
+                          currency={currency}
+                          amountMinor={amountMinor}
+                          size="sm"
+                          className="block font-semibold"
+                        />
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          待结清
+                        </span>
+                      </span>
                     </>
                   );
                   return (
@@ -307,7 +307,7 @@ export function SettlementPage({
                             "zh-CN",
                           )}`}
                           disabled={!online}
-                          className="grid min-h-14 w-full grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-2 px-3 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-2 px-3 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 disabled:cursor-not-allowed disabled:opacity-60"
                           onClick={() => openForm(recommendation)}
                         >
                           {transfer}
@@ -327,11 +327,16 @@ export function SettlementPage({
                 })}
               </ul>
             ) : (
-              <EmptyState
-                icon={WalletCardsIcon}
-                title="没有推荐转账"
-                description="当前成员余额已经平衡。"
-              />
+              <div className="mt-2 py-3">
+                <p className="text-sm font-medium text-foreground">
+                  {fullySettled ? "当前无需转账" : "当前暂无推荐转账"}
+                </p>
+                {fullySettled ? (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    所有成员余额均已结清
+                  </p>
+                ) : null}
+              </div>
             )}
           </section>
 
@@ -359,14 +364,14 @@ export function SettlementPage({
               <h2 id="history-heading" className="text-base font-semibold">
                 实际结算记录
               </h2>
-              {writable && fullySettled ? (
+              {writable ? (
                 <button
                   type="button"
                   onClick={() => openForm()}
                   disabled={!online}
                   className="shrink-0 text-sm font-medium text-primary underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground"
                 >
-                  补录结算
+                  补记结算
                 </button>
               ) : null}
             </div>
@@ -382,32 +387,16 @@ export function SettlementPage({
                   const receiverName = receiver?.displayName ?? "未知成员";
                   return (
                     <li key={settlement.id} className="min-w-0 px-3 py-3">
-                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-                        <div className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)_16px_32px_minmax(0,1fr)] items-center gap-2">
-                          <MemberAvatar
-                            memberId={settlement.payerMemberId}
-                            displayName={payerName}
-                            avatarPreset={payer?.avatarPreset}
-                            className="size-8"
-                          />
-                          <span className="min-w-0 truncate text-sm font-medium">
-                            {payerName}
-                          </span>
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                        <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                          <span className="min-w-0 truncate">{payerName}</span>
                           <ArrowRightIcon
                             data-testid="history-direction"
                             aria-hidden="true"
                             className="size-4 shrink-0 text-muted-foreground"
                           />
-                          <MemberAvatar
-                            memberId={settlement.receiverMemberId}
-                            displayName={receiverName}
-                            avatarPreset={receiver?.avatarPreset}
-                            className="size-8"
-                          />
-                          <span className="min-w-0 truncate text-sm font-medium">
-                            {receiverName}
-                          </span>
-                        </div>
+                          <span className="min-w-0 truncate">{receiverName}</span>
+                        </p>
                         <MoneyAmount
                           currency={settlement.currency}
                           amountMinor={BigInt(settlement.amountMinor)}
@@ -432,23 +421,22 @@ export function SettlementPage({
                 })}
               </ul>
             ) : (
-              <EmptyState
-                icon={ReceiptTextIcon}
-                title="没有结算记录"
-                description="已确认的转账会显示在这里。"
-              />
+              <p className="mt-2 py-3 text-sm text-muted-foreground">
+                暂无结算记录
+              </p>
             )}
           </section>
 
           {writable ? (
-            <div className="sticky bottom-0 z-10 -mx-4 mt-6 bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+            <div className="sticky bottom-0 z-10 -mx-4 mt-auto bg-surface/95 px-4 pt-6 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur min-[481px]:-mx-6 min-[481px]:px-6">
               {fullySettled ? (
                 <button
                   type="button"
                   disabled
-                  className="min-h-12 w-full rounded-lg border border-border bg-muted/40 px-4 font-medium text-muted-foreground"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-success/35 bg-success/10 px-4 font-medium text-success"
                 >
-                  ✓ 全部已结清
+                  <CheckIcon aria-hidden="true" className="size-5" />
+                  全部已结清
                 </button>
               ) : (
                 <button
@@ -482,6 +470,7 @@ export function SettlementPage({
           context={data}
           initial={initial}
           online={online}
+          timeZone={timeZone}
           onSubmit={execute}
         />
       </ResponsiveFormOverlay>

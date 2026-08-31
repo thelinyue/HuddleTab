@@ -1,13 +1,15 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
 import { ExpenseFeedLoader } from "@/features/expenses/components/expense-loaders";
 import { SettlementPageLoader } from "@/features/settlements/components/settlement-page-loader";
 import { MemberPageLoader } from "@/features/members/components/member-page-loader";
 import { ActivityMore } from "@/features/activities/components/activity-more";
+import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
+import type { ActivityWorkspaceHeaderData } from "@/features/activities/components/activity-workspace-header-data";
 
 function withoutPanel(searchParams: { readonly toString: () => string }) {
   const next = new URLSearchParams(searchParams.toString());
@@ -39,8 +41,24 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
   const [membersInitialView, setMembersInitialView] = useState<
     "list" | "invite"
   >("list");
+  const [headerData, setHeaderData] =
+    useState<ActivityWorkspaceHeaderData | null>(null);
   const tab = searchParams.get("tab") === "settlement" ? "settlement" : "feed";
   const panel = searchParams.get("panel");
+
+  /**
+   * 头部事实由当前可见加载器回传。activityId 校验同时抵御延迟请求和旧组件回调，
+   * 配合下面的 render 校验，活动切换首帧也绝不会借用上一个活动的名称或成员数。
+   */
+  const handleHeaderData = useCallback(
+    (next: ActivityWorkspaceHeaderData) => {
+      if (next.activityId !== activityId) return;
+      setHeaderData(next);
+    },
+    [activityId],
+  );
+  const visibleHeaderData =
+    headerData?.activityId === activityId ? headerData : null;
 
   useEffect(() => {
     const markPanelOpen = (event: Event) => {
@@ -108,22 +126,38 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
     <section
       data-testid="activity-workspace-surface"
       data-page-reveal="false"
-      className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] min-h-dvh min-w-0 bg-surface px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6"
+      className="-mx-4 -mt-[calc(1rem+env(safe-area-inset-top))] flex min-h-dvh min-w-0 flex-col bg-workspace px-4 pt-[calc(1rem+env(safe-area-inset-top))] min-[481px]:-mx-6 min-[481px]:px-6"
     >
+      {visibleHeaderData ? (
+        <ActivityPageHeader
+          {...visibleHeaderData}
+          activeTab={tab}
+        />
+      ) : null}
       {tab === "settlement" ? (
-        <SettlementPageLoader timeZone={timeZone} />
+        <SettlementPageLoader
+          key={`settlement:${activityId}`}
+          timeZone={timeZone}
+          onHeaderData={handleHeaderData}
+        />
       ) : (
-        <ExpenseFeedLoader timeZone={timeZone} />
+        <ExpenseFeedLoader
+          key={`feed:${activityId}`}
+          timeZone={timeZone}
+          onHeaderData={handleHeaderData}
+        />
       )}
 
-      <MemberPageLoader
-        embedded
-        open={panel === "members"}
-        initialView={panel === "members" ? membersInitialView : "list"}
-        onOpenChange={(open) => {
-          if (!open) closePanel();
-        }}
-      />
+      {panel === "members" ? (
+        <MemberPageLoader
+          embedded
+          open
+          initialView={membersInitialView}
+          onOpenChange={(open) => {
+            if (!open) closePanel();
+          }}
+        />
+      ) : null}
 
       <ResponsiveFormOverlay
         open={panel === "manage"}

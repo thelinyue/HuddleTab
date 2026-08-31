@@ -1,4 +1,8 @@
-import { ArrowLeftIcon, MoreHorizontalIcon, UserPlusIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  MoreHorizontalIcon,
+  UsersRoundIcon,
+} from "lucide-react";
 import Link from "next/link";
 
 import { ActivityNavigation } from "@/features/activities/components/activity-navigation";
@@ -26,7 +30,6 @@ export function ActivityPageHeader({
   status,
   activeTab = "feed",
   moreAction = true,
-  canManageMembers = false,
 }: {
   readonly activityId: string;
   readonly name: string;
@@ -36,8 +39,6 @@ export function ActivityPageHeader({
   readonly status: "ACTIVE" | "ENDED" | "ARCHIVED";
   readonly activeTab?: "feed" | "settlement";
   readonly moreAction?: boolean;
-  /** 由已授权页面上下文传入，避免页头自行请求或猜测当前用户角色。 */
-  readonly canManageMembers?: boolean;
 }) {
   const days = inclusiveCalendarDays(startDate, endDate);
   const statusText = statusLabel(status);
@@ -48,11 +49,11 @@ export function ActivityPageHeader({
     return `/activities/${encodeURIComponent(activityId)}?${params.toString()}`;
   };
   return (
-    <div className="rounded-b-2xl bg-[#F8FBF6] pb-1 pt-0.5 dark:bg-primary/5">
-      <header
-        aria-label="活动信息"
-        className="flex min-h-14 items-center gap-2"
-      >
+    <header
+      aria-label="活动信息"
+      className="-mx-4 border-b border-border/70 bg-surface px-4 min-[481px]:-mx-6 min-[481px]:px-6"
+    >
+      <div className="flex min-h-14 items-center gap-2">
         <Link
           href="/activities"
           aria-label="返回活动列表"
@@ -61,46 +62,22 @@ export function ActivityPageHeader({
         >
           <ArrowLeftIcon aria-hidden="true" className="size-5" />
         </Link>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-lg font-semibold text-foreground">
-            {name}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {days === null ? null : `${days}天 · `}
-            <Link
-              href={query("members")}
-              onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent("huddletab:panel-open", {
-                    detail: "members",
-                  }),
-                );
-              }}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center underline-offset-2 hover:underline"
-              aria-label={`查看成员，${memberCount}人`}
-            >
-              {memberCount}人
-            </Link>
-            {` · ${statusText}`}
-          </p>
-        </div>
-        {canManageMembers && status === "ACTIVE" ? (
-          <Link
-            href={query("members")}
-            onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent("huddletab:panel-open", {
-                  detail: { panel: "members", initialView: "invite" },
-                }),
-              );
-            }}
-            aria-label="邀请成员"
-            title="邀请成员"
-            className="flex size-11 shrink-0 items-center justify-center text-foreground"
-          >
-            <UserPlusIcon aria-hidden="true" className="size-5" />
-          </Link>
-        ) : null}
+        <div className="min-w-0 flex-1" />
+        <Link
+          href={query("members")}
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent("huddletab:panel-open", {
+                detail: "members",
+              }),
+            );
+          }}
+          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 px-2 text-sm font-medium text-foreground underline-offset-2 hover:underline"
+          aria-label={`查看成员，${memberCount}人`}
+        >
+          <UsersRoundIcon aria-hidden="true" className="size-4" />
+          成员 {memberCount}
+        </Link>
         {moreAction ? (
           <Link
             href={query("manage")}
@@ -118,9 +95,16 @@ export function ActivityPageHeader({
             <MoreHorizontalIcon aria-hidden="true" className="size-5" />
           </Link>
         ) : null}
-      </header>
+      </div>
+      <div className="px-1 pb-3 pt-1">
+        <h1 className="truncate text-lg font-semibold text-foreground">{name}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {days === null ? null : `${days}天 · `}
+          {memberCount}人 · {statusText}
+        </p>
+      </div>
       <ActivityNavigation activityId={activityId} />
       <ActivityLifecycleNotice status={status} className="mt-3" />
-    </div>
+    </header>
   );
 }

@@ -91,13 +91,22 @@ test("结算信息按我的结算、推荐、记录和操作顺序展示", () =>
   );
 
   expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-  expect(screen.getByRole("main")).toHaveClass("pb-8");
+  expect(screen.getByTestId("settlement-page-content")).toHaveClass(
+    "flex",
+    "flex-1",
+    "flex-col",
+  );
+  expect(screen.getByRole("main")).toHaveClass("flex", "flex-1", "flex-col");
   const summary = screen.getByLabelText("结算摘要");
-  expect(summary).toHaveClass("rounded-2xl");
+  expect(summary).toHaveClass("bg-summary", "rounded-sm", "px-4", "py-4");
   expect(within(summary).getByLabelText("我的结算")).toHaveTextContent(
     "应付¥326.50",
   );
-  expect(within(summary).getByText("2 人未结清 · 0 人已结清")).toBeVisible();
+  expect(within(summary).getByText("¥326.50")).toHaveClass(
+    "type-display-amount",
+    "money",
+  );
+  expect(within(summary).getByText("1 人未结清 · 0 人已结清")).toBeVisible();
   expect(screen.getByRole("button", { name: /成员余额/ })).toBeVisible();
   expect(screen.getByRole("heading", { name: "推荐转账" })).toBeVisible();
   expect(screen.getByRole("heading", { name: "实际结算记录" })).toBeVisible();
@@ -105,20 +114,26 @@ test("结算信息按我的结算、推荐、记录和操作顺序展示", () =>
   expect(screen.getByRole("list", { name: "实际结算记录" })).toBeVisible();
   expect(screen.getByText("已转账")).toBeVisible();
   expect(screen.getByText(/2026年8月27日 16:00/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "补记结算" })).toBeVisible();
   expect(screen.getAllByRole("button", { name: "记录结算" })).toHaveLength(1);
-  expect(screen.getByRole("heading", { name: "大阪旅行" })).toBeVisible();
-  expect(screen.getByRole("banner", { name: "活动信息" })).toHaveTextContent(
-    "5天 · 2人 · 进行中",
-  );
+  expect(
+    screen.queryByRole("banner", { name: "活动信息" }),
+  ).not.toBeInTheDocument();
 });
 
-test("全部成员余额归零时弱化主操作，并保留补录入口", () => {
+test("四人活动全部归零时只统计当前用户之外的三人，并展示明确完成态", () => {
   render(
     <SettlementPage
       data={{
         ...data,
-        balances: data.balances.map((balance) => ({
-          ...balance,
+        summary: { ...data.summary, memberCount: 4 },
+        members: [
+          ...data.members,
+          { id: "m3", displayName: "小周", status: "ACTIVE" },
+          { id: "m4", displayName: "小陈", status: "ACTIVE" },
+        ],
+        balances: ["m1", "m2", "m3", "m4"].map((memberId) => ({
+          memberId,
           netMinor: "0",
         })),
         recommendations: [],
@@ -128,8 +143,18 @@ test("全部成员余额归零时弱化主操作，并保留补录入口", () =>
     />,
   );
 
-  expect(screen.getByRole("button", { name: "✓ 全部已结清" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "补录结算" })).toBeVisible();
+  expect(
+    within(screen.getByLabelText("结算摘要")).getByText(
+      "0 人未结清 · 3 人已结清",
+    ),
+  ).toBeVisible();
+  expect(screen.getByText("当前无需转账")).toBeVisible();
+  expect(screen.getByText("所有成员余额均已结清")).toBeVisible();
+  const completedAction = screen.getByRole("button", { name: "全部已结清" });
+  expect(completedAction).toBeDisabled();
+  expect(completedAction).toHaveClass("text-success");
+  expect(completedAction.querySelector(".lucide-check")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "补记结算" })).toBeVisible();
   expect(
     screen.queryByRole("button", { name: "记录结算" }),
   ).not.toBeInTheDocument();
@@ -137,19 +162,20 @@ test("全部成员余额归零时弱化主操作，并保留补录入口", () =>
 
 test("推荐转账整行预填结算，不显示重复操作文案", async () => {
   const user = userEvent.setup();
+  const createSettlement = vi.fn();
   render(
     <SettlementPage
       data={data}
       timeZone="Asia/Shanghai"
-      createSettlement={vi.fn()}
+      createSettlement={createSettlement}
     />,
   );
 
   const recommendation = screen.getByRole("button", {
     name: "按建议记录：小王向小李支付 ¥326.50",
   });
-  expect(recommendation).toHaveClass("min-h-14");
-  expect(recommendation).toHaveTextContent("小王小李¥326.50");
+  expect(recommendation).toHaveClass("min-h-16");
+  expect(recommendation).toHaveTextContent("小王小李¥326.50待结清");
   expect(
     within(recommendation).getByTestId("recommendation-chevron"),
   ).toBeVisible();
@@ -159,9 +185,10 @@ test("推荐转账整行预填结算，不显示重复操作文案", async () =>
   expect(screen.getByLabelText("付款人")).toHaveValue("m1");
   expect(screen.getByLabelText("收款人")).toHaveValue("m2");
   expect(screen.getByLabelText("金额")).toHaveValue("326.50");
+  expect(createSettlement).not.toHaveBeenCalled();
 });
 
-test("结算页消费共享活动导航并标记当前页签", () => {
+test("结算正文不重复工作台拥有的活动导航", () => {
   render(
     <SettlementPage
       data={data}
@@ -170,13 +197,9 @@ test("结算页消费共享活动导航并标记当前页签", () => {
     />,
   );
 
-  const activityNavigations = screen.getAllByRole("navigation", {
-    name: "活动导航",
-  });
-  expect(activityNavigations).toHaveLength(1);
   expect(
-    within(activityNavigations[0]!).getByRole("link", { name: "结算" }),
-  ).toHaveAttribute("aria-current", "page");
+    screen.queryByRole("navigation", { name: "活动导航" }),
+  ).not.toBeInTheDocument();
 });
 
 test("成员余额作为二级入口打开，并使用头像、方向文字和绝对值金额", async () => {
@@ -196,7 +219,9 @@ test("成员余额作为二级入口打开，并使用头像、方向文字和�
     />,
   );
 
-  await user.click(screen.getByRole("button", { name: /成员余额/ }));
+  const balanceEntry = screen.getByRole("button", { name: /成员余额/ });
+  expect(balanceEntry).toHaveTextContent("1 人应收 · 0 人应付");
+  await user.click(balanceEntry);
   const balances = within(
     screen.getByRole("dialog", { name: "成员余额" }),
   ).getByRole("list", { name: "成员余额" });
@@ -303,7 +328,7 @@ test("实际记录约束超长关系与备注，避免推挤金额或横向滚�
   const historyList = within(history).getByRole("list", {
     name: "实际结算记录",
   });
-  expect(within(historyList).getAllByRole("img")).toHaveLength(2);
+  expect(within(historyList).queryAllByRole("img")).toHaveLength(0);
   expect(within(historyList).getByText(payerName)).toHaveClass("truncate");
   expect(within(historyList).getByText(receiverName)).toHaveClass("truncate");
   expect(within(historyList).getByTestId("history-direction")).toBeVisible();
@@ -344,6 +369,9 @@ test("LEFT 成员付款人固定为自己，ARCHIVED 不显示记录入口", asy
   expect(
     screen.queryByRole("button", { name: "记录结算" }),
   ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "补记结算" }),
+  ).not.toBeInTheDocument();
 });
 
 test("离线时记录入口与推荐预填均禁用并解释原因", () => {
@@ -358,5 +386,44 @@ test("离线时记录入口与推荐预填均禁用并解释原因", () => {
   act(() => window.dispatchEvent(new Event("offline")));
   expect(screen.getByRole("button", { name: "记录结算" })).toBeDisabled();
   expect(screen.getByRole("button", { name: /按建议记录/ })).toBeDisabled();
-  expect(screen.getByText("结算必须联网后记录。")).toBeVisible();
+  expect(screen.getByText("当前离线，联网后可记录结算。")).toBeVisible();
+});
+
+test("无历史时使用轻量文字，ENDED 可写状态仍保留补记入口", () => {
+  render(
+    <SettlementPage
+      data={{
+        ...data,
+        activity: { ...data.activity, status: "ENDED" },
+        settlements: [],
+      }}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
+
+  const history = screen.getByRole("region", { name: "实际结算记录" });
+  expect(within(history).getByText("暂无结算记录")).toBeVisible();
+  expect(within(history).queryByRole("img")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "补记结算" })).toBeVisible();
+});
+
+test("Sticky 主操作同时避让工作区边距和底部安全区", () => {
+  render(
+    <SettlementPage
+      data={data}
+      timeZone="Asia/Shanghai"
+      createSettlement={vi.fn()}
+    />,
+  );
+
+  expect(
+    screen.getByRole("button", { name: "记录结算" }).parentElement,
+  ).toHaveClass(
+    "-mx-4",
+    "mt-auto",
+    "pt-6",
+    "min-[481px]:-mx-6",
+    "pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
+  );
 });

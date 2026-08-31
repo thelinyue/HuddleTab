@@ -188,7 +188,6 @@ export function MemberPageLoader({
           endDate={summary.endDate}
           memberCount={summary.memberCount}
           status={settlementContext.activity.status}
-          canManageMembers={canManageMembers}
         />
       ) : null}
       <MemberList

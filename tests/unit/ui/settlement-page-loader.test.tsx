@@ -3,6 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -25,9 +26,16 @@ vi.mock("@/features/expenses/api", () => ({
   getExpenseFeedSummary: mocks.getSummary,
 }));
 vi.mock("@/features/settlements/components/settlement-page", () => ({
-  SettlementPage: (props: unknown) => {
+  SettlementPage: (props: { readonly onSaved?: () => void }) => {
     mocks.page(props);
-    return <p>结算已加载</p>;
+    return (
+      <>
+        <p>结算已加载</p>
+        <button type="button" onClick={props.onSaved}>
+          模拟保存结算
+        </button>
+      </>
+    );
   },
 }));
 
@@ -39,7 +47,13 @@ afterEach(() => {
 });
 
 test("加载器并行读取结算上下文、记录和活动摘要并透传时区", async () => {
-  const context = { activity: { id: "activity-1" } };
+  const onHeaderData = vi.fn();
+  const context = {
+    activity: {
+      id: "activity-1",
+      status: "ACTIVE",
+    },
+  };
   const settlements = [{ id: "settlement-1" }];
   const summary = {
     activityName: "大阪旅行",
@@ -51,7 +65,12 @@ test("加载器并行读取结算上下文、记录和活动摘要并透传时�
   mocks.getSettlements.mockResolvedValue(settlements);
   mocks.getSummary.mockResolvedValue(summary);
 
-  render(<SettlementPageLoader timeZone="Pacific/Honolulu" />);
+  render(
+    <SettlementPageLoader
+      timeZone="Pacific/Honolulu"
+      onHeaderData={onHeaderData}
+    />,
+  );
 
   expect(await screen.findByText("结算已加载")).toBeVisible();
   expect(mocks.getContext).toHaveBeenCalledWith("activity-1");
@@ -65,4 +84,38 @@ test("加载器并行读取结算上下文、记录和活动摘要并透传时�
       }),
     ),
   );
+  expect(onHeaderData).toHaveBeenCalledWith({
+    activityId: "activity-1",
+    name: "大阪旅行",
+    startDate: "2026-08-20",
+    endDate: "2026-08-24",
+    memberCount: 2,
+    status: "ACTIVE",
+  });
+});
+
+test("保存结算后重新并行拉取上下文、推荐余额、摘要和实际记录", async () => {
+  const user = userEvent.setup();
+  mocks.getContext.mockResolvedValue({
+    activity: { id: "activity-1", status: "ACTIVE" },
+  });
+  mocks.getSettlements.mockResolvedValue([]);
+  mocks.getSummary.mockResolvedValue({
+    activityName: "大阪旅行",
+    startDate: "2026-08-20",
+    endDate: "2026-08-24",
+    memberCount: 2,
+  });
+
+  render(
+    <SettlementPageLoader timeZone="Asia/Shanghai" onHeaderData={vi.fn()} />,
+  );
+  expect(await screen.findByText("结算已加载")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "模拟保存结算" }));
+  await waitFor(() => {
+    expect(mocks.getContext).toHaveBeenCalledTimes(2);
+    expect(mocks.getSettlements).toHaveBeenCalledTimes(2);
+    expect(mocks.getSummary).toHaveBeenCalledTimes(2);
+  });
 });

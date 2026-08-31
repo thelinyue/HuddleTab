@@ -27,10 +27,12 @@ export function QuickExpenseTrigger({
   context,
   onSaved,
   onQueued,
+  timeZone,
 }: {
   readonly context: QuickExpenseContextDto;
   readonly onSaved: (expenseId: string) => void;
   readonly onQueued?: (mutationId: string) => void;
+  readonly timeZone: string;
 }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<QuickExpenseStep>("ENTRY");
@@ -87,7 +89,7 @@ export function QuickExpenseTrigger({
           setSplitValid(false);
           setOpen(true);
         }}
-        className="fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 inline-flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="fixed right-[max(calc(1rem+env(safe-area-inset-right)),calc((100vw-800px)/2+1.5rem))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 inline-flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         <span
           ref={triggerMotionTarget}
@@ -160,6 +162,7 @@ export function QuickExpenseTrigger({
         }
       >
         <QuickExpenseForm
+          timeZone={timeZone}
           activity={context.activity}
           members={context.members}
           preference={{

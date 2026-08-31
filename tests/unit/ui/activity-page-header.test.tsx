@@ -32,7 +32,7 @@ test.each([
   },
 );
 
-test("活动进行中且当前用户可管理成员时展示 44px 邀请入口", () => {
+test("活动头使用白色框架并始终展示带人数的成员入口", () => {
   render(
     <ActivityPageHeader
       activityId="activity-1"
@@ -41,22 +41,32 @@ test("活动进行中且当前用户可管理成员时展示 44px 邀请入口",
       endDate="2026-08-22"
       memberCount={1}
       status="ACTIVE"
-      canManageMembers
     />,
   );
-  const invite = screen.getByRole("link", { name: "邀请成员" });
-  expect(invite).toHaveClass("size-11");
-  expect(invite).toHaveAttribute(
+  const header = screen.getByRole("banner", { name: "活动信息" });
+  expect(header).toHaveClass(
+    "bg-surface",
+    "-mx-4",
+    "px-4",
+    "min-[481px]:-mx-6",
+    "min-[481px]:px-6",
+  );
+  expect(header).not.toHaveClass("bg-[#F8FBF6]");
+  const members = screen.getByRole("link", { name: "查看成员，1人" });
+  expect(members).toHaveClass("min-h-11");
+  expect(members).toHaveTextContent("成员 1");
+  expect(members.querySelector(".lucide-users-round")).toBeInTheDocument();
+  expect(members).toHaveAttribute(
     "href",
     "/activities/activity-1?panel=members",
   );
-  expect(screen.getByRole("link", { name: /查看成员/ })).toHaveClass(
-    "min-h-11",
-  );
+  expect(
+    screen.queryByRole("link", { name: "邀请成员" }),
+  ).not.toBeInTheDocument();
 });
 
-test.each(["ENDED", "ARCHIVED"] as const)(
-  "%s 活动不展示邀请管理入口",
+test.each(["ACTIVE", "ENDED", "ARCHIVED"] as const)(
+  "%s 活动的成员入口保持可见",
   (status) => {
     render(
       <ActivityPageHeader
@@ -66,16 +76,13 @@ test.each(["ENDED", "ARCHIVED"] as const)(
         endDate="2026-08-22"
         memberCount={1}
         status={status}
-        canManageMembers
       />,
     );
-    expect(
-      screen.queryByRole("link", { name: "邀请成员" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看成员，1人" })).toBeVisible();
   },
 );
 
-test("活动进行中但普通成员不可见邀请管理入口", () => {
+test("结算视图的成员入口保留当前 Tab 查询参数", () => {
   render(
     <ActivityPageHeader
       activityId="activity-1"
@@ -84,10 +91,11 @@ test("活动进行中但普通成员不可见邀请管理入口", () => {
       endDate="2026-08-22"
       memberCount={2}
       status="ACTIVE"
-      canManageMembers={false}
+      activeTab="settlement"
     />,
   );
-  expect(
-    screen.queryByRole("link", { name: "邀请成员" }),
-  ).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "查看成员，2人" })).toHaveAttribute(
+    "href",
+    "/activities/activity-1?tab=settlement&panel=members",
+  );
 });

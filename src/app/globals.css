@@ -27,6 +27,9 @@
   --text-caption: 0.75rem;
   --text-caption--line-height: 1.125rem;
   --background: #f6f8f7;
+  /* Activity Workspace 的页面底色与摘要面共用语义 Token，流水和结算不得各自硬编码颜色。 */
+  --workspace-background: #faf9f7;
+  --summary-surface: #eef6f0;
   --surface: #ffffff;
   --surface-muted: #f1f5f3;
   --foreground: #333333;
@@ -68,6 +71,8 @@
 .dark {
   color-scheme: dark;
   --background: #0d1512;
+  --workspace-background: #0d1512;
+  --summary-surface: #17271f;
   --surface: #14201b;
   --surface-muted: #1b2b24;
   --foreground: #f1f7f4;
@@ -107,6 +112,8 @@
   :root:not(.light) {
     color-scheme: dark;
     --background: #0d1512;
+    --workspace-background: #0d1512;
+    --summary-surface: #17271f;
     --surface: #14201b;
     --surface-muted: #1b2b24;
     --foreground: #f1f7f4;
@@ -146,6 +153,8 @@
 @theme inline {
   --font-sans: var(--font-ui);
   --font-amount: var(--font-money-family);
+  --color-workspace: var(--workspace-background);
+  --color-summary: var(--summary-surface);
   --color-surface-muted: var(--surface-muted);
   --color-brand: var(--brand);
   --color-mint: var(--mint);

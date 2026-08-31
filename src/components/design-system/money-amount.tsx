@@ -17,9 +17,9 @@ type MoneySize = "sm" | "md" | "lg";
 
 const toneClassName: Record<MoneyTone, string> = {
   neutral: "text-foreground",
-  receivable: "text-[var(--amount-receivable)]",
-  payable: "text-[var(--amount-payable)]",
-  settled: "text-primary",
+  receivable: "text-receivable",
+  payable: "text-payable",
+  settled: "text-success",
   danger: "text-[var(--amount-danger)]",
 };
 
