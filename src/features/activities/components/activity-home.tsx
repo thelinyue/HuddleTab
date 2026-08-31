@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { PlusIcon } from "lucide-react";
+import Image from "next/image";
+import activityListEmptyIllustration from "@/assets/illustrations/activity-list-empty.webp";
 import {
   getActivityHome,
   type ActivityHomeDto,
@@ -153,14 +155,34 @@ export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
         {!hasActivities && (
           <EmptyState
             icon={PlusIcon}
+            visual={
+              <Image
+                src={activityListEmptyIllustration}
+                alt=""
+                aria-hidden="true"
+                width={960}
+                height={640}
+                loading="eager"
+                sizes="(max-width: 351px) calc(100vw - 32px), 320px"
+                className="mx-auto mb-5 h-auto w-full max-w-80 object-contain"
+              />
+            }
             title="还没有活动"
             description="创建第一个活动后，就可以开始记录消费。"
             action={
-              <div className="grid gap-2">
-                <Button onClick={() => setActionView("create")}>
+              <div className="grid w-full max-w-72 gap-1">
+                <Button
+                  size="lg"
+                  className="w-full"
+                  onClick={() => setActionView("create")}
+                >
                   创建活动
                 </Button>
-                <Button variant="outline" onClick={() => setActionView("join")}>
+                <Button
+                  variant="link"
+                  className="w-full"
+                  onClick={() => setActionView("join")}
+                >
                   加入已有活动
                 </Button>
               </div>

@@ -93,8 +93,8 @@ test("活动首页按参考稿呈现紧凑标题、账务摘要和生命周期�
   ).toHaveAttribute("data-size", "icon");
 });
 
-test("没有活动时显示可恢复的空状态", () => {
-  render(
+test("没有活动时用场景插画突出创建入口并弱化加入入口", () => {
+  const { container } = render(
     <ActivityHome
       data={{ summaries: [], active: [], ended: [], archived: [] }}
     />,
@@ -106,7 +106,62 @@ test("没有活动时显示可恢复的空状态", () => {
   ).toHaveAttribute("data-size", "icon");
   const createActions = screen.getAllByRole("button", { name: "创建活动" });
   expect(createActions).toHaveLength(1);
-  expect(createActions[0]).toHaveTextContent("创建活动");
+  expect(createActions[0]).toHaveAttribute("data-size", "lg");
+  expect(createActions[0]).toHaveAttribute("data-variant", "default");
+  expect(screen.getByRole("button", { name: "加入已有活动" })).toHaveAttribute(
+    "data-variant",
+    "link",
+  );
+
+  const illustration = container.querySelector(
+    'img[src*="activity-list-empty"][alt=""][aria-hidden="true"]',
+  );
+  expect(illustration).toBeInTheDocument();
+  expect(illustration).toHaveAttribute("width", "960");
+  expect(illustration).toHaveAttribute("height", "640");
+  expect(illustration).toHaveAttribute("loading", "eager");
+  expect(illustration).toHaveAttribute(
+    "sizes",
+    "(max-width: 351px) calc(100vw - 32px), 320px",
+  );
+});
+
+test("空白态创建和加入入口分别打开对应表单", async () => {
+  const user = userEvent.setup();
+  const data = { summaries: [], active: [], ended: [], archived: [] };
+  render(<ActivityHome data={data} />);
+
+  await user.click(screen.getByRole("button", { name: "创建活动" }));
+  expect(screen.getByRole("dialog", { name: "创建活动" })).toBeVisible();
+
+  cleanup();
+  render(<ActivityHome data={data} />);
+  await user.click(screen.getByRole("button", { name: "加入已有活动" }));
+  expect(screen.getByRole("dialog", { name: "加入活动" })).toBeVisible();
+});
+
+test("已有活动时不显示空白态插画", () => {
+  const { container } = render(
+    <ActivityHome
+      data={{
+        summaries: [],
+        active: [
+          {
+            id: "active",
+            name: "周末聚餐",
+            status: "ACTIVE",
+            myNetMinor: "0",
+          },
+        ],
+        ended: [],
+        archived: [],
+      }}
+    />,
+  );
+
+  expect(
+    container.querySelector('img[src*="activity-list-empty"]'),
+  ).not.toBeInTheDocument();
 });
 
 test("加号打开新建或加入操作面板，并能切换到两种表单", async () => {

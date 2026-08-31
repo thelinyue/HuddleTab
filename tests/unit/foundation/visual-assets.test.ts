@@ -57,4 +57,14 @@ describe("产品预设图片资源", () => {
       });
     }
   });
+
+  it("提交活动列表空白态使用的固定比例本地插画", async () => {
+    const path = "src/assets/illustrations/activity-list-empty.webp";
+    expect(existsSync(path), `${path} 应提交到仓库`).toBe(true);
+    await expect(sharp(path).metadata()).resolves.toMatchObject({
+      format: "webp",
+      width: 960,
+      height: 640,
+    });
+  });
 });
