@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getCurrencyMinorUnits } from "@/domain/currency/currency";
+import {
+  asCurrencyCode,
+  getCurrencyMinorUnits,
+} from "@/domain/currency/currency";
 import {
   addMoney,
   formatMoney,
@@ -40,6 +43,12 @@ describe("Money", () => {
         "zh-CN",
       ),
     ).toBe("¥286.00");
+  });
+
+  it("rejects non-circulating and non-ISO currencies at the domain boundary", () => {
+    for (const code of ["BTC", "XAU", "XXX"]) {
+      expect(() => asCurrencyCode(code)).toThrow(`不支持的币种：${code}`);
+    }
   });
 
   it("can format an original amount with its ISO code and currency precision", () => {

@@ -26,7 +26,7 @@ services:
       retries: 20
 
   app:
-    image: ghcr.io/thelinyue/huddletab:0.0.1
+    image: ghcr.io/thelinyue/huddletab:0.0.2
     restart: unless-stopped
     depends_on:
       postgres:

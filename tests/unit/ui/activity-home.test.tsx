@@ -228,6 +228,51 @@ test("活动操作与创建/加入共用同一个导航 Overlay，并可返回�
   );
 });
 
+test("创建活动在同一 Overlay 选择币种并保留已填写字段", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
+  render(
+    <ActivityHome
+      timeZone="Asia/Shanghai"
+      data={{ summaries: [], active: [], ended: [], archived: [] }}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
+  await user.click(
+    within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole(
+      "button",
+      { name: "创建活动" },
+    ),
+  );
+  await user.type(screen.getByRole("textbox", { name: "活动名称" }), "大阪行");
+  await user.click(screen.getByRole("button", { name: "主币种" }));
+
+  const picker = screen.getByRole("dialog", { name: "选择币种" });
+  expect(picker).toBe(screen.getByRole("dialog"));
+  await user.type(screen.getByRole("combobox", { name: "搜索币种" }), "日元");
+  await user.click(screen.getByRole("option", { name: /JPY日元/ }));
+
+  expect(screen.getByRole("dialog", { name: "创建活动" })).toBe(picker);
+  expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveValue(
+    "大阪行",
+  );
+  expect(screen.getByRole("button", { name: "主币种" })).toHaveTextContent(
+    "JPY · 日元",
+  );
+});
+
 test("已结清活动只显示结清状态，不重复显示零金额", () => {
   render(
     <ActivityHome

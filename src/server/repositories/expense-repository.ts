@@ -16,6 +16,14 @@ type PreparedExpense = ReturnType<typeof prepareExpense>;
  * 账务计算由调用方和 Domain 层决定，但写入前仍要守住活动账务身份不能跨活动的约束。
  */
 export class ExpenseRepository {
+  /** 与活动主币种更新串行化，确保首笔 Expense 固化的主币种来自同一锁定版本。 */
+  async lockActivity(
+    transaction: postgres.TransactionSql,
+    activityId: string,
+  ): Promise<void> {
+    await transaction`select id from activities where id = ${activityId} for update`;
+  }
+
   async list(
     transaction: postgres.TransactionSql,
     input: ExpenseListQuery & {

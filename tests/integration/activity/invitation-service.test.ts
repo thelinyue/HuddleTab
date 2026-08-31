@@ -43,6 +43,80 @@ it("仅存储链接 Token 的 Hash，并可撤销注册链接 proof", async () =
   await expect(service.verify(raw)).resolves.toBe(true);
   await service.disableLink({ session: ownerSession, activityId });
   await expect(service.verify(raw)).resolves.toBe(false);
+  await expect(
+    service.getLandingPreview({ inviteProof: raw }),
+  ).resolves.toBeNull();
+  await expect(
+    service.getLandingPreview({ inviteProof: "invalid_invite_token_123" }),
+  ).resolves.toBeNull();
+});
+
+it("有效邀请公开预览活动上下文且只统计有效成员", async () => {
+  const service = new InvitationService(harness.sql);
+  await harness.sql`insert into activity_members
+    (id, activity_id, user_id, display_name, member_type, role, status, joined_at)
+    values
+      ('admin-member', ${activityId}, 'candidate-user', '旅途管理员', 'USER', 'ADMIN', 'ACTIVE', now()),
+      ('active-guest', ${activityId}, null, '同行朋友', 'GUEST', 'MEMBER', 'ACTIVE', now()),
+      ('left-guest', ${activityId}, null, '已退出朋友', 'GUEST', 'MEMBER', 'LEFT', now())`;
+  const raw = await service.resetLink({
+    session: { user: { id: "candidate-user" } },
+    activityId,
+  });
+
+  await expect(
+    service.getLandingPreview({ inviteProof: raw }),
+  ).resolves.toEqual({
+    activityId,
+    activityName: "名古屋",
+    activeMemberCount: 3,
+    inviteMode: "DIRECT_JOIN",
+    inviterName: "旅途管理员",
+    viewerState: "ANONYMOUS",
+  });
+});
+
+it("登录用户预览区分可加入、待审批和已有成员", async () => {
+  const service = new InvitationService(harness.sql);
+  const raw = await service.resetLink({ session: ownerSession, activityId });
+
+  await expect(
+    service.getLandingPreview({
+      inviteProof: raw,
+      userId: "candidate-user",
+    }),
+  ).resolves.toMatchObject({ viewerState: "CAN_JOIN" });
+
+  await harness.sql`update activities set invite_mode = 'REQUIRE_APPROVAL' where id = ${activityId}`;
+  const pending = await service.join({
+    session: { user: { id: "candidate-user" } },
+    inviteProof: raw,
+  });
+  if (pending.status !== "PENDING_APPROVAL") {
+    throw new Error("预期候选用户进入等待审批状态。");
+  }
+  await expect(
+    service.getLandingPreview({
+      inviteProof: raw,
+      userId: "candidate-user",
+    }),
+  ).resolves.toMatchObject({
+    inviteMode: "REQUIRE_APPROVAL",
+    viewerState: "PENDING_APPROVAL",
+  });
+
+  await service.decideJoinRequest({
+    session: ownerSession,
+    activityId,
+    requestId: pending.requestId,
+    decision: "APPROVE",
+  });
+  await expect(
+    service.getLandingPreview({
+      inviteProof: raw,
+      userId: "candidate-user",
+    }),
+  ).resolves.toMatchObject({ viewerState: "MEMBER" });
 });
 
 it("打开邀请中心只读状态，已有链接不会被静默重置", async () => {
@@ -154,6 +228,9 @@ it.each(["ENDED", "ARCHIVED", "DELETED"] as const)(
     }
 
     await expect(service.verify(raw)).resolves.toBe(false);
+    await expect(
+      service.getLandingPreview({ inviteProof: raw }),
+    ).resolves.toBeNull();
     await expect(
       service.join({
         session: { user: { id: "candidate-user" } },

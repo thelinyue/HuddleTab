@@ -3,11 +3,14 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ResponsiveFormOverlay } from "@/features/expenses/components/responsive-form-overlay";
+import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import { ExpenseFeedLoader } from "@/features/expenses/components/expense-loaders";
 import { SettlementPageLoader } from "@/features/settlements/components/settlement-page-loader";
 import { MemberPageLoader } from "@/features/members/components/member-page-loader";
-import { ActivityMore } from "@/features/activities/components/activity-more";
+import {
+  ActivityMore,
+  type ActivityManagementView,
+} from "@/features/activities/components/activity-more";
 import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import type { ActivityWorkspaceHeaderData } from "@/features/activities/components/activity-workspace-header-data";
 
@@ -41,6 +44,8 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
   const [membersInitialView, setMembersInitialView] = useState<
     "list" | "invite"
   >("list");
+  const [managementView, setManagementView] =
+    useState<ActivityManagementView>("root");
   const [headerData, setHeaderData] =
     useState<ActivityWorkspaceHeaderData | null>(null);
   const tab = searchParams.get("tab") === "settlement" ? "settlement" : "feed";
@@ -96,6 +101,13 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
     // 成员 Sheet 关闭后清空上一次会话的本地首视图，重新打开必须从根视图开始。
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMembersInitialView("list");
+  }, [panel]);
+
+  useEffect(() => {
+    if (panel === "manage") return;
+    // 管理 Overlay 每次重新打开都从根视图开始，避免保留上一次未保存的字段草稿。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setManagementView("root");
   }, [panel]);
 
   useEffect(() => {
@@ -159,16 +171,41 @@ export function ActivityWorkspace({ timeZone }: { readonly timeZone: string }) {
         />
       ) : null}
 
-      <ResponsiveFormOverlay
+      <NavigationOverlay
         open={panel === "manage"}
         onOpenChange={(open) => {
-          if (!open) closePanel();
+          if (!open) {
+            setManagementView("root");
+            closePanel();
+          }
         }}
-        title="活动管理"
+        title={
+          managementView === "root"
+            ? "活动管理"
+            : managementView === "name"
+              ? "活动名称"
+              : managementView === "location"
+                ? "地点"
+                : managementView === "baseCurrency"
+                  ? "选择币种"
+                  : managementView === "startDate"
+                    ? "开始日期"
+                    : "结束日期"
+        }
+        onBack={
+          managementView === "root"
+            ? undefined
+            : () => setManagementView("root")
+        }
+        backLabel="活动管理"
         mobileFullScreen
       >
-        <ActivityMore embedded />
-      </ResponsiveFormOverlay>
+        <ActivityMore
+          embedded
+          view={managementView}
+          onViewChange={setManagementView}
+        />
+      </NavigationOverlay>
     </section>
   );
 }

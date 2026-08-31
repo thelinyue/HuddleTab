@@ -5,10 +5,19 @@ import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CurrencyPickerTrigger } from "@/features/currency/components/currency-picker";
 import { formatZonedDateInput } from "@/lib/time-zone";
 
 /** 活动创建表单只收集现有 API 契约字段，成功后整页进入新活动的流水页。 */
-export function CreateActivityForm({ timeZone }: { readonly timeZone: string }) {
+export function CreateActivityForm({
+  timeZone,
+  baseCurrency = "CNY",
+  onBaseCurrencyClick = () => undefined,
+}: {
+  readonly timeZone: string;
+  readonly baseCurrency?: string;
+  readonly onBaseCurrencyClick?: () => void;
+}) {
   const [error, setError] = useState<string | null>(null);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -26,7 +35,7 @@ export function CreateActivityForm({ timeZone }: { readonly timeZone: string }) 
       body: JSON.stringify({
         name: String(form.get("name")),
         location: String(form.get("location") ?? "") || undefined,
-        baseCurrency: String(form.get("baseCurrency")).toUpperCase(),
+        baseCurrency,
         startDate,
         endDate: endDate || undefined,
       }),
@@ -45,7 +54,14 @@ export function CreateActivityForm({ timeZone }: { readonly timeZone: string }) 
     <form className="grid gap-4" onSubmit={(event) => void submit(event)}>
       <Field id="name" label="活动名称" />
       <Field id="location" label="地点" required={false} />
-      <Field id="baseCurrency" label="主币种" defaultValue="CNY" />
+      <div className="grid gap-2">
+        <Label>主币种</Label>
+        <CurrencyPickerTrigger
+          value={baseCurrency}
+          onClick={onBaseCurrencyClick}
+          label="主币种"
+        />
+      </div>
       <Field
         id="startDate"
         label="开始日期"

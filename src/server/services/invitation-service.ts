@@ -27,6 +27,16 @@ export type InvitationJoinResult =
       readonly requestId: string;
     };
 
+export type InvitationLandingPreview = {
+  readonly activityId: string;
+  readonly activityName: string;
+  readonly activeMemberCount: number;
+  readonly inviteMode: "DIRECT_JOIN" | "REQUIRE_APPROVAL";
+  readonly inviterName: string;
+  readonly viewerState:
+    "ANONYMOUS" | "CAN_JOIN" | "PENDING_APPROVAL" | "MEMBER";
+};
+
 /**
  * 邀请链接的明文只在生成时返回给调用者。数据库和审计永远只保存不可逆摘要，
  * 加入、审批与成员创建均在一个受权限保护的事务内完成。V1 不按创建时间自动
@@ -131,6 +141,58 @@ export class InvitationService implements InvitationRegistrationVerifier {
         input.activityId,
       );
     });
+  }
+
+  /**
+   * 邀请落地页只公开建立加入决策所需的最小上下文。Token 创建者作为邀请人，
+   * 人数只统计仍在活动中的账务身份；无效 Token 不泄露活动是否曾经存在。
+   */
+  async getLandingPreview(input: {
+    readonly inviteProof: string;
+    readonly userId?: string;
+  }): Promise<InvitationLandingPreview | null> {
+    const viewerUserId = input.userId ?? null;
+    const [row] = await this.sql`select
+        activity.id as activity_id,
+        activity.name as activity_name,
+        activity.invite_mode,
+        inviter.display_name as inviter_name,
+        (select count(*)::int from activity_members member_count
+          where member_count.activity_id = activity.id and member_count.status = 'ACTIVE') as active_member_count,
+        case
+          when ${viewerUserId}::text is null then 'ANONYMOUS'
+          when exists (
+            select 1 from activity_members current_member
+            where current_member.activity_id = activity.id
+              and current_member.user_id = ${viewerUserId}
+          ) then 'MEMBER'
+          when exists (
+            select 1 from activity_join_requests pending_request
+            where pending_request.activity_id = activity.id
+              and pending_request.user_id = ${viewerUserId}
+              and pending_request.status = 'PENDING'
+          ) then 'PENDING_APPROVAL'
+          else 'CAN_JOIN'
+        end as viewer_state
+      from activity_invite_tokens token
+      join activities activity on activity.id = token.activity_id
+      join activity_members inviter
+        on inviter.id = token.created_by_member_id and inviter.activity_id = activity.id
+      where token.token_hash = ${tokenHash(input.inviteProof)}
+        and token.enabled = true
+        and activity.status = 'ACTIVE'
+        and activity.deleted_at is null
+      limit 1`;
+    if (!row) return null;
+
+    return {
+      activityId: row.activity_id,
+      activityName: row.activity_name,
+      activeMemberCount: row.active_member_count,
+      inviteMode: row.invite_mode,
+      inviterName: row.inviter_name,
+      viewerState: row.viewer_state,
+    };
   }
 
   async verify(proof: string): Promise<boolean> {

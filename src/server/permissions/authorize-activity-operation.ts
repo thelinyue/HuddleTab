@@ -15,6 +15,7 @@ export type ActivityOperation =
   | "ATTACHMENT_WRITE"
   | "MEMBER_MANAGE"
   | "OWNER_TRANSFER"
+  | "ACTIVITY_UPDATE"
   | "ACTIVITY_LIFECYCLE";
 
 export interface ActivityPermissionContext {
@@ -75,6 +76,7 @@ export function evaluateActivityOperation(
       !lifecycleOperations.includes(operation)) ||
     (context.lifecycle === "ARCHIVED" &&
       !readOperations.includes(operation) &&
+      operation !== "ACTIVITY_UPDATE" &&
       !lifecycleOperations.includes(operation))
   ) {
     throw new ApplicationError(
@@ -87,6 +89,7 @@ export function evaluateActivityOperation(
     context.lifecycle === "ENDED" &&
     !readOperations.includes(operation) &&
     !settlementOperations.includes(operation) &&
+    operation !== "ACTIVITY_UPDATE" &&
     !lifecycleOperations.includes(operation)
   ) {
     throw new ApplicationError(
@@ -98,13 +101,24 @@ export function evaluateActivityOperation(
   if (
     context.memberStatus === "LEFT" &&
     !readOperations.includes(operation) &&
-    !settlementOperations.includes(operation)
+    !settlementOperations.includes(operation) &&
+    operation !== "ACTIVITY_UPDATE"
   ) {
     throw new ApplicationError(
       operation.startsWith("EXPENSE_")
         ? "EXPENSE_READ_ONLY_FOR_LEFT"
         : "LEFT_MEMBER_READ_ONLY",
       "你已退出活动，历史消费仅可查看。",
+      403,
+    );
+  }
+  if (
+    operation === "ACTIVITY_UPDATE" &&
+    (context.memberStatus !== "ACTIVE" || context.role === "MEMBER")
+  ) {
+    throw new ApplicationError(
+      "ROLE_FORBIDDEN",
+      "只有活动 Owner 或 Admin 可以修改活动资料。",
       403,
     );
   }

@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
 const execFile = promisify(executeFile);
 const runCompose = process.env.RUN_PRODUCTION_COMPOSE === "true";
 const png = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+I3M9WQAAAABJRU5ErkJggg==",
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
   "base64",
 );
 

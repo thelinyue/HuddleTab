@@ -2,14 +2,31 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  addGuestMember: vi.fn(),
+  createExpense: vi.fn(),
+  enqueueExpense: vi.fn(),
   fromTo: vi.fn(),
   registerPlugin: vi.fn(),
   set: vi.fn(),
+}));
+
+vi.mock("@/features/expenses/api", () => ({
+  addGuestMember: mocks.addGuestMember,
+  createExpense: mocks.createExpense,
+}));
+vi.mock("@/pwa/sync-queue/enqueue-expense", () => ({
+  enqueueExpense: mocks.enqueueExpense,
 }));
 
 vi.mock("@gsap/react", async () => {
@@ -63,8 +80,137 @@ const context = {
 
 afterEach(() => {
   cleanup();
+  mocks.createExpense.mockReset();
+  mocks.enqueueExpense.mockReset();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+test("在线保存成功后下一笔默认使用刚提交的分类", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  mocks.createExpense.mockResolvedValue({
+    expense: { id: "expense-1", title: "地铁" },
+  });
+  render(
+    <QuickExpenseTrigger
+      context={{
+        ...context,
+        preference: { ...context.preference, lastCategory: "OTHER" },
+      }}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
+
+  const trigger = screen.getByRole("button", { name: "记一笔" });
+  await user.click(trigger);
+  await user.type(screen.getByLabelText("金额", { exact: true }), "12");
+  await user.type(screen.getByLabelText("用途"), "地铁");
+  await user.click(screen.getByRole("button", { name: "分类" }));
+  await user.click(
+    within(screen.getByRole("radiogroup", { name: "分类" })).getByRole(
+      "radio",
+      { name: "交通" },
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+  );
+
+  await user.click(trigger);
+  expect(screen.getByRole("button", { name: "分类" })).toHaveTextContent(
+    "交通",
+  );
+});
+
+test("离线入队成功后下一笔默认使用刚提交的分类", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
+  mocks.enqueueExpense.mockResolvedValue({ mutation: { id: "mutation-1" } });
+  render(
+    <QuickExpenseTrigger
+      context={{
+        ...context,
+        preference: { ...context.preference, lastCategory: "OTHER" },
+      }}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
+
+  const trigger = screen.getByRole("button", { name: "记一笔" });
+  await user.click(trigger);
+  await user.type(screen.getByLabelText("金额", { exact: true }), "80");
+  await user.type(screen.getByLabelText("用途"), "酒店");
+  await user.click(screen.getByRole("button", { name: "分类" }));
+  await user.click(
+    within(screen.getByRole("radiogroup", { name: "分类" })).getByRole(
+      "radio",
+      { name: "住宿" },
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+  );
+
+  await user.click(trigger);
+  expect(screen.getByRole("button", { name: "分类" })).toHaveTextContent(
+    "住宿",
+  );
+});
+
+test("取消或保存失败不会改变下一笔默认分类", async () => {
+  const user = userEvent.setup();
+  setMotionPreference(true);
+  mocks.createExpense.mockRejectedValue(new Error("保存失败"));
+  render(
+    <QuickExpenseTrigger
+      context={{
+        ...context,
+        preference: { ...context.preference, lastCategory: "OTHER" },
+      }}
+      timeZone="Asia/Shanghai"
+      onSaved={vi.fn()}
+    />,
+  );
+
+  const trigger = screen.getByRole("button", { name: "记一笔" });
+  await user.click(trigger);
+  await user.click(screen.getByRole("button", { name: "分类" }));
+  await user.click(
+    within(screen.getByRole("radiogroup", { name: "分类" })).getByRole(
+      "radio",
+      { name: "购物" },
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "关闭" }));
+  await user.click(trigger);
+  expect(screen.getByRole("button", { name: "分类" })).toHaveTextContent(
+    "其他",
+  );
+
+  await user.type(screen.getByLabelText("金额", { exact: true }), "20");
+  await user.type(screen.getByLabelText("用途"), "纪念品");
+  await user.click(screen.getByRole("button", { name: "分类" }));
+  await user.click(
+    within(screen.getByRole("radiogroup", { name: "分类" })).getByRole(
+      "radio",
+      { name: "购物" },
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("保存失败");
+  await user.click(screen.getByRole("button", { name: "关闭" }));
+
+  await user.click(trigger);
+  expect(screen.getByRole("button", { name: "分类" })).toHaveTextContent(
+    "其他",
+  );
 });
 
 test("浮动记账入口按下反馈不阻塞打开表单", async () => {

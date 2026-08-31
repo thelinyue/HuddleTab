@@ -180,6 +180,7 @@ export class ExpenseService {
     request: CreateExpenseRequest,
   ) {
     return this.sql.begin(async (transaction) => {
+      await this.repository.lockActivity(transaction, activityId);
       const authorization = await authorizeActivityOperation(transaction, {
         session,
         activityId,

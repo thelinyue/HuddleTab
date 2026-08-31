@@ -19,6 +19,7 @@ import {
   type QuickExpenseNavigationView,
   type QuickExpenseStep,
 } from "@/features/expenses/components/quick-expense-form";
+import type { ExpenseCategory } from "@/features/expenses/categories";
 import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import { useOnlineStatus } from "@/features/expenses/components/offline-status";
 
@@ -41,10 +42,20 @@ export function QuickExpenseTrigger({
   const [splitValid, setSplitValid] = useState(false);
   const [completionVersion, setCompletionVersion] = useState(0);
   const [pressVersion, setPressVersion] = useState(0);
+  const [committedCategory, setCommittedCategory] = useState<{
+    readonly userId: string;
+    readonly activityId: string;
+    readonly category: ExpenseCategory;
+  } | null>(null);
   const triggerScope = useRef<HTMLButtonElement>(null);
   const triggerMotionTarget = useRef<HTMLSpanElement>(null);
   const previousPressVersion = useRef(pressVersion);
   const online = useOnlineStatus();
+  const preferenceCategory =
+    committedCategory?.userId === context.activity.currentUserId &&
+    committedCategory.activityId === context.activity.id
+      ? committedCategory.category
+      : ((context.preference.lastCategory as ExpenseCategory | null) ?? "FOOD");
   useMotionGSAP(
     (reducedMotion) => {
       if (previousPressVersion.current === pressVersion) return;
@@ -113,8 +124,10 @@ export function QuickExpenseTrigger({
                   ? "谁付款"
                   : navigationView === "payer-add-guest"
                     ? "添加临时成员"
-                    : navigationView === "category"
+                  : navigationView === "category"
                       ? "分类"
+                      : navigationView === "currency"
+                        ? "选择币种"
                       : "记一笔"
         }
         mobileFullScreen
@@ -166,8 +179,7 @@ export function QuickExpenseTrigger({
           activity={context.activity}
           members={context.members}
           preference={{
-            lastCategory: context.preference.lastCategory as
-              import("@/features/expenses/categories").ExpenseCategory | null,
+            lastCategory: preferenceCategory,
             recentParticipantIds: context.preference.recentParticipantIds,
             recentPayerIds: context.preference.recentPayerIds,
             recentCurrency: context.preference.recentCurrency,
@@ -200,6 +212,13 @@ export function QuickExpenseTrigger({
             toast.success("已保存到本机，联网后自动同步。");
             onQueued?.(mutationId);
           }}
+          onCategoryCommitted={(category) =>
+            setCommittedCategory({
+              userId: context.activity.currentUserId,
+              activityId: context.activity.id,
+              category,
+            })
+          }
         />
       </NavigationOverlay>
     </>

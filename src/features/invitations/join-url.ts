@@ -2,6 +2,12 @@
  * 解析用户主动粘贴的邀请地址。只接受当前站点的 /join/<token>，返回已验证的
  * 站内路径供 router.push 使用；所有外部地址和不符合 Token 约束的输入都会被拒绝。
  */
+export function isInvitationToken(value: string): boolean {
+  return (
+    value.length >= 20 && value.length <= 128 && /^[A-Za-z0-9_-]+$/.test(value)
+  );
+}
+
 export function parseJoinInvitationUrl(
   value: string,
   origin = typeof window === "undefined"
@@ -29,12 +35,7 @@ export function parseJoinInvitationUrl(
   } catch {
     return null;
   }
-  if (
-    token.length < 20 ||
-    token.length > 128 ||
-    !/^[A-Za-z0-9_-]+$/.test(token)
-  )
-    return null;
+  if (!isInvitationToken(token)) return null;
   return `/join/${encodeURIComponent(token)}`;
 }
 

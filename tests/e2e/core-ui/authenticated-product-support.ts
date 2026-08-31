@@ -111,6 +111,9 @@ export async function createInviteThroughUi(page: Page, activityId: string) {
   await page.goto(`/activities/${activityId}/members`);
   await page.getByRole("button", { name: "邀请成员" }).click();
   const input = page.getByLabel("邀请链接");
+  if (!(await input.isVisible())) {
+    await page.getByRole("button", { name: "生成邀请链接" }).click();
+  }
   await expect(input).toBeVisible();
   const inviteUrl = await input.inputValue();
   if (!inviteUrl) throw new Error("邀请对话框没有返回邀请链接。");
@@ -120,16 +123,64 @@ export async function createInviteThroughUi(page: Page, activityId: string) {
 export async function registerFromInviteThroughUi(
   page: Page,
   inviteUrl: string,
+  activityName: string,
   account: {
     readonly nickname: string;
     readonly username: string;
     readonly password: string;
   },
 ) {
+  let joinRequests = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/invitations/join"
+    ) {
+      joinRequests += 1;
+    }
+  });
+
   await page.goto(inviteUrl);
-  await expect(page).toHaveURL(/\/login\?callbackURL=/);
-  await expect(page.getByText("登录后将继续加入受邀活动")).toBeVisible();
-  await page.getByRole("link", { name: "注册新账号" }).click();
+  await expect(page).toHaveURL(/\/join\/[A-Za-z0-9_-]+$/);
+  await expect(
+    page.getByRole("heading", { name: activityName, exact: true }),
+  ).toBeVisible();
+  const illustration = page.locator('img[src*="auth-hero.webp"]');
+  await expect(illustration).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        illustration.evaluate(
+          (image) =>
+            image instanceof HTMLImageElement && image.naturalWidth > 0,
+        ),
+      { message: "邀请落地页插画没有成功解码" },
+    )
+    .toBe(true);
+  const registerAction = page.getByRole("link", { name: "注册并加入" });
+  const actionBox = await registerAction.boundingBox();
+  expect(actionBox, "邀请落地页主操作没有可测量区域").not.toBeNull();
+  expect(
+    actionBox!.height,
+    "邀请落地页主操作高度不足 44px",
+  ).toBeGreaterThanOrEqual(44);
+  const widths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: Math.max(
+      document.documentElement.scrollWidth,
+      document.body.scrollWidth,
+    ),
+  }));
+  expect(widths.scroll, "邀请落地页出现横向滚动").toBeLessThanOrEqual(
+    widths.client,
+  );
+  await page.locator("body").click({ position: { x: 1, y: 1 } });
+  await page.keyboard.press("Tab");
+  await expect(
+    registerAction,
+    "邀请落地页主操作必须可由键盘聚焦",
+  ).toBeFocused();
+  await registerAction.click();
   await expect(page).toHaveURL(/\/register\?callbackURL=/);
   await expect(
     page.getByText("注册后将继续加入受邀活动").first(),
@@ -139,7 +190,16 @@ export async function registerFromInviteThroughUi(
   await page.getByLabel("密码", { exact: true }).fill(account.password);
   await page.getByLabel("确认密码").fill(account.password);
   await page.getByRole("button", { name: "注册", exact: true }).click();
+  await expect(page).toHaveURL(/\/join\/[A-Za-z0-9_-]+$/);
+  await expect(
+    page.getByRole("heading", { name: activityName, exact: true }),
+  ).toBeVisible();
+  const joinAction = page.getByRole("button", { name: "加入活动" });
+  await expect(joinAction).toBeVisible();
+  expect(joinRequests, "认证回跳不应自动提交加入请求").toBe(0);
+  await joinAction.click();
   await expect(page).toHaveURL(/\/activities\/[^/]+$/);
+  expect(joinRequests, "用户点击后应且仅应提交一次加入请求").toBe(1);
 }
 
 /** 视觉验收使用每次新建的真实账号，确保邮箱未绑定状态不受持久化测试数据影响。 */

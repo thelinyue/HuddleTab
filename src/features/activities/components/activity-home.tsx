@@ -12,6 +12,7 @@ import {
 } from "@/features/activities/api";
 import { ActivityListItem } from "@/features/activities/components/activity-list-item";
 import { CreateActivityForm } from "@/features/activities/components/create-activity-form";
+import { CurrencyPickerOptions } from "@/features/currency/components/currency-picker";
 import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import { JoinActivityForm } from "@/features/activities/components/join-activity-form";
 import { EmptyState } from "@/components/design-system/empty-state";
@@ -59,8 +60,13 @@ export function ActivityHome({
   readonly timeZone: string;
 }) {
   const [actionView, setActionView] = useState<
-    "actions" | "create" | "join" | null
+    "actions" | "create" | "create-currency" | "join" | null
   >(null);
+  const [baseCurrency, setBaseCurrency] = useState("CNY");
+  const openCreate = () => {
+    setBaseCurrency("CNY");
+    setActionView("create");
+  };
   const hasActivities =
     data.active.length + data.ended.length + data.archived.length > 0;
   return (
@@ -89,19 +95,45 @@ export function ActivityHome({
           title={
             actionView === "create"
               ? "创建活动"
+              : actionView === "create-currency"
+                ? "选择币种"
               : actionView === "join"
                 ? "加入活动"
                 : "新建或加入活动"
           }
           onBack={
             actionView && actionView !== "actions"
-              ? () => setActionView("actions")
+              ? () =>
+                  setActionView(
+                    actionView === "create-currency" ? "create" : "actions",
+                  )
               : undefined
           }
-          backLabel="新建或加入活动"
+          backLabel={
+            actionView === "create-currency" ? "创建活动" : "新建或加入活动"
+          }
         >
-          {actionView === "create" ? (
-            <CreateActivityForm timeZone={timeZone} />
+          {actionView === "create" || actionView === "create-currency" ? (
+            <>
+              <div hidden={actionView === "create-currency"}>
+                <CreateActivityForm
+                  timeZone={timeZone}
+                  baseCurrency={baseCurrency}
+                  onBaseCurrencyClick={() => setActionView("create-currency")}
+                />
+              </div>
+              {actionView === "create-currency" ? (
+                <div className="flex min-h-[50dvh] flex-col pt-2">
+                  <CurrencyPickerOptions
+                    value={baseCurrency}
+                    onSelect={(code) => {
+                      setBaseCurrency(code);
+                      setActionView("create");
+                    }}
+                  />
+                </div>
+              ) : null}
+            </>
           ) : actionView === "join" ? (
             <JoinActivityForm />
           ) : (
@@ -109,7 +141,7 @@ export function ActivityHome({
               <Button
                 type="button"
                 size="lg"
-                onClick={() => setActionView("create")}
+                onClick={openCreate}
               >
                 创建活动
               </Button>
@@ -180,7 +212,7 @@ export function ActivityHome({
                 <Button
                   size="lg"
                   className="w-full"
-                  onClick={() => setActionView("create")}
+                  onClick={openCreate}
                 >
                   创建活动
                 </Button>

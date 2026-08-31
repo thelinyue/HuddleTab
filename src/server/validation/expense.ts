@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { expenseCategories } from "@/features/expenses/categories";
+import { currencyCodeInput } from "@/server/validation/currency";
 
 const positiveMinor = z
   .string()
@@ -8,7 +9,6 @@ const positiveMinor = z
 const nonNegativeMinor = z
   .string()
   .regex(/^\d+$/, "金额必须是非负整数最小单位");
-const currency = z.string().regex(/^[A-Z]{3}$/, "币种必须是三个大写字母");
 const memberId = z.string().min(1);
 
 const payment = z.object({ memberId, amountMinor: positiveMinor });
@@ -36,7 +36,7 @@ const expenseFields = z.object({
   clientMutationId: z.string().trim().min(1).max(128),
   title: z.string().trim().min(1).max(120),
   category: z.enum(expenseCategories),
-  originalCurrency: currency,
+  originalCurrency: currencyCodeInput,
   originalAmountMinor: positiveMinor,
   exchangeRate: z.string().trim().min(1).max(64),
   exchangeRateSource: z.enum(["IDENTITY", "PROVIDER", "CACHE", "MANUAL"]),

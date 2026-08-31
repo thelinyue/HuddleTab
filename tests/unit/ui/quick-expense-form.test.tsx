@@ -19,7 +19,10 @@ vi.mock("@/features/expenses/api", () => ({
   createExpense: mocks.createExpense,
 }));
 
-import { QuickExpenseForm } from "@/features/expenses/components/quick-expense-form";
+import {
+  QuickExpenseForm,
+  type QuickExpenseNavigationView,
+} from "@/features/expenses/components/quick-expense-form";
 
 type HarnessProps = Omit<
   ComponentProps<typeof QuickExpenseForm>,
@@ -67,6 +70,20 @@ function QuickExpenseHarness({
   );
 }
 
+function CurrencyNavigationHarness(props: HarnessProps) {
+  const [navigationView, setNavigationView] =
+    useState<QuickExpenseNavigationView>("entry");
+
+  return (
+    <QuickExpenseForm
+      {...props}
+      timeZone={props.timeZone ?? "Asia/Shanghai"}
+      navigationView={navigationView}
+      onNavigationViewChange={setNavigationView}
+    />
+  );
+}
+
 beforeEach(() => {
   vi.stubGlobal(
     "matchMedia",
@@ -106,6 +123,72 @@ const preference = {
   recentPayerIds: ["m1"],
   recentCurrency: "CNY",
 };
+
+test("当前活动没有历史分类时默认选择餐饮", () => {
+  render(
+    <QuickExpenseHarness
+      activity={activity}
+      members={members}
+      preference={{ ...preference, lastCategory: null }}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  const category = screen.getByRole("button", { name: "分类" });
+  expect(category).toHaveTextContent("餐饮");
+  expect(
+    category.querySelector('img[data-category-illustration="FOOD"]'),
+  ).toBeInTheDocument();
+});
+
+test("金额旁币种选择保留表单并按主币种关系重置汇率状态", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
+  mocks.createExpense.mockResolvedValue({
+    expense: { id: "expense-1", title: "拉面" },
+  });
+  render(
+    <CurrencyNavigationHarness
+      activity={activity}
+      members={members}
+      preference={preference}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await user.type(screen.getByLabelText("金额", { exact: true }), "1280");
+  await user.type(screen.getByLabelText("用途"), "拉面");
+  await user.click(screen.getByRole("button", { name: "币种" }));
+  await user.type(screen.getByRole("combobox", { name: "搜索币种" }), "JPY");
+  await user.click(screen.getByRole("option", { name: /JPY日元/ }));
+
+  expect(screen.getByLabelText("金额", { exact: true })).toHaveValue("1280");
+  expect(screen.getByLabelText("用途")).toHaveValue("拉面");
+  expect(screen.getByRole("button", { name: "币种" })).toHaveTextContent(
+    "JPY",
+  );
+  await user.click(screen.getByRole("button", { name: "更多设置" }));
+  expect(screen.queryByRole("textbox", { name: "币种" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("汇率")).toHaveValue("");
+  expect(screen.getByRole("radio", { name: "手动输入" })).toBeChecked();
+
+  await user.click(screen.getByRole("button", { name: "币种" }));
+  await user.type(screen.getByRole("combobox", { name: "搜索币种" }), "CNY");
+  await user.click(screen.getByRole("option", { name: /CNY人民币/ }));
+  expect(screen.getByLabelText("汇率")).toHaveValue("1");
+  expect(screen.getByRole("radio", { name: "主币种" })).toBeChecked();
+});
 
 test("默认时间和提交瞬间都使用部署 TZ 而不是浏览器时区", async () => {
   vi.useFakeTimers();

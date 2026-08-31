@@ -19,6 +19,10 @@ import { MoneyAmount } from "@/components/design-system/money-amount";
 import { Button } from "@/components/ui/button";
 import { createExpense } from "@/features/expenses/api";
 import { type ExpenseCategory } from "@/features/expenses/categories";
+import {
+  CurrencyPickerOptions,
+  CurrencyPickerTrigger,
+} from "@/features/currency/components/currency-picker";
 import { ExpenseCategoryPicker } from "@/features/expenses/components/expense-category-picker";
 import {
   PayerPicker,
@@ -69,7 +73,8 @@ export type QuickExpenseNavigationView =
   | "participants-add-guest"
   | "payer"
   | "payer-add-guest"
-  | "category";
+  | "category"
+  | "currency";
 
 function amountToMinor(value: string, currency: string): string {
   const precision = getCurrencyMinorUnits(currency.trim().toUpperCase());
@@ -91,21 +96,6 @@ function decimalToHundredths(value: string, label: string): string {
     BigInt(match[1]) * 100n +
     BigInt((match[2] ?? "").padEnd(2, "0"))
   ).toString();
-}
-
-function currencySymbol(currency: string): string {
-  try {
-    return (
-      new Intl.NumberFormat("zh-CN", {
-        style: "currency",
-        currency: currency.trim().toUpperCase(),
-      })
-        .formatToParts(0)
-        .find((part) => part.type === "currency")?.value ?? currency
-    );
-  } catch {
-    return currency.trim().toUpperCase();
-  }
 }
 
 /** 预览沿用提交前的最小单位转换，避免把浮点数带入分摊设置界面。 */
@@ -226,6 +216,7 @@ export function QuickExpenseForm({
   onSplitValidityChange,
   onSaved,
   onQueued,
+  onCategoryCommitted,
   initialValues,
   submitExpense,
   submitLabel = "保存",
@@ -257,6 +248,8 @@ export function QuickExpenseForm({
     readonly baseCurrency?: string;
   }) => void;
   readonly onQueued?: (mutationId: string) => void;
+  /** 仅在新账单成功写入服务端或本地队列后，提交本次快速记账分类。 */
+  readonly onCategoryCommitted?: (category: ExpenseCategory) => void;
   readonly initialValues?: QuickExpenseInitialValues;
   readonly submitExpense?: (request: CreateExpenseRequest) => Promise<{
     readonly id: string;
@@ -311,7 +304,7 @@ export function QuickExpenseForm({
     defaultValues: initialValues ?? {
       amount: "",
       title: "",
-      category: preference.lastCategory ?? "OTHER",
+      category: preference.lastCategory ?? "FOOD",
       currency: preference.recentCurrency ?? activity.baseCurrency,
       exchangeRate: "1",
       exchangeRateSource: "IDENTITY",
@@ -327,6 +320,17 @@ export function QuickExpenseForm({
     },
   });
   const values = useWatch({ control: form.control }) as FormValues;
+  const selectCurrency = (code: string) => {
+    form.setValue("currency", code, { shouldDirty: true });
+    if (code === activity.baseCurrency) {
+      form.setValue("exchangeRate", "1", { shouldDirty: true });
+      form.setValue("exchangeRateSource", "IDENTITY", { shouldDirty: true });
+    } else {
+      form.setValue("exchangeRate", "", { shouldDirty: true });
+      form.setValue("exchangeRateSource", "MANUAL", { shouldDirty: true });
+    }
+    onNavigationViewChange?.("entry");
+  };
   const totalMinorPreview = previewAmountMinor(values.amount, values.currency);
   const splitPreview = previewSplit(
     totalMinorPreview,
@@ -480,15 +484,16 @@ export function QuickExpenseForm({
         return;
       }
       if (!online || files.length) {
-        await queueExpense(request);
+        await queueExpense(request, next.category);
         return;
       }
       try {
         const result = await createExpense(activity.id, request);
+        onCategoryCommitted?.(next.category);
         onSaved(result.expense);
       } catch (error) {
         if (error instanceof TypeError) {
-          await queueExpense(request);
+          await queueExpense(request, next.category);
           return;
         }
         throw error;
@@ -507,7 +512,10 @@ export function QuickExpenseForm({
       );
     }
   }
-  async function queueExpense(request: CreateExpenseRequest) {
+  async function queueExpense(
+    request: CreateExpenseRequest,
+    category: ExpenseCategory,
+  ) {
     const queued = await enqueueExpense({
       userId: activity.currentUserId,
       activityId: activity.id,
@@ -517,6 +525,7 @@ export function QuickExpenseForm({
     });
     setQueuedMessage("已保存到本机，联网后自动同步。");
     requestForegroundSync();
+    onCategoryCommitted?.(category);
     onQueued?.(queued.mutation.id);
   }
   const textInput =
@@ -580,19 +589,19 @@ export function QuickExpenseForm({
                 <label htmlFor="quick-expense-amount" className="sr-only">
                   金额
                 </label>
-                <div className="flex min-h-11 items-baseline justify-center gap-2">
-                  <span
-                    aria-hidden="true"
-                    className="font-amount type-amount font-medium text-foreground"
-                  >
-                    {currencySymbol(values.currency)}
-                  </span>
+                <div className="flex min-h-11 items-center justify-center gap-1">
+                  <CurrencyPickerTrigger
+                    compact
+                    value={values.currency}
+                    label="币种"
+                    onClick={() => onNavigationViewChange?.("currency")}
+                  />
                   <input
                     id="quick-expense-amount"
                     inputMode="decimal"
                     autoFocus
                     placeholder="0.00"
-                    className="font-amount type-display-amount min-h-11 w-48 max-w-3/4 bg-transparent text-center font-semibold text-primary outline-none placeholder:text-muted-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    className="font-amount type-display-amount min-h-11 w-44 max-w-3/4 bg-transparent text-center font-semibold text-primary outline-none placeholder:text-muted-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                     aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
                     aria-describedby={
                       fieldErrors["quick-expense-amount"]
@@ -654,6 +663,14 @@ export function QuickExpenseForm({
                 )}
               </div>
             </>
+          ) : null}
+          {inlineNavigation && navigationView === "currency" ? (
+            <div className="flex min-h-[50dvh] flex-col">
+              <CurrencyPickerOptions
+                value={values.currency}
+                onSelect={selectCurrency}
+              />
+            </div>
           ) : null}
           <PayerPicker
             members={activeMembers}
@@ -807,19 +824,6 @@ export function QuickExpenseForm({
               </Button>
               {advanced && (
                 <section className="space-y-4 border-t pt-4">
-              <div>
-                <label
-                  htmlFor="quick-expense-currency"
-                  className="block text-sm font-medium"
-                >
-                  币种
-                </label>
-                <input
-                  id="quick-expense-currency"
-                  className={textInput}
-                  {...form.register("currency")}
-                />
-              </div>
               <div>
                 <label
                   htmlFor="quick-expense-rate"

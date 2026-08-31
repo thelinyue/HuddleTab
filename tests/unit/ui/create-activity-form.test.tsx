@@ -23,6 +23,15 @@ test("开始日期默认使用部署 TZ 的当天", () => {
   expect(screen.getByLabelText("开始日期")).toHaveValue("2026-08-30");
 });
 
+test("主币种使用标准选择触发器而不是自由文本", () => {
+  render(<CreateActivityForm timeZone="Asia/Shanghai" />);
+
+  expect(screen.queryByRole("textbox", { name: "主币种" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "主币种" })).toHaveTextContent(
+    "CNY · 人民币",
+  );
+});
+
 test("创建活动提交表单后进入活动页", async () => {
   const user = userEvent.setup();
   const fetchMock = vi
@@ -42,5 +51,8 @@ test("创建活动提交表单后进入活动页", async () => {
     "/api/activities",
     expect.objectContaining({ method: "POST" }),
   );
+  expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({
+    baseCurrency: "CNY",
+  });
   expect(assign).toHaveBeenCalledWith("http://localhost/activities/a1");
 });

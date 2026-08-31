@@ -21,7 +21,7 @@ test.skip(
 test("登录用户通过真实界面完成核心闭环与头像持久化", async ({
   page,
   browser,
-}) => {
+}, testInfo) => {
   const suffix = uniqueScenarioSuffix();
   const activityName = `核心验收活动 ${suffix}`;
   const expenseTitle = `四人晚餐 ${suffix}`;
@@ -39,10 +39,21 @@ test("登录用户通过真实界面完成核心闭环与头像持久化", async
   await addGuestThroughUi(page, activityId, `小李 ${suffix.slice(-4)}`);
   const inviteUrl = await createInviteThroughUi(page, activityId);
 
-  const memberContext = await browser.newContext();
+  const memberContext = await browser.newContext({
+    baseURL: new URL(inviteUrl).origin,
+    viewport:
+      testInfo.project.name === "mobile-chromium"
+        ? { width: 390, height: 844 }
+        : { width: 1280, height: 900 },
+  });
   const memberPage = await memberContext.newPage();
   try {
-    await registerFromInviteThroughUi(memberPage, inviteUrl, joinedAccount);
+    await registerFromInviteThroughUi(
+      memberPage,
+      inviteUrl,
+      activityName,
+      joinedAccount,
+    );
     await memberPage.goto(`/activities/${activityId}/members`);
     await expect(memberPage.getByText("活动成员 · 4人")).toBeVisible();
     await expect(

@@ -79,4 +79,28 @@ describe("活动权限固定判断顺序", () => {
       expect.objectContaining({ code: "EXPENSE_READ_ONLY_FOR_LEFT" }),
     );
   });
+
+  it("活动资料更新让管理者进入字段校验并拒绝 Member 与 LEFT", () => {
+    expect(() =>
+      evaluateActivityOperation(
+        { ...base, role: "OWNER", lifecycle: "ENDED" },
+        "ACTIVITY_UPDATE",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      evaluateActivityOperation(
+        { ...base, role: "ADMIN", lifecycle: "ARCHIVED" },
+        "ACTIVITY_UPDATE",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      evaluateActivityOperation(base, "ACTIVITY_UPDATE"),
+    ).toThrowError(expect.objectContaining({ code: "ROLE_FORBIDDEN" }));
+    expect(() =>
+      evaluateActivityOperation(
+        { ...base, role: "OWNER", memberStatus: "LEFT" },
+        "ACTIVITY_UPDATE",
+      ),
+    ).toThrowError(expect.objectContaining({ code: "ROLE_FORBIDDEN" }));
+  });
 });

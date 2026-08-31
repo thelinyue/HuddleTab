@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type postgres from "postgres";
 
+import { asCurrencyCode } from "@/domain/currency/currency";
 import { ApplicationError } from "@/server/errors/application-error";
 
 export interface ActivitySession {
@@ -34,12 +35,13 @@ export class ActivityService {
       );
     }
 
+    const baseCurrency = asCurrencyCode(input.baseCurrency);
     const ownerUserId = input.session.user.id;
     const activityId = randomUUID();
     const ownerMemberId = randomUUID();
     await this.sql.begin(async (transaction) => {
       await transaction`insert into activities (id, name, location, base_currency, start_date, end_date, status, owner_member_id, invite_mode, revision, created_at, updated_at)
-        values (${activityId}, ${input.name}, ${input.location ?? null}, ${input.baseCurrency}, ${input.startDate}, ${input.endDate ?? null}, 'ACTIVE', ${ownerMemberId}, 'DIRECT_JOIN', 0, now(), now())`;
+        values (${activityId}, ${input.name}, ${input.location ?? null}, ${baseCurrency}, ${input.startDate}, ${input.endDate ?? null}, 'ACTIVE', ${ownerMemberId}, 'DIRECT_JOIN', 0, now(), now())`;
       await transaction`insert into activity_members (id, activity_id, user_id, display_name, member_type, role, status, joined_at)
         values (${ownerMemberId}, ${activityId}, ${ownerUserId}, ${input.ownerDisplayName}, 'USER', 'OWNER', 'ACTIVE', now())`;
       await transaction`insert into activity_audit_logs (id, activity_id, actor_user_id, actor_member_id, event_type, target_type, target_id, metadata)

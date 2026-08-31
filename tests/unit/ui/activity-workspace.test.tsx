@@ -85,11 +85,44 @@ vi.mock("@/features/members/components/member-page-loader", () => ({
   },
 }));
 vi.mock("@/features/activities/components/activity-more", () => ({
-  ActivityMore: () => null,
+  ActivityMore: ({
+    view,
+    onViewChange,
+  }: {
+    readonly view: string;
+    readonly onViewChange: (view: string) => void;
+  }) => (
+    <div>
+      <span data-testid="management-view">{view}</span>
+      <button type="button" onClick={() => onViewChange("location")}>
+        打开地点编辑
+      </button>
+    </div>
+  ),
 }));
-vi.mock("@/features/expenses/components/responsive-form-overlay", () => ({
-  ResponsiveFormOverlay: ({ children }: { readonly children: ReactNode }) =>
+vi.mock("@/components/ui/navigation-overlay", () => ({
+  NavigationOverlay: ({
+    open,
+    title,
+    onBack,
     children,
+  }: {
+    readonly open: boolean;
+    readonly title: string;
+    readonly onBack?: () => void;
+    readonly children: ReactNode;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label={title}>
+        <span data-testid="management-title">{title}</span>
+        {onBack ? (
+          <button type="button" onClick={onBack}>
+            返回活动管理
+          </button>
+        ) : null}
+        {children}
+      </div>
+    ) : null,
 }));
 
 import { ActivityWorkspace } from "@/features/activities/components/activity-workspace";
@@ -190,4 +223,19 @@ test("成员 Sheet 关闭后再次打开时从成员根视图开始", async () =
   mocks.query = "?panel=members";
   rerender(<ActivityWorkspace timeZone="Asia/Shanghai" />);
   expect(screen.getByTestId("member-loader-view")).toHaveTextContent("list");
+});
+
+test("活动管理字段使用同一 Overlay 子视图并可返回根视图", async () => {
+  const user = userEvent.setup();
+  mocks.query = "?panel=manage";
+
+  render(<ActivityWorkspace timeZone="Asia/Shanghai" />);
+
+  expect(screen.getByTestId("management-title")).toHaveTextContent("活动管理");
+  await user.click(screen.getByRole("button", { name: "打开地点编辑" }));
+  expect(screen.getByTestId("management-title")).toHaveTextContent("地点");
+  expect(screen.getByTestId("management-view")).toHaveTextContent("location");
+  await user.click(screen.getByRole("button", { name: "返回活动管理" }));
+  expect(screen.getByTestId("management-title")).toHaveTextContent("活动管理");
+  expect(screen.getByTestId("management-view")).toHaveTextContent("root");
 });
