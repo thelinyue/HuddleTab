@@ -4,12 +4,15 @@ import { mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs
 import os from "node:os";
 import path from "node:path";
 import { extract, yazl } from "playwright-core/lib/zipBundle";
+import { PNG } from "playwright-core/lib/utilsBundle";
 
 const redacted = "[REDACTED]";
 const maxZipDepth = 5;
 const textExtensions = new Set([".css", ".html", ".json", ".jsonl", ".js", ".log", ".md", ".network", ".stacks", ".trace", ".txt", ".xml"]);
 const sessionCookieNames = new Set(["huddletab_session", "huddletab_pre_auth"]);
 const sensitiveHeaderNames = new Set(["authorization", "cookie", "set-cookie", "x-csrf-token"]);
+const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const pngTextChunks = new Set(["iTXt", "tEXt", "zTXt"]);
 
 function visitStructuredCredentials(value, visitor) {
   if (Array.isArray(value)) {
@@ -68,6 +71,28 @@ function isZipBuffer(buffer) {
   return (buffer[2] === 0x03 && buffer[3] === 0x04)
     || (buffer[2] === 0x05 && buffer[3] === 0x06)
     || (buffer[2] === 0x07 && buffer[3] === 0x08);
+}
+
+function isPngBuffer(buffer) {
+  return buffer.length >= pngSignature.length && buffer.subarray(0, pngSignature.length).equals(pngSignature);
+}
+
+function pngChunks(buffer) {
+  if (!isPngBuffer(buffer)) throw new Error("不是有效的 PNG 签名。");
+  const chunks = [];
+  let offset = pngSignature.length;
+  while (offset < buffer.length) {
+    if (offset + 12 > buffer.length) throw new Error("PNG chunk 头或 CRC 不完整。");
+    const length = buffer.readUInt32BE(offset);
+    const end = offset + 12 + length;
+    if (end > buffer.length) throw new Error("PNG chunk 数据越界。");
+    const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
+    chunks.push({ start: offset, end, type, data: buffer.subarray(offset + 8, offset + 8 + length) });
+    offset = end;
+    if (type === "IEND") break;
+  }
+  if (chunks.at(-1)?.type !== "IEND" || offset !== buffer.length) throw new Error("PNG 缺少 IEND 或包含尾随数据。");
+  return chunks;
 }
 
 function assertZipDepth(depth) {
@@ -138,6 +163,37 @@ function sensitiveBufferMatches(buffer, secrets) {
   return [...matches];
 }
 
+function sanitizePngBuffer(buffer, secrets, artifactPath) {
+  // PNG 像素中的可见文字不能靠字节扫描识别；凭据像素安全由真实页面遮罩测试保证。
+  // 这里只移除标准文本元数据，并以解码后的 RGBA 数据校验图片没有被破坏。
+  let original;
+  try {
+    original = PNG.sync.read(buffer);
+  } catch (error) {
+    throw new Error(`PNG artifact 无法解码：${artifactPath}：${error.message}`, { cause: error });
+  }
+  const parts = [pngSignature];
+  let changed = false;
+  for (const chunk of pngChunks(buffer)) {
+    if (pngTextChunks.has(chunk.type)) {
+      changed = true;
+      continue;
+    }
+    const matches = sensitiveBufferMatches(chunk.data, secrets);
+    if (matches.length) throw new Error(`PNG artifact 的 ${chunk.type} chunk 含敏感数据，无法在保留像素的前提下安全脱敏：${artifactPath}`);
+    parts.push(buffer.subarray(chunk.start, chunk.end));
+  }
+  if (!changed) return { buffer, changed: false };
+
+  const sanitized = Buffer.concat(parts);
+  const decoded = PNG.sync.read(sanitized);
+  if (decoded.width !== original.width || decoded.height !== original.height || !decoded.data.equals(original.data)) {
+    throw new Error(`PNG artifact 脱敏后像素发生变化：${artifactPath}`);
+  }
+  if (sensitiveBufferMatches(sanitized, secrets).length) throw new Error(`PNG artifact 脱敏后仍含敏感数据：${artifactPath}`);
+  return { buffer: sanitized, changed: true };
+}
+
 async function rewriteZip(file, secrets, depth = 0) {
   assertZipDepth(depth);
   const extracted = await mkdtemp(path.join(os.tmpdir(), "huddletab-trace-"));
@@ -151,6 +207,12 @@ async function rewriteZip(file, secrets, depth = 0) {
       if (isZipBuffer(buffer)) {
         const nestedChanged = await rewriteZip(entry, secrets, depth + 1);
         changed ||= nestedChanged;
+      } else if (isPngBuffer(buffer)) {
+        const sanitized = sanitizePngBuffer(buffer, secrets, entry);
+        if (sanitized.changed) {
+          await writeFile(entry, sanitized.buffer);
+          changed = true;
+        }
       } else if (isTextFile(entry, buffer)) {
         const current = buffer.toString("utf8");
         const sanitized = redactText(current, secrets);
@@ -159,8 +221,7 @@ async function rewriteZip(file, secrets, depth = 0) {
           changed = true;
         }
       } else if (sensitiveBufferMatches(buffer, secrets).length) {
-        await writeFile(entry, redacted);
-        changed = true;
+        throw new Error(`未知二进制 artifact 含敏感数据，无法安全脱敏：${entry}`);
       }
     }
     if (!changed) return false;
@@ -210,10 +271,21 @@ async function sanitizeEmbeddedReports(input, secrets) {
 async function sanitizeFile(file, secrets) {
   const buffer = await readFile(file);
   if (path.extname(file).toLowerCase() === ".zip" || isZipBuffer(buffer)) return rewriteZip(file, secrets);
+  if (isPngBuffer(buffer)) {
+    const sanitized = sanitizePngBuffer(buffer, secrets, file);
+    if (!sanitized.changed) return false;
+    const replacement = `${file}.sanitized-${randomUUID()}`;
+    try {
+      await writeFile(replacement, sanitized.buffer);
+      await replaceArtifactFile(file, replacement);
+      return true;
+    } finally {
+      await rm(replacement, { force: true });
+    }
+  }
   if (!isTextFile(file, buffer)) {
     if (!sensitiveBufferMatches(buffer, secrets).length) return false;
-    await writeFile(file, redacted);
-    return true;
+    throw new Error(`未知二进制 artifact 含敏感数据，无法安全脱敏：${file}`);
   }
   const current = buffer.toString("utf8");
   const redactedText = redactText(current, secrets);
