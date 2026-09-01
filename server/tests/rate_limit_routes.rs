@@ -297,6 +297,58 @@ async fn assert_repeated_read_status(
     }
 }
 
+async fn assert_valid_expense_creates(
+    app: &Router,
+    context: &AuthContext,
+    expenses_uri: &str,
+    owner_member_id: &str,
+    guest_member_id: &str,
+) {
+    for index in 0..11 {
+        let payload = format!(
+            r#"{{"clientMutationId":"{}","title":"Unlimited expense {index}","category":"OTHER","occurredAt":"2026-09-01T12:00:00Z","originalCurrency":"CNY","originalAmountMinor":"1","exchangeRateKind":"IDENTITY","exchangeRate":"1","payments":[{{"memberId":"{owner_member_id}","amountMinor":"1"}}],"split":{{"mode":"EXACT","entries":[{{"memberId":"{guest_member_id}","value":"1"}}]}}}}"#,
+            Uuid::new_v4()
+        );
+        let response = app
+            .clone()
+            .oneshot(mutation_request(
+                "POST",
+                expenses_uri,
+                Body::from(payload),
+                context,
+            ))
+            .await
+            .expect("router 应响应");
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+}
+
+async fn assert_valid_settlement_creates(
+    app: &Router,
+    context: &AuthContext,
+    settlements_uri: &str,
+    owner_member_id: &str,
+    guest_member_id: &str,
+) {
+    for _ in 0..11 {
+        let payload = format!(
+            r#"{{"clientMutationId":"{}","payerMemberId":"{guest_member_id}","receiverMemberId":"{owner_member_id}","currency":"CNY","amountMinor":"1"}}"#,
+            Uuid::new_v4()
+        );
+        let response = app
+            .clone()
+            .oneshot(mutation_request(
+                "POST",
+                settlements_uri,
+                Body::from(payload),
+                context,
+            ))
+            .await
+            .expect("router 应响应");
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+}
+
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn auth_limit_spans_login_and_registration_and_isolates_peer_ips() {
@@ -600,30 +652,22 @@ async fn ordinary_business_summary_and_csv_routes_remain_unlimited() {
     .await;
     assert_repeated_read_status(&app, &context, &members_uri, StatusCode::OK).await;
 
-    let invalid_expense = format!(
-        r#"{{"clientMutationId":"00000000-0000-0000-0000-000000000001","title":"Unlimited expense","category":"OTHER","occurredAt":"not-a-timestamp","originalCurrency":"CNY","originalAmountMinor":"1","exchangeRateKind":"IDENTITY","exchangeRate":"1","payments":[],"split":{{"mode":"EQUAL","members":["{owner_member_id}"]}}}}"#
-    );
-    assert_repeated_mutation_status(
+    assert_valid_expense_creates(
         &app,
         &context,
-        "POST",
         &expenses_uri,
-        &invalid_expense,
-        StatusCode::UNPROCESSABLE_ENTITY,
+        owner_member_id,
+        guest_member_id,
     )
     .await;
     assert_repeated_read_status(&app, &context, &expenses_uri, StatusCode::OK).await;
 
-    let invalid_settlement = format!(
-        r#"{{"clientMutationId":"00000000-0000-0000-0000-000000000002","payerMemberId":"{owner_member_id}","receiverMemberId":"{guest_member_id}","currency":"CNY","amountMinor":"0"}}"#
-    );
-    assert_repeated_mutation_status(
+    assert_valid_settlement_creates(
         &app,
         &context,
-        "POST",
         &settlements_uri,
-        &invalid_settlement,
-        StatusCode::UNPROCESSABLE_ENTITY,
+        owner_member_id,
+        guest_member_id,
     )
     .await;
     assert_repeated_read_status(&app, &context, &settlements_uri, StatusCode::OK).await;
