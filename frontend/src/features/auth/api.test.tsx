@@ -1,12 +1,13 @@
 import "fake-indexeddb/auto";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { deleteDB } from "idb";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const client = vi.hoisted(() => ({
+  GET: vi.fn(),
   POST: vi.fn(),
   PUT: vi.fn(),
 }));
@@ -21,7 +22,13 @@ vi.mock("../../api/csrf", () => csrf);
 import { databaseName } from "../../pwa/indexed-db/database";
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
 import { pendingMutationFixture } from "../../pwa/indexed-db/test-fixtures";
-import { useChangePasswordMutation, useLogoutMutation } from "./api";
+import { queryKeys } from "../../api/query-keys";
+import {
+  useChangePasswordMutation,
+  useJoinInvitationMutation,
+  useJoinRequestQuery,
+  useLogoutMutation,
+} from "./api";
 
 function wrapper({ children }: PropsWithChildren) {
   const queryClient = new QueryClient({
@@ -102,5 +109,67 @@ describe("useLogoutMutation", () => {
     });
 
     expect(await repository.get("logout-pending")).toBeDefined();
+  });
+});
+
+describe("join approval applicant adapter", () => {
+  it("Pending join 返回申请结果且不刷新活动工作台", async () => {
+    client.POST.mockResolvedValue({
+      data: {
+        data: {
+          activityId: "activity-1",
+          memberId: null,
+          requestId: "request-1",
+          revision: "3",
+          status: "PENDING_APPROVAL",
+        },
+      },
+      response: new Response(null, { status: 200 }),
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const localWrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => useJoinInvitationMutation("user-1", "invite-token"),
+      { wrapper: localWrapper },
+    );
+
+    await act(async () => {
+      await expect(result.current.mutateAsync()).resolves.toMatchObject({
+        requestId: "request-1",
+        status: "PENDING_APPROVAL",
+      });
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("申请人状态查询使用 user-scoped key 与 generated GET", async () => {
+    client.GET.mockResolvedValue({
+      data: { data: { requestId: "request-1", status: "PENDING" } },
+      response: new Response(null, { status: 200 }),
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const localWrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => useJoinRequestQuery("user-1", "request-1"),
+      { wrapper: localWrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(queryClient.getQueryState(
+      Reflect.get(queryKeys, "joinRequest")("user-1", "request-1"),
+    )).toBeDefined();
+    expect(client.GET).toHaveBeenCalledWith("/api/join-requests/{join_request_id}", {
+      params: { path: { join_request_id: "request-1" } },
+    });
+    expect(result.current.data).toMatchObject({ requestId: "request-1", status: "PENDING" });
   });
 });

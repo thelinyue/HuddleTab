@@ -17,6 +17,8 @@ export type CreateInvitationInput = components["schemas"]["CreateInvitationReque
 export type InvitationIntent =
   | { mode: "link" }
   | { mode: "direct"; targetUsername: string };
+export type JoinRequest = components["schemas"]["JoinRequestData"];
+export type JoinDecision = "APPROVE" | "REJECT";
 
 /** 将界面邀请意图集中映射为 OpenAPI 请求，避免组件散落协议常量和使用次数规则。 */
 export function invitationRequest(intent: InvitationIntent): CreateInvitationInput {
@@ -144,6 +146,34 @@ async function revokeInvitation(activityId: string, invitationId: string) {
   ).data;
 }
 
+async function listJoinRequests(activityId: string): Promise<JoinRequest[]> {
+  return unwrap(
+    await apiClient.GET("/api/activities/{activity_id}/join-requests", {
+      params: { path: { activity_id: activityId } },
+    }),
+  ).data;
+}
+
+async function decideJoinRequest(
+  activityId: string,
+  requestId: string,
+  decision: JoinDecision,
+): Promise<JoinRequest> {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.POST(
+      "/api/activities/{activity_id}/join-requests/{join_request_id}",
+      {
+        params: {
+          path: { activity_id: activityId, join_request_id: requestId },
+          header: { "x-csrf-token": headers["X-CSRF-Token"] },
+        },
+        body: { decision },
+      },
+    ),
+  ).data;
+}
+
 export function useActivitiesQuery(userId: string) {
   return useQuery({
     queryKey: queryKeys.activitiesCurrent(userId),
@@ -262,5 +292,48 @@ export function useRevokeInvitationMutation(userId: string, activityId: string) 
     mutationFn: (invitationId: string) => revokeInvitation(activityId, invitationId),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
+  });
+}
+
+export function useJoinRequestsQuery(
+  userId: string,
+  activityId: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: queryKeys.joinRequests(userId, activityId),
+    queryFn: () => listJoinRequests(activityId),
+    enabled: enabled && userId.length > 0 && activityId.length > 0,
+  });
+}
+
+export function useDecideJoinRequestMutation(userId: string, activityId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, decision }: { requestId: string; decision: JoinDecision }) =>
+      decideJoinRequest(activityId, requestId, decision),
+    onSuccess: (_request, variables) => {
+      if (variables.decision === "REJECT") {
+        return Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.joinRequests(userId, activityId),
+          }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
+        ]);
+      }
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.members(userId, activityId) }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.activityDetail(userId, activityId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.activitySnapshot(userId, activityId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.joinRequests(userId, activityId),
+        }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
+      ]);
+    },
   });
 }

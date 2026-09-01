@@ -10,6 +10,14 @@ export const queryKeys = {
     ["users", userId, "activities", activityId, "members"] as const,
   invitations: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "invitations"] as const,
+  joinRequests: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "join-requests"] as const,
+  joinRequest: (userId: string, requestId: string) =>
+    ["users", userId, "join-requests", requestId] as const,
+  notifications: (userId: string) =>
+    ["users", userId, "notifications"] as const,
+  activitySnapshot: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "snapshot"] as const,
   expenses: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "expenses"] as const,
   pendingExpenses: (userId: string, activityId: string) =>

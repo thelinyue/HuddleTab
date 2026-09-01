@@ -11,6 +11,8 @@ export type RegisterInput = components["schemas"]["RegisterRequest"];
 export type ChangePasswordInput = components["schemas"]["ChangePasswordRequest"];
 export type ChangePasswordResult = components["schemas"]["ChangePasswordData"];
 export type InvitationPreview = components["schemas"]["InvitationPreviewData"];
+export type JoinRequest = components["schemas"]["JoinRequestData"];
+export type JoinInvitationResult = components["schemas"]["JoinInvitationData"];
 
 async function loadSession(): Promise<Session | null> {
   const result = await apiClient.GET("/api/auth/session");
@@ -72,6 +74,14 @@ async function joinInvitation(token: string) {
   return unwrap(result).data;
 }
 
+async function getJoinRequest(requestId: string): Promise<JoinRequest> {
+  return unwrap(
+    await apiClient.GET("/api/join-requests/{join_request_id}", {
+      params: { path: { join_request_id: requestId } },
+    }),
+  ).data;
+}
+
 export function useSessionQuery() {
   return useQuery({ queryKey: queryKeys.session, queryFn: loadSession, retry: false });
 }
@@ -123,7 +133,20 @@ export function useJoinInvitationMutation(userId: string, token: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => joinInvitation(token),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+    onSuccess: (result) => {
+      if (result.status === "PENDING_APPROVAL") return undefined;
+      return queryClient.invalidateQueries({
+        queryKey: queryKeys.activitiesCurrent(userId),
+      });
+    },
+  });
+}
+
+export function useJoinRequestQuery(userId: string, requestId: string) {
+  return useQuery({
+    queryKey: queryKeys.joinRequest(userId, requestId),
+    queryFn: () => getJoinRequest(requestId),
+    enabled: userId.length > 0 && requestId.length > 0,
+    retry: false,
   });
 }

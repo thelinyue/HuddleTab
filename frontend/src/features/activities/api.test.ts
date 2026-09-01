@@ -175,3 +175,84 @@ describe("Activity mutation adapter", () => {
     expect(response).toEqual(envelope);
   });
 });
+
+describe("Join approval adapter", () => {
+  const pendingRequest = {
+    activityId: "activity-1",
+    applicantDisplayName: "Bob",
+    applicantUserId: "user-2",
+    createdAt: "2026-09-01T10:00:00Z",
+    decidedAt: null,
+    requestId: "request-1",
+    revision: "8",
+    status: "PENDING",
+  };
+
+  it("Owner 队列使用 user-scoped key 与 generated GET", async () => {
+    client.GET.mockResolvedValue(successful([pendingRequest]));
+    const { wrapper } = setupQueryClient();
+    const hook = exportedHook("useJoinRequestsQuery") as (
+      userId: string,
+      activityId: string,
+      enabled: boolean,
+    ) => ReturnType<typeof activityApi.useActivitiesQuery>;
+    const { result } = renderHook(() => hook("user-1", "activity-1", true), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(Reflect.get(queryKeys, "joinRequests")("user-1", "activity-1")).toEqual([
+      "users",
+      "user-1",
+      "activities",
+      "activity-1",
+      "join-requests",
+    ]);
+    expect(client.GET).toHaveBeenCalledWith(
+      "/api/activities/{activity_id}/join-requests",
+      { params: { path: { activity_id: "activity-1" } } },
+    );
+  });
+
+  it.each([
+    {
+      decision: "APPROVE",
+      expectedKeys: ["members", "activityDetail", "activitySnapshot", "joinRequests", "notifications"],
+    },
+    {
+      decision: "REJECT",
+      expectedKeys: ["joinRequests", "notifications"],
+    },
+  ])("$decision 精确失效受影响的私有查询", async ({ decision, expectedKeys }) => {
+    client.POST.mockResolvedValue(successful({ ...pendingRequest, status: `${decision}D` }));
+    const { queryClient, wrapper } = setupQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const hook = exportedHook("useDecideJoinRequestMutation") as (
+      userId: string,
+      activityId: string,
+    ) => { mutateAsync: (input: { requestId: string; decision: string }) => Promise<unknown> };
+    const { result } = renderHook(() => hook("user-1", "activity-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ requestId: "request-1", decision });
+    });
+
+    expect(client.POST).toHaveBeenCalledWith(
+      "/api/activities/{activity_id}/join-requests/{join_request_id}",
+      {
+        body: { decision },
+        params: {
+          header: { "x-csrf-token": "csrf-token" },
+          path: { activity_id: "activity-1", join_request_id: "request-1" },
+        },
+      },
+    );
+    const keys = invalidate.mock.calls.map(([options]) => options?.queryKey);
+    const allKeys = {
+      activityDetail: Reflect.get(queryKeys, "activityDetail")("user-1", "activity-1"),
+      activitySnapshot: Reflect.get(queryKeys, "activitySnapshot")("user-1", "activity-1"),
+      joinRequests: Reflect.get(queryKeys, "joinRequests")("user-1", "activity-1"),
+      members: Reflect.get(queryKeys, "members")("user-1", "activity-1"),
+      notifications: Reflect.get(queryKeys, "notifications")("user-1"),
+    };
+    expect(keys).toEqual(expectedKeys.map((key) => Reflect.get(allKeys, key)));
+  });
+});

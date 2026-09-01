@@ -418,11 +418,11 @@ git commit -m "feat: publish join approval api contract"
 - Produces: `useJoinRequestsQuery`, `useDecideJoinRequestMutation`, `useJoinRequestQuery`, `useNotificationsQuery`, `useMarkNotificationReadMutation`.
 - Extends: `useJoinInvitationMutation` result union so only `JOINED | ALREADY_MEMBER` navigates to Activity; `PENDING_APPROVAL` remains on Join page.
 
-- [ ] **Step 1: Write failing adapter tests**
+- [x] **Step 1: Write failing adapter tests**
 
 Assert exact generated-client paths and bodies, Session user ID in every private query key, pending join does not invalidate member/accounting queries, approve invalidates members/Activity/Snapshot/join-requests/notifications, reject invalidates join-requests/notifications, and mark-read updates only the current user's notifications.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```powershell
 npm --prefix frontend run test:unit -- src/features/activities/api.test.ts src/features/auth/api.test.tsx src/features/notifications/api.test.tsx
@@ -430,11 +430,11 @@ npm --prefix frontend run test:unit -- src/features/activities/api.test.ts src/f
 
 Expected: hooks and keys do not exist or Pending result is treated as joined.
 
-- [ ] **Step 3: Implement minimal generated-client adapters**
+- [x] **Step 3: Implement minimal generated-client adapters**
 
 Use `apiClient` exclusively. Do not call `fetch` in components. Keep notifications and join requests out of IndexedDB and TanStack persistence. Reuse existing `unwrap`/error mapping conventions.
 
-- [ ] **Step 4: Run GREEN and typecheck**
+- [x] **Step 4: Run GREEN and typecheck**
 
 ```powershell
 npm --prefix frontend run test:unit -- src/features/activities/api.test.ts src/features/auth/api.test.tsx src/features/notifications/api.test.tsx
@@ -443,7 +443,7 @@ npm --prefix frontend run typecheck
 
 Expected: adapter tests and typecheck pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add frontend/src/api/query-keys.ts frontend/src/features/activities/api.ts frontend/src/features/auth/api.ts frontend/src/features/notifications
