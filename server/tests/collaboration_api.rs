@@ -16,7 +16,7 @@ use huddletab_server::{
     },
 };
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt as _;
 use uuid::Uuid;
@@ -136,6 +136,67 @@ async fn json_response(app: &axum::Router, request: Request<Body>) -> (StatusCod
         .to_bytes();
     let json = serde_json::from_slice(&body).expect("响应应为 JSON");
     (status, json)
+}
+
+#[tokio::test]
+async fn anonymous_join_attempts_share_the_invitation_ip_limit_with_previews() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
+        .expect("测试应创建 lazy pool");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool,
+            AppSecret::from_bytes([17; 32]),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+
+    for request_index in 0..30 {
+        let request = if request_index % 2 == 0 {
+            Request::builder()
+                .uri("/api/invitations/unused")
+                .body(Body::empty())
+                .expect("预览请求应可构造")
+        } else {
+            Request::builder()
+                .method("POST")
+                .uri("/api/invitations/unused/join")
+                .body(Body::empty())
+                .expect("未认证 join 请求应可构造")
+        };
+        let response = app.clone().oneshot(request).await.expect("router 应响应");
+        let expected = if request_index % 2 == 0 {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::FORBIDDEN
+        };
+        assert_eq!(response.status(), expected);
+    }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/invitations/unused")
+                .body(Body::empty())
+                .expect("第 31 个邀请请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response.headers().get("retry-after"),
+        Some(&"60".parse().unwrap())
+    );
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取响应")
+        .to_bytes();
+    let json: Value = serde_json::from_slice(&body).expect("响应应为 JSON");
+    assert_eq!(json["error"]["code"], "RATE_LIMITED");
+    assert_eq!(json["error"]["message"], "请求过于频繁，请稍后再试。");
 }
 
 async fn register_invited_actor(

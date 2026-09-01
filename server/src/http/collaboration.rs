@@ -387,11 +387,11 @@ pub(crate) async fn join_invitation(
     jar: CookieJar,
     headers: HeaderMap,
 ) -> Result<Json<JoinInvitationEnvelope>, ApiError> {
-    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
     state
         .rate_limiter
         .check(RateLimitCategory::AnonymousInvite, client_ip.as_str())
         .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
     let repository = PostgresCollaborationRepository::new(state.pool);
     let joined = accept_invitation(
         &repository,
