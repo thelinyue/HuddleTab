@@ -1,12 +1,12 @@
 # HuddleTab React/Vite + Rust/Axum 迁移交接
 
-更新时间：2026-09-01
+更新时间：2026-09-02
 
 ## 1. 当前结论
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离和 Task 26 的 Expense Create 前台同步队列已完成，可以进入 Task 27。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 2 Task 27–28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列和 Task 27A 的加入审批与最小通知已完成，可以继续 Task 27 Guest Binding。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Task 27 的 Guest Binding、Attachment、Rate Provider 与其余通知事件、Phase 2 Task 28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–26 与本文档已形成 Git 检查点。Task 26 在 Task 25 store 上增加单用途 Expense Create 前台串行同步、有限重试、业务拒绝和 pending 流水展示；没有进入审批、附件、通知、Guest Binding、汇率 Provider 或 Service Worker 后台业务写入。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–26、Task 27A 与本文档已形成 Git 检查点。Task 27A 增加 Activity 级加入方式、Pending JoinRequest、Owner approve/reject、申请人状态和两类最小站内通知；没有进入 Guest Binding、附件、汇率 Provider、其余通知事件或 Service Worker 后台业务写入。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -135,13 +135,14 @@ huddletab openapi
 | Ledger、成员余额、推荐转账 | 可用 | 全部由 Rust 权威计算 |
 | Settlement 创建、修改、作废 | 可用 | 删除语义为 VOID，不物理删除 |
 | PWA Shell | 可用 | 不缓存 API；Expense Create 使用前台同步队列，Service Worker 不执行业务写入 |
-| 通知页 | 占位 | Phase 2 尚未实现通知域 |
+| 加入审批 | 可用 | Task 27A；Activity 级 DIRECT_JOIN/REQUIRE_APPROVAL，Owner 查看并决定 Pending，申请人只能查看自己的结果 |
+| 通知页 | 部分可用 | Task 27A；仅 JOIN_APPROVAL_REQUESTED 与 JOIN_APPROVAL_RESOLVED 两类站内通知 |
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
 | CSV、结算分享 | 可用 | 有效 ActivityMember 可下载 CSV，并从结算页生成受保护摘要和 1600px PNG |
 | Activity Revision Snapshot / weak ETag | 可用 | Task 24；Task 25 已接入按用户隔离的完整 Snapshot 本地存储 |
 | IndexedDB Snapshot / Queue stores | 可用 | Task 25；schema v1，只保存 Snapshot 与 Expense Create mutation，不持久化 Query cache |
 | 离线 Expense Create 同步 | 可用 | Task 26；前台串行、幂等重放、有限重试、REJECTED 和 pending 流水展示 |
-| 审批、附件、汇率 Provider | 未实现 | 属于 Phase 2 |
+| Guest Binding、附件、汇率 Provider | 未实现 | Task 27 后续切片；其余通知事件也未实现 |
 | 系统管理、注册策略、管理员重置密码 | 未实现 | 属于 Phase 3 |
 
 ## 7. 已验证的核心流程
@@ -323,6 +324,33 @@ git diff --check
 
 精确结果：Task 26 最终 scoped 回归 8 个文件、27 passed；Frontend 全量 21 个文件、96 passed、0 failed；typecheck、production build 和 `git diff --check` 通过。另用 production build 和受控 API/IndexedDB 数据在 Chromium `1440 x 1000`、`390 x 844` 检查 pending 行：两种 viewport 均无横向溢出，长标题与金额不重叠，活动导航仍只有“流水 / 结算”，pending 金额不改变权威汇总。Task 26 没有服务端、PostgreSQL、OpenAPI 或运行镜像变化，因此没有重复 Rust/PostgreSQL/OpenAPI 和 Phase 1E Compose 矩阵；断网刷新、PWA 更新不丢 pending、REJECTED 修正和浏览器端到端矩阵保留给 Task 28。
 
+### 7.5 Phase 2 Task 27A 加入审批与最小通知
+
+Activity 新增 `inviteMode`，取值固定为 `DIRECT_JOIN` 或 `REQUIRE_APPROVAL`，默认直接加入。该字段由 Owner 通过现有 Activity version 乐观锁更新；成功变化只推进一次 version/revision 并写 Audit，同值更新没有副作用。邀请本身不复制模式，join 在事务内锁定并读取 Activity 当前值，因此同一活动的所有有效邀请始终遵循同一规则，Snapshot 也能通过 activity 数据和 ETag 感知变化。
+
+`REQUIRE_APPROVAL` 下 join 创建 Pending JoinRequest，不创建成员也不消耗邀请次数。同一 Activity/User 由部分唯一索引保证至多一个 Pending；串行或并发重复提交返回同一个 request。Owner 才能读取活动待审批队列并 approve/reject，申请人只能读取自己的申请，其他成员和用户不能读取或决定。Approve 按 JoinRequest -> Activity -> Invitation 固定锁顺序重新校验生命周期、邀请和成员状态，原子创建/恢复成员、消耗一次邀请、关闭申请并写 Audit/revision/通知；Reject 不创建成员、不消耗邀请。相同决定可幂等 replay，相反决定返回 `409 JOIN_REQUEST_CLOSED`。
+
+新增合同为 `GET /api/activities/{activity_id}/join-requests`、`POST /api/activities/{activity_id}/join-requests/{request_id}`、`GET /api/join-requests/{request_id}`、`GET /api/notifications` 与 `POST /api/notifications/{notification_id}/read`。通知当前只覆盖 Owner 收到申请和申请人收到结果两类；JoinRequest 与 Notification 不进入 Activity Snapshot、IndexedDB 或 TanStack 持久化。
+
+前端 Activity 管理严格对照远程 `v0.0.2`：删除整个“字段权限”区域，不提供统一资料编辑表单；可编辑行点击后进入单字段编辑并显式保存，只提交该字段和 `version`，只读行没有按钮或 Chevron。“加入方式”使用同一单字段编辑模式。成员 Overlay 内仅 Owner 加载待审批队列；Pending join 保持在加入页展示等待状态；通知页展示并独立标记两类通知。Chromium `1440 x 1000` 与 `390 x 844` 已检查 Activity 管理和审批相关状态，两种 viewport 均无横向溢出，活动主导航仍只有“流水 / 结算”。
+
+本轮最终执行：
+
+```powershell
+cargo test --manifest-path server/Cargo.toml --test domain_activity --test domain_join_request
+cargo test --manifest-path server/Cargo.toml --test schema_constraints join_requests_enforce_mode_pending_uniqueness_and_activity_identity -- --ignored --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test activity_api --test collaboration_api --test notification_api --test snapshot_api -- --ignored --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test openapi
+cargo fmt --manifest-path server/Cargo.toml -- --check
+cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
+npm --prefix frontend run test:unit
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+git diff --check
+```
+
+精确结果：Domain 7 passed；JoinRequest schema 约束专项 1 passed；PostgreSQL API 共 26 passed（Activity 10、Collaboration 11、Notification 2、Snapshot 3）；OpenAPI 6 passed；Frontend 24 个文件、110 passed。Rust fmt、严格 Clippy、Frontend typecheck、production build 和 `git diff --check` 均通过。相对 Task 27A 基准 `e1abe6e543d07f442de4009916cb1f1e446bcebd` 的范围扫描确认：没有组件直接 `fetch`、没有审批或通知 IndexedDB 持久化、没有 ADMIN、Guest Binding、Attachment、Rate Provider、tag 或发布实现；敏感词命中仅为 OpenAPI CSRF header 合同与测试固定值，没有真实凭据。
+
 ## 8. 当前本地运行现场
 
 交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
@@ -432,7 +460,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. Phase 2 Task 27–28：实现审批、Guest Binding、通知、附件、汇率 Provider 和 Phase 2 E2E；Task 24 Revision Snapshot/ETag、Task 25 IndexedDB 隔离与 Task 26 Expense Create 前台同步已完成。
+1. 继续 Phase 2 Task 27 Guest Binding；随后完成 Attachment、Rate Provider、其余通知事件和 Task 28 Phase 2 E2E。Task 27A 加入审批与最小通知已经完成。
 2. Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。
 3. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
 4. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
@@ -447,5 +475,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-01-huddletab-task25-indexeddb.md`
 - `docs/superpowers/specs/2026-09-01-huddletab-task26-expense-queue-design.md`
 - `docs/superpowers/plans/2026-09-01-huddletab-task26-expense-queue.md`
+- `docs/superpowers/specs/2026-09-01-huddletab-task27a-join-approval-design.md`
+- `docs/superpowers/plans/2026-09-01-huddletab-task27a-join-approval.md`
 
-这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-01 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。
+这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-02 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。

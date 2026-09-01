@@ -525,7 +525,7 @@ git commit -m "feat: add join approval experience"
 **Interfaces:**
 - Records: exact commands, pass counts, browser viewports, Task 27A boundary, and remaining Task 27/28/Phase 3/release work.
 
-- [ ] **Step 1: Run scoped Rust and PostgreSQL verification**
+- [x] **Step 1: Run scoped Rust and PostgreSQL verification**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test domain_activity --test domain_join_request
@@ -537,7 +537,7 @@ cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -
 
 Expected: all affected suites, fmt, and clippy pass with no warnings.
 
-- [ ] **Step 2: Run scoped frontend verification**
+- [x] **Step 2: Run scoped frontend verification**
 
 ```powershell
 npm --prefix frontend run test:unit
@@ -548,15 +548,15 @@ git diff --check
 
 Expected: all unit tests, typecheck, production build, and whitespace check pass.
 
-- [ ] **Step 3: Run security and scope checks**
+- [x] **Step 3: Run security and scope checks**
 
 Scan the diff for passwords, Session/CSRF values, raw invitation tokens, private keys, direct component `fetch` calls, IndexedDB notification/join-request persistence, ADMIN, Guest Binding, Attachment, Provider, tag, or publish changes. Any hit must be explained as a test fixture/type name or removed.
 
-- [ ] **Step 4: Update handover with evidence**
+- [x] **Step 4: Update handover with evidence**
 
 State only: “Task 27A 加入审批与最小通知完成，可以继续 Task 27 Guest Binding。” Continue listing Guest Binding、Attachment、Rate Provider、其余通知事件、Task 28、Phase 3、真机 PWA 验收、Release Verification 和 `0.0.3` publication as incomplete.
 
-- [ ] **Step 5: Commit final evidence**
+- [x] **Step 5: Commit final evidence**
 
 ```powershell
 git add docs/handovers/2026-08-31-huddletab-rust-replatform-handoff.md
