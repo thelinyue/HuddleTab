@@ -205,7 +205,7 @@ git commit -m "feat: configure activity join approval mode"
 - Extends: `JoinedInvitation` / `JoinInvitationData` with nullable `request_id` and nullable `member_id` appropriate to status.
 - Produces: repository transaction that returns an existing Pending request on unique-conflict replay.
 
-- [ ] **Step 1: Write failing join branch tests**
+- [x] **Step 1: Write failing join branch tests**
 
 Add real PostgreSQL API cases for:
 
@@ -220,7 +220,7 @@ revoked/expired/exhausted/direct-username mismatch -> no JoinRequest
 
 The concurrent test must use two independent HTTP requests and hand-derived database counts.
 
-- [ ] **Step 2: Run RED test**
+- [x] **Step 2: Run RED test**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test collaboration_api join_request_ -- --ignored --test-threads=1
@@ -228,7 +228,7 @@ cargo test --manifest-path server/Cargo.toml --test collaboration_api join_reque
 
 Expected: REQUIRE_APPROVAL still creates a member or the response cannot represent Pending.
 
-- [ ] **Step 3: Implement the minimal transactional branch**
+- [x] **Step 3: Implement the minimal transactional branch**
 
 Lock Invitation and Activity before deciding the branch. For `REQUIRE_APPROVAL`, check membership first, then select existing Pending; otherwise insert the request. On partial-unique conflict, roll back the failed statement safely and fetch the winner using a nested savepoint or a single `INSERT ... ON CONFLICT ...` shape supported by the partial index. Only the winning insert writes owner notification, Audit, and revision.
 
@@ -246,7 +246,7 @@ JoinedInvitation {
 
 Keep token revalidation and redacted Debug behavior unchanged.
 
-- [ ] **Step 4: Run GREEN and collaboration regression**
+- [x] **Step 4: Run GREEN and collaboration regression**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test collaboration_api join_request_ -- --ignored --test-threads=1
@@ -255,7 +255,7 @@ cargo test --manifest-path server/Cargo.toml --test collaboration_api -- --ignor
 
 Expected: new branch and existing guest/invitation/direct-join tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add server/src/application/collaboration.rs server/src/infrastructure/collaboration_repository.rs server/src/http/collaboration.rs server/tests/collaboration_api.rs

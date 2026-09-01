@@ -122,6 +122,7 @@ pub struct JoinInvitationInput {
 pub enum JoinStatus {
     Joined,
     AlreadyMember,
+    PendingApproval,
 }
 
 impl JoinStatus {
@@ -130,6 +131,7 @@ impl JoinStatus {
         match self {
             Self::Joined => "JOINED",
             Self::AlreadyMember => "ALREADY_MEMBER",
+            Self::PendingApproval => "PENDING_APPROVAL",
         }
     }
 }
@@ -138,7 +140,8 @@ impl JoinStatus {
 pub struct JoinedInvitation {
     pub status: JoinStatus,
     pub activity_id: Uuid,
-    pub member_id: Uuid,
+    pub member_id: Option<Uuid>,
+    pub request_id: Option<Uuid>,
     pub revision: i64,
 }
 

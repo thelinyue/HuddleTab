@@ -136,7 +136,8 @@ pub struct JoinInvitationEnvelope {
 pub struct JoinInvitationData {
     pub status: &'static str,
     pub activity_id: String,
-    pub member_id: String,
+    pub member_id: Option<String>,
+    pub request_id: Option<String>,
     pub revision: String,
 }
 
@@ -410,7 +411,8 @@ pub(crate) async fn join_invitation(
         data: JoinInvitationData {
             status: joined.status.as_str(),
             activity_id: joined.activity_id.to_string(),
-            member_id: joined.member_id.to_string(),
+            member_id: joined.member_id.map(|value| value.to_string()),
+            request_id: joined.request_id.map(|value| value.to_string()),
             revision: joined.revision.to_string(),
         },
     }))

@@ -7,6 +7,7 @@ use crate::application::collaboration::{
     CollaborationRepository, CollaborationRepositoryError, GuestMember, Invitation, InvitationKind,
     InvitationPreview, JoinInvitationInput, JoinStatus, JoinedInvitation, NewGuest, NewInvitation,
 };
+use crate::domain::activity::InviteMode;
 
 #[derive(Clone, Debug)]
 pub struct PostgresCollaborationRepository {
@@ -45,7 +46,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             AuditEntry {
                 activity_id: guest.activity_id,
                 actor_user_id: guest.actor_user_id,
-                actor_member_id,
+                actor_member_id: Some(actor_member_id),
                 action: "MEMBER_GUEST_ADDED",
                 resource_type: "ACTIVITY_MEMBER",
                 resource_id: guest.id,
@@ -96,7 +97,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             AuditEntry {
                 activity_id: invitation.activity_id,
                 actor_user_id: invitation.actor_user_id,
-                actor_member_id,
+                actor_member_id: Some(actor_member_id),
                 action: "INVITATION_CREATED",
                 resource_type: "INVITATION",
                 resource_id: invitation.id,
@@ -208,7 +209,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 AuditEntry {
                     activity_id,
                     actor_user_id,
-                    actor_member_id,
+                    actor_member_id: Some(actor_member_id),
                     action: "INVITATION_REVOKED",
                     resource_type: "INVITATION",
                     resource_id: invitation_id,
@@ -270,8 +271,8 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         input: JoinInvitationInput,
     ) -> Result<JoinedInvitation, CollaborationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let invitation = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>)>(
-            "SELECT i.id, i.activity_id, i.kind, i.target_username \
+        let invitation = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String)>(
+            "SELECT i.id, i.activity_id, i.kind, i.target_username, a.invite_mode \
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
                AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
@@ -290,7 +291,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         {
             return Err(CollaborationRepositoryError::Forbidden);
         }
-        if let Some((member_id, status)) = sqlx::query_as::<_, (Uuid, String)>(
+        let existing_member = sqlx::query_as::<_, (Uuid, String)>(
             "SELECT id, status FROM activity_members WHERE activity_id = $1 AND user_id = $2 \
              FOR UPDATE",
         )
@@ -298,8 +299,8 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .bind(input.user_id)
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(log_repository_error)?
-        {
+        .map_err(log_repository_error)?;
+        if let Some((member_id, status)) = &existing_member {
             if status == "ACTIVE" {
                 let revision = sqlx::query_scalar("SELECT revision FROM activities WHERE id = $1")
                     .bind(invitation.1)
@@ -310,10 +311,22 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 return Ok(JoinedInvitation {
                     status: JoinStatus::AlreadyMember,
                     activity_id: invitation.1,
-                    member_id,
+                    member_id: Some(*member_id),
+                    request_id: None,
                     revision,
                 });
             }
+        }
+        let invite_mode = InviteMode::parse(&invitation.4)
+            .map_err(|_| CollaborationRepositoryError::Unavailable)?;
+        if invite_mode == InviteMode::RequireApproval {
+            let pending =
+                create_or_replay_join_request(&mut transaction, &input, invitation.0, invitation.1)
+                    .await?;
+            transaction.commit().await.map_err(log_repository_error)?;
+            return Ok(pending);
+        }
+        if let Some((member_id, _)) = existing_member {
             sqlx::query(
                 "UPDATE activity_members SET status = 'ACTIVE', left_at = NULL, display_name = $1, \
                  version = version + 1 WHERE id = $2",
@@ -411,7 +424,7 @@ async fn authorize_owner(
 struct AuditEntry {
     activity_id: Uuid,
     actor_user_id: Uuid,
-    actor_member_id: Uuid,
+    actor_member_id: Option<Uuid>,
     action: &'static str,
     resource_type: &'static str,
     resource_id: Uuid,
@@ -468,7 +481,7 @@ async fn finish_join(
         AuditEntry {
             activity_id,
             actor_user_id: input.user_id,
-            actor_member_id: member_id,
+            actor_member_id: Some(member_id),
             action: "MEMBER_JOINED",
             resource_type: "ACTIVITY_MEMBER",
             resource_id: member_id,
@@ -479,7 +492,103 @@ async fn finish_join(
     Ok(JoinedInvitation {
         status: JoinStatus::Joined,
         activity_id,
-        member_id,
+        member_id: Some(member_id),
+        request_id: None,
+        revision,
+    })
+}
+
+/// Activity 行锁保证同一活动的申请创建串行化；部分唯一索引继续承担最终一致性约束。
+async fn create_or_replay_join_request(
+    transaction: &mut Transaction<'_, Postgres>,
+    input: &JoinInvitationInput,
+    invitation_id: Uuid,
+    activity_id: Uuid,
+) -> Result<JoinedInvitation, CollaborationRepositoryError> {
+    if let Some(request_id) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM activity_join_requests
+         WHERE activity_id = $1 AND applicant_user_id = $2 AND status = 'PENDING'",
+    )
+    .bind(activity_id)
+    .bind(input.user_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?
+    {
+        let revision =
+            sqlx::query_scalar::<_, i64>("SELECT revision FROM activities WHERE id = $1")
+                .bind(activity_id)
+                .fetch_one(&mut **transaction)
+                .await
+                .map_err(log_repository_error)?;
+        return Ok(JoinedInvitation {
+            status: JoinStatus::PendingApproval,
+            activity_id,
+            member_id: None,
+            request_id: Some(request_id),
+            revision,
+        });
+    }
+
+    let request_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO activity_join_requests (
+            id, activity_id, invitation_id, applicant_user_id, created_at
+         ) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(request_id)
+    .bind(activity_id)
+    .bind(invitation_id)
+    .bind(input.user_id)
+    .bind(input.now)
+    .execute(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    let owner_user_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT owner.user_id FROM activities activity
+         JOIN activity_members owner
+           ON owner.activity_id = activity.id AND owner.id = activity.owner_member_id
+         WHERE activity.id = $1 AND owner.status = 'ACTIVE'",
+    )
+    .bind(activity_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    sqlx::query(
+        "INSERT INTO notifications (
+            id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
+         ) VALUES (
+            $1, $2, 'JOIN_APPROVAL_REQUESTED', 'ACTIVITY', $3, $3,
+            jsonb_build_object('requestId', $4::text, 'displayName', $5::text), $6
+         )",
+    )
+    .bind(Uuid::new_v4())
+    .bind(owner_user_id)
+    .bind(activity_id)
+    .bind(request_id)
+    .bind(&input.display_name)
+    .bind(input.now)
+    .execute(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    let revision = revise_and_audit(
+        transaction,
+        AuditEntry {
+            activity_id,
+            actor_user_id: input.user_id,
+            actor_member_id: None,
+            action: "JOIN_REQUEST_CREATED",
+            resource_type: "JOIN_REQUEST",
+            resource_id: request_id,
+            now: input.now,
+        },
+    )
+    .await?;
+    Ok(JoinedInvitation {
+        status: JoinStatus::PendingApproval,
+        activity_id,
+        member_id: None,
+        request_id: Some(request_id),
         revision,
     })
 }

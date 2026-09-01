@@ -265,6 +265,157 @@ async fn assert_collaboration_side_effects(pool: &PgPool, activity_id: Uuid) {
     assert_eq!(stored, (5, 3, 4));
 }
 
+async fn create_link_invitation(
+    app: &axum::Router,
+    owner: &TestActor,
+    activity_id: Uuid,
+) -> String {
+    let (status, invitation) = json_response(
+        app,
+        authenticated_request(
+            owner,
+            "POST",
+            format!("/api/activities/{activity_id}/invitations"),
+            r#"{"kind":"LINK","targetUsername":null,"maxUses":null}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    invitation["data"]["token"]
+        .as_str()
+        .expect("创建邀请应返回一次明文 token")
+        .to_owned()
+}
+
+async fn assert_pending_join_side_effects(
+    pool: &PgPool,
+    activity_id: Uuid,
+    expected_revision: i64,
+) {
+    let state = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        "SELECT a.revision,
+         (SELECT count(*) FROM activity_members WHERE activity_id = a.id),
+         (SELECT count(*) FROM activity_join_requests WHERE activity_id = a.id),
+         (SELECT count(*) FROM notifications WHERE activity_id = a.id),
+         (SELECT count(*) FROM activity_audit_logs WHERE activity_id = a.id),
+         (SELECT sum(use_count) FROM activity_invites WHERE activity_id = a.id)
+         FROM activities a WHERE a.id = $1",
+    )
+    .bind(activity_id)
+    .fetch_one(pool)
+    .await
+    .expect("应读取 Pending join 副作用");
+    assert_eq!(state, (expected_revision, 1, 1, 1, 2, 0));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_request_replay_returns_same_pending_without_consuming_invite() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            secret.clone(),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+    let token = create_link_invitation(&app, &owner, activity_id).await;
+    let applicant = register_invited_actor(&app, &secret, &token).await;
+
+    let mut request_ids = Vec::new();
+    for _ in 0..2 {
+        let (status, joined) = json_response(
+            &app,
+            authenticated_request(
+                &applicant,
+                "POST",
+                format!("/api/invitations/{token}/join"),
+                "{}",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(joined["data"]["status"], "PENDING_APPROVAL");
+        assert!(joined["data"]["memberId"].is_null());
+        assert_eq!(joined["data"]["revision"], "3");
+        request_ids.push(
+            joined["data"]["requestId"]
+                .as_str()
+                .expect("Pending 应返回 requestId")
+                .to_owned(),
+        );
+    }
+    assert_eq!(request_ids[0], request_ids[1]);
+    assert_pending_join_side_effects(&pool, activity_id, 3).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_request_concurrent_submissions_create_one_pending() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "carol", "Carol").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let token = create_link_invitation(&app, &owner, activity_id).await;
+    let first = authenticated_request(
+        &applicant,
+        "POST",
+        format!("/api/invitations/{token}/join"),
+        "{}",
+    );
+    let second = authenticated_request(
+        &applicant,
+        "POST",
+        format!("/api/invitations/{token}/join"),
+        "{}",
+    );
+
+    let (first_response, second_response) =
+        tokio::join!(json_response(&app, first), json_response(&app, second));
+    assert_eq!(first_response.0, StatusCode::OK);
+    assert_eq!(second_response.0, StatusCode::OK);
+    assert_eq!(first_response.1["data"]["status"], "PENDING_APPROVAL");
+    assert_eq!(second_response.1["data"]["status"], "PENDING_APPROVAL");
+    assert_eq!(
+        first_response.1["data"]["requestId"],
+        second_response.1["data"]["requestId"]
+    );
+    assert_pending_join_side_effects(&pool, activity_id, 3).await;
+}
+
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 // 该用例验证完整邀请生命周期，保持顺序展开比拆成隐藏副作用的测试辅助函数更易排查。
