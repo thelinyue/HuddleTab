@@ -547,3 +547,97 @@ async fn login_without_csrf_is_rejected_before_reading_credentials() {
     let json: Value = serde_json::from_slice(&body).expect("响应应为 JSON");
     assert_eq!(json["error"]["code"], "CSRF_INVALID");
 }
+
+#[tokio::test]
+async fn auth_requests_return_a_standard_429_after_the_shared_ip_limit() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
+        .expect("测试应创建 lazy pool");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool,
+            AppSecret::from_bytes([7; 32]),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+    let csrf_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/auth/csrf")
+                .body(Body::empty())
+                .expect("请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+    let pre_auth_cookie = csrf_response
+        .headers()
+        .get(SET_COOKIE)
+        .expect("应设置 pre-auth Cookie")
+        .to_str()
+        .expect("Cookie 应为 ASCII")
+        .split(';')
+        .next()
+        .expect("应包含 Cookie pair")
+        .to_owned();
+    let csrf_body = csrf_response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取 CSRF 响应")
+        .to_bytes();
+    let csrf_json: Value = serde_json::from_slice(&csrf_body).expect("CSRF 响应应为 JSON");
+    let csrf_token = csrf_json["data"]["token"]
+        .as_str()
+        .expect("应返回 CSRF token")
+        .to_owned();
+
+    let mut last_response = None;
+    for request_index in 0..11 {
+        let (uri, body) = if request_index < 9 {
+            (
+                "/api/auth/login",
+                r#"{"username":"alice","password":"valid password"}"#,
+            )
+        } else {
+            (
+                "/api/auth/register",
+                r#"{"username":"bob","password":"valid password","displayName":"Bob","invitationToken":"unused"}"#,
+            )
+        };
+        last_response = Some(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(uri)
+                        .header(CONTENT_TYPE, "application/json")
+                        .header(COOKIE, &pre_auth_cookie)
+                        .header(ORIGIN, "http://localhost:5660")
+                        .header("sec-fetch-site", "same-origin")
+                        .header("x-csrf-token", &csrf_token)
+                        .body(Body::from(body))
+                        .expect("请求应可构造"),
+                )
+                .await
+                .expect("router 应响应"),
+        );
+    }
+
+    let response = last_response.expect("应发送第 11 个请求");
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response.headers().get("retry-after"),
+        Some(&"60".parse().unwrap())
+    );
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取响应")
+        .to_bytes();
+    let json: Value = serde_json::from_slice(&body).expect("响应应为 JSON");
+    assert_eq!(json["error"]["code"], "RATE_LIMITED");
+    assert_eq!(json["error"]["message"], "请求过于频繁，请稍后再试。");
+}

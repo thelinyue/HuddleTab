@@ -119,7 +119,8 @@ async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {
     tracing::info!(address = %bind, static_dir = %static_dir.display(), "HuddleTab 服务已启动");
     axum::serve(
         listener,
-        huddletab_server::app_with_state_and_static_dir(state, static_dir).into_make_service(),
+        huddletab_server::app_with_state_and_static_dir(state, static_dir)
+            .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await

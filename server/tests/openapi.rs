@@ -12,6 +12,37 @@ fn document_contains_health_and_shared_envelopes() {
 }
 
 #[test]
+fn protected_operations_publish_the_rate_limit_response() {
+    let document = huddletab_server::http::openapi::document();
+    let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
+
+    for (path, method) in [
+        ("/api/auth/login", "post"),
+        ("/api/auth/register", "post"),
+        ("/api/me/password", "put"),
+        ("/api/activities/{activity_id}/invitations", "post"),
+        (
+            "/api/activities/{activity_id}/invitations/{invitation_id}",
+            "delete",
+        ),
+        ("/api/invitations/{token}", "get"),
+        ("/api/invitations/{token}/join", "post"),
+    ] {
+        assert_eq!(
+            value["paths"][path][method]["responses"]["429"]["content"]["application/json"]["schema"]
+                ["$ref"],
+            "#/components/schemas/ErrorEnvelope",
+            "{method} {path} 应声明标准限流错误",
+        );
+        assert_eq!(
+            value["paths"][path][method]["responses"]["429"]["headers"]["Retry-After"]["schema"]["type"],
+            "integer",
+            "{method} {path} 应声明 Retry-After 整数秒头",
+        );
+    }
+}
+
+#[test]
 // 合同测试集中核对同一 OpenAPI 文档的路径、查询参数和 schema，保持断言上下文连续。
 #[allow(clippy::too_many_lines)]
 fn document_contains_phase1_auth_and_activity_routes() {

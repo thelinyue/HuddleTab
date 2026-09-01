@@ -28,6 +28,7 @@ use crate::{
 use super::{
     auth::validate_session_csrf,
     error::{ApiError, RequestId},
+    rate_limit::{ClientIp, RateLimitCategory},
     router::AppState,
 };
 
@@ -197,7 +198,8 @@ pub(crate) async fn create_guest(
         (status = 201, description = "邀请已创建", body = CreatedInvitationEnvelope),
         (status = 400, description = "邀请信息无效", body = super::error::ErrorEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
-        (status = 403, description = "无权限", body = super::error::ErrorEnvelope)
+        (status = 403, description = "无权限", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn create_invitation(
@@ -209,6 +211,13 @@ pub(crate) async fn create_invitation(
     Json(request): Json<CreateInvitationRequest>,
 ) -> Result<(StatusCode, Json<CreatedInvitationEnvelope>), ApiError> {
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    state
+        .rate_limiter
+        .check(
+            RateLimitCategory::SensitiveAuthenticated,
+            actor.user_id.to_string(),
+        )
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     let activity_id = parse_uuid(&activity_id, request_id.clone())?;
     let repository = PostgresCollaborationRepository::new(state.pool);
     let created = issue_invitation(
@@ -283,7 +292,8 @@ pub(crate) async fn list_invitations(
         (status = 200, description = "邀请已撤销", body = InvitationEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
         (status = 403, description = "无权限", body = super::error::ErrorEnvelope),
-        (status = 404, description = "邀请不存在", body = super::error::ErrorEnvelope)
+        (status = 404, description = "邀请不存在", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn revoke_invitation(
@@ -294,6 +304,13 @@ pub(crate) async fn revoke_invitation(
     headers: HeaderMap,
 ) -> Result<Json<InvitationEnvelope>, ApiError> {
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    state
+        .rate_limiter
+        .check(
+            RateLimitCategory::SensitiveAuthenticated,
+            actor.user_id.to_string(),
+        )
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     let activity_id = parse_uuid(&activity_id, request_id.clone())?;
     let invitation_id = parse_uuid(&invitation_id, request_id.clone())?;
     let repository = PostgresCollaborationRepository::new(state.pool);
@@ -317,14 +334,20 @@ pub(crate) async fn revoke_invitation(
     params(("token" = String, Path, description = "邀请明文 token")),
     responses(
         (status = 200, description = "邀请公开预览", body = InvitationPreviewEnvelope),
-        (status = 404, description = "邀请无效", body = super::error::ErrorEnvelope)
+        (status = 404, description = "邀请无效", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn preview_invitation(
     State(state): State<AppState>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(request_id): Extension<RequestId>,
     Path(token): Path<String>,
 ) -> Result<Json<InvitationPreviewEnvelope>, ApiError> {
+    state
+        .rate_limiter
+        .check(RateLimitCategory::AnonymousInvite, client_ip.as_str())
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     let repository = PostgresCollaborationRepository::new(state.pool);
     let preview = load_invitation_preview(
         &repository,
@@ -352,17 +375,23 @@ pub(crate) async fn preview_invitation(
     responses(
         (status = 200, description = "已加入活动", body = JoinInvitationEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
-        (status = 404, description = "邀请无效", body = super::error::ErrorEnvelope)
+        (status = 404, description = "邀请无效", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn join_invitation(
     State(state): State<AppState>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(request_id): Extension<RequestId>,
     Path(token): Path<String>,
     jar: CookieJar,
     headers: HeaderMap,
 ) -> Result<Json<JoinInvitationEnvelope>, ApiError> {
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    state
+        .rate_limiter
+        .check(RateLimitCategory::AnonymousInvite, client_ip.as_str())
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     let repository = PostgresCollaborationRepository::new(state.pool);
     let joined = accept_invitation(
         &repository,

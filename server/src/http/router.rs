@@ -1,5 +1,6 @@
 use axum::{
     Extension, Json, Router,
+    extract::{ConnectInfo, State},
     http::{HeaderName, HeaderValue, Request},
     middleware::{self, Next},
     response::Response,
@@ -7,12 +8,13 @@ use axum::{
 };
 use serde::Serialize;
 use sqlx::PgPool;
-use std::path::PathBuf;
+use std::{net::SocketAddr, path::PathBuf};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::infrastructure::app_secret::AppSecret;
 
+use super::rate_limit::{ClientIp, RateLimiter};
 use super::static_files::mount_static_files;
 use super::{
     accounting, activity, auth, collaboration,
@@ -41,6 +43,8 @@ pub struct AppState {
     pub(crate) base_origin: String,
     pub(crate) secure_cookies: bool,
     pub(crate) time_zone: String,
+    pub(crate) trust_proxy: bool,
+    pub(crate) rate_limiter: RateLimiter,
 }
 
 impl AppState {
@@ -51,12 +55,15 @@ impl AppState {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_TIME_ZONE.to_owned());
+        let trust_proxy = std::env::var("TRUST_PROXY").as_deref() == Ok("true");
         Self {
             pool,
             app_secret,
             base_origin,
             secure_cookies,
             time_zone,
+            trust_proxy,
+            rate_limiter: RateLimiter::new(),
         }
     }
 }
@@ -189,7 +196,8 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .fallback(api_method_not_allowed),
         )
         .fallback(api_not_found)
-        .with_state(state);
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, attach_client_ip));
 
     finish_router(api, static_dir)
 }
@@ -235,4 +243,19 @@ async fn attach_request_id(mut request: Request<axum::body::Body>, next: Next) -
         HeaderValue::from_str(&request_id.0).expect("UUID 始终是合法 HeaderValue"),
     );
     response
+}
+
+/// 仅在显式信任反向代理时读取单值 X-Real-IP，默认固定使用 TCP 对端地址。
+async fn attach_client_ip(
+    State(state): State<AppState>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|address| address.0);
+    let client_ip = ClientIp::resolve(request.headers(), peer, state.trust_proxy);
+    request.extensions_mut().insert(client_ip);
+    next.run(request).await
 }

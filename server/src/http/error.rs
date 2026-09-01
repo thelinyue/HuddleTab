@@ -1,4 +1,8 @@
-use axum::{Json, http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    http::{HeaderValue, StatusCode, header::RETRY_AFTER},
+    response::IntoResponse,
+};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use utoipa::ToSchema;
@@ -22,9 +26,9 @@ pub struct ErrorEnvelope {
 }
 
 /// HTTP 层只映射稳定错误代码；面向部署者和用户的消息使用清楚中文，详细诊断写日志。
-pub struct ApiError {
-    status: StatusCode,
-    body: ErrorBody,
+pub enum ApiError {
+    Standard { status: StatusCode, body: ErrorBody },
+    RateLimited { body: ErrorBody, retry_after: u64 },
 }
 
 impl ApiError {
@@ -86,6 +90,14 @@ impl ApiError {
             "服务暂时不可用，请稍后重试。",
             request_id,
         )
+    }
+
+    #[must_use]
+    pub fn rate_limited(request_id: RequestId, retry_after: u64) -> Self {
+        Self::RateLimited {
+            body: Self::body("RATE_LIMITED", "请求过于频繁，请稍后再试。", request_id),
+            retry_after,
+        }
     }
 
     #[must_use]
@@ -244,21 +256,39 @@ impl ApiError {
         message: &'static str,
         request_id: RequestId,
     ) -> Self {
-        Self {
+        Self::Standard {
             status,
-            body: ErrorBody {
-                code,
-                message,
-                field_errors: Map::new(),
-                details: Map::new(),
-                request_id: request_id.0,
-            },
+            body: Self::body(code, message, request_id),
+        }
+    }
+
+    fn body(code: &'static str, message: &'static str, request_id: RequestId) -> ErrorBody {
+        ErrorBody {
+            code,
+            message,
+            field_errors: Map::new(),
+            details: Map::new(),
+            request_id: request_id.0,
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        (self.status, Json(ErrorEnvelope { error: self.body })).into_response()
+        let (status, body, retry_after) = match self {
+            Self::Standard { status, body } => (status, body, None),
+            Self::RateLimited { body, retry_after } => {
+                (StatusCode::TOO_MANY_REQUESTS, body, Some(retry_after))
+            }
+        };
+        let mut response = (status, Json(ErrorEnvelope { error: body })).into_response();
+        if let Some(retry_after) = retry_after {
+            response.headers_mut().insert(
+                RETRY_AFTER,
+                HeaderValue::from_str(&retry_after.to_string())
+                    .expect("限流秒数始终是合法 HeaderValue"),
+            );
+        }
+        response
     }
 }

@@ -27,6 +27,7 @@ use crate::{
 
 use super::{
     error::{ApiError, RequestId},
+    rate_limit::{ClientIp, RateLimitCategory},
     router::AppState,
 };
 
@@ -183,17 +184,23 @@ pub(crate) async fn csrf(
     responses(
         (status = 200, description = "登录成功", body = LoginEnvelope),
         (status = 401, description = "凭据错误", body = super::error::ErrorEnvelope),
-        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope)
+        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn login(
     State(state): State<AppState>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(request_id): Extension<RequestId>,
     jar: CookieJar,
     headers: HeaderMap,
     Json(request): Json<LoginRequest>,
 ) -> Result<(CookieJar, Json<LoginEnvelope>), ApiError> {
     validate_pre_auth(&state, &jar, &headers, request_id.clone())?;
+    state
+        .rate_limiter
+        .check(RateLimitCategory::Auth, client_ip.as_str())
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     let repository = PostgresAuthRepository::new(state.pool.clone());
     let result = login_user(
         &repository,
@@ -249,17 +256,23 @@ pub(crate) async fn login(
         (status = 400, description = "注册信息无效", body = super::error::ErrorEnvelope),
         (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope),
         (status = 404, description = "邀请无效", body = super::error::ErrorEnvelope),
-        (status = 409, description = "用户名已存在", body = super::error::ErrorEnvelope)
+        (status = 409, description = "用户名已存在", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn register(
     State(state): State<AppState>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(request_id): Extension<RequestId>,
     jar: CookieJar,
     headers: HeaderMap,
     Json(request): Json<RegisterRequest>,
 ) -> Result<(StatusCode, CookieJar, Json<RegisterEnvelope>), ApiError> {
     validate_pre_auth(&state, &jar, &headers, request_id.clone())?;
+    state
+        .rate_limiter
+        .check(RateLimitCategory::Auth, client_ip.as_str())
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     let repository = PostgresRegistrationRepository::new(state.pool);
     let result = register_user(
         &repository,
@@ -388,7 +401,8 @@ pub(crate) async fn logout(
         (status = 200, description = "密码已修改", body = ChangePasswordEnvelope),
         (status = 400, description = "新密码无效", body = super::error::ErrorEnvelope),
         (status = 401, description = "未登录或当前密码错误", body = super::error::ErrorEnvelope),
-        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope)
+        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn change_password(
@@ -400,6 +414,19 @@ pub(crate) async fn change_password(
 ) -> Result<(CookieJar, Json<ChangePasswordEnvelope>), ApiError> {
     let current_token = validate_session_csrf(&state, &jar, &headers, request_id.clone())?;
     let repository = PostgresAuthRepository::new(state.pool);
+    let current_session = current_session(&repository, &SystemClock, &current_token)
+        .await
+        .map_err(|error| match error {
+            CurrentSessionError::Unauthenticated => ApiError::unauthenticated(request_id.clone()),
+            CurrentSessionError::Unavailable => ApiError::internal(request_id.clone()),
+        })?;
+    state
+        .rate_limiter
+        .check(
+            RateLimitCategory::SensitiveAuthenticated,
+            current_session.user_id.to_string(),
+        )
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     let result = change_user_password(
         &repository,
         &Argon2PasswordHasher,

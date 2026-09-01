@@ -5,6 +5,7 @@ pub mod collaboration;
 pub mod error;
 pub mod expense;
 pub mod openapi;
+pub(crate) mod rate_limit;
 pub mod router;
 pub mod settlement;
 pub mod sharing;

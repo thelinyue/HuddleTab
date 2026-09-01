@@ -1380,6 +1380,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     revoke_invitation: {
@@ -1426,6 +1437,17 @@ export interface operations {
             /** @description 邀请不存在 */
             404: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1971,6 +1993,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     logout: {
@@ -2069,6 +2102,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     session: {
@@ -2159,6 +2203,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     join_invitation: {
@@ -2194,6 +2249,17 @@ export interface operations {
             /** @description 邀请无效 */
             404: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2245,6 +2311,17 @@ export interface operations {
             /** @description CSRF 校验失败 */
             403: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
