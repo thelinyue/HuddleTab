@@ -6,6 +6,7 @@ pub mod auth;
 pub mod bootstrap_user;
 pub mod collaboration;
 pub mod expense;
+pub mod notification;
 pub mod ports;
 pub mod settlement;
 pub mod sharing;

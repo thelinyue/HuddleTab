@@ -333,11 +333,11 @@ git commit -m "feat: decide activity join requests"
 - Produces: `mark_notification_read(notification_id, user_id, now)` idempotently.
 - Adds routes: `GET /api/notifications`, `POST /api/notifications/{notification_id}/read`.
 
-- [ ] **Step 1: Write failing notification API tests**
+- [x] **Step 1: Write failing notification API tests**
 
 Seed both approval notification types for two users. Assert recipient isolation, deterministic order, literal unread count, another user receives 404, first read sets `readAt`, and repeated read returns the same timestamp without a second fact or unrelated mutation.
 
-- [ ] **Step 2: Run RED test**
+- [x] **Step 2: Run RED test**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test notification_api -- --ignored --test-threads=1
@@ -345,15 +345,15 @@ cargo test --manifest-path server/Cargo.toml --test notification_api -- --ignore
 
 Expected: module and routes do not exist.
 
-- [ ] **Step 3: Implement minimal application/repository/HTTP layers**
+- [x] **Step 3: Implement minimal application/repository/HTTP layers**
 
 Keep JSON payload opaque in storage but expose only a string map validated by the HTTP mapper. Build navigation from controlled target columns, never payload. Use an `UPDATE ... WHERE recipient_user_id = $2 AND read_at IS NULL RETURNING` followed by owned-row read for idempotency.
 
-- [ ] **Step 4: Run GREEN test**
+- [x] **Step 4: Run GREEN test**
 
 Run Step 2. Expected: all notification isolation and idempotency tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add server/src/application/notification.rs server/src/infrastructure/notification_repository.rs server/src/http/notification.rs server/src/application/mod.rs server/src/infrastructure/mod.rs server/src/http/mod.rs server/src/http/router.rs server/tests/notification_api.rs

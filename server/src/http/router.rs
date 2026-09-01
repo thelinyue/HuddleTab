@@ -19,7 +19,7 @@ use super::static_files::mount_static_files;
 use super::{
     accounting, activity, auth, collaboration,
     error::{ApiError, RequestId},
-    expense, settlement, sharing, snapshot,
+    expense, notification, settlement, sharing, snapshot,
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -157,6 +157,14 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         .route(
             "/join-requests/{join_request_id}",
             get(collaboration::get_join_request).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/notifications",
+            get(notification::list).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/notifications/{notification_id}/read",
+            axum::routing::post(notification::mark_read).fallback(api_method_not_allowed),
         )
         .route(
             "/invitations/{token}",

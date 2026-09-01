@@ -10,6 +10,7 @@ pub mod csrf;
 pub mod database;
 pub mod expense_repository;
 pub mod invitation_token;
+pub mod notification_repository;
 pub mod password;
 pub mod registration_repository;
 pub mod session;
