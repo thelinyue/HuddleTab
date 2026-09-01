@@ -536,34 +536,39 @@ const lifecycleLabels: Record<string, string> = {
   UNARCHIVE: "取消归档",
 };
 
-const fieldPermissionLabels: Array<[keyof Activity["fieldPermissions"], string]> = [
-  ["name", "活动名称"],
-  ["location", "地点"],
-  ["baseCurrency", "主币种"],
-  ["startDate", "开始日期"],
-  ["endDate", "结束日期"],
-];
+type ActivityField = keyof Activity["fieldPermissions"];
 
-function ActivityProfileEditor({ onSaved }: { onSaved: (warnings: string[]) => void }) {
+const activityFieldLabels: Record<ActivityField, string> = {
+  name: "活动名称",
+  location: "地点",
+  baseCurrency: "主币种",
+  startDate: "开始日期",
+  endDate: "结束日期",
+  inviteMode: "加入方式",
+};
+
+/** 单字段编辑器确保一次保存只提交当前字段与 version，避免无意覆盖其他并发修改。 */
+function ActivityFieldEditor({ field, onSaved }: { field: ActivityField; onSaved: (warnings: string[]) => void }) {
   const { session, activity } = useWorkspace();
   const update = useUpdateActivityMutation(session.userId, activity.activityId);
-  const [name, setName] = useState(activity.name);
-  const [location, setLocation] = useState(activity.location ?? "");
-  const [baseCurrency, setBaseCurrency] = useState(activity.baseCurrency);
-  const [startDate, setStartDate] = useState(activity.startDate);
-  const [endDate, setEndDate] = useState(activity.endDate ?? "");
+  const initialValue = field === "location"
+    ? activity.location ?? ""
+    : field === "endDate"
+      ? activity.endDate ?? ""
+      : String(activity[field]);
+  const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<unknown>();
-  const permissions = activity.fieldPermissions;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(undefined);
     const input: UpdateActivityInput = { version: activity.version };
-    if (permissions.name) input.name = name;
-    if (permissions.location) input.location = location.trim() || null;
-    if (permissions.baseCurrency) input.baseCurrency = baseCurrency;
-    if (permissions.startDate) input.startDate = startDate;
-    if (permissions.endDate) input.endDate = endDate || null;
+    if (field === "name") input.name = value;
+    if (field === "location") input.location = value.trim() || null;
+    if (field === "baseCurrency") input.baseCurrency = value;
+    if (field === "startDate") input.startDate = value;
+    if (field === "endDate") input.endDate = value || null;
+    if (field === "inviteMode") input.inviteMode = value as "DIRECT_JOIN" | "REQUIRE_APPROVAL";
     try {
       const result = await update.mutateAsync(input);
       onSaved(result.warnings);
@@ -574,26 +579,36 @@ function ActivityProfileEditor({ onSaved }: { onSaved: (warnings: string[]) => v
 
   return (
     <form className="form-stack" onSubmit={submit}>
-      {permissions.name ? <Field label="活动名称"><Input value={name} onChange={(event) => setName(event.target.value)} required autoFocus maxLength={120} /></Field> : null}
-      {permissions.location ? <Field label="地点（可选）"><Input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} /></Field> : null}
-      {permissions.baseCurrency ? <Field label="主币种"><Select value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field> : null}
-      {permissions.startDate ? <Field label="开始日期"><Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field> : null}
-      {permissions.endDate ? <Field label="结束日期（可选）"><Input type="date" min={startDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></Field> : null}
+      {field === "name" ? <Field label="活动名称"><Input value={value} onChange={(event) => setValue(event.target.value)} required autoFocus maxLength={120} /></Field> : null}
+      {field === "location" ? <Field label="地点（可选）"><Input value={value} onChange={(event) => setValue(event.target.value)} autoFocus maxLength={120} /></Field> : null}
+      {field === "baseCurrency" ? <Field label="主币种"><Select value={value} onChange={(event) => setValue(event.target.value)} autoFocus><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field> : null}
+      {field === "startDate" ? <Field label="开始日期"><Input type="date" value={value} onChange={(event) => setValue(event.target.value)} required autoFocus /></Field> : null}
+      {field === "endDate" ? <Field label="结束日期（可选）"><Input type="date" min={activity.startDate} value={value} onChange={(event) => setValue(event.target.value)} autoFocus /></Field> : null}
+      {field === "inviteMode" ? (
+        <div className="segmented" role="group" aria-label="加入方式">
+          <button type="button" aria-pressed={value === "DIRECT_JOIN"} onClick={() => setValue("DIRECT_JOIN")}>直接加入</button>
+          <button type="button" aria-pressed={value === "REQUIRE_APPROVAL"} onClick={() => setValue("REQUIRE_APPROVAL")}>需要审批</button>
+        </div>
+      ) : null}
       {error ?? update.error ? <ErrorNotice error={error ?? update.error} /> : null}
-      <Button type="submit" busy={update.isPending}>保存活动资料</Button>
+      <Button type="submit" busy={update.isPending}>保存</Button>
     </form>
   );
 }
 
-export function MorePage({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () => void }) {
+/** 资料行直接体现服务端权限：可编辑行是完整按钮，只读行不暴露虚假的交互语义。 */
+function ActivityInfoRow({ icon, label, value, helper, editable, onEdit }: { icon: ReactNode; label: string; value: string; helper?: string; editable: boolean; onEdit?: () => void }) {
+  const content = <>{icon}<span>{label}</span><span className="settings-row__value"><strong>{value}</strong>{helper ? <small>{helper}</small> : null}</span>{editable ? <ChevronRight aria-hidden="true" size={18} /> : null}</>;
+  return editable
+    ? <button className="settings-row" type="button" aria-label={`编辑${label}`} onClick={onEdit}>{content}</button>
+    : <div className="settings-row">{content}</div>;
+}
+
+export function MorePage({ onEdit, onDelete }: { onEdit?: (field: ActivityField) => void; onDelete?: () => void }) {
   const { session, activity } = useWorkspace();
   const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
-  const update = useUpdateActivityMutation(session.userId, activity.activityId);
   const [error, setError] = useState<unknown>();
-  const [inviteModeError, setInviteModeError] = useState<unknown>();
-  const canEdit = fieldPermissionLabels.some(([field]) => activity.fieldPermissions[field]);
-  const canConfigureInviteMode = activity.currentMemberRole === "OWNER"
-    && activity.fieldPermissions.inviteMode;
+  const canOpenEditor = Boolean(onEdit);
 
   async function transition(action: string) {
     setError(undefined);
@@ -604,57 +619,28 @@ export function MorePage({ onEdit, onDelete }: { onEdit?: () => void; onDelete?:
     }
   }
 
-  async function updateInviteMode(inviteMode: "DIRECT_JOIN" | "REQUIRE_APPROVAL") {
-    if (inviteMode === activity.inviteMode) return;
-    setInviteModeError(undefined);
-    try {
-      await update.mutateAsync({ inviteMode, version: activity.version });
-    } catch (reason) {
-      setInviteModeError(reason);
-    }
-  }
-
   return (
     <div className="activity-more">
       <section>
         <h2>活动资料</h2>
         <div className="settings-list">
-          <div><Pencil aria-hidden="true" size={17} /><span>活动名称</span><strong>{activity.name}</strong></div>
-          <div><MapPin aria-hidden="true" size={17} /><span>地点</span><strong>{activity.location || "未填写"}</strong></div>
-          <div><CircleDollarSign aria-hidden="true" size={17} /><span>主币种</span><strong>{activity.baseCurrency}</strong></div>
-          <div><CalendarDays aria-hidden="true" size={17} /><span>日期</span><strong>{activity.startDate}{activity.endDate ? ` 至 ${activity.endDate}` : " 起"}</strong></div>
-          <div><UsersRound aria-hidden="true" size={17} /><span>状态</span><strong>{activityStatus(activity.status)}</strong></div>
+          <ActivityInfoRow icon={<Pencil aria-hidden="true" size={17} />} label="活动名称" value={activity.name} editable={canOpenEditor && activity.fieldPermissions.name} onEdit={() => onEdit?.("name")} />
+          <ActivityInfoRow icon={<MapPin aria-hidden="true" size={17} />} label="地点" value={activity.location || "未填写"} editable={canOpenEditor && activity.fieldPermissions.location} onEdit={() => onEdit?.("location")} />
+          <ActivityInfoRow icon={<CircleDollarSign aria-hidden="true" size={17} />} label="主币种" value={activity.baseCurrency} helper={activity.hasAccountingRecords ? "已有账务记录，不可修改" : undefined} editable={canOpenEditor && activity.fieldPermissions.baseCurrency} onEdit={() => onEdit?.("baseCurrency")} />
+          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="开始日期" value={activity.startDate} editable={canOpenEditor && activity.fieldPermissions.startDate} onEdit={() => onEdit?.("startDate")} />
+          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="结束日期" value={activity.endDate || "未填写"} editable={canOpenEditor && activity.fieldPermissions.endDate} onEdit={() => onEdit?.("endDate")} />
+          <ActivityInfoRow icon={<UsersRound aria-hidden="true" size={17} />} label="状态" value={activityStatus(activity.status)} editable={false} />
         </div>
       </section>
-      {canConfigureInviteMode ? (
-        <section className="invite-mode-setting" aria-labelledby="invite-mode-heading">
-          <h2 id="invite-mode-heading">加入方式</h2>
-          <div className="segmented" role="group" aria-label="加入方式">
-            <button
-              type="button"
-              aria-pressed={activity.inviteMode === "DIRECT_JOIN"}
-              disabled={update.isPending}
-              onClick={() => void updateInviteMode("DIRECT_JOIN")}
-            >直接加入</button>
-            <button
-              type="button"
-              aria-pressed={activity.inviteMode === "REQUIRE_APPROVAL"}
-              disabled={update.isPending}
-              onClick={() => void updateInviteMode("REQUIRE_APPROVAL")}
-            >需要审批</button>
-          </div>
-          {inviteModeError ? <ErrorNotice error={inviteModeError} /> : null}
-        </section>
-      ) : null}
-      {activity.hasAccountingRecords ? <div className="notice">已有账务记录，主币种等受账务锁约束的字段可能不可编辑。</div> : null}
+      <section>
+        <h2>加入设置</h2>
+        <div className="settings-list">
+          <ActivityInfoRow icon={<UserPlus aria-hidden="true" size={17} />} label="加入方式" value={activity.inviteMode === "DIRECT_JOIN" ? "直接加入" : "需要审批"} editable={canOpenEditor && activity.fieldPermissions.inviteMode} onEdit={() => onEdit?.("inviteMode")} />
+        </div>
+      </section>
       <section>
         <h2>数据导出</h2>
         <a className="button button--secondary" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`}><Download aria-hidden="true" size={17} />导出 CSV</a>
-      </section>
-      <section>
-        <h2>字段权限</h2>
-        <div className="management-permissions">{fieldPermissionLabels.map(([field, label]) => <span key={field}>{label} · {activity.fieldPermissions[field] ? "可编辑" : "不可编辑"}</span>)}</div>
-        {canEdit && onEdit ? <Button variant="secondary" onClick={onEdit}><Pencil aria-hidden="true" size={17} />编辑活动资料</Button> : null}
       </section>
       {activity.allowedLifecycleActions.length ? <section><h2>活动状态</h2><div className="management-actions">{activity.allowedLifecycleActions.flatMap((action) => lifecycleLabels[action] ? [<Button key={action} variant="secondary" busy={lifecycle.isPending} onClick={() => void transition(action)}>{lifecycleLabels[action]}</Button>] : [])}</div></section> : null}
       {error ?? lifecycle.error ? <ErrorNotice error={error ?? lifecycle.error} /> : null}
@@ -668,7 +654,7 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
   const { session, activity } = useWorkspace();
   const remove = useDeleteActivityMutation(session.userId, activity.activityId);
   const navigate = useNavigate();
-  const [view, setView] = useState<"root" | "profile" | "delete">("root");
+  const [view, setView] = useState<"root" | "delete" | ActivityField>("root");
   const [deleteError, setDeleteError] = useState<unknown>();
   const [warnings, setWarnings] = useState<string[]>([]);
 
@@ -682,7 +668,7 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const title = view === "root" ? "活动管理" : view === "profile" ? "编辑活动资料" : "确认删除活动";
+  const title = view === "root" ? "活动管理" : view === "delete" ? "确认删除活动" : activityFieldLabels[view];
   return (
     <Overlay open title={title} backLabel="返回活动管理" onBack={view === "root" ? undefined : () => setView("root")} onClose={onClose} focusKey={view}>
       {view === "root" ? warnings.map((warning) => (
@@ -692,8 +678,8 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
             : warning}
         </div>
       )) : null}
-      {view === "root" ? <MorePage onEdit={() => setView("profile")} onDelete={() => setView("delete")} /> : null}
-      {view === "profile" ? <ActivityProfileEditor onSaved={(nextWarnings) => { setWarnings(nextWarnings); setView("root"); }} /> : null}
+      {view === "root" ? <MorePage onEdit={setView} onDelete={() => setView("delete")} /> : null}
+      {view !== "root" && view !== "delete" ? <ActivityFieldEditor field={view} onSaved={(nextWarnings) => { setWarnings(nextWarnings); setView("root"); }} /> : null}
       {view === "delete" ? <div className="delete-confirmation"><p>删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。</p>{deleteError ?? remove.error ? <ErrorNotice error={deleteError ?? remove.error} /> : null}<Button data-overlay-initial-focus variant="danger" busy={remove.isPending} onClick={() => void confirmDelete()}><Trash2 aria-hidden="true" size={17} />确认删除活动</Button></div> : null}
     </Overlay>
   );

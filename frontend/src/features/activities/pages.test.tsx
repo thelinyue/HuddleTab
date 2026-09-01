@@ -388,26 +388,20 @@ describe("创建活动 Overlay", () => {
 });
 
 describe("活动管理 Overlay", () => {
-  it("Owner 使用分段控件更新活动级加入方式", async () => {
-    renderWorkspace("/activities/activity-1?panel=manage");
-
-    expect(screen.getByRole("button", { name: "直接加入" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "需要审批" }));
-
-    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
-      inviteMode: "REQUIRE_APPROVAL",
-      version: "7",
-    }));
-  });
-
-  it("展示服务端资料、账务锁提示、字段权限、生命周期命令和删除权限", () => {
+  it("按字段权限把资料行渲染为独立编辑入口，不展示权限清单或统一编辑按钮", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
 
     expect(screen.getByText("杭州")).toBeInTheDocument();
-    expect(screen.getByText(/^2026-09-01 起$/)).toBeInTheDocument();
+    expect(screen.getByText("2026-09-01")).toBeInTheDocument();
     expect(screen.getByText(/已有账务记录/)).toBeInTheDocument();
-    expect(screen.getByText(/^主币种 · 不可编辑$/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑活动资料" })).toBeInTheDocument();
+    expect(screen.queryByText("字段权限")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑活动资料" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑活动名称" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑地点" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑主币种" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑开始日期" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑结束日期" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑加入方式" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "结束活动" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "删除活动" })).toBeInTheDocument();
   });
@@ -419,61 +413,58 @@ describe("活动管理 Overlay", () => {
     activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: false, inviteMode: false, location: false, name: false, startDate: false };
     renderWorkspace("/activities/activity-1?panel=manage");
 
-    expect(screen.queryByRole("button", { name: "编辑活动资料" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^编辑/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "结束活动" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "删除活动" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "直接加入" })).not.toBeInTheDocument();
   });
 
-  it("资料编辑只呈现获准字段，失败时携带版本并保留草稿和错误", async () => {
+  it("点击资料行只编辑对应字段，失败时携带版本并保留草稿和错误", async () => {
     activityApiState.update.mutateAsync.mockRejectedValue(new Error("资料保存失败"));
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "编辑活动资料" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑地点" }));
 
     expect(screen.getByRole("button", { name: "返回活动管理" })).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "主币种" })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: "活动名称" }), { target: { value: "修改后的活动" } });
+    expect(screen.getByRole("heading", { name: "地点" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "活动名称" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "地点（可选）" }), { target: { value: "苏州" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存活动资料" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
       location: "苏州",
-      name: "修改后的活动",
       version: "7",
-    })));
+    }));
     expect(await screen.findByRole("alert")).toHaveTextContent("资料保存失败");
-    expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveValue("修改后的活动");
+    expect(screen.getByRole("textbox", { name: "地点（可选）" })).toHaveValue("苏州");
   });
 
-  it("资料保存后返回管理根视图并展示 generated warning", async () => {
+  it("加入方式在独立子视图显式保存，不在选择时立即提交", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: "编辑加入方式" }));
+
+    expect(screen.getByRole("button", { name: "直接加入" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "需要审批" }));
+    expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
+      inviteMode: "REQUIRE_APPROVAL",
+      version: "7",
+    }));
+  });
+
+  it("单字段保存后返回管理根视图并展示 generated warning", async () => {
     activityApiState.update.mutateAsync.mockResolvedValue({
       data: activityApiState.activity,
       warnings: ["EXPENSE_BEFORE_ACTIVITY_START"],
     });
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "编辑活动资料" }));
-    fireEvent.click(screen.getByRole("button", { name: "保存活动资料" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑开始日期" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(await screen.findByText("活动开始日期晚于已有账单的发生时间，请检查日期或历史账单。"))
       .toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑活动资料" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑开始日期" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭活动管理" })).toHaveFocus();
-  });
-
-  it("资料子视图聚焦第一个获准字段，即使活动名称不可编辑", async () => {
-    activityApiState.activity.fieldPermissions = {
-      baseCurrency: false,
-      endDate: false,
-      inviteMode: true,
-      location: true,
-      name: false,
-      startDate: false,
-    };
-    renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "编辑活动资料" }));
-
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "地点（可选）" })).toHaveFocus());
-    expect(screen.queryByRole("textbox", { name: "活动名称" })).not.toBeInTheDocument();
   });
 
   it("切换管理子视图后关闭仍将焦点还给页头触发器", async () => {
@@ -481,7 +472,7 @@ describe("活动管理 Overlay", () => {
     const trigger = screen.getByRole("link", { name: "活动管理" });
     trigger.focus();
     fireEvent.click(trigger);
-    fireEvent.click(await screen.findByRole("button", { name: "编辑活动资料" }));
+    fireEvent.click(await screen.findByRole("button", { name: "编辑活动名称" }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "返回活动管理" }));
     fireEvent.click(screen.getByRole("button", { name: "关闭活动管理" }));
