@@ -9,10 +9,9 @@ use axum::{
 use http_body_util::BodyExt as _;
 use huddletab_server::{
     application::sharing::{
-        CsvExpenseRow, CsvNamedAmount, SharingRepository, SharingRepositoryError, SharingSnapshot,
-        SnapshotMember, load_summary, serialize_expense_csv,
+        CsvExpenseRow, CsvNamedAmount, SharingError, SharingRepository, SharingRepositoryError,
+        SharingSnapshot, SnapshotLedgerEntry, SnapshotMember, load_summary, serialize_expense_csv,
     },
-    domain::ledger::LedgerEntry,
     http::router::{AppState, router_with_state},
     infrastructure::{app_secret::AppSecret, database::connect_and_migrate, session::SessionToken},
 };
@@ -58,8 +57,8 @@ async fn summary_uses_authoritative_ledger_and_named_members() {
                 },
             ],
             total_expense_minor: 1200,
-            payments: vec![LedgerEntry::new(owner, 1200)],
-            shares: vec![LedgerEntry::new(guest, 1200)],
+            payments: vec![SnapshotLedgerEntry::new(owner, 1200)],
+            shares: vec![SnapshotLedgerEntry::new(guest, 1200)],
             settlements: vec![],
             expenses: vec![],
         },
@@ -87,6 +86,78 @@ async fn summary_uses_authoritative_ledger_and_named_members() {
     assert_eq!(summary.recommendations[0].receiver_member_id, owner);
 }
 
+#[tokio::test]
+async fn summary_rejects_balanced_facts_that_do_not_match_expense_total() {
+    let owner = Uuid::from_u128(1);
+    let guest = Uuid::from_u128(2);
+    let repository = StubRepository {
+        snapshot: SharingSnapshot {
+            activity_name: "缺失事实活动".to_owned(),
+            base_currency: "CNY".to_owned(),
+            revision: 1,
+            current_user_member_id: owner,
+            members: vec![
+                SnapshotMember {
+                    member_id: owner,
+                    display_name: "甲".to_owned(),
+                },
+                SnapshotMember {
+                    member_id: guest,
+                    display_name: "乙".to_owned(),
+                },
+            ],
+            total_expense_minor: 1200,
+            payments: vec![SnapshotLedgerEntry::new(owner, 800)],
+            shares: vec![SnapshotLedgerEntry::new(guest, 800)],
+            settlements: vec![],
+            expenses: vec![],
+        },
+    };
+
+    let result = load_summary(&repository, Uuid::new_v4(), Uuid::new_v4()).await;
+
+    assert!(matches!(result, Err(SharingError::Integrity)));
+}
+
+#[tokio::test]
+async fn summary_maps_fact_total_overflow_to_integrity_error() {
+    let owner = Uuid::from_u128(1);
+    let guest = Uuid::from_u128(2);
+    let repository = StubRepository {
+        snapshot: SharingSnapshot {
+            activity_name: "溢出事实活动".to_owned(),
+            base_currency: "CNY".to_owned(),
+            revision: 1,
+            current_user_member_id: owner,
+            members: vec![
+                SnapshotMember {
+                    member_id: owner,
+                    display_name: "甲".to_owned(),
+                },
+                SnapshotMember {
+                    member_id: guest,
+                    display_name: "乙".to_owned(),
+                },
+            ],
+            total_expense_minor: i64::MAX,
+            payments: vec![
+                SnapshotLedgerEntry::new(owner, i64::MAX),
+                SnapshotLedgerEntry::new(owner, 1),
+            ],
+            shares: vec![
+                SnapshotLedgerEntry::new(guest, i64::MAX),
+                SnapshotLedgerEntry::new(guest, 1),
+            ],
+            settlements: vec![],
+            expenses: vec![],
+        },
+    };
+
+    let result = load_summary(&repository, Uuid::new_v4(), Uuid::new_v4()).await;
+
+    assert!(matches!(result, Err(SharingError::Integrity)));
+}
+
 #[test]
 fn csv_has_fixed_columns_crlf_bom_and_neutralizes_formulas() {
     let csv = serialize_expense_csv(&[CsvExpenseRow {
@@ -111,8 +182,9 @@ fn csv_has_fixed_columns_crlf_bom_and_neutralizes_formulas() {
         note: Some("晚餐, \"聚会\"".to_owned()),
     }]);
 
-    assert!(csv.starts_with('\u{feff}'));
-    assert!(csv.contains("消费时间,用途,分类,原始金额,原始币种,汇率,主币种金额,付款人,参与成员,分摊方式,创建人,创建时间,备注\r\n"));
+    assert!(csv.starts_with(
+        "\u{feff}\"消费时间\",\"用途\",\"分类\",\"原始金额\",\"原始币种\",\"汇率\",\"主币种金额\",\"付款人\",\"参与成员\",\"分摊方式\",\"创建人\",\"创建时间\",\"备注\"\r\n"
+    ));
     assert!(csv.contains("\"'=SUM(A1:A2)\""));
     assert!(csv.contains("\"晚餐, \"\"聚会\"\"\""));
     assert!(csv.ends_with("\r\n"));
@@ -317,6 +389,7 @@ async fn raw_response(
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
 async fn summary_and_csv_use_one_private_authorized_snapshot() {
     let context = seed_context().await;
     for suffix in ["summary", "export.csv"] {
@@ -375,6 +448,56 @@ async fn summary_and_csv_use_one_private_authorized_snapshot() {
     assert!(csv.contains("\"'=晚餐\""));
     assert!(csv.contains("\"2026-08-30T20:00:00.000+08:00\""));
     assert!(!csv.contains("不应导出"));
+
+    for activity_status in ["ENDED", "ARCHIVED"] {
+        sqlx::query("UPDATE activities SET status = $1 WHERE id = $2")
+            .bind(activity_status)
+            .bind(context.activity_id)
+            .execute(&context.pool)
+            .await
+            .expect("应更新活动生命周期");
+        for suffix in ["summary", "export.csv"] {
+            let (status, _, _) = raw_response(
+                &context,
+                request(
+                    &context,
+                    format!("/api/activities/{}/{suffix}", context.activity_id),
+                ),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::OK,
+                "{activity_status} 成员应可读取 {suffix}"
+            );
+        }
+    }
+
+    sqlx::query(
+        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
+         WHERE id = $1",
+    )
+    .bind(context.activity_id)
+    .execute(&context.pool)
+    .await
+    .expect("应软删除活动");
+    for suffix in ["summary", "export.csv"] {
+        let (status, _, _) = raw_response(
+            &context,
+            request(
+                &context,
+                format!("/api/activities/{}/{suffix}", context.activity_id),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "已删除活动不应读取 {suffix}");
+    }
+
+    sqlx::query("UPDATE activities SET deleted_at = NULL, purge_after = NULL WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应恢复活动以单独验证成员权限");
 
     sqlx::query("UPDATE activity_members SET status = 'LEFT', left_at = now() WHERE id = $1")
         .bind(context.owner_member_id)

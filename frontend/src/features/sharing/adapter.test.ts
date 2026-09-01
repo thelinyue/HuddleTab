@@ -28,7 +28,7 @@ describe("mapActivitySummary", () => {
   });
 
   it.each([
-    ["empty", "0", [{ displayName: "甲", memberId: "member-a", netMinor: "0" }]],
+    ["zero", "0", [{ displayName: "甲", memberId: "member-a", netMinor: "0" }]],
     ["settled", "1200", [{ displayName: "甲", memberId: "member-a", netMinor: "0" }]],
   ] as const)("账本总额为 %s 时映射对应摘要状态", (state, totalExpenseMinor, balances) => {
     expect(mapActivitySummary({

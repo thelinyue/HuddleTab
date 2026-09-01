@@ -6,9 +6,9 @@ use uuid::Uuid;
 use crate::{
     application::sharing::{
         CsvExpenseRow, CsvNamedAmount, SharingRepository, SharingRepositoryError, SharingSnapshot,
-        SnapshotMember,
+        SnapshotLedgerEntry, SnapshotMember,
     },
-    domain::ledger::{LedgerEntry, SettlementFact},
+    domain::ledger::SettlementFact,
 };
 
 /// `PostgreSQL` 分享快照仓储只读取已授权账务事实，不查询用户邮箱、附件或审计记录。
@@ -102,7 +102,7 @@ impl SharingRepository for PostgresSharingRepository {
         .await
         .map_err(log_repository_error)?
         .into_iter()
-        .map(|(member_id, amount)| LedgerEntry::new(member_id, amount))
+        .map(|(member_id, amount)| SnapshotLedgerEntry::new(member_id, amount))
         .collect();
         let shares = sqlx::query_as::<_, (Uuid, i64)>(
             "SELECT s.member_id, s.base_amount_minor FROM expense_shares s \
@@ -113,7 +113,7 @@ impl SharingRepository for PostgresSharingRepository {
         .await
         .map_err(log_repository_error)?
         .into_iter()
-        .map(|(member_id, amount)| LedgerEntry::new(member_id, amount))
+        .map(|(member_id, amount)| SnapshotLedgerEntry::new(member_id, amount))
         .collect();
         let settlements = sqlx::query_as::<_, (Uuid, Uuid, i64)>(
             "SELECT payer_member_id, receiver_member_id, amount_minor FROM settlements \

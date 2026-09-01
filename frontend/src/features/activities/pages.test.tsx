@@ -158,7 +158,8 @@ describe("MePage", () => {
 });
 
 describe("活动管理导出", () => {
-  it("在活动管理 Overlay 提供同源 CSV 下载链接", () => {
+  it.each(["ACTIVE", "ENDED", "ARCHIVED"])("%s 活动在管理 Overlay 提供同源 CSV 下载链接", (status) => {
+    activityApiState.activity.status = status;
     renderWorkspace("/activities/activity-1?panel=manage");
 
     expect(screen.getByRole("heading", { name: "活动管理" })).toBeInTheDocument();

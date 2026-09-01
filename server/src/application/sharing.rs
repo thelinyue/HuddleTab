@@ -13,6 +13,23 @@ pub struct SnapshotMember {
     pub display_name: String,
 }
 
+/// 分享快照保留原始账务金额，摘要层先校验总消费、付款和分摊三方一致，再交给领域总账计算。
+#[derive(Clone, Debug)]
+pub struct SnapshotLedgerEntry {
+    member_id: Uuid,
+    amount_minor: i64,
+}
+
+impl SnapshotLedgerEntry {
+    #[must_use]
+    pub const fn new(member_id: Uuid, amount_minor: i64) -> Self {
+        Self {
+            member_id,
+            amount_minor,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CsvNamedAmount {
     pub display_name: String,
@@ -45,8 +62,8 @@ pub struct SharingSnapshot {
     pub current_user_member_id: Uuid,
     pub members: Vec<SnapshotMember>,
     pub total_expense_minor: i64,
-    pub payments: Vec<LedgerEntry>,
-    pub shares: Vec<LedgerEntry>,
+    pub payments: Vec<SnapshotLedgerEntry>,
+    pub shares: Vec<SnapshotLedgerEntry>,
     pub settlements: Vec<SettlementFact>,
     pub expenses: Vec<CsvExpenseRow>,
 }
@@ -115,14 +132,27 @@ pub async fn load_summary(
     actor_user_id: Uuid,
 ) -> Result<ActivitySummary, SharingError> {
     let snapshot = load_snapshot(repository, activity_id, actor_user_id).await?;
+    let payment_total = checked_fact_total(&snapshot.payments)?;
+    let share_total = checked_fact_total(&snapshot.shares)?;
+    if snapshot.total_expense_minor != payment_total || payment_total != share_total {
+        return Err(SharingError::Integrity);
+    }
     let balances = calculate_ledger(
         snapshot
             .members
             .iter()
             .map(|member| member.member_id)
             .collect(),
-        snapshot.payments,
-        snapshot.shares,
+        snapshot
+            .payments
+            .into_iter()
+            .map(|entry| LedgerEntry::new(entry.member_id, entry.amount_minor))
+            .collect(),
+        snapshot
+            .shares
+            .into_iter()
+            .map(|entry| LedgerEntry::new(entry.member_id, entry.amount_minor))
+            .collect(),
         snapshot.settlements,
     )
     .map_err(|_| SharingError::Integrity)?;
@@ -169,6 +199,13 @@ pub async fn load_summary(
     })
 }
 
+fn checked_fact_total(entries: &[SnapshotLedgerEntry]) -> Result<i64, SharingError> {
+    entries.iter().try_fold(0_i64, |sum, entry| {
+        sum.checked_add(entry.amount_minor)
+            .ok_or(SharingError::Integrity)
+    })
+}
+
 /// 读取 CSV 所需的已授权快照。CSV 不重算账务，也不接触邮箱、附件或审计等私有数据。
 ///
 /// # Errors
@@ -198,13 +235,33 @@ async fn load_snapshot(
         })
 }
 
-const CSV_HEADER: &str = "消费时间,用途,分类,原始金额,原始币种,汇率,主币种金额,付款人,参与成员,分摊方式,创建人,创建时间,备注";
+const CSV_HEADERS: [&str; 13] = [
+    "消费时间",
+    "用途",
+    "分类",
+    "原始金额",
+    "原始币种",
+    "汇率",
+    "主币种金额",
+    "付款人",
+    "参与成员",
+    "分摊方式",
+    "创建人",
+    "创建时间",
+    "备注",
+];
 
 /// 生成可被 Excel 直接识别的 UTF-8 CSV。所有用户可控单元格都转义引号并中和公式前缀。
 #[must_use]
 pub fn serialize_expense_csv(rows: &[CsvExpenseRow]) -> String {
     let mut lines = Vec::with_capacity(rows.len() + 1);
-    lines.push(CSV_HEADER.to_owned());
+    lines.push(
+        CSV_HEADERS
+            .into_iter()
+            .map(quote_csv)
+            .collect::<Vec<_>>()
+            .join(","),
+    );
     lines.extend(rows.iter().map(|row| {
         [
             row.occurred_at.clone(),

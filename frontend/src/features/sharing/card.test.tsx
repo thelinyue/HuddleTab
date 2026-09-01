@@ -25,10 +25,10 @@ describe("ShareSummaryCard", () => {
   });
 
   it.each([
-    ["empty", "还没有账单", "录入账单后可生成结算建议。"],
+    ["zero", "结算金额为零", "当前总消费为零，无需转账。"],
     ["settled", "全部已结清", "当前没有待处理的转账。"],
   ] as const)("%s 状态展示明确文字而非只靠颜色", (state, title, description) => {
-    render(<ShareSummaryCard summary={{ ...readySummary, state, totalExpenseMinor: state === "empty" ? "0" : "6400", recommendations: [] }} />);
+    render(<ShareSummaryCard summary={{ ...readySummary, state, totalExpenseMinor: state === "zero" ? "0" : "6400", recommendations: [] }} />);
     expect(screen.getByRole("article")).toHaveAttribute("data-state", state);
     expect(screen.getByText(title)).toBeInTheDocument();
     expect(screen.getByText(description)).toBeInTheDocument();

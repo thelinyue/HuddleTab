@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const queryState = vi.hoisted(() => ({
   data: undefined as undefined | {
     activityName: string; balances: Array<{ amountMinor: string; displayName: string; memberId: string; state: "settled" }>;
-    currency: string; currentUserBalanceMinor: string; memberCount: number; recommendations: []; state: "empty"; totalExpenseMinor: string;
+    currency: string; currentUserBalanceMinor: string; memberCount: number; recommendations: []; state: "zero"; totalExpenseMinor: string;
   },
   error: null as unknown,
   isPending: false,
@@ -45,10 +45,10 @@ describe("ShareSummaryPage", () => {
     expect(queryState.refetch).toHaveBeenCalledOnce();
   });
 
-  it("空账本仍显示可导出的摘要卡", () => {
-    queryState.data = { activityName: "空活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "empty", totalExpenseMinor: "0" };
+  it("零金额摘要仍显示可导出的摘要卡", () => {
+    queryState.data = { activityName: "零金额活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0" };
     renderPage();
-    expect(screen.getAllByText("还没有账单")).toHaveLength(2);
+    expect(screen.getAllByText("结算金额为零")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "下载 PNG" })).toBeEnabled();
   });
 });

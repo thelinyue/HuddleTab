@@ -7,7 +7,7 @@ import { queryKeys } from "../../api/query-keys";
 type ActivitySummaryData = components["schemas"]["ActivitySummaryData"];
 
 export type BalanceState = "payable" | "receivable" | "settled";
-export type SummaryState = "empty" | "settled" | "ready";
+export type SummaryState = "zero" | "settled" | "ready";
 
 export type ShareSummary = {
   activityName: string;
@@ -44,7 +44,7 @@ export function mapActivitySummary(data: ActivitySummaryData): ShareSummary {
       payerName: names.get(recommendation.payerMemberId) ?? "未知成员",
       receiverName: names.get(recommendation.receiverMemberId) ?? "未知成员",
     })),
-    state: totalExpense === 0n ? "empty" : data.recommendations.length === 0 && balances.every((balance) => balance.state === "settled") ? "settled" : "ready",
+    state: totalExpense === 0n ? "zero" : data.recommendations.length === 0 && balances.every((balance) => balance.state === "settled") ? "settled" : "ready",
     totalExpenseMinor: data.totalExpenseMinor,
   };
 }

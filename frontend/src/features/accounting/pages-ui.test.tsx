@@ -86,7 +86,8 @@ afterEach(() => {
 });
 
 describe("Activity 生命周期写权限", () => {
-  it("在结算页提供生成分享摘要入口", () => {
+  it.each(["ACTIVE", "ENDED", "ARCHIVED"])("%s 活动在结算页提供生成分享摘要入口", (status) => {
+    activity.status = status;
     renderPage(<SettlementsPage />);
 
     expect(screen.getByRole("link", { name: "生成分享摘要" })).toHaveAttribute("href", "/share-summary/activity-1");

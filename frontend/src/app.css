@@ -396,7 +396,7 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .share-summary-card header > p:last-child { margin-top: 6px; color: var(--muted-foreground); }
 .share-summary-card__state { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--surface-muted); }
 .share-summary-card__state p { margin-top: 3px; color: var(--muted-foreground); }
-.share-summary-card[data-state="empty"] .share-summary-card__state { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: color-mix(in srgb, var(--warning) 12%, var(--surface)); }
+.share-summary-card[data-state="zero"] .share-summary-card__state { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: color-mix(in srgb, var(--warning) 12%, var(--surface)); }
 .share-summary-card[data-state="settled"] .share-summary-card__state { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
 .share-summary-card__recommendations, .share-summary-card__balances { display: grid; gap: 8px; }
 .share-summary-card__balances h3 { display: flex; align-items: center; gap: 6px; }

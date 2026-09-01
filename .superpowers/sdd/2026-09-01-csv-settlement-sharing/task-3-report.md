@@ -105,13 +105,13 @@ The latest Rust binary served the freshly built `frontend/dist` at `127.0.0.1:56
 | Standalone summary | No `.workspace-header`, `.product-bottom-nav`, or `.update-prompt` in either viewport. |
 | Desktop 1440x1000 | `scrollWidth=1440`, `viewportWidth=1440`; preview/export card widths `800/800`. |
 | Mobile 390x844 | `scrollWidth=390`, `viewportWidth=390`; preview/export card widths `358/800`; no horizontal overflow. |
-| CSV | Server download `activity-export.csv`, 146 bytes, BOM `[239,187,191]`, exact Chinese header recorded below. |
+| CSV | Server download `activity-export.csv`, 172 bytes, BOM `[239,187,191]`, exact Chinese header recorded below. |
 | PNG | Browser click downloaded `huddletab-settlement-summary.png`, 1,821,886 bytes, PNG IHDR width `1600`. DOM export target text contained no `下载 PNG`, `返回结算`, or `流水`; visual inspection also confirmed the image contains only the card. |
 
 CSV header:
 
 ```text
-消费时间,用途,分类,原始金额,原始币种,汇率,主币种金额,付款人,参与成员,分摊方式,创建人,创建时间,备注
+"消费时间","用途","分类","原始金额","原始币种","汇率","主币种金额","付款人","参与成员","分摊方式","创建人","创建时间","备注"
 ```
 
 Visual artifacts are intentionally uncommitted at `C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555239e8`:
