@@ -123,10 +123,38 @@ async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
     )
     .await;
 
+    assert_invite_mode_constraints(&mut transaction, first_activity).await;
+
+    let first_invitation = insert_invitation(&mut transaction, first_activity, first_owner).await;
+    let second_invitation =
+        insert_invitation(&mut transaction, second_activity, second_owner).await;
+    assert_pending_join_request_uniqueness(
+        &mut transaction,
+        first_activity,
+        first_invitation,
+        applicant,
+        first_owner,
+    )
+    .await;
+    assert_invitation_activity_identity(
+        &mut transaction,
+        first_activity,
+        second_invitation,
+        second_owner_user,
+    )
+    .await;
+
+    transaction.rollback().await.expect("测试事务应可回滚");
+}
+
+async fn assert_invite_mode_constraints(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+) {
     let default_mode: String =
         sqlx::query_scalar("SELECT invite_mode FROM activities WHERE id = $1")
-            .bind(first_activity)
-            .fetch_one(&mut *transaction)
+            .bind(activity_id)
+            .fetch_one(&mut **transaction)
             .await
             .expect("新活动应有默认邀请模式");
     assert_eq!(default_mode, "DIRECT_JOIN");
@@ -136,25 +164,30 @@ async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
         .await
         .expect("应可建立 savepoint");
     sqlx::query("UPDATE activities SET invite_mode = 'PER_INVITE' WHERE id = $1")
-        .bind(first_activity)
-        .execute(&mut *transaction)
+        .bind(activity_id)
+        .execute(&mut **transaction)
         .await
         .expect_err("数据库必须拒绝未冻结的邀请模式");
     transaction
         .execute("ROLLBACK TO SAVEPOINT invalid_invite_mode")
         .await
         .expect("应可恢复 savepoint");
+}
 
-    let first_invitation = insert_invitation(&mut transaction, first_activity, first_owner).await;
-    let second_invitation =
-        insert_invitation(&mut transaction, second_activity, second_owner).await;
+async fn assert_pending_join_request_uniqueness(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    invitation_id: Uuid,
+    applicant_user_id: Uuid,
+    owner_member_id: Uuid,
+) {
     let first_request = Uuid::new_v4();
     insert_join_request(
-        &mut transaction,
+        transaction,
         first_request,
-        first_activity,
-        first_invitation,
-        applicant,
+        activity_id,
+        invitation_id,
+        applicant_user_id,
     )
     .await;
 
@@ -168,10 +201,10 @@ async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
          ) VALUES ($1, $2, $3, $4, NOW())",
     )
     .bind(Uuid::new_v4())
-    .bind(first_activity)
-    .bind(first_invitation)
-    .bind(applicant)
-    .execute(&mut *transaction)
+    .bind(activity_id)
+    .bind(invitation_id)
+    .bind(applicant_user_id)
+    .execute(&mut **transaction)
     .await
     .expect_err("同一活动和用户只能有一个 Pending 申请");
     assert_eq!(
@@ -188,20 +221,27 @@ async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
          SET status = 'REJECTED', decided_by_member_id = $1, decided_at = NOW()
          WHERE id = $2",
     )
-    .bind(first_owner)
+    .bind(owner_member_id)
     .bind(first_request)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
     .expect("关闭旧申请后应释放 Pending 唯一约束");
     insert_join_request(
-        &mut transaction,
+        transaction,
         Uuid::new_v4(),
-        first_activity,
-        first_invitation,
-        applicant,
+        activity_id,
+        invitation_id,
+        applicant_user_id,
     )
     .await;
+}
 
+async fn assert_invitation_activity_identity(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    other_activity_invitation_id: Uuid,
+    applicant_user_id: Uuid,
+) {
     transaction
         .execute("SAVEPOINT cross_activity_invitation")
         .await
@@ -212,18 +252,16 @@ async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
          ) VALUES ($1, $2, $3, $4, NOW())",
     )
     .bind(Uuid::new_v4())
-    .bind(first_activity)
-    .bind(second_invitation)
-    .bind(second_owner_user)
-    .execute(&mut *transaction)
+    .bind(activity_id)
+    .bind(other_activity_invitation_id)
+    .bind(applicant_user_id)
+    .execute(&mut **transaction)
     .await
     .expect_err("申请不能引用其他活动的邀请");
     assert_eq!(
         constraint_name(&cross_activity),
         Some("activity_join_requests_activity_id_invitation_id_fkey")
     );
-
-    transaction.rollback().await.expect("测试事务应可回滚");
 }
 
 async fn insert_user(transaction: &mut Transaction<'_, Postgres>, id: Uuid, username: &str) {
