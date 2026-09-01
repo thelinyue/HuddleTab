@@ -40,7 +40,7 @@
 - Produces: `JoinRequestStatus::{Pending, Approved, Rejected}`, `JoinDecision::{Approve, Reject}`, and `JoinRequestStatus::decide(JoinDecision)` returning an idempotent result or opposite-decision conflict.
 - Produces: PostgreSQL `activities.invite_mode`, `activity_join_requests`, `notifications`, and partial unique index on Pending `(activity_id, applicant_user_id)`.
 
-- [ ] **Step 1: Write failing domain and migration tests**
+- [x] **Step 1: Write failing domain and migration tests**
 
 Add literal behavior assertions:
 
@@ -67,7 +67,7 @@ fn repeated_same_decision_is_idempotent_but_opposite_decision_conflicts() {
 
 Extend migration tests to assert the new migration applies on a fresh database, new activities default to `DIRECT_JOIN`, invalid enum-like text is rejected, and two concurrent Pending rows for one Activity/User violate the partial unique index while a later REJECTED row allows a new Pending.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 Run:
 
@@ -78,7 +78,7 @@ cargo test --manifest-path server/Cargo.toml --test migrations --test schema_con
 
 Expected: domain test fails because the types do not exist; PostgreSQL tests fail because migration `004` and its constraints do not exist.
 
-- [ ] **Step 3: Implement minimal schema and domain types**
+- [x] **Step 3: Implement minimal schema and domain types**
 
 Use text columns with explicit checks rather than adding PostgreSQL enum migrations:
 
@@ -130,11 +130,11 @@ CREATE TABLE notifications (
 
 Before the composite foreign keys, add unique constraints for `activity_invites(activity_id, id)` and `activity_members(activity_id, id)`. This prevents a JoinRequest from associating an Invitation or deciding member from another Activity.
 
-- [ ] **Step 4: Run GREEN tests**
+- [x] **Step 4: Run GREEN tests**
 
 Run the commands from Step 2. Expected: all new domain and disposable PostgreSQL constraint tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add server/migrations/202609010004_join_approval.sql server/src/domain server/tests/migrations.rs server/tests/schema_constraints.rs server/tests/domain_activity.rs server/tests/domain_join_request.rs

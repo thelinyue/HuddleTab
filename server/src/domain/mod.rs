@@ -5,6 +5,7 @@ pub mod currency;
 pub mod exchange_rate;
 pub mod expense;
 pub mod identity;
+pub mod join_request;
 pub mod ledger;
 pub mod money;
 pub mod session;

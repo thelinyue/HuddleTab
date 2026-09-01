@@ -88,6 +88,144 @@ async fn composite_member_foreign_keys_and_single_owner_are_enforced() {
     transaction.rollback().await.expect("测试事务应可回滚");
 }
 
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .expect("运行 Schema 集成测试前必须设置 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试库应可 migration");
+    let mut transaction = pool.begin().await.expect("应可开始测试事务");
+
+    let applicant = Uuid::new_v4();
+    let first_owner_user = Uuid::new_v4();
+    let second_owner_user = Uuid::new_v4();
+    let first_activity = Uuid::new_v4();
+    let second_activity = Uuid::new_v4();
+    let first_owner = Uuid::new_v4();
+    let second_owner = Uuid::new_v4();
+    insert_user(&mut transaction, applicant, "join-applicant").await;
+    insert_user(&mut transaction, first_owner_user, "join-owner-a").await;
+    insert_user(&mut transaction, second_owner_user, "join-owner-b").await;
+    insert_activity_and_owner(
+        &mut transaction,
+        first_activity,
+        first_owner,
+        first_owner_user,
+    )
+    .await;
+    insert_activity_and_owner(
+        &mut transaction,
+        second_activity,
+        second_owner,
+        second_owner_user,
+    )
+    .await;
+
+    let default_mode: String =
+        sqlx::query_scalar("SELECT invite_mode FROM activities WHERE id = $1")
+            .bind(first_activity)
+            .fetch_one(&mut *transaction)
+            .await
+            .expect("新活动应有默认邀请模式");
+    assert_eq!(default_mode, "DIRECT_JOIN");
+
+    transaction
+        .execute("SAVEPOINT invalid_invite_mode")
+        .await
+        .expect("应可建立 savepoint");
+    sqlx::query("UPDATE activities SET invite_mode = 'PER_INVITE' WHERE id = $1")
+        .bind(first_activity)
+        .execute(&mut *transaction)
+        .await
+        .expect_err("数据库必须拒绝未冻结的邀请模式");
+    transaction
+        .execute("ROLLBACK TO SAVEPOINT invalid_invite_mode")
+        .await
+        .expect("应可恢复 savepoint");
+
+    let first_invitation = insert_invitation(&mut transaction, first_activity, first_owner).await;
+    let second_invitation =
+        insert_invitation(&mut transaction, second_activity, second_owner).await;
+    let first_request = Uuid::new_v4();
+    insert_join_request(
+        &mut transaction,
+        first_request,
+        first_activity,
+        first_invitation,
+        applicant,
+    )
+    .await;
+
+    transaction
+        .execute("SAVEPOINT duplicate_pending")
+        .await
+        .expect("应可建立 savepoint");
+    let duplicate = sqlx::query(
+        "INSERT INTO activity_join_requests (
+            id, activity_id, invitation_id, applicant_user_id, created_at
+         ) VALUES ($1, $2, $3, $4, NOW())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(first_activity)
+    .bind(first_invitation)
+    .bind(applicant)
+    .execute(&mut *transaction)
+    .await
+    .expect_err("同一活动和用户只能有一个 Pending 申请");
+    assert_eq!(
+        constraint_name(&duplicate),
+        Some("activity_join_requests_one_pending_per_user")
+    );
+    transaction
+        .execute("ROLLBACK TO SAVEPOINT duplicate_pending")
+        .await
+        .expect("应可恢复 savepoint");
+
+    sqlx::query(
+        "UPDATE activity_join_requests
+         SET status = 'REJECTED', decided_by_member_id = $1, decided_at = NOW()
+         WHERE id = $2",
+    )
+    .bind(first_owner)
+    .bind(first_request)
+    .execute(&mut *transaction)
+    .await
+    .expect("关闭旧申请后应释放 Pending 唯一约束");
+    insert_join_request(
+        &mut transaction,
+        Uuid::new_v4(),
+        first_activity,
+        first_invitation,
+        applicant,
+    )
+    .await;
+
+    transaction
+        .execute("SAVEPOINT cross_activity_invitation")
+        .await
+        .expect("应可建立 savepoint");
+    let cross_activity = sqlx::query(
+        "INSERT INTO activity_join_requests (
+            id, activity_id, invitation_id, applicant_user_id, created_at
+         ) VALUES ($1, $2, $3, $4, NOW())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(first_activity)
+    .bind(second_invitation)
+    .bind(second_owner_user)
+    .execute(&mut *transaction)
+    .await
+    .expect_err("申请不能引用其他活动的邀请");
+    assert_eq!(
+        constraint_name(&cross_activity),
+        Some("activity_join_requests_activity_id_invitation_id_fkey")
+    );
+
+    transaction.rollback().await.expect("测试事务应可回滚");
+}
+
 async fn insert_user(transaction: &mut Transaction<'_, Postgres>, id: Uuid, username: &str) {
     sqlx::query(
         "INSERT INTO users (
@@ -135,4 +273,52 @@ fn constraint_name(error: &sqlx::Error) -> Option<&str> {
     error
         .as_database_error()
         .and_then(|error| error.constraint())
+}
+
+async fn insert_invitation(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    owner_member_id: Uuid,
+) -> Uuid {
+    let invitation_id = Uuid::new_v4();
+    let token_hash = [
+        activity_id.as_bytes().as_slice(),
+        invitation_id.as_bytes().as_slice(),
+    ]
+    .concat();
+    sqlx::query(
+        "INSERT INTO activity_invites (
+            id, activity_id, created_by_member_id, token_hash, kind,
+            expires_at, created_at
+         ) VALUES ($1, $2, $3, $4, 'LINK', NOW() + INTERVAL '1 day', NOW())",
+    )
+    .bind(invitation_id)
+    .bind(activity_id)
+    .bind(owner_member_id)
+    .bind(token_hash)
+    .execute(&mut **transaction)
+    .await
+    .expect("测试邀请应可创建");
+    invitation_id
+}
+
+async fn insert_join_request(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_id: Uuid,
+    activity_id: Uuid,
+    invitation_id: Uuid,
+    applicant_user_id: Uuid,
+) {
+    sqlx::query(
+        "INSERT INTO activity_join_requests (
+            id, activity_id, invitation_id, applicant_user_id, created_at
+         ) VALUES ($1, $2, $3, $4, NOW())",
+    )
+    .bind(request_id)
+    .bind(activity_id)
+    .bind(invitation_id)
+    .bind(applicant_user_id)
+    .execute(&mut **transaction)
+    .await
+    .expect("合法 Pending 申请应可创建");
 }

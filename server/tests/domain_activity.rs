@@ -1,7 +1,19 @@
 use huddletab_server::domain::activity::{
-    ActivityAction, ActivityCapabilities, ActivityPeriod, ActivityStatus,
+    ActivityAction, ActivityCapabilities, ActivityPeriod, ActivityStatus, InviteMode,
     normalize_activity_location,
 };
+
+#[test]
+fn invite_mode_accepts_only_the_activity_level_contract() {
+    assert_eq!(InviteMode::parse("DIRECT_JOIN"), Ok(InviteMode::DirectJoin));
+    assert_eq!(
+        InviteMode::parse("REQUIRE_APPROVAL"),
+        Ok(InviteMode::RequireApproval)
+    );
+    assert!(InviteMode::parse("PER_INVITE").is_err());
+    assert_eq!(InviteMode::DirectJoin.as_str(), "DIRECT_JOIN");
+    assert_eq!(InviteMode::RequireApproval.as_str(), "REQUIRE_APPROVAL");
+}
 
 #[test]
 fn activity_location_and_period_reject_invalid_details() {

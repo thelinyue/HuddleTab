@@ -3,6 +3,41 @@ use time::{Date, format_description::FormatItem, macros::format_description};
 
 const DATE_FORMAT: &[FormatItem<'static>] = format_description!("[year]-[month]-[day]");
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InviteMode {
+    DirectJoin,
+    RequireApproval,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum InviteModeError {
+    #[error("活动加入方式无效")]
+    Invalid,
+}
+
+impl InviteMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DirectJoin => "DIRECT_JOIN",
+            Self::RequireApproval => "REQUIRE_APPROVAL",
+        }
+    }
+
+    /// 只接受 HTTP 与数据库共同冻结的 Activity 级加入方式。
+    ///
+    /// # Errors
+    ///
+    /// 未知值返回错误，不能降级为直接加入。
+    pub fn parse(value: &str) -> Result<Self, InviteModeError> {
+        match value {
+            "DIRECT_JOIN" => Ok(Self::DirectJoin),
+            "REQUIRE_APPROVAL" => Ok(Self::RequireApproval),
+            _ => Err(InviteModeError::Invalid),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActivityName(String);
 
