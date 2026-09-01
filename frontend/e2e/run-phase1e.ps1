@@ -7,8 +7,11 @@ Set-StrictMode -Version Latest
 $frontendDir = Split-Path -Parent $PSScriptRoot
 $repoDir = Split-Path -Parent $frontendDir
 $artifactDir = Join-Path $frontendDir "artifacts"
+. (Join-Path $PSScriptRoot "support/phase1e-runner-support.ps1")
 $composeProject = "huddletab-phase1e-$([Guid]::NewGuid().ToString('N').Substring(0, 10))"
 $temporaryData = $null
+$composeAttempted = $false
+$primaryFailure = $null
 $script:composeFileWsl = $null
 $originalWslEnv = $env:WSLENV
 $sensitiveNames = @(
@@ -60,7 +63,7 @@ function Invoke-Compose {
     [switch] $AllowFailure,
     [switch] $Quiet
   )
-  $arguments = @("sh", "-lc", "docker compose -f '$script:composeFileWsl' $Command")
+  $arguments = New-Phase1EComposeArguments -Project $composeProject -ComposeFile $script:composeFileWsl -Command $Command
   $invoke = @{ ArgumentList = $arguments; AllowFailure = $AllowFailure; Quiet = $Quiet }
   if ($PSBoundParameters.ContainsKey("InputText")) { $invoke.InputText = $InputText }
   Invoke-Wsl @invoke
@@ -132,12 +135,12 @@ try {
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
-  $env:COMPOSE_PROJECT_NAME = $composeProject
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
-  $forwarded = "HUDDLETAB_E2E_USERNAME:HUDDLETAB_E2E_PASSWORD:POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:COMPOSE_PROJECT_NAME"
+  $forwarded = "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL"
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
   Write-Host "[2/9] 构建并启动独立生产 Compose（project=$composeProject, port=$appPort）"
+  $composeAttempted = $true
   Invoke-Compose "up -d --build --wait" | Out-Null
   Wait-Health $baseUrl
 
@@ -165,7 +168,14 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   Push-Location $frontendDir
   try {
     npm run test:e2e
-    if ($LASTEXITCODE -ne 0) { throw "Playwright 验收失败，报告已留在 frontend/artifacts。" }
+    $playwrightExitCode = $LASTEXITCODE
+    node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
+    $sanitizerExitCode = $LASTEXITCODE
+    if ($playwrightExitCode -ne 0 -and $sanitizerExitCode -ne 0) {
+      throw "Playwright 验收失败，且 artifact 脱敏或扫描也失败。"
+    }
+    if ($sanitizerExitCode -ne 0) { throw "artifact 脱敏或扫描失败。" }
+    if ($playwrightExitCode -ne 0) { throw "Playwright 验收失败，脱敏后的报告已留在 frontend/artifacts。" }
   } finally {
     Pop-Location
   }
@@ -204,10 +214,12 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   Write-Host "[9/9] 全部验收通过，准备执行限定范围清理"
+} catch {
+  $primaryFailure = $_
 } finally {
   $cleanupFailure = $null
   try {
-    if ($script:composeFileWsl) {
+    Invoke-Phase1EComposeCleanup -ComposeAttempted $composeAttempted -Cleanup {
       $composeCleanup = Invoke-Compose "down --remove-orphans" -AllowFailure -Quiet
       if ($composeCleanup.ExitCode -ne 0) { throw "无法关闭本次 Phase 1E Compose project。" }
     }
@@ -226,7 +238,8 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:COMPOSE_PROJECT_NAME, Env:HUDDLETAB_E2E_BASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL -ErrorAction SilentlyContinue
   $env:WSLENV = $originalWslEnv
-  if ($cleanupFailure) { throw $cleanupFailure }
 }
+
+Complete-Phase1EFailure -PrimaryFailure $primaryFailure -CleanupFailure $cleanupFailure
