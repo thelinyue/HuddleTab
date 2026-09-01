@@ -1,3 +1,5 @@
+use std::fmt;
+
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -9,10 +11,21 @@ use crate::{
 
 const BOOTSTRAP_ADVISORY_LOCK: i64 = 0x4855_4444_4C45_5442;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct BootstrapUserInput {
     pub username: String,
     pub password: String,
+}
+
+/// 首位用户输入允许记录调用上下文，但绝不能把终端输入的明文密码写进日志。
+impl fmt::Debug for BootstrapUserInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BootstrapUserInput")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

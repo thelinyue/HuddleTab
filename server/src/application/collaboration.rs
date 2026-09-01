@@ -208,12 +208,25 @@ pub struct CreatedInvitation {
     pub token: IssuedInvitationToken,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct JoinInput {
     pub raw_token: String,
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+}
+
+/// 邀请 token 只在本次 join 的内存流程中使用，Debug 输出必须保持不可逆脱敏。
+impl fmt::Debug for JoinInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("JoinInput")
+            .field("raw_token", &"[REDACTED]")
+            .field("user_id", &self.user_id)
+            .field("username", &self.username)
+            .field("display_name", &self.display_name)
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]

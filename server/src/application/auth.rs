@@ -1,3 +1,5 @@
+use std::fmt;
+
 use async_trait::async_trait;
 use thiserror::Error;
 use time::{Duration, OffsetDateTime};
@@ -121,10 +123,20 @@ pub trait RegistrationRepository: Send + Sync {
     ) -> Result<(), RegistrationRepositoryError>;
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct LoginInput {
     pub username: String,
     pub password: String,
+}
+
+impl fmt::Debug for LoginInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LoginInput")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -135,12 +147,24 @@ pub struct LoginOutput {
     pub session_token: SessionToken,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct RegisterInput {
     pub username: String,
     pub password: String,
     pub display_name: String,
     pub invitation_token: String,
+}
+
+impl fmt::Debug for RegisterInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RegisterInput")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("display_name", &self.display_name)
+            .field("invitation_token", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -190,10 +214,20 @@ pub enum CurrentSessionError {
 #[error("注销服务暂时不可用")]
 pub struct LogoutError;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ChangePasswordInput {
     pub current_password: String,
     pub new_password: String,
+}
+
+impl fmt::Debug for ChangePasswordInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ChangePasswordInput")
+            .field("current_password", &"[REDACTED]")
+            .field("new_password", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
