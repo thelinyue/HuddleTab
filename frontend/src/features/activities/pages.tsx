@@ -3,6 +3,7 @@ import {
   Bell,
   ChevronRight,
   CircleDollarSign,
+  Download,
   CalendarDays,
   KeyRound,
   Link as LinkIcon,
@@ -566,6 +567,10 @@ export function MorePage({ onEdit, onDelete }: { onEdit?: () => void; onDelete?:
         </div>
       </section>
       {activity.hasAccountingRecords ? <div className="notice">已有账务记录，主币种等受账务锁约束的字段可能不可编辑。</div> : null}
+      <section>
+        <h2>数据导出</h2>
+        <a className="button button--secondary" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`}><Download aria-hidden="true" size={17} />导出 CSV</a>
+      </section>
       <section>
         <h2>字段权限</h2>
         <div className="management-permissions">{fieldPermissionLabels.map(([field, label]) => <span key={field}>{label} · {activity.fieldPermissions[field] ? "可编辑" : "不可编辑"}</span>)}</div>

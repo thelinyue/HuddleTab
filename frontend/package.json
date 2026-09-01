@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "5.102.8",
+    "html-to-image": "1.11.13",
     "lucide-react": "^0.468.0",
     "openapi-fetch": "0.17.0",
     "react": "19.2.8",

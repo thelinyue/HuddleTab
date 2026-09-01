@@ -86,6 +86,12 @@ afterEach(() => {
 });
 
 describe("Activity 生命周期写权限", () => {
+  it("在结算页提供生成分享摘要入口", () => {
+    renderPage(<SettlementsPage />);
+
+    expect(screen.getByRole("link", { name: "生成分享摘要" })).toHaveAttribute("href", "/share-summary/activity-1");
+  });
+
   it("ENDED 隐藏 Expense 新建、编辑和删除，直接新建只显示只读说明", () => {
     activity.status = "ENDED";
 

@@ -37,7 +37,9 @@ vi.mock("../features/accounting/pages", () => ({
   SettlementsPage: () => <p>结算页</p>,
 }));
 
-vi.mock("./pwa-update", () => ({ PwaUpdatePrompt: () => null }));
+vi.mock("../features/sharing/page", () => ({ ShareSummaryPage: () => <h1>结算分享摘要</h1> }));
+
+vi.mock("./pwa-update", () => ({ PwaUpdatePrompt: () => <p>PWA 更新提示</p> }));
 
 afterEach(() => {
   cleanup();
@@ -45,6 +47,14 @@ afterEach(() => {
 });
 
 describe("ApplicationRouter", () => {
+  it("已登录用户可打开独立的分享摘要页，且不渲染 PWA 提示", async () => {
+    render(<MemoryRouter initialEntries={["/share-summary/activity-1"]}><ApplicationRouter /></MemoryRouter>);
+
+    expect(await screen.findByRole("heading", { name: "结算分享摘要" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("主导航")).not.toBeInTheDocument();
+    expect(screen.queryByText("PWA 更新提示")).not.toBeInTheDocument();
+  });
+
   it("通过 tab query 在同一活动地址打开结算主视图", () => {
     render(<MemoryRouter initialEntries={["/activities/activity-1?tab=settlement"]}><ApplicationRouter /></MemoryRouter>);
     expect(screen.getByText("结算页")).toBeInTheDocument();

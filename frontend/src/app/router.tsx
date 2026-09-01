@@ -1,4 +1,5 @@
 import { FileQuestion } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
@@ -8,6 +9,8 @@ import { useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { ChangePasswordPage } from "../features/me/password-page";
 import { PwaUpdatePrompt } from "./pwa-update";
+
+const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));
 
 function RootRedirect() {
   const session = useSessionQuery();
@@ -37,6 +40,11 @@ function ActivityPrimaryPage() {
   return searchParams.get("tab") === "settlement" ? <SettlementsPage /> : <ExpenseFeedPage />;
 }
 
+function RoutePwaUpdatePrompt() {
+  const location = useLocation();
+  return location.pathname.startsWith("/share-summary/") ? null : <PwaUpdatePrompt />;
+}
+
 export function ApplicationRouter() {
   return (
     <>
@@ -55,10 +63,11 @@ export function ApplicationRouter() {
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/me" element={<MePage />} />
           <Route path="/me/password" element={<ChangePasswordPage />} />
+          <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-      <PwaUpdatePrompt />
+      <RoutePwaUpdatePrompt />
     </>
   );
 }

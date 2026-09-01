@@ -157,6 +157,15 @@ describe("MePage", () => {
   });
 });
 
+describe("活动管理导出", () => {
+  it("在活动管理 Overlay 提供同源 CSV 下载链接", () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    expect(screen.getByRole("heading", { name: "活动管理" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "导出 CSV" })).toHaveAttribute("href", "/api/activities/activity-1/export.csv");
+  });
+});
+
 describe("MemberInvitationPanel", () => {
   it("按用户名创建一次性定向邀请并显示明文口令", async () => {
     const onCreate = vi.fn().mockResolvedValue({

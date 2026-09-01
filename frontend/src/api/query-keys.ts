@@ -20,5 +20,7 @@ export const queryKeys = {
     ["users", userId, "activities", activityId, "recommendations"] as const,
   settlements: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "settlements"] as const,
+  activitySummary: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "summary"] as const,
   invitationPreview: (token: string) => ["invitations", token] as const,
 };
