@@ -817,6 +817,162 @@
         }
       }
     },
+    "/api/activities/{activity_id}/join-requests": {
+      "get": {
+        "tags": [],
+        "operationId": "list_join_requests",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner 待审批队列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/join-requests/{join_request_id}": {
+      "post": {
+        "tags": [],
+        "operationId": "decide_join_request",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "join_request_id",
+            "in": "path",
+            "description": "加入申请 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideJoinRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "审批结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "决策值无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限或 CSRF 无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申请不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "申请已关闭或审批前置条件失效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/ledger": {
       "get": {
         "tags": [],
@@ -1935,6 +2091,55 @@
         }
       }
     },
+    "/api/join-requests/{join_request_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_join_request",
+        "parameters": [
+          {
+            "name": "join_request_id",
+            "in": "path",
+            "description": "加入申请 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "申请人自己的加入申请",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申请不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me/password": {
       "put": {
         "tags": [],
@@ -2012,6 +2217,102 @@
           }
         }
       }
+    },
+    "/api/notifications": {
+      "get": {
+        "tags": [],
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "当前用户通知",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/{notification_id}/read": {
+      "post": {
+        "tags": [],
+        "operationId": "mark_read",
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "description": "通知 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "通知已读",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "通知不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2024,6 +2325,7 @@
           "name",
           "baseCurrency",
           "startDate",
+          "inviteMode",
           "status",
           "version",
           "revision",
@@ -2078,6 +2380,9 @@
           "hasAccountingRecords": {
             "type": "boolean"
           },
+          "inviteMode": {
+            "type": "string"
+          },
           "location": {
             "type": [
               "string",
@@ -2129,13 +2434,17 @@
           "location",
           "baseCurrency",
           "startDate",
-          "endDate"
+          "endDate",
+          "inviteMode"
         ],
         "properties": {
           "baseCurrency": {
             "type": "boolean"
           },
           "endDate": {
+            "type": "boolean"
+          },
+          "inviteMode": {
             "type": "boolean"
           },
           "location": {
@@ -2664,6 +2973,17 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CsrfData"
+          }
+        }
+      },
+      "DecideJoinRequestRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string"
           }
         }
       },
@@ -3221,7 +3541,6 @@
         "required": [
           "status",
           "activityId",
-          "memberId",
           "revision"
         ],
         "properties": {
@@ -3229,7 +3548,16 @@
             "type": "string"
           },
           "memberId": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "revision": {
             "type": "string"
@@ -3247,6 +3575,72 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/JoinInvitationData"
+          }
+        }
+      },
+      "JoinRequestData": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "activityId",
+          "applicantUserId",
+          "applicantDisplayName",
+          "status",
+          "createdAt",
+          "revision"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "applicantDisplayName": {
+            "type": "string"
+          },
+          "applicantUserId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "JoinRequestEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JoinRequestData"
+          }
+        }
+      },
+      "JoinRequestListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinRequestData"
+            }
           }
         }
       },
@@ -3347,6 +3741,94 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LogoutData"
+          }
+        }
+      },
+      "NotificationData": {
+        "type": "object",
+        "required": [
+          "notificationId",
+          "kind",
+          "targetType",
+          "targetId",
+          "activityId",
+          "payload",
+          "createdAt"
+        ],
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "notificationId": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "readAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "targetType": {
+            "type": "string"
+          }
+        }
+      },
+      "NotificationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NotificationData"
+          }
+        }
+      },
+      "NotificationListData": {
+        "type": "object",
+        "required": [
+          "items",
+          "unreadCount"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationData"
+            }
+          },
+          "unreadCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "NotificationListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NotificationListData"
           }
         }
       },
@@ -3633,6 +4115,12 @@
             ]
           },
           "endDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inviteMode": {
             "type": [
               "string",
               "null"

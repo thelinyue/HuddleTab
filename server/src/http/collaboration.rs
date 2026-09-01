@@ -448,6 +448,16 @@ pub(crate) async fn join_invitation(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/activities/{activity_id}/join-requests",
+    params(("activity_id" = String, Path, description = "活动 UUID")),
+    responses(
+        (status = 200, description = "Owner 待审批队列", body = JoinRequestListEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无权限", body = super::error::ErrorEnvelope)
+    )
+)]
 pub(crate) async fn list_join_requests(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
@@ -465,6 +475,16 @@ pub(crate) async fn list_join_requests(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/join-requests/{join_request_id}",
+    params(("join_request_id" = String, Path, description = "加入申请 UUID")),
+    responses(
+        (status = 200, description = "申请人自己的加入申请", body = JoinRequestEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 404, description = "申请不存在", body = super::error::ErrorEnvelope)
+    )
+)]
 pub(crate) async fn get_join_request(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
@@ -482,6 +502,24 @@ pub(crate) async fn get_join_request(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/activities/{activity_id}/join-requests/{join_request_id}",
+    params(
+        ("activity_id" = String, Path, description = "活动 UUID"),
+        ("join_request_id" = String, Path, description = "加入申请 UUID"),
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    request_body = DecideJoinRequestRequest,
+    responses(
+        (status = 200, description = "审批结果", body = JoinRequestEnvelope),
+        (status = 400, description = "决策值无效", body = super::error::ErrorEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无权限或 CSRF 无效", body = super::error::ErrorEnvelope),
+        (status = 404, description = "申请不存在", body = super::error::ErrorEnvelope),
+        (status = 409, description = "申请已关闭或审批前置条件失效", body = super::error::ErrorEnvelope)
+    )
+)]
 pub(crate) async fn decide_join_request(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,

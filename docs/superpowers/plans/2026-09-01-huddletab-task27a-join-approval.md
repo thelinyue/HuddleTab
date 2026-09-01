@@ -372,11 +372,11 @@ git commit -m "feat: expose approval notifications"
 - Documents: `inviteMode`, Pending join result, JoinRequest list/self/decision contracts, Notification list/read contracts, 401/403/404/409 responses and CSRF requirements.
 - Produces: generated TypeScript types consumed by Tasks 7–8.
 
-- [ ] **Step 1: Write failing OpenAPI contract tests**
+- [x] **Step 1: Write failing OpenAPI contract tests**
 
 Assert paths and verbs exist, all new DTO schemas are referenced, Activity and Snapshot expose required `inviteMode`, Pending result can omit `memberId` and include `requestId`, and decision/read writes document CSRF plus stable error envelopes.
 
-- [ ] **Step 2: Run RED test**
+- [x] **Step 2: Run RED test**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test openapi
@@ -384,18 +384,18 @@ cargo test --manifest-path server/Cargo.toml --test openapi
 
 Expected: new paths/schemas are absent.
 
-- [ ] **Step 3: Register paths and schemas, then generate artifacts**
+- [x] **Step 3: Register paths and schemas, then generate artifacts**
 
 ```powershell
 cargo run --manifest-path server/Cargo.toml -- openapi --output contracts/openapi.json
 npm --prefix frontend run api:generate
 ```
 
-- [ ] **Step 4: Verify GREEN and deterministic generation**
+- [x] **Step 4: Verify GREEN and deterministic generation**
 
 Run OpenAPI tests. Generate both artifacts a second time and assert `git diff` does not change after the second generation.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add server/src/http/openapi.rs server/tests/openapi.rs contracts/openapi.json frontend/src/api/generated/openapi.ts

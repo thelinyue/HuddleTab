@@ -53,6 +53,14 @@ pub struct NotificationData {
     pub created_at: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/notifications",
+    responses(
+        (status = 200, description = "当前用户通知", body = NotificationListEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope)
+    )
+)]
 pub(crate) async fn list(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
@@ -76,6 +84,20 @@ pub(crate) async fn list(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/notifications/{notification_id}/read",
+    params(
+        ("notification_id" = String, Path, description = "通知 UUID"),
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    responses(
+        (status = 200, description = "通知已读", body = NotificationEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 无效", body = super::error::ErrorEnvelope),
+        (status = 404, description = "通知不存在", body = super::error::ErrorEnvelope)
+    )
+)]
 pub(crate) async fn mark_read(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,

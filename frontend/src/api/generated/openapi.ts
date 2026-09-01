@@ -116,6 +116,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/join-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_join_requests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activities/{activity_id}/join-requests/{join_request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decide_join_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/ledger": {
         parameters: {
             query?: never;
@@ -405,6 +437,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/join-requests/{join_request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_join_request"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/password": {
         parameters: {
             query?: never;
@@ -415,6 +463,38 @@ export interface paths {
         get?: never;
         put: operations["change_password"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["mark_read"];
         delete?: never;
         options?: never;
         head?: never;
@@ -437,6 +517,7 @@ export interface components {
             endDate?: string | null;
             fieldPermissions: components["schemas"]["ActivityFieldPermissionsData"];
             hasAccountingRecords: boolean;
+            inviteMode: string;
             location?: string | null;
             name: string;
             ownerMemberId: string;
@@ -453,6 +534,7 @@ export interface components {
         ActivityFieldPermissionsData: {
             baseCurrency: boolean;
             endDate: boolean;
+            inviteMode: boolean;
             location: boolean;
             name: boolean;
             startDate: boolean;
@@ -583,6 +665,9 @@ export interface components {
         };
         CsrfEnvelope: {
             data: components["schemas"]["CsrfData"];
+        };
+        DecideJoinRequestRequest: {
+            decision: string;
         };
         DeleteExpenseRequest: {
             version: string;
@@ -724,12 +809,29 @@ export interface components {
         };
         JoinInvitationData: {
             activityId: string;
-            memberId: string;
+            memberId?: string | null;
+            requestId?: string | null;
             revision: string;
             status: string;
         };
         JoinInvitationEnvelope: {
             data: components["schemas"]["JoinInvitationData"];
+        };
+        JoinRequestData: {
+            activityId: string;
+            applicantDisplayName: string;
+            applicantUserId: string;
+            createdAt: string;
+            decidedAt?: string | null;
+            requestId: string;
+            revision: string;
+            status: string;
+        };
+        JoinRequestEnvelope: {
+            data: components["schemas"]["JoinRequestData"];
+        };
+        JoinRequestListEnvelope: {
+            data: components["schemas"]["JoinRequestData"][];
         };
         LedgerData: {
             balances: components["schemas"]["BalanceData"][];
@@ -756,6 +858,28 @@ export interface components {
         };
         LogoutEnvelope: {
             data: components["schemas"]["LogoutData"];
+        };
+        NotificationData: {
+            activityId: string;
+            createdAt: string;
+            kind: string;
+            notificationId: string;
+            payload: {
+                [key: string]: string;
+            };
+            readAt?: string | null;
+            targetId: string;
+            targetType: string;
+        };
+        NotificationEnvelope: {
+            data: components["schemas"]["NotificationData"];
+        };
+        NotificationListData: {
+            items: components["schemas"]["NotificationData"][];
+            unreadCount: number;
+        };
+        NotificationListEnvelope: {
+            data: components["schemas"]["NotificationListData"];
         };
         RecommendationData: {
             baseCurrency: string;
@@ -829,6 +953,7 @@ export interface components {
         UpdateActivityRequest: {
             baseCurrency?: string | null;
             endDate?: string | null;
+            inviteMode?: string | null;
             location?: string | null;
             name?: string | null;
             startDate?: string | null;
@@ -1476,6 +1601,124 @@ export interface operations {
                 headers: {
                     /** @description 等待秒数 */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_join_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner 待审批队列 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinRequestListEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无权限 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    decide_join_request: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+                /** @description 加入申请 UUID */
+                join_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideJoinRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description 审批结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinRequestEnvelope"];
+                };
+            };
+            /** @description 决策值无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无权限或 CSRF 无效 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 申请不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 申请已关闭或审批前置条件失效 */
+            409: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {
@@ -2364,6 +2607,47 @@ export interface operations {
             };
         };
     };
+    get_join_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 加入申请 UUID */
+                join_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 申请人自己的加入申请 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinRequestEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 申请不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     change_password: {
         parameters: {
             query?: never;
@@ -2418,6 +2702,88 @@ export interface operations {
                 headers: {
                     /** @description 等待秒数 */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 当前用户通知 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationListEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    mark_read: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 通知 UUID */
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 通知已读 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 无效 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 通知不存在 */
+            404: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

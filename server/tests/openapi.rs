@@ -95,6 +95,80 @@ fn activity_snapshot_publishes_conditional_get_contract() {
 }
 
 #[test]
+fn join_approval_and_notification_contract_is_complete() {
+    let document = huddletab_server::http::openapi::document();
+    let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
+
+    for (path, method) in [
+        ("/api/activities/{activity_id}/join-requests", "get"),
+        (
+            "/api/activities/{activity_id}/join-requests/{join_request_id}",
+            "post",
+        ),
+        ("/api/join-requests/{join_request_id}", "get"),
+        ("/api/notifications", "get"),
+        ("/api/notifications/{notification_id}/read", "post"),
+    ] {
+        assert!(
+            value["paths"][path][method].is_object(),
+            "contract 缺少 {method} {path}",
+        );
+    }
+    for schema in [
+        "JoinRequestData",
+        "JoinRequestEnvelope",
+        "JoinRequestListEnvelope",
+        "DecideJoinRequestRequest",
+        "NotificationData",
+        "NotificationEnvelope",
+        "NotificationListData",
+        "NotificationListEnvelope",
+    ] {
+        assert!(
+            value["components"]["schemas"][schema].is_object(),
+            "contract 缺少 schema {schema}",
+        );
+    }
+
+    let activity = &value["components"]["schemas"]["ActivityData"]["properties"];
+    assert!(activity["inviteMode"].is_object());
+    let join_result = &value["components"]["schemas"]["JoinInvitationData"];
+    assert!(join_result["properties"]["memberId"].is_object());
+    assert!(join_result["properties"]["requestId"].is_object());
+    assert!(
+        !join_result["required"]
+            .as_array()
+            .expect("JoinInvitationData 应声明 required")
+            .iter()
+            .any(|field| field == "memberId" || field == "requestId")
+    );
+
+    for (path, error_status) in [
+        (
+            "/api/activities/{activity_id}/join-requests/{join_request_id}",
+            "409",
+        ),
+        ("/api/notifications/{notification_id}/read", "404"),
+    ] {
+        let operation = &value["paths"][path]["post"];
+        let csrf = operation["parameters"]
+            .as_array()
+            .and_then(|parameters| {
+                parameters
+                    .iter()
+                    .find(|parameter| parameter["name"] == "x-csrf-token")
+            })
+            .expect("写操作应发布 CSRF header");
+        assert_eq!(csrf["in"], "header");
+        assert_eq!(csrf["required"], true);
+        assert_eq!(
+            operation["responses"][error_status]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/ErrorEnvelope"
+        );
+    }
+}
+
+#[test]
 // 合同测试集中核对同一 OpenAPI 文档的路径、查询参数和 schema，保持断言上下文连续。
 #[allow(clippy::too_many_lines)]
 fn document_contains_phase1_auth_and_activity_routes() {
