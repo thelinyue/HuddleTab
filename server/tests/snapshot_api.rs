@@ -312,6 +312,46 @@ async fn snapshot_returns_complete_authorized_data_and_weak_etag() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn invite_mode_revision_invalidates_snapshot_etag() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+
+    let (status, headers, bytes) = raw_response(
+        &context,
+        snapshot_request(&context, &context.owner_session, None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[ETAG], "W/\"7\"");
+    let initial: Value = serde_json::from_slice(&bytes).expect("响应应为 JSON");
+    assert_eq!(initial["data"]["activity"]["inviteMode"], "DIRECT_JOIN");
+
+    sqlx::query(
+        "UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL', revision = 8,
+         version = version + 1, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(context.activity_id)
+    .execute(&context.pool)
+    .await
+    .expect("应修改邀请模式并推进 revision");
+
+    let (status, headers, bytes) = raw_response(
+        &context,
+        snapshot_request(&context, &context.owner_session, Some("W/\"7\"")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[ETAG], "W/\"8\"");
+    let modified: Value = serde_json::from_slice(&bytes).expect("响应应为 JSON");
+    assert_eq!(modified["data"]["revision"], "8");
+    assert_eq!(
+        modified["data"]["activity"]["inviteMode"],
+        "REQUIRE_APPROVAL"
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn snapshot_keeps_revision_and_facts_in_one_repeatable_read_view() {
     let _guard = DATABASE_TEST_LOCK.lock().await;
     let context = seed_context().await;

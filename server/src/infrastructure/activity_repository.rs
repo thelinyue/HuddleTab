@@ -12,24 +12,26 @@ use crate::{
     domain::activity::{ActivityCapabilities, ActivityPeriod, ActivityStatus},
 };
 
-type ActivityRow = (
-    Uuid,
-    Uuid,
-    String,
-    Option<String>,
-    String,
-    Date,
-    Option<Date>,
-    String,
-    i64,
-    i64,
-    Uuid,
-    String,
-    Option<OffsetDateTime>,
-    Option<OffsetDateTime>,
-    bool,
-    Option<Date>,
-);
+#[derive(sqlx::FromRow)]
+struct ActivityRow {
+    activity_id: Uuid,
+    owner_member_id: Uuid,
+    name: String,
+    location: Option<String>,
+    base_currency: String,
+    start_date: Date,
+    end_date: Option<Date>,
+    status: String,
+    version: i64,
+    revision: i64,
+    current_member_id: Uuid,
+    current_member_role: String,
+    deleted_at: Option<OffsetDateTime>,
+    purge_after: Option<OffsetDateTime>,
+    has_accounting_records: bool,
+    earliest_expense_date: Option<Date>,
+    invite_mode: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct PostgresActivityRepository {
@@ -104,6 +106,7 @@ impl ActivityRepository for PostgresActivityRepository {
             base_currency: activity.base_currency,
             start_date: activity.start_date,
             end_date: activity.end_date,
+            invite_mode: "DIRECT_JOIN".to_owned(),
             version: 1,
             revision: 1,
         })
@@ -114,13 +117,13 @@ impl ActivityRepository for PostgresActivityRepository {
         user_id: Uuid,
     ) -> Result<Vec<ActivityView>, ActivityRepositoryError> {
         let rows = sqlx::query_as::<_, ActivityRow>(
-            "SELECT a.id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id, member.role, \
+            "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
+             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
-              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)), \
+              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
-              WHERE e.activity_id = a.id) FROM activities a \
+              WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE member.user_id = $1 AND member.status = 'ACTIVE' AND a.deleted_at IS NULL \
              ORDER BY a.updated_at DESC, a.id",
@@ -138,13 +141,13 @@ impl ActivityRepository for PostgresActivityRepository {
         now: OffsetDateTime,
     ) -> Result<Vec<ActivityView>, ActivityRepositoryError> {
         let rows = sqlx::query_as::<_, ActivityRow>(
-            "SELECT a.id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id, member.role, \
+            "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
+             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
-              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)), \
+              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
-              WHERE e.activity_id = a.id) FROM activities a \
+              WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE member.user_id = $1 AND member.status = 'ACTIVE' AND member.role = 'OWNER' \
              AND a.deleted_at IS NOT NULL AND a.purge_after > $2 \
@@ -164,13 +167,13 @@ impl ActivityRepository for PostgresActivityRepository {
         user_id: Uuid,
     ) -> Result<ActivityView, ActivityRepositoryError> {
         let row = sqlx::query_as::<_, ActivityRow>(
-            "SELECT a.id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id, member.role, \
+            "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
+             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
-              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)), \
+              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
-              WHERE e.activity_id = a.id) FROM activities a \
+              WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' \
              AND a.deleted_at IS NULL",
@@ -258,6 +261,9 @@ impl ActivityRepository for PostgresActivityRepository {
             .unwrap_or_else(|| current.base_currency.clone());
         let next_start = update.start_date.unwrap_or(current.start_date);
         let next_end = update.end_date.unwrap_or(current.end_date);
+        let next_invite_mode = update
+            .invite_mode
+            .unwrap_or_else(|| current.invite_mode.clone());
         ActivityPeriod::new(next_start, next_end)
             .map_err(|_| ActivityRepositoryError::FieldLocked)?;
 
@@ -266,6 +272,7 @@ impl ActivityRepository for PostgresActivityRepository {
         let changed_currency = next_currency != current.base_currency;
         let changed_start = next_start != current.start_date;
         let changed_end = next_end != current.end_date;
+        let changed_invite_mode = next_invite_mode != current.invite_mode;
         if changed_currency && current.has_accounting_records {
             return Err(ActivityRepositoryError::BaseCurrencyLocked);
         }
@@ -274,10 +281,16 @@ impl ActivityRepository for PostgresActivityRepository {
             || (changed_currency && !capabilities.fields.base_currency)
             || (changed_start && !capabilities.fields.start_date)
             || (changed_end && !capabilities.fields.end_date)
+            || (changed_invite_mode && !capabilities.fields.invite_mode)
         {
             return Err(ActivityRepositoryError::FieldLocked);
         }
-        if !changed_name && !changed_location && !changed_currency && !changed_start && !changed_end
+        if !changed_name
+            && !changed_location
+            && !changed_currency
+            && !changed_start
+            && !changed_end
+            && !changed_invite_mode
         {
             transaction.commit().await.map_err(log_repository_error)?;
             return Ok(ActivityMutationResult {
@@ -292,17 +305,19 @@ impl ActivityRepository for PostgresActivityRepository {
             "baseCurrency": changed_currency.then_some(serde_json::json!({"before": current.base_currency, "after": next_currency})),
             "startDate": changed_start.then_some(serde_json::json!({"before": current.start_date.to_string(), "after": next_start.to_string()})),
             "endDate": changed_end.then_some(serde_json::json!({"before": current.end_date.map(|value| value.to_string()), "after": next_end.map(|value| value.to_string())})),
+            "inviteMode": changed_invite_mode.then_some(serde_json::json!({"before": current.invite_mode, "after": next_invite_mode})),
         });
         let revision = sqlx::query_scalar::<_, i64>(
             "UPDATE activities SET name = $1, location = $2, base_currency = $3, \
-             start_date = $4, end_date = $5, version = version + 1, revision = revision + 1, \
-             updated_at = $6 WHERE id = $7 RETURNING revision",
+             start_date = $4, end_date = $5, invite_mode = $6, version = version + 1, \
+             revision = revision + 1, updated_at = $7 WHERE id = $8 RETURNING revision",
         )
         .bind(&next_name)
         .bind(&next_location)
         .bind(&next_currency)
         .bind(next_start)
         .bind(next_end)
+        .bind(&next_invite_mode)
         .bind(update.now)
         .bind(update.activity_id)
         .fetch_one(&mut *transaction)
@@ -337,6 +352,7 @@ impl ActivityRepository for PostgresActivityRepository {
         current.base_currency = next_currency;
         current.start_date = next_start;
         current.end_date = next_end;
+        current.invite_mode = next_invite_mode;
         current.version += 1;
         current.revision = revision;
         transaction.commit().await.map_err(log_repository_error)?;
@@ -526,13 +542,13 @@ async fn lock_activity(
     actor_user_id: Uuid,
 ) -> Result<ActivityView, ActivityRepositoryError> {
     let row = sqlx::query_as::<_, ActivityRow>(
-        "SELECT a.id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-         a.end_date, a.status, a.version, a.revision, member.id, member.role, \
+        "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
+         a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
          a.deleted_at, a.purge_after, \
          (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
-          OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)), \
+          OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
          (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
-          WHERE e.activity_id = a.id) FROM activities a \
+          WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
          JOIN activity_members member ON member.activity_id = a.id \
          WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' FOR UPDATE OF a",
     )
@@ -559,21 +575,22 @@ fn log_read_error(error: sqlx::Error) -> ActivityRepositoryError {
 
 fn activity_from_row(row: ActivityRow) -> ActivityView {
     ActivityView {
-        activity_id: row.0,
-        owner_member_id: row.1,
-        name: row.2,
-        location: row.3,
-        base_currency: row.4.trim().to_owned(),
-        start_date: row.5,
-        end_date: row.6,
-        status: row.7,
-        version: row.8,
-        revision: row.9,
-        current_member_id: row.10,
-        current_member_role: row.11,
-        deleted_at: row.12,
-        purge_after: row.13,
-        has_accounting_records: row.14,
-        earliest_expense_date: row.15,
+        activity_id: row.activity_id,
+        owner_member_id: row.owner_member_id,
+        name: row.name,
+        location: row.location,
+        base_currency: row.base_currency.trim().to_owned(),
+        start_date: row.start_date,
+        end_date: row.end_date,
+        status: row.status,
+        version: row.version,
+        revision: row.revision,
+        current_member_id: row.current_member_id,
+        current_member_role: row.current_member_role,
+        deleted_at: row.deleted_at,
+        purge_after: row.purge_after,
+        has_accounting_records: row.has_accounting_records,
+        earliest_expense_date: row.earliest_expense_date,
+        invite_mode: row.invite_mode,
     }
 }

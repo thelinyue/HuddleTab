@@ -244,6 +244,7 @@ pub struct ActivityFieldPermissions {
     pub base_currency: bool,
     pub start_date: bool,
     pub end_date: bool,
+    pub invite_mode: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -279,6 +280,7 @@ impl ActivityCapabilities {
                 base_currency: !has_accounting_records,
                 start_date: true,
                 end_date: true,
+                invite_mode: true,
             },
             ActivityStatus::Ended | ActivityStatus::Archived => ActivityFieldPermissions::default(),
         };

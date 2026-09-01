@@ -95,6 +95,7 @@ fn activity_capabilities_follow_role_lifecycle_and_accounting_facts() {
     assert!(active.fields.base_currency);
     assert!(active.fields.start_date);
     assert!(active.fields.end_date);
+    assert!(active.fields.invite_mode);
     assert_eq!(active.lifecycle_actions, vec![ActivityAction::End]);
     assert!(active.can_delete);
     assert!(!active.can_restore);
@@ -109,6 +110,7 @@ fn activity_capabilities_follow_role_lifecycle_and_accounting_facts() {
     assert!(!ended.fields.base_currency);
     assert!(!ended.fields.start_date);
     assert!(!ended.fields.end_date);
+    assert!(!ended.fields.invite_mode);
     assert_eq!(
         ended.lifecycle_actions,
         vec![ActivityAction::Reopen, ActivityAction::Archive]
@@ -122,6 +124,7 @@ fn activity_capabilities_follow_role_lifecycle_and_accounting_facts() {
     assert!(member.lifecycle_actions.is_empty());
     assert!(!member.can_delete);
     assert!(!member.fields.name);
+    assert!(!member.fields.invite_mode);
 
     let deleted = ActivityCapabilities::for_actor(true, ActivityStatus::Ended, true, true);
     assert!(deleted.lifecycle_actions.is_empty());

@@ -294,6 +294,69 @@ async fn owner_update_is_versioned_and_noop_has_no_side_effects() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn invite_mode_update_advances_once_and_noop_has_no_side_effects() {
+    let (pool, app, session, csrf, _) = seed_authenticated_actor().await;
+    let created = create_activity(app.clone(), &session, &csrf).await;
+    let activity_id = created["activityId"].as_str().expect("应返回 activityId");
+    assert_eq!(created["inviteMode"], "DIRECT_JOIN");
+    assert_eq!(created["fieldPermissions"]["inviteMode"], true);
+
+    let (status, updated) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "PUT",
+            &format!("/api/activities/{activity_id}"),
+            r#"{"version":"1","inviteMode":"REQUIRE_APPROVAL"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["data"]["inviteMode"], "REQUIRE_APPROVAL");
+    assert_eq!(updated["data"]["version"], "2");
+    assert_eq!(updated["data"]["revision"], "2");
+
+    let (status, unchanged) = json_response(
+        app,
+        authenticated_request(
+            &session,
+            &csrf,
+            "PUT",
+            &format!("/api/activities/{activity_id}"),
+            r#"{"version":"2","inviteMode":"REQUIRE_APPROVAL"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(unchanged["data"]["version"], "2");
+    assert_eq!(unchanged["data"]["revision"], "2");
+
+    let activity_id = Uuid::parse_str(activity_id).expect("activityId 应为 UUID");
+    let stored = sqlx::query_as::<_, (String, i64, i64, i64)>(
+        "SELECT invite_mode, version, revision,
+         (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1)
+         FROM activities WHERE id = $1",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取邀请模式副作用");
+    assert_eq!(stored, ("REQUIRE_APPROVAL".to_owned(), 2, 2, 2));
+    let details: Value = sqlx::query_scalar(
+        "SELECT details FROM activity_audit_logs
+         WHERE activity_id = $1 AND action = 'ACTIVITY_UPDATED'",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("邀请模式变化应写入 Audit 详情");
+    assert_eq!(details["inviteMode"]["before"], "DIRECT_JOIN");
+    assert_eq!(details["inviteMode"]["after"], "REQUIRE_APPROVAL");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 // 生命周期、删除与恢复共享同一活动版本链，单场景才能验证状态和乐观锁连续性。
 #[allow(clippy::too_many_lines)]
 async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {

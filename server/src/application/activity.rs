@@ -7,7 +7,7 @@ use crate::{
     application::ports::Clock,
     domain::{
         activity::{
-            ActivityAction, ActivityName, ActivityPeriod, normalize_activity_location,
+            ActivityAction, ActivityName, ActivityPeriod, InviteMode, normalize_activity_location,
             parse_activity_date,
         },
         currency::Currency,
@@ -48,6 +48,7 @@ pub struct CreatedActivity {
     pub base_currency: String,
     pub start_date: Date,
     pub end_date: Option<Date>,
+    pub invite_mode: String,
     pub version: i64,
     pub revision: i64,
 }
@@ -61,6 +62,7 @@ pub struct ActivityView {
     pub base_currency: String,
     pub start_date: Date,
     pub end_date: Option<Date>,
+    pub invite_mode: String,
     pub status: String,
     pub version: i64,
     pub revision: i64,
@@ -164,6 +166,7 @@ pub struct ActivityUpdate {
     pub base_currency: Option<String>,
     pub start_date: Option<Date>,
     pub end_date: Option<Option<Date>>,
+    pub invite_mode: Option<String>,
     pub now: OffsetDateTime,
 }
 
@@ -183,6 +186,7 @@ pub struct UpdateActivityInput {
     pub base_currency: Option<String>,
     pub start_date: Option<String>,
     pub end_date: Option<Option<String>>,
+    pub invite_mode: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -380,6 +384,7 @@ pub async fn update_activity(
         && input.base_currency.is_none()
         && input.start_date.is_none()
         && input.end_date.is_none()
+        && input.invite_mode.is_none()
     {
         return Err(UpdateActivityError::InvalidInput);
     }
@@ -420,6 +425,13 @@ pub async fn update_activity(
         .map(|value| value.as_deref().map(parse_activity_date).transpose())
         .transpose()
         .map_err(|_| UpdateActivityError::InvalidInput)?;
+    let invite_mode = input
+        .invite_mode
+        .as_deref()
+        .map(InviteMode::parse)
+        .transpose()
+        .map_err(|_| UpdateActivityError::InvalidInput)?
+        .map(|value| value.as_str().to_owned());
 
     repository
         .update(ActivityUpdate {
@@ -431,6 +443,7 @@ pub async fn update_activity(
             base_currency,
             start_date,
             end_date,
+            invite_mode,
             now: clock.now(),
         })
         .await

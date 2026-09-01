@@ -157,11 +157,11 @@ git commit -m "feat: add join approval schema and rules"
 - Extends: `CreateActivityRequest`, `UpdateActivityRequest`, and `ActivityData` with camel-case `inviteMode`.
 - Guarantees: omitted create value defaults to `DIRECT_JOIN`; update accepts only frozen values; no-op mode update does not advance version/revision/Audit.
 
-- [ ] **Step 1: Write failing API and Snapshot tests**
+- [x] **Step 1: Write failing API and Snapshot tests**
 
 Add focused cases that create an Activity and assert `inviteMode == "DIRECT_JOIN"`; update it using its current version and assert `REQUIRE_APPROVAL`, version +1, revision +1, one `ACTIVITY_UPDATED` Audit; repeat the same PUT and assert version/revision/Audit unchanged. Fetch Snapshot before and after the first change and assert Activity data and weak ETag both change.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test activity_api invite_mode_ -- --ignored --test-threads=1
@@ -170,11 +170,11 @@ cargo test --manifest-path server/Cargo.toml --test snapshot_api invite_mode_ --
 
 Expected: response fields or update input are missing.
 
-- [ ] **Step 3: Thread invite mode through existing Activity paths**
+- [x] **Step 3: Thread invite mode through existing Activity paths**
 
 Parse with the domain type in application code, include `invite_mode` in all Activity repository selects/inserts/updates, and include it in `ActivityData` so Snapshot automatically uses the same DTO mapping. Treat `inviteMode` as Owner-editable even when accounting records exist; keep lifecycle and base-currency locks unchanged.
 
-- [ ] **Step 4: Run GREEN and regression tests**
+- [x] **Step 4: Run GREEN and regression tests**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test activity_api invite_mode_ -- --ignored --test-threads=1
@@ -185,7 +185,7 @@ cargo test --manifest-path server/Cargo.toml --test snapshot_api -- --ignored --
 
 Expected: focused and existing Activity/Snapshot integration tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add server/src/application/activity.rs server/src/infrastructure/activity_repository.rs server/src/infrastructure/snapshot_repository.rs server/src/http/activity.rs server/src/http/snapshot.rs server/tests/activity_api.rs server/tests/snapshot_api.rs

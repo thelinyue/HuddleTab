@@ -18,24 +18,26 @@ use crate::{
     },
 };
 
-type ActivityRow = (
-    Uuid,
-    Uuid,
-    String,
-    Option<String>,
-    String,
-    Date,
-    Option<Date>,
-    String,
-    i64,
-    i64,
-    Uuid,
-    String,
-    Option<OffsetDateTime>,
-    Option<OffsetDateTime>,
-    bool,
-    Option<Date>,
-);
+#[derive(sqlx::FromRow)]
+struct ActivityRow {
+    activity_id: Uuid,
+    owner_member_id: Uuid,
+    name: String,
+    location: Option<String>,
+    base_currency: String,
+    start_date: Date,
+    end_date: Option<Date>,
+    status: String,
+    version: i64,
+    revision: i64,
+    current_member_id: Uuid,
+    current_member_role: String,
+    deleted_at: Option<OffsetDateTime>,
+    purge_after: Option<OffsetDateTime>,
+    has_accounting_records: bool,
+    earliest_expense_date: Option<Date>,
+    invite_mode: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct PostgresSnapshotRepository {
@@ -65,13 +67,13 @@ impl SnapshotRepository for PostgresSnapshotRepository {
             .await
             .map_err(log_repository_error)?;
         let row = sqlx::query_as::<_, ActivityRow>(
-            "SELECT a.id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id, member.role, \
+            "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
+             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
-              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)), \
+              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
-              WHERE e.activity_id = a.id) FROM activities a \
+              WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' \
              AND a.deleted_at IS NULL",
@@ -195,22 +197,23 @@ impl SnapshotRepository for PostgresSnapshotRepository {
 
 fn activity_from_row(row: ActivityRow) -> ActivityView {
     ActivityView {
-        activity_id: row.0,
-        owner_member_id: row.1,
-        name: row.2,
-        location: row.3,
-        base_currency: row.4.trim().to_owned(),
-        start_date: row.5,
-        end_date: row.6,
-        status: row.7,
-        version: row.8,
-        revision: row.9,
-        current_member_id: row.10,
-        current_member_role: row.11,
-        deleted_at: row.12,
-        purge_after: row.13,
-        has_accounting_records: row.14,
-        earliest_expense_date: row.15,
+        activity_id: row.activity_id,
+        owner_member_id: row.owner_member_id,
+        name: row.name,
+        location: row.location,
+        base_currency: row.base_currency.trim().to_owned(),
+        start_date: row.start_date,
+        end_date: row.end_date,
+        status: row.status,
+        version: row.version,
+        revision: row.revision,
+        current_member_id: row.current_member_id,
+        current_member_role: row.current_member_role,
+        deleted_at: row.deleted_at,
+        purge_after: row.purge_after,
+        has_accounting_records: row.has_accounting_records,
+        earliest_expense_date: row.earliest_expense_date,
+        invite_mode: row.invite_mode,
     }
 }
 

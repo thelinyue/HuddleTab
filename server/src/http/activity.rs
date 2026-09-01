@@ -53,6 +53,7 @@ pub struct UpdateActivityRequest {
     pub start_date: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_field")]
     pub end_date: Option<Option<String>>,
+    pub invite_mode: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -112,6 +113,7 @@ pub struct ActivityData {
     pub base_currency: String,
     pub start_date: String,
     pub end_date: Option<String>,
+    pub invite_mode: String,
     pub status: String,
     pub version: String,
     pub revision: String,
@@ -136,6 +138,7 @@ pub struct ActivityFieldPermissionsData {
     pub base_currency: bool,
     pub start_date: bool,
     pub end_date: bool,
+    pub invite_mode: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -210,6 +213,7 @@ pub(crate) async fn create(
                 base_currency: activity.base_currency,
                 start_date: activity.start_date.to_string(),
                 end_date: activity.end_date.map(|value| value.to_string()),
+                invite_mode: activity.invite_mode,
                 status: "ACTIVE".to_owned(),
                 version: activity.version.to_string(),
                 revision: activity.revision.to_string(),
@@ -224,6 +228,7 @@ pub(crate) async fn create(
                     base_currency: true,
                     start_date: true,
                     end_date: true,
+                    invite_mode: true,
                 },
                 allowed_lifecycle_actions: vec!["END".to_owned()],
                 can_delete: true,
@@ -332,6 +337,7 @@ pub(crate) async fn update(
             base_currency: request.base_currency,
             start_date: request.start_date,
             end_date: request.end_date,
+            invite_mode: request.invite_mode,
         },
     )
     .await
@@ -502,6 +508,7 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
         base_currency: activity.base_currency,
         start_date: activity.start_date.to_string(),
         end_date: activity.end_date.map(|value| value.to_string()),
+        invite_mode: activity.invite_mode,
         status: activity.status,
         version: activity.version.to_string(),
         revision: activity.revision.to_string(),
@@ -516,6 +523,7 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
             base_currency: capabilities.fields.base_currency,
             start_date: capabilities.fields.start_date,
             end_date: capabilities.fields.end_date,
+            invite_mode: capabilities.fields.invite_mode,
         },
         allowed_lifecycle_actions: capabilities
             .lifecycle_actions
