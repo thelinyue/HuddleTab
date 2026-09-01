@@ -1,11 +1,17 @@
+import "fake-indexeddb/auto";
+
 import { useQueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { deleteDB } from "idb";
 import { useRef } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiClient, AUTH_EXPIRED_EVENT } from "../api/client";
 import { clearCsrfToken, csrfToken } from "../api/csrf";
 import { queryKeys } from "../api/query-keys";
+import { databaseName } from "../pwa/indexed-db/database";
+import { MutationRepository } from "../pwa/indexed-db/mutation-repository";
+import { pendingMutationFixture } from "../pwa/indexed-db/test-fixtures";
 import { AppProviders } from "./providers";
 import { ApplicationRouter } from "./router";
 
@@ -68,14 +74,33 @@ function QueryClientCapture() {
   return null;
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   clearCsrfToken();
   mountedQueryClient = undefined;
   vi.restoreAllMocks();
+  await deleteDB(databaseName("user-1"));
 });
 
 describe("AppProviders 全局 401", () => {
+  it("全局 401 清理认证缓存但保留当前用户 pending queue", async () => {
+    const repository = new MutationRepository("user-1");
+    await repository.put(pendingMutationFixture("expired-pending"));
+    render(
+      <AppProviders>
+        <QueryClientCapture />
+      </AppProviders>,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+      await Promise.resolve();
+    });
+
+    expect(mountedQueryClient?.getQueryData(queryKeys.session)).toBeNull();
+    expect(await repository.get("expired-pending")).toBeDefined();
+  });
+
   it("登录失效后取消进行中的 Session 查询，迟到结果不能恢复旧用户", async () => {
     render(
       <AppProviders>

@@ -1,9 +1,13 @@
+import "fake-indexeddb/auto";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
+import { deleteDB } from "idb";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const client = vi.hoisted(() => ({
+  POST: vi.fn(),
   PUT: vi.fn(),
 }));
 const csrf = vi.hoisted(() => ({
@@ -14,7 +18,10 @@ const csrf = vi.hoisted(() => ({
 vi.mock("../../api/client", () => ({ apiClient: client }));
 vi.mock("../../api/csrf", () => csrf);
 
-import { useChangePasswordMutation } from "./api";
+import { databaseName } from "../../pwa/indexed-db/database";
+import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
+import { pendingMutationFixture } from "../../pwa/indexed-db/test-fixtures";
+import { useChangePasswordMutation, useLogoutMutation } from "./api";
 
 function wrapper({ children }: PropsWithChildren) {
   const queryClient = new QueryClient({
@@ -23,9 +30,10 @@ function wrapper({ children }: PropsWithChildren) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
-afterEach(() => {
+afterEach(async () => {
   vi.clearAllMocks();
   csrf.mutationHeaders.mockResolvedValue({ "X-CSRF-Token": "csrf-token" });
+  await deleteDB(databaseName("user-1"));
 });
 
 describe("useChangePasswordMutation", () => {
@@ -76,5 +84,23 @@ describe("useChangePasswordMutation", () => {
     });
 
     expect(csrf.clearCsrfToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("useLogoutMutation", () => {
+  it("退出登录只清理内存认证状态并保留 pending queue", async () => {
+    const repository = new MutationRepository("user-1");
+    await repository.put(pendingMutationFixture("logout-pending"));
+    client.POST.mockResolvedValue({
+      data: { data: { loggedOut: true } },
+      response: new Response(null, { status: 200 }),
+    });
+    const { result } = renderHook(() => useLogoutMutation(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync();
+    });
+
+    expect(await repository.get("logout-pending")).toBeDefined();
   });
 });
