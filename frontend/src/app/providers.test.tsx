@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiClient } from "../api/client";
+import { apiClient, AUTH_EXPIRED_EVENT } from "../api/client";
 import { clearCsrfToken, csrfToken } from "../api/csrf";
 import { queryKeys } from "../api/query-keys";
 import { AppProviders } from "./providers";
@@ -47,6 +47,14 @@ function unauthorizedResponse(message = "当前登录已失效，请重新登录
 
 let mountedQueryClient: ReturnType<typeof useQueryClient> | undefined;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function QueryClientCapture() {
   const queryClient = useQueryClient();
   const seeded = useRef(false);
@@ -68,6 +76,41 @@ afterEach(() => {
 });
 
 describe("AppProviders 全局 401", () => {
+  it("登录失效后取消进行中的 Session 查询，迟到结果不能恢复旧用户", async () => {
+    render(
+      <AppProviders>
+        <QueryClientCapture />
+      </AppProviders>,
+    );
+
+    const lateSession = {
+      userId: "user-late",
+      username: "late-user",
+      displayName: "迟到用户",
+    };
+    const pendingSession = deferred<typeof lateSession>();
+    const sessionFetch = mountedQueryClient?.fetchQuery({
+      queryKey: queryKeys.session,
+      queryFn: () => pendingSession.promise,
+      staleTime: 0,
+    }).catch(() => undefined);
+
+    await waitFor(() => {
+      expect(mountedQueryClient?.getQueryState(queryKeys.session)?.fetchStatus).toBe("fetching");
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+      await Promise.resolve();
+    });
+    expect(mountedQueryClient?.getQueryData(queryKeys.session)).toBeNull();
+
+    await act(async () => {
+      pendingSession.resolve(lateSession);
+      await sessionFetch;
+    });
+    expect(mountedQueryClient?.getQueryData(queryKeys.session)).toBeNull();
+  });
+
   it("受保护请求失效后同步清理挂载 Session、其他缓存和 CSRF", async () => {
     render(
       <AppProviders>

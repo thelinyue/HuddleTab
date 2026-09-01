@@ -23,9 +23,10 @@ export function AppProviders({ children }: PropsWithChildren) {
   );
 
   useEffect(() => {
-    const clearAuthenticatedState = () => {
+    const clearAuthenticatedState = async () => {
       clearCsrfToken();
-      // 活跃 observer 不会因 clear 自动丢弃旧 data，必须先发布匿名 Session，再删除其他用户缓存。
+      // 先取消精确的 Session 查询，避免旧请求在匿名状态发布后把已失效用户写回缓存。
+      await queryClient.cancelQueries({ queryKey: queryKeys.session, exact: true });
       queryClient.setQueryData(queryKeys.session, null);
       const sessionQuery = queryClient.getQueryCache().find({
         queryKey: queryKeys.session,
@@ -33,9 +34,14 @@ export function AppProviders({ children }: PropsWithChildren) {
       });
       queryClient.removeQueries({ predicate: (query) => query !== sessionQuery });
     };
-    window.addEventListener(AUTH_EXPIRED_EVENT, clearAuthenticatedState);
-    return () =>
-      window.removeEventListener(AUTH_EXPIRED_EVENT, clearAuthenticatedState);
+    const handleAuthenticatedStateExpired = () => {
+      void clearAuthenticatedState();
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthenticatedStateExpired);
+    return () => window.removeEventListener(
+      AUTH_EXPIRED_EVENT,
+      handleAuthenticatedStateExpired,
+    );
   }, [queryClient]);
 
   return (

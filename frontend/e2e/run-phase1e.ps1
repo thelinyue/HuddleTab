@@ -143,7 +143,7 @@ try {
   $composeAttempted = $true
   Invoke-Compose "build app" | Out-Null
   $prepareDataScriptWsl = ConvertTo-WslPath (Join-Path $repoDir "scripts/prepare-data-dir.sh")
-  Invoke-Wsl -ArgumentList @("sh", $prepareDataScriptWsl, "-p", $composeProject, "-f", $script:composeFileWsl) -Quiet | Out-Null
+  Invoke-Wsl -ArgumentList @("sh", $prepareDataScriptWsl, "--project-name", $composeProject) -Quiet | Out-Null
   Invoke-Compose "up -d --wait" | Out-Null
   Wait-Health $baseUrl
 

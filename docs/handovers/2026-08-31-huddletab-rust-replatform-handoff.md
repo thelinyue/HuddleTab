@@ -4,9 +4,9 @@
 
 ## 1. 当前结论
 
-迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和生产镜像发布验收已于 2026-09-01 通过单一入口完成。
+迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-当前状态仍不能描述为“完整迁移完成”。通知、修改密码以外的账户设置，以及 Phase 2/3 能力仍未实现。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。
+当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”。Phase 2 Task 24–28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、修改密码流程、定向邀请、活动管理、CSV 与结算分享流程和本文档已形成 Git 检查点。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复与本文档已形成 Git 检查点。收口内容包括 Session/CSRF 竞态防护、数据目录准备边界、源码构建说明和 `0.0.3` 发布边界。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -196,7 +196,7 @@ C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555
 C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555239e8\final-77247d7-huddletab-settlement-summary.png
 ```
 
-### 7.1 Phase 1E 发布验收
+### 7.1 Phase 1E 候选运行镜像结构验收
 
 以下命令均在 `D:\code\HuddleTab\.worktrees\rust-replatform` 新鲜运行。标记为数据库测试的命令通过进程环境注入 `TEST_DATABASE_URL`，连接指定的 WSL 可丢弃 PostgreSQL；连接值未写入本文档。
 
@@ -212,6 +212,8 @@ npm --prefix frontend run build
 cargo fmt --manifest-path server/Cargo.toml --check
 cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
 & ./frontend/e2e/support/run-phase1e-safety.test.ps1
+wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && sh frontend/e2e/support/prepare-data-dir-arguments.test.sh"
+wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && sh frontend/e2e/support/prepare-data-dir-paths.test.sh"
 wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && sh frontend/e2e/support/data-directory-permissions.test.sh"
 & ./frontend/e2e/run-phase1e.ps1
 ```
@@ -220,9 +222,9 @@ wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform
 
 - Rust 非数据库全量为 55 passed、39 个显式 PostgreSQL 用例 ignored、0 failed；fmt 与 clippy 均通过。
 - WSL 真实 PostgreSQL 全量为 39 passed、0 failed，均以 `--test-threads=1` 运行；其中 Auth 6、Accounting 11、Activity 9、Bootstrap 3、Collaboration 3、Rate limit 4、Migration 1、Schema 1、Sharing 1。
-- Frontend Vitest 为 14 个文件、69 passed、0 failed；生成后 typecheck 通过；production build 转换 1655 modules，并生成 PWA service worker。
+- Frontend Vitest 为 15 个文件、71 passed、0 failed；其中 deferred-promise 回归证明迟到 Session 与 CSRF 请求不能跨越登录失效边界回写缓存；typecheck 通过，production build 转换 1655 modules 并生成 PWA service worker。
 - Rust OpenAPI 与 TypeScript client 重新生成后 `git diff --exit-code` 为 0，没有需要提交的生成变化。
-- runner 安全专项测试通过；真实目录权限测试证明 root:root `0755` 下 UID 10001 不可写，准备后挂载点为 `10001:10001`、`0750` 且可写。
+- runner 安全专项测试通过；目录参数与路径测试证明自定义 Compose 参数、根目录、越界相对路径和 `app` symlink escape 均在容器操作前被拒绝；真实目录权限测试证明 root:root `0755` 下 UID 10001 不可写，准备后挂载点为 `10001:10001`、`0750` 且可写。
 
 浏览器矩阵由单 worker、零重试运行：
 
@@ -232,9 +234,9 @@ wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform
 | Chromium Mobile | `390 x 844` | 与 Desktop 相同的核心矩阵及移动布局 | 1 passed |
 | WebKit | `1440 x 1000` | 登录、创建活动、打开流水与结算 | 1 passed |
 
-单一入口 `frontend/e2e/run-phase1e.ps1` exit code 为 0，并提供以下生产发布证据：
+单一入口 `frontend/e2e/run-phase1e.ps1` exit code 为 0，并提供以下 Phase 1 候选运行结构证据：
 
-- 从当前源码 fresh build Rust release binary、Vite 静态产物和独立 WSL Compose 镜像；runner 从 `0755` host 目录调用正式准备脚本，不再依赖 `0777`；空 PostgreSQL 完成 fresh migration，首位用户只经 stdin bootstrap。
+- 从当前源码 fresh build Rust release binary、Vite 静态产物和独立 WSL Compose 候选镜像；runner 从 `0755` host 目录调用受限的数据目录准备脚本，不依赖 `0777`；空 PostgreSQL 完成 fresh migration，首位用户只经 stdin bootstrap。
 - `/activities/deep-link-release-check` 返回包含 React root 的 HTTP 200；运行容器 UID 为非 root `10001`。
 - 运行镜像找不到 `node`、`npm`、`npx`、`next`，`/app` 与 `/usr/local` 无 `node_modules`、Next、Drizzle ORM 或 Better Auth runtime 目录。
 - app 单独重启后、PostgreSQL 与 app 一起重启后，浏览器创建的测试活动均仍可读取。
@@ -243,7 +245,7 @@ wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform
 - artifact 脱敏处理成功，敏感扫描 0 命中；`frontend/artifacts/` 被 Git ignore 且无文件被 tracking。
 - finally 已关闭独立 Compose、删除限定前缀临时数据目录；复查无 `/tmp/huddletab-phase1e-*`、同前缀 Compose project、容器或网络残留。
 
-本轮五项最终 review 修复的 RED/GREEN 与完整命令证据记录在 ignored `.superpowers/sdd/2026-09-01-huddletab-phase1e/final-fix-report.md`，该文件不纳入 Git tracking。
+此前五项 review 修复的 RED/GREEN 与完整命令证据记录在 ignored `.superpowers/sdd/2026-09-01-huddletab-phase1e/final-fix-report.md`，该文件不纳入 Git tracking。本次收口新增的认证竞态与目录安全证据已记录在上述 tracked 测试和实际命令结果中。
 
 ## 8. 当前本地运行现场
 
@@ -268,7 +270,7 @@ wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform
 wsl.exe bash -lc 'cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && docker compose build app && sh ./scripts/prepare-data-dir.sh && docker compose up -d'
 ```
 
-`prepare-data-dir.sh` 只以一次性 root 容器把 app 挂载点设置为 `10001:10001`、`0750`；正式 app 容器仍以 UID/GID `10001:10001` 运行。首次部署、新建挂载目录或迁移到新宿主时不可跳过；普通升级且目录属主未变化时无需重复执行。
+`prepare-data-dir.sh` 固定校验仓库 `compose.yaml`，只接受可选的 `--project-name`，并在一次性 root 容器启动前解析和校验真实 `DATA_HOST_DIR/app`；随后仅把 app 挂载点设置为 `10001:10001`、`0750`。app 服务仍以 UID/GID `10001:10001` 运行。新建挂载目录或迁移到新宿主时不可跳过；已有目录且属主未变化时无需重复执行。
 
 首次空数据库需要交互式创建首位用户：
 
@@ -352,9 +354,10 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider；本次未实现任何 Phase 2 能力。
-2. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
-3. “我的”页仍只有用户信息、修改密码和退出登录；修改密码以外的账户设置尚未实现，系统管理与注册策略仍属于 Phase 3。
+1. Phase 2 Task 24–28：实现 Revision Snapshot/ETag、IndexedDB 隔离、离线 Expense Queue、审批、Guest Binding、通知、附件、汇率 Provider 和 Phase 2 E2E。
+2. Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。
+3. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
+4. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
 
 每完成一项，只运行对应测试和一个真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
 

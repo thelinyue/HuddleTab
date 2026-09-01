@@ -3,7 +3,6 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH= cd -- "$script_dir/../../.." && pwd)
-compose_file="$script_dir/data-directory-permissions.compose.yaml"
 prepare_script="$repo_dir/scripts/prepare-data-dir.sh"
 temporary_dir=$(mktemp -d /tmp/huddletab-data-permission-XXXXXXXX)
 project="huddletab-data-permission-$$"
@@ -14,7 +13,6 @@ case "$temporary_dir" in
 esac
 
 cleanup() {
-  docker compose -p "$project" -f "$compose_file" down --remove-orphans >/dev/null 2>&1 || true
   if [ -d "$temporary_dir" ]; then
     docker run --rm --user 0:0 \
       --mount "type=bind,src=$temporary_dir,dst=/cleanup" \
@@ -41,8 +39,8 @@ if docker run --rm --user 10001:10001 \
   exit 1
 fi
 
-export HUDDLETAB_PERMISSION_TEST_DIR="$temporary_dir"
-"$prepare_script" -p "$project" -f "$compose_file"
+export DATA_HOST_DIR="$temporary_dir"
+"$prepare_script" --project-name "$project"
 
 after=$(stat -c '%u:%g:%a' "$temporary_dir/app")
 if [ "$after" != "10001:10001:750" ]; then
