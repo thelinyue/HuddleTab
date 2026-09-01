@@ -548,6 +548,51 @@
         }
       }
     },
+    "/api/activities/{activity_id}/export.csv": {
+      "get": {
+        "tags": [],
+        "operationId": "export_csv",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "活动支出 CSV",
+            "content": {
+              "text/csv": {}
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无读取权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/invitations": {
       "get": {
         "tags": [],
@@ -1292,6 +1337,55 @@
         }
       }
     },
+    "/api/activities/{activity_id}/summary": {
+      "get": {
+        "tags": [],
+        "operationId": "summary",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "活动结算摘要",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitySummaryEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无读取权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/csrf": {
       "get": {
         "tags": [],
@@ -1890,6 +1984,63 @@
             "items": {
               "$ref": "#/components/schemas/ActivityMemberData"
             }
+          }
+        }
+      },
+      "ActivitySummaryData": {
+        "type": "object",
+        "required": [
+          "activityName",
+          "memberCount",
+          "totalExpenseMinor",
+          "currency",
+          "revision",
+          "currentUserBalanceMinor",
+          "balances",
+          "recommendations"
+        ],
+        "properties": {
+          "activityName": {
+            "type": "string"
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SummaryBalanceData"
+            }
+          },
+          "currency": {
+            "type": "string"
+          },
+          "currentUserBalanceMinor": {
+            "type": "string"
+          },
+          "memberCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SummaryRecommendationData"
+            }
+          },
+          "revision": {
+            "type": "string"
+          },
+          "totalExpenseMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivitySummaryEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActivitySummaryData"
           }
         }
       },
@@ -3131,6 +3282,44 @@
             "items": {
               "$ref": "#/components/schemas/SettlementData"
             }
+          }
+        }
+      },
+      "SummaryBalanceData": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "displayName",
+          "netMinor"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "netMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "SummaryRecommendationData": {
+        "type": "object",
+        "required": [
+          "payerMemberId",
+          "receiverMemberId",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "payerMemberId": {
+            "type": "string"
+          },
+          "receiverMemberId": {
+            "type": "string"
           }
         }
       },

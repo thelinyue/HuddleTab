@@ -7,4 +7,5 @@ pub mod expense;
 pub mod openapi;
 pub mod router;
 pub mod settlement;
+pub mod sharing;
 mod static_files;

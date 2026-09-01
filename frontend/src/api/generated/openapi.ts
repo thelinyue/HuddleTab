@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export_csv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/invitations": {
         parameters: {
             query?: never;
@@ -223,6 +239,22 @@ export interface paths {
         put: operations["updateSettlement"];
         post?: never;
         delete: operations["voidSettlement"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activities/{activity_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -427,6 +459,19 @@ export interface components {
         };
         ActivityMemberListEnvelope: {
             data: components["schemas"]["ActivityMemberData"][];
+        };
+        ActivitySummaryData: {
+            activityName: string;
+            balances: components["schemas"]["SummaryBalanceData"][];
+            currency: string;
+            currentUserBalanceMinor: string;
+            memberCount: number;
+            recommendations: components["schemas"]["SummaryRecommendationData"][];
+            revision: string;
+            totalExpenseMinor: string;
+        };
+        ActivitySummaryEnvelope: {
+            data: components["schemas"]["ActivitySummaryData"];
         };
         ActivityUpdateEnvelope: {
             data: components["schemas"]["ActivityData"];
@@ -742,6 +787,16 @@ export interface components {
         };
         SettlementListEnvelope: {
             data: components["schemas"]["SettlementData"][];
+        };
+        SummaryBalanceData: {
+            displayName: string;
+            memberId: string;
+            netMinor: string;
+        };
+        SummaryRecommendationData: {
+            amountMinor: string;
+            payerMemberId: string;
+            receiverMemberId: string;
         };
         UpdateActivityRequest: {
             baseCurrency?: string | null;
@@ -1182,6 +1237,47 @@ export interface operations {
             };
             /** @description 版本冲突 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    export_csv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 活动支出 CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无读取权限 */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1756,6 +1852,47 @@ export interface operations {
             };
             /** @description 版本冲突 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 活动结算摘要 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivitySummaryEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无读取权限 */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

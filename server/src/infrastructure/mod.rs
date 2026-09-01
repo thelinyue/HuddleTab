@@ -14,3 +14,4 @@ pub mod password;
 pub mod registration_repository;
 pub mod session;
 pub mod settlement_repository;
+pub mod sharing_repository;

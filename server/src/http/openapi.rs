@@ -45,6 +45,10 @@ use super::{
         CreatedSettlementEnvelope, SettlementData, SettlementEnvelope, SettlementEnvelopeData,
         SettlementListEnvelope, UpdateSettlementRequest, VoidSettlementRequest,
     },
+    sharing::{
+        __path_export_csv, __path_summary, ActivitySummaryData, ActivitySummaryEnvelope,
+        SummaryBalanceData, SummaryRecommendationData,
+    },
 };
 
 #[derive(OpenApi)]
@@ -79,6 +83,8 @@ use super::{
         expense_delete,
         ledger,
         recommendations,
+        summary,
+        export_csv,
         settlement_create,
         settlement_list,
         settlement_get,
@@ -150,6 +156,10 @@ use super::{
         RecommendationItemData,
         RecommendationData,
         RecommendationEnvelope,
+        ActivitySummaryData,
+        ActivitySummaryEnvelope,
+        SummaryBalanceData,
+        SummaryRecommendationData,
         CreateSettlementRequest,
         UpdateSettlementRequest,
         VoidSettlementRequest,
