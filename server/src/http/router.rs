@@ -21,6 +21,7 @@ use super::{
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
+const DEFAULT_TIME_ZONE: &str = "Asia/Shanghai";
 
 #[derive(Serialize, ToSchema)]
 pub struct HealthEnvelope {
@@ -39,17 +40,23 @@ pub struct AppState {
     pub(crate) app_secret: AppSecret,
     pub(crate) base_origin: String,
     pub(crate) secure_cookies: bool,
+    pub(crate) time_zone: String,
 }
 
 impl AppState {
     #[must_use]
     pub fn new(pool: PgPool, app_secret: AppSecret, base_origin: String) -> Self {
         let secure_cookies = base_origin.starts_with("https://");
+        let time_zone = std::env::var("TZ")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_TIME_ZONE.to_owned());
         Self {
             pool,
             app_secret,
             base_origin,
             secure_cookies,
+            time_zone,
         }
     }
 }

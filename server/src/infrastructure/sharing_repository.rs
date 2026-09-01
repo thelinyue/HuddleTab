@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use sqlx::{FromRow, PgPool};
 use std::collections::HashMap;
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
@@ -12,23 +11,24 @@ use crate::{
     domain::ledger::{LedgerEntry, SettlementFact},
 };
 
-/// PostgreSQL 分享快照仓储只读取已授权账务事实，不查询用户邮箱、附件或审计记录。
+/// `PostgreSQL` 分享快照仓储只读取已授权账务事实，不查询用户邮箱、附件或审计记录。
 #[derive(Clone, Debug)]
 pub struct PostgresSharingRepository {
     pool: PgPool,
+    time_zone: String,
 }
 
 impl PostgresSharingRepository {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, time_zone: String) -> Self {
+        Self { pool, time_zone }
     }
 }
 
 #[derive(FromRow)]
 struct ExpenseRow {
     id: Uuid,
-    occurred_at: OffsetDateTime,
+    occurred_at: String,
     title: String,
     category: String,
     original_amount_minor: i64,
@@ -37,7 +37,7 @@ struct ExpenseRow {
     base_amount_minor: i64,
     split_mode: String,
     creator_name: String,
-    created_at: OffsetDateTime,
+    created_at: String,
     note: Option<String>,
 }
 
@@ -53,6 +53,11 @@ impl SharingRepository for PostgresSharingRepository {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
         // 账务摘要和下载必须从同一个只读快照生成，避免并发记账让同一份结果内的总额与行项目不一致。
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+        sqlx::query("SELECT set_config('TimeZone', $1, true)")
+            .bind(&self.time_zone)
             .execute(&mut *transaction)
             .await
             .map_err(log_repository_error)?;
@@ -122,9 +127,11 @@ impl SharingRepository for PostgresSharingRepository {
         .map(|(payer, receiver, amount)| SettlementFact::new(payer, receiver, amount))
         .collect();
         let expense_rows = sqlx::query_as::<_, ExpenseRow>(
-            "SELECT e.id, e.occurred_at, e.title, e.category, e.original_amount_minor, e.original_currency, \
+            "SELECT e.id, to_char(e.occurred_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MSTZH:TZM') AS occurred_at, \
+             e.title, e.category, e.original_amount_minor, e.original_currency, \
              e.exchange_rate::text AS exchange_rate, e.base_amount_minor, e.split_mode, \
-             creator.display_name AS creator_name, e.created_at, e.note FROM expenses e \
+             creator.display_name AS creator_name, \
+             to_char(e.created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MSTZH:TZM') AS created_at, e.note FROM expenses e \
              JOIN activity_members creator ON creator.id = (SELECT id FROM activity_members \
                WHERE activity_id = e.activity_id AND user_id = e.created_by_user_id) \
              WHERE e.activity_id = $1 AND e.deleted_at IS NULL ORDER BY e.occurred_at, e.id",
@@ -140,7 +147,7 @@ impl SharingRepository for PostgresSharingRepository {
         let expenses = expense_rows
             .into_iter()
             .map(|expense| CsvExpenseRow {
-                occurred_at: expense.occurred_at.to_string(),
+                occurred_at: expense.occurred_at,
                 title: expense.title,
                 category: expense.category,
                 original_amount_minor: expense.original_amount_minor,
@@ -157,7 +164,7 @@ impl SharingRepository for PostgresSharingRepository {
                     .unwrap_or_default(),
                 split_mode: expense.split_mode,
                 creator_name: expense.creator_name,
-                created_at: expense.created_at.to_string(),
+                created_at: expense.created_at,
                 note: expense.note,
             })
             .collect();

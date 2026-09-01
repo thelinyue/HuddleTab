@@ -18,7 +18,7 @@ use huddletab_server::{
 };
 use serde_json::Value;
 use sqlx::PgPool;
-use time::{Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
@@ -122,6 +122,7 @@ struct SharingContext {
     pool: PgPool,
     app: axum::Router,
     activity_id: Uuid,
+    owner_member_id: Uuid,
     session: SessionToken,
 }
 
@@ -141,6 +142,8 @@ async fn seed_context() -> SharingContext {
     let owner_member_id = Uuid::new_v4();
     let guest_member_id = Uuid::new_v4();
     let now = OffsetDateTime::now_utc();
+    let occurred_at = OffsetDateTime::parse("2026-08-30T12:00:00Z", &Rfc3339)
+        .expect("固定测试时间应符合 RFC 3339");
     let mut transaction = pool.begin().await.expect("应开启事务");
     sqlx::query(
         "INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) \
@@ -192,7 +195,7 @@ async fn seed_context() -> SharingContext {
         .bind(user_id)
         .bind(Uuid::new_v4())
         .bind(title)
-        .bind(now)
+        .bind(occurred_at)
         .bind(amount)
         .bind(deleted_at)
         .execute(&mut *transaction)
@@ -268,6 +271,7 @@ async fn seed_context() -> SharingContext {
         pool,
         app,
         activity_id,
+        owner_member_id,
         session,
     }
 }
@@ -281,6 +285,13 @@ fn request(context: &SharingContext, uri: String) -> Request<Body> {
         )
         .body(Body::empty())
         .expect("请求应可构造")
+}
+
+fn anonymous_request(uri: String) -> Request<Body> {
+    Request::builder()
+        .uri(uri)
+        .body(Body::empty())
+        .expect("匿名请求应可构造")
 }
 
 async fn raw_response(
@@ -308,6 +319,14 @@ async fn raw_response(
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn summary_and_csv_use_one_private_authorized_snapshot() {
     let context = seed_context().await;
+    for suffix in ["summary", "export.csv"] {
+        let (status, _, _) = raw_response(
+            &context,
+            anonymous_request(format!("/api/activities/{}/{suffix}", context.activity_id)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
     let (status, _, summary_bytes) = raw_response(
         &context,
         request(
@@ -354,6 +373,24 @@ async fn summary_and_csv_use_one_private_authorized_snapshot() {
     assert_eq!(&csv[..3], &[0xef, 0xbb, 0xbf]);
     let csv = String::from_utf8(csv).expect("CSV 应为 UTF-8");
     assert!(csv.contains("\"'=晚餐\""));
+    assert!(csv.contains("\"2026-08-30T20:00:00.000+08:00\""));
     assert!(!csv.contains("不应导出"));
+
+    sqlx::query("UPDATE activity_members SET status = 'LEFT', left_at = now() WHERE id = $1")
+        .bind(context.owner_member_id)
+        .execute(&context.pool)
+        .await
+        .expect("应将当前成员标记为已离开");
+    for suffix in ["summary", "export.csv"] {
+        let (status, _, _) = raw_response(
+            &context,
+            request(
+                &context,
+                format!("/api/activities/{}/{suffix}", context.activity_id),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
     context.pool.close().await;
 }

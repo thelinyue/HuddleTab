@@ -77,7 +77,7 @@ pub(crate) async fn summary(
 ) -> Result<Json<ActivitySummaryEnvelope>, ApiError> {
     let (activity_id, actor) =
         authenticated_activity(&state, request_id.clone(), &activity_id, &jar).await?;
-    let repository = PostgresSharingRepository::new(state.pool);
+    let repository = PostgresSharingRepository::new(state.pool, state.time_zone);
     let summary = load_summary(&repository, activity_id, actor.user_id)
         .await
         .map_err(|error| map_error(error, request_id))?;
@@ -104,7 +104,7 @@ pub(crate) async fn export_csv(
 ) -> Result<Response, ApiError> {
     let (activity_id, actor) =
         authenticated_activity(&state, request_id.clone(), &activity_id, &jar).await?;
-    let repository = PostgresSharingRepository::new(state.pool);
+    let repository = PostgresSharingRepository::new(state.pool, state.time_zone);
     let rows = load_export(&repository, activity_id, actor.user_id)
         .await
         .map_err(|error| map_error(error, request_id))?;
