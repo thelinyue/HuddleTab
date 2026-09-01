@@ -136,7 +136,7 @@ try {
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
-  $forwarded = "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL"
+  $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
   Write-Host "[2/9] 构建并启动独立生产 Compose（project=$composeProject, port=$appPort）"

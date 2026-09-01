@@ -1,4 +1,4 @@
-import { expect, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
+import { expect, type BrowserContext, type Locator, type Page, type TestInfo } from "@playwright/test";
 
 export async function installArtifactVisualRedaction(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
@@ -32,6 +32,23 @@ export function credentials(): { username: string; password: string } {
     throw new Error("缺少 E2E 临时凭据，请通过 Phase 1E PowerShell 入口运行测试。");
   }
   return { username, password };
+}
+
+export async function assertCredentialFieldsVisuallyMasked(page: Page): Promise<void> {
+  const { username, password } = credentials();
+  await installArtifactVisualRedaction(page.context());
+  await page.goto("/login");
+  const fields: Array<{ label: string; locator: Locator; value: string }> = [
+    { label: "用户名", locator: page.getByLabel("用户名"), value: username },
+    { label: "密码", locator: page.locator('input[autocomplete="current-password"]'), value: password },
+  ];
+  for (const field of fields) {
+    await field.locator.fill("x".repeat(field.value.length));
+    const referencePixels = await field.locator.screenshot({ animations: "disabled", caret: "hide" });
+    await field.locator.fill(field.value);
+    const credentialPixels = await field.locator.screenshot({ animations: "disabled", caret: "hide" });
+    expect(credentialPixels, `${field.label}输入框的真实凭据仍改变了截图像素。`).toEqual(referencePixels);
+  }
 }
 
 export async function login(page: Page): Promise<void> {

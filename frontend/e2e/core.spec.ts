@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { assertNoHorizontalOverflow, createActivity, installArtifactVisualRedaction, login, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertCredentialFieldsVisuallyMasked, assertNoHorizontalOverflow, createActivity, installArtifactVisualRedaction, login, saveChromiumSuccessScreenshot } from "./support/product";
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -137,6 +137,7 @@ test("Chromium 核心账务矩阵覆盖冲突、导出、导航与响应式布�
   const equalTitle = `聚餐-${suffix}`;
   const foreignTitle = `酒店-${suffix}`;
 
+  await assertCredentialFieldsVisuallyMasked(page);
   await login(page);
   const mainNavigation = page.getByRole("navigation", { name: "主导航" });
   await expect(mainNavigation.getByRole("link")).toHaveCount(3);
