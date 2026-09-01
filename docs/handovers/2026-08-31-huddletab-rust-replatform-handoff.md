@@ -4,7 +4,7 @@
 
 ## 1. 当前结论
 
-迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。
+迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和生产镜像发布验收已于 2026-09-01 通过单一入口完成。
 
 当前状态仍不能描述为“完整迁移完成”。通知、修改密码以外的账户设置，以及 Phase 2/3 能力仍未实现。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。
 
@@ -119,6 +119,7 @@ huddletab openapi
 | 范围 | 当前状态 | 说明 |
 | --- | --- | --- |
 | 登录、退出、Session、CSRF | 可用 | 同源 Cookie；首位用户只能由 CLI 创建 |
+| 敏感入口限流 | 可用 | 单实例进程内 fixed-window；Auth、匿名邀请、已认证敏感写操作分别共享类别配额 |
 | 邀请注册、邀请预览、加入活动 | 可用 | 注册和加入都会重新验证邀请 |
 | 修改密码 API 与页面 | 可用 | `/me/password`；成功后轮换 Session 并清理旧 CSRF token |
 | 活动列表、详情、创建、资料编辑 | 可用 | 名称、地点、日期由 Owner 管理；存在历史 Expense 或 Settlement 后主币种永久锁定 |
@@ -195,24 +196,56 @@ C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555
 C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555239e8\final-77247d7-huddletab-settlement-summary.png
 ```
 
-最近已知通过的检查：
+### 7.1 Phase 1E 发布验收
 
-- Frontend Vitest：13 个测试文件、67 个测试通过；覆盖 Activity/Accounting、sharing generated adapter、摘要状态转换、入口归属、独立受保护路由和图片导出边界。
-- Frontend TypeScript typecheck 通过。
-- Frontend production build 通过；Vite 转换 1655 modules，PWA service worker 生成成功。
-- Rust `cargo test --all-targets --all-features` 通过：41 passed、28 个数据库用例按显式条件 ignored、0 failed。
-- WSL 可丢弃 PostgreSQL 串行集成测试：Activity 9、Accounting 6、Collaboration 3、schema 1、migration replay 1 和 Sharing 1，全部通过。
-- Rust `cargo fmt --check` 通过。
-- Rust clippy `--all-targets --all-features -D warnings` 通过。
-- OpenAPI 已由 Rust 重新导出，SHA256 与 `contracts/openapi.json` 一致；generated TypeScript client 重新生成后无 diff。
-- 真实浏览器 `1440 x 1000` 与 `390 x 844` 均无横向溢出，Overlay 位于视口内，活动导航读取结果均为 `['流水', '结算']`；CSV 和 1600px PNG 均由原生下载成功。
-- WSL Compose 完成生产镜像构建和启动验收。
-- `/api/health` 返回 `{"data":{"status":"ok"}}`。
-- SPA 深链返回 HTTP 200。
-- 运行容器为 `uid=10001(huddletab)`。
-- 运行镜像无 Node.js 命令，`/app` 中无 Next、Drizzle、Better Auth runtime。
+以下命令均在 `D:\code\HuddleTab\.worktrees\rust-replatform` 新鲜运行。标记为数据库测试的命令通过进程环境注入 `TEST_DATABASE_URL`，连接指定的 WSL 可丢弃 PostgreSQL；连接值未写入本文档。
 
-这些结果是当前交接证据，不代表未实现的完整 Phase 1 E2E 矩阵已经通过。相关源文件修改后，只重跑受影响的检查。
+```powershell
+cargo test --manifest-path server/Cargo.toml --lib http::rate_limit::tests
+cargo test --manifest-path server/Cargo.toml --test rate_limit_routes -- --ignored --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test accounting_api concurrent_ -- --ignored --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test auth_api --test collaboration_api --test csrf_security --test session_security --test http_shell --test openapi -- --include-ignored --test-threads=1
+cargo run --manifest-path server/Cargo.toml -- openapi --output contracts/openapi.json
+npm --prefix frontend run api:generate
+git diff --exit-code -- contracts/openapi.json frontend/src/api/generated/openapi.ts
+npm --prefix frontend run test:unit
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+cargo fmt --manifest-path server/Cargo.toml -- --check
+cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --manifest-path server/Cargo.toml --all-targets --all-features
+& ./frontend/e2e/run-phase1e.ps1
+```
+
+精确结果：
+
+- limiter 单元测试 6 passed、0 ignored、0 failed，覆盖 fixed-window、首次请求起算的窗口重置、共享类别、并发原子计数、周期清理、4096 桶容量回收与显式可信代理 IP 解析。
+- WSL 真实 PostgreSQL 限流 API 4 passed、0 failed；Expense/Settlement 幂等创建与相同 version 并发更新 4 passed、0 failed，均以 `--test-threads=1` 运行。
+- 回归目标共 26 passed、0 failed：Auth 8、Collaboration 4、CSRF 3、Session 3、HTTP Shell 4、OpenAPI 4；HTTP Shell 包含 JSON 404/405。
+- Rust 非数据库全量为 53 passed、36 个显式 PostgreSQL 用例 ignored、0 failed；fmt 与 clippy 均通过。
+- Frontend Vitest 为 13 个文件、67 passed、0 failed；typecheck 通过；production build 转换 1655 modules，并生成 PWA service worker。
+- Rust OpenAPI 与 TypeScript client 重新生成后 `git diff --exit-code` 为 0，没有需要提交的生成变化。
+
+浏览器矩阵由单 worker、零重试运行：
+
+| Project | 视口 | 用例 | 结果 |
+| --- | --- | --- | --- |
+| Chromium Desktop | `1440 x 1000` | 核心账务、双上下文 Expense/Settlement 冲突、summary/CSV、双主导航、无横向溢出 | 1 passed |
+| Chromium Mobile | `390 x 844` | 与 Desktop 相同的核心矩阵及移动布局 | 1 passed |
+| WebKit | `1440 x 1000` | 登录、创建活动、打开流水与结算 | 1 passed |
+
+单一入口 `frontend/e2e/run-phase1e.ps1` exit code 为 0，并提供以下生产发布证据：
+
+- 从当前源码 fresh build Rust release binary、Vite 静态产物和独立 WSL Compose 镜像；空 PostgreSQL 完成 fresh migration，首位用户只经 stdin bootstrap。
+- `/activities/deep-link-release-check` 返回包含 React root 的 HTTP 200；运行容器 UID 为非 root `10001`。
+- 运行镜像找不到 `node`、`npm`、`npx`、`next`，`/app` 与 `/usr/local` 无 `node_modules`、Next、Drizzle ORM 或 Better Auth runtime 目录。
+- app 单独重启后、PostgreSQL 与 app 一起重启后，浏览器创建的测试活动均仍可读取。
+- PostgreSQL 不可用时 app 冷启动按预期失败，并输出“无法连接 PostgreSQL，请检查 DATABASE_URL 和数据库状态”的中文部署错误。
+- HTML report 保留在 `frontend/artifacts/playwright-report/index.html`；Desktop/Mobile 成功截图保留在 `frontend/artifacts/test-results/` 对应 project 目录。
+- artifact 脱敏处理成功，敏感扫描 0 命中；`frontend/artifacts/` 被 Git ignore 且无文件被 tracking。
+- finally 已关闭独立 Compose、删除限定前缀临时数据目录；复查无 `/tmp/huddletab-phase1e-*`、同前缀 Compose project、容器或网络残留。
+
+验证期间新增 limiter 并发计数用例。首次编译因错误地在 `filter` 中消费 `JoinHandle` 失败；修正所有权后，clippy 又分别指出 `iter_filter_is_ok` 与 `map_flatten`，最终改为等价的 `flat_map` 并重跑 limiter、clippy 和 Rust 全量通过。完整命令、exit code 与失败证据记录在 `.superpowers/sdd/2026-09-01-huddletab-phase1e/task-5-report.md`。
 
 ## 8. 当前本地运行现场
 
@@ -315,13 +348,13 @@ Activity 管理合同：
 | Rust 警告边界 | `cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings` |
 | Dockerfile/Compose/runtime 改动 | 在 WSL 中重建镜像并做 health、非 root、无 Node runtime 验收 |
 
-PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库。`frontend/package.json` 当前没有 `lint` 或 `test:e2e` 脚本，不要直接照搬旧计划中的对应命令。
+PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库。`frontend/package.json` 当前没有 `lint` 脚本；`test:e2e` 依赖由单一入口创建的临时环境变量与 Compose，必须通过 `& ./frontend/e2e/run-phase1e.ps1` 运行。
 
 ## 12. 下一步优先级
 
-1. 完成 Phase 1 仍缺少的真实安全、并发和 E2E 验收后，再进入 Phase 2。
-2. 另立后台清理任务处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复。
-3. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider。
+1. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider；本次未实现任何 Phase 2 能力。
+2. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
+3. “我的”页仍只有用户信息、修改密码和退出登录；修改密码以外的账户设置尚未实现，系统管理与注册策略仍属于 Phase 3。
 
 每完成一项，只运行对应测试和一个真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
 

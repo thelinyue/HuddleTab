@@ -168,7 +168,11 @@ fn seconds_until(deadline: OffsetDateTime, now: OffsetDateTime) -> u64 {
 mod tests {
     use super::{ClientIp, MAX_ACTIVE_BUCKETS, RateLimitCategory, RateLimiter};
     use axum::http::{HeaderMap, HeaderValue};
-    use std::net::SocketAddr;
+    use std::{
+        net::SocketAddr,
+        sync::{Arc, Barrier},
+        thread,
+    };
     use time::{Duration, OffsetDateTime};
 
     #[test]
@@ -228,6 +232,29 @@ mod tests {
                 .check_at(RateLimitCategory::AnonymousInvite, "192.0.2.10", started_at,)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn concurrent_checks_atomically_enforce_one_shared_limit() {
+        let limiter = RateLimiter::new();
+        let barrier = Arc::new(Barrier::new(33));
+        let workers = (0..32)
+            .map(|_| {
+                let limiter = limiter.clone();
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    limiter.check(RateLimitCategory::Auth, "192.0.2.20")
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+
+        let allowed = workers
+            .into_iter()
+            .flat_map(|worker| worker.join().expect("限流测试线程不应 panic"))
+            .count();
+        assert_eq!(allowed, 10);
     }
 
     #[test]
