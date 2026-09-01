@@ -51,9 +51,12 @@ describe("apiClient 401 处理", () => {
     );
     const listener = vi.fn();
     window.addEventListener(AUTH_EXPIRED_EVENT, listener, { once: true });
+    try {
+      await apiClient.GET("/api/auth/session", { baseUrl: "http://localhost", fetch });
 
-    await apiClient.GET("/api/auth/session", { baseUrl: "http://localhost", fetch });
-
-    expect(listener).not.toHaveBeenCalled();
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, listener);
+    }
   });
 });

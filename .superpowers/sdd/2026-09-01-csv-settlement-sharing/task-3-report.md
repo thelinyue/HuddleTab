@@ -135,3 +135,44 @@ Visual artifacts are intentionally uncommitted at `C:\Users\林樾\.codex\visual
   - `frontend/src/app/router.test.tsx`
 
 Concern: WSL lacked a Rust toolchain, so Docker and PostgreSQL operations ran through WSL as required while Rust compilation/tests ran from the Windows toolchain using task-specific targets. No functional verification was skipped.
+
+## Fix Round 1
+
+Review requested independent native-event evidence for the settlement entry and downloads, plus deterministic test-listener cleanup.
+
+### Test Hygiene
+
+`frontend/src/api/client.test.ts` now removes the `huddletab:auth-expired` listener in a `finally` block in the expected-no-event anonymous-session test. This prevents that test from leaving a global listener registered when the assertion succeeds.
+
+```text
+cd frontend && npx vitest run src/api/client.test.ts src/app/router.test.tsx
+exit 0: 2 files, 8 tests passed
+
+cd frontend && npx vitest run src/api/client.test.ts src/features/sharing src/app/router.test.tsx src/features/accounting/api.test.tsx src/features/accounting/pages-ui.test.tsx src/features/accounting/pages.test.ts src/features/activities/api.test.ts src/features/activities/pages.test.tsx
+exit 0: 11 files, 56 tests passed
+```
+
+### Independent Browser Evidence
+
+The latest binary was rebuilt with `CARGO_TARGET_DIR=server/.cargo-target-verify-task3-r1 cargo build --bin huddletab` (exit 0), then run against a freshly cleared disposable PostgreSQL schema and transient bootstrap user. The exact runner command was:
+
+```text
+cd server && .\.task3-r1-run.ps1
+```
+
+The runner assembled `DATABASE_URL=<container-derived-url>` in memory from the specified WSL/Docker container environment, passed the generated password only to `bootstrap-user --password-stdin`, served the built `frontend/dist` at `127.0.0.1:5661`, and exited 0. It did not create trace, HAR, or storage-state files.
+
+Sanitized structured evidence: `C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555239e8\fix-round1-browser-evidence.json`.
+
+Recorded sequence summary:
+
+1. Exact viewports: desktop `1440x1000`, mobile `390x844`.
+2. Fresh unauthenticated share route reached `/login`; real login reached `/activities`; a real activity was created and opened.
+3. Activity navigation labels were exactly `['流水','结算']`.
+4. Management Overlay recorded heading `数据导出`, an `导出 CSV` link, and its activity-scoped href.
+5. Clicking that link produced the native `page.download` event with suggested filename `activity-export.csv`; the matching server GET response was status 200, `text/csv; charset=utf-8`, and `attachment; filename="activity-export.csv"`. BOM and header were verified.
+6. The observed Settlement link had role `link`, text `结算`, its expected `?tab=settlement` href, and clicking it produced that exact post-click URL. The share entry then had role `link`, text `生成分享摘要`, and the activity-specific summary href.
+7. Share shell metrics recorded no workspace header, global navigation, PWA prompt, or horizontal overflow at either viewport. Desktop preview/export widths were `800/800`; mobile widths were `358/800`.
+8. Clicking `下载 PNG` produced the native `page.download` event, suggested filename `huddletab-settlement-summary.png`, and parsed PNG IHDR width `1600`. The capture target existed, was 800px wide, was inside the `aria-hidden` export parent, and excluded page controls/navigation text.
+
+The temporary server was stopped; the disposable schema was cleared again afterward; task-owned runner scripts, data, logs, and target directories were removed. The sanitized evidence JSON and its two downloaded file copies remain in the visualization workspace only and are not committed.
