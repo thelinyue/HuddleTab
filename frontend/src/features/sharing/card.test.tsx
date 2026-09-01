@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { ShareSummaryCard } from "./card";
 
 const readySummary = {
@@ -13,6 +13,8 @@ const readySummary = {
 };
 
 describe("ShareSummaryCard", () => {
+  afterEach(cleanup);
+
   it("展示推荐付款和成员余额，长名称保留在可换行容器内", () => {
     render(<ShareSummaryCard summary={readySummary} />);
     expect(screen.getByText("推荐转账")).toBeInTheDocument();
@@ -27,6 +29,7 @@ describe("ShareSummaryCard", () => {
     ["settled", "全部已结清", "当前没有待处理的转账。"],
   ] as const)("%s 状态展示明确文字而非只靠颜色", (state, title, description) => {
     render(<ShareSummaryCard summary={{ ...readySummary, state, totalExpenseMinor: state === "empty" ? "0" : "6400", recommendations: [] }} />);
+    expect(screen.getByRole("article")).toHaveAttribute("data-state", state);
     expect(screen.getByText(title)).toBeInTheDocument();
     expect(screen.getByText(description)).toBeInTheDocument();
   });

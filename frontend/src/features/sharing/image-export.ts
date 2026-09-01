@@ -3,11 +3,21 @@ import { toPng } from "html-to-image";
 async function waitForCardAssets(card: HTMLElement) {
   await document.fonts?.ready;
   await Promise.all([...card.querySelectorAll("img")].map(async (image) => {
-    if (image.complete) return;
+    try {
+      await image.decode();
+      return;
+    } catch {
+      if (image.complete) return;
+    }
     await new Promise<void>((resolve) => {
       image.addEventListener("load", () => resolve(), { once: true });
       image.addEventListener("error", () => resolve(), { once: true });
     });
+    try {
+      await image.decode();
+    } catch {
+      // load/error 事件已给出资源的终态；失败图片交由导出库按当前 DOM 处理。
+    }
   }));
 }
 

@@ -5,7 +5,7 @@ import type { ShareSummary } from "./adapter";
 
 export function ShareSummaryCard({ summary, id }: { summary: ShareSummary; id?: string }) {
   return (
-    <article id={id} className="share-summary-card" aria-label={`${summary.activityName}结算摘要`}>
+    <article id={id} className="share-summary-card" data-state={summary.state} aria-label={`${summary.activityName}结算摘要`}>
       <img className="share-summary-card__cover" src="/share/settlement-cover-beijing.png" width={800} height={280} alt="" />
       <div className="share-summary-card__content">
         <header>

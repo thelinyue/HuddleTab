@@ -57,3 +57,33 @@ npm --prefix frontend run build
 ## 关注项
 
 - 无功能阻塞。浏览器 API 使用了受控 mock 响应以验证前端独立页面和下载行为；端到端权限和真实服务端数据合同由 Task 1/Task 3 覆盖。
+
+## Fix Round 1
+
+### 修复内容
+
+- `waitForCardAssets` 现在对每个卡片图片先 `await image.decode()`；若解码失败且资源仍在请求，等待 `load` 或 `error` 进入终态后再次尝试解码。已完成请求但解码失败的图片作为终态处理，因此不会无期限阻塞导出。
+- 分享卡根节点新增 `data-state`。空账本和已结清分别使用现有 `--warning`、`--success` 语义 token 区分边框、背景和图标/标题颜色；原有明确中文状态文字保留，状态不依赖颜色传达。
+
+### RED
+
+```powershell
+npm --prefix frontend run test:unit -- src/features/sharing/image-export.test.ts src/features/sharing/card.test.tsx
+```
+
+结果：退出码 `1`，共 `3 failed | 2 passed`。新增图片用例显示 `decode` 预期调用 1 次、实际 0 次；empty 和 settled 用例均显示期望 `data-state`、实际 `null`。这是修复前实现缺少解码等待和状态标记导致的预期失败。
+
+### GREEN 与验证
+
+```powershell
+npm --prefix frontend run test:unit -- src/features/sharing/image-export.test.ts src/features/sharing/card.test.tsx
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+```
+
+结果：聚焦 Vitest `2 passed, 5 passed`；typecheck 退出码 `0`；生产构建退出码 `0`。
+
+### 文件变更与自检
+
+- 修改：`frontend/src/features/sharing/image-export.ts`、`image-export.test.ts`、`card.tsx`、`card.test.tsx`、`frontend/src/app.css` 与本报告。
+- 已验证未开始/未完成 decode 前不会调用 `toPng`，并验证空账本和已结清均有独立 `data-state` 与中文文字。`git diff --check` 无空白错误。
