@@ -18,8 +18,12 @@ use huddletab_server::{
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
+use tokio::sync::Mutex;
 use tower::ServiceExt as _;
 use uuid::Uuid;
+
+// 账务集成测试会清空同一可丢弃数据库；锁住整个场景，保证测试自身的并发只发生在 HTTP 请求处。
+static DATABASE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
 struct AccountingContext {
     pool: PgPool,
@@ -138,6 +142,16 @@ fn expense_payload(context: &AccountingContext, mutation_id: Uuid, title: &str) 
     })
 }
 
+fn settlement_payload(context: &AccountingContext, mutation_id: Uuid, amount_minor: &str) -> Value {
+    json!({
+        "clientMutationId": mutation_id,
+        "payerMemberId": context.owner_member_id,
+        "receiverMemberId": context.guest_member_id,
+        "currency": "CNY",
+        "amountMinor": amount_minor
+    })
+}
+
 fn request(context: &AccountingContext, method: &str, uri: String, body: Value) -> Request<Body> {
     let serialized_body = body.to_string();
     drop(body);
@@ -186,6 +200,17 @@ fn fact_sum(rows: &Value, field: &str) -> i64 {
                 .expect("金额应为 i64")
         })
         .sum()
+}
+
+async fn activity_side_effects(context: &AccountingContext) -> (i64, i64) {
+    sqlx::query_as::<_, (i64, i64)>(
+        "SELECT revision, (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1) \
+         FROM activities WHERE id = $1",
+    )
+    .bind(context.activity_id)
+    .fetch_one(&context.pool)
+    .await
+    .expect("应读取活动 revision 与 Audit 数量")
 }
 
 async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: &str) {
@@ -677,4 +702,248 @@ async fn archived_activity_keeps_expense_list_and_detail_readable() {
         let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
         assert_eq!(status, StatusCode::OK);
     }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn concurrent_expense_creates_replay_once_and_emit_one_side_effect() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let mutation_id = Uuid::new_v4();
+    let uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let payload = expense_payload(&context, mutation_id, "Concurrent Sushi");
+    assert_eq!(activity_side_effects(&context).await, (1, 0));
+
+    let first = response(
+        &context,
+        request(&context, "POST", uri.clone(), payload.clone()),
+    );
+    let second = response(&context, request(&context, "POST", uri, payload));
+    let (first, second) = tokio::join!(first, second);
+
+    assert!(matches!(
+        (first.0, second.0),
+        (StatusCode::CREATED, StatusCode::OK) | (StatusCode::OK, StatusCode::CREATED)
+    ));
+    let (created, replay) = if first.0 == StatusCode::CREATED {
+        (&first.1, &second.1)
+    } else {
+        (&second.1, &first.1)
+    };
+    assert_eq!(created["data"]["idempotentReplay"], false);
+    assert_eq!(replay["data"]["idempotentReplay"], true);
+    assert_eq!(
+        replay["data"]["expense"]["expenseId"],
+        created["data"]["expense"]["expenseId"]
+    );
+
+    let resource_count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM expenses WHERE activity_id = $1 AND client_mutation_id = $2",
+    )
+    .bind(context.activity_id)
+    .bind(mutation_id)
+    .fetch_one(&context.pool)
+    .await
+    .expect("应统计 Expense 幂等资源");
+    assert_eq!(resource_count, 1);
+    assert_eq!(activity_side_effects(&context).await, (2, 1));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn concurrent_settlement_creates_replay_once_and_emit_one_side_effect() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let mutation_id = Uuid::new_v4();
+    let uri = format!("/api/activities/{}/settlements", context.activity_id);
+    let payload = settlement_payload(&context, mutation_id, "1");
+    assert_eq!(activity_side_effects(&context).await, (1, 0));
+
+    let first = response(
+        &context,
+        request(&context, "POST", uri.clone(), payload.clone()),
+    );
+    let second = response(&context, request(&context, "POST", uri, payload));
+    let (first, second) = tokio::join!(first, second);
+
+    assert!(matches!(
+        (first.0, second.0),
+        (StatusCode::CREATED, StatusCode::OK) | (StatusCode::OK, StatusCode::CREATED)
+    ));
+    let (created, replay) = if first.0 == StatusCode::CREATED {
+        (&first.1, &second.1)
+    } else {
+        (&second.1, &first.1)
+    };
+    assert_eq!(created["data"]["idempotentReplay"], false);
+    assert_eq!(replay["data"]["idempotentReplay"], true);
+    assert_eq!(
+        replay["data"]["settlement"]["settlementId"],
+        created["data"]["settlement"]["settlementId"]
+    );
+
+    let resource_count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM settlements WHERE activity_id = $1 AND client_mutation_id = $2",
+    )
+    .bind(context.activity_id)
+    .bind(mutation_id)
+    .fetch_one(&context.pool)
+    .await
+    .expect("应统计 Settlement 幂等资源");
+    assert_eq!(resource_count, 1);
+    assert_eq!(activity_side_effects(&context).await, (2, 1));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn concurrent_expense_updates_with_same_version_apply_once() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let collection_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let (status, created) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection_uri,
+            expense_payload(&context, Uuid::new_v4(), "Original Sushi"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let expense_id = created["data"]["expense"]["expenseId"]
+        .as_str()
+        .expect("应返回 Expense ID");
+    assert_eq!(activity_side_effects(&context).await, (2, 1));
+    let uri = format!(
+        "/api/activities/{}/expenses/{expense_id}",
+        context.activity_id
+    );
+    let mut first_update = expense_payload(&context, Uuid::new_v4(), "Concurrent Sushi A");
+    first_update["version"] = json!("1");
+    let mut second_update = expense_payload(&context, Uuid::new_v4(), "Concurrent Sushi B");
+    second_update["version"] = json!("1");
+
+    let first = response(
+        &context,
+        request(&context, "PUT", uri.clone(), first_update),
+    );
+    let second = response(
+        &context,
+        request(&context, "PUT", uri.clone(), second_update),
+    );
+    let (first, second) = tokio::join!(first, second);
+
+    assert_eq!(
+        [first.0, second.0]
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        [first.0, second.0]
+            .iter()
+            .filter(|status| **status == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    let (updated, conflict) = if first.0 == StatusCode::OK {
+        (&first.1, &second.1)
+    } else {
+        (&second.1, &first.1)
+    };
+    assert_eq!(updated["data"]["expense"]["version"], "2");
+    assert_eq!(conflict["error"]["code"], "VERSION_CONFLICT");
+
+    let (status, final_expense) =
+        response(&context, request(&context, "GET", uri, json!(null))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(final_expense["data"]["expense"]["version"], "2");
+    assert!(matches!(
+        final_expense["data"]["expense"]["title"].as_str(),
+        Some("Concurrent Sushi A" | "Concurrent Sushi B")
+    ));
+    assert_eq!(activity_side_effects(&context).await, (3, 2));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn concurrent_settlement_updates_with_same_version_apply_once() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let collection_uri = format!("/api/activities/{}/settlements", context.activity_id);
+    let (status, created) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection_uri,
+            settlement_payload(&context, Uuid::new_v4(), "1"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let settlement_id = created["data"]["settlement"]["settlementId"]
+        .as_str()
+        .expect("应返回 Settlement ID");
+    assert_eq!(activity_side_effects(&context).await, (2, 1));
+    let uri = format!(
+        "/api/activities/{}/settlements/{settlement_id}",
+        context.activity_id
+    );
+    let first_update = json!({
+        "version": "1",
+        "payerMemberId": context.owner_member_id,
+        "receiverMemberId": context.guest_member_id,
+        "amountMinor": "2"
+    });
+    let second_update = json!({
+        "version": "1",
+        "payerMemberId": context.owner_member_id,
+        "receiverMemberId": context.guest_member_id,
+        "amountMinor": "3"
+    });
+
+    let first = response(
+        &context,
+        request(&context, "PUT", uri.clone(), first_update),
+    );
+    let second = response(
+        &context,
+        request(&context, "PUT", uri.clone(), second_update),
+    );
+    let (first, second) = tokio::join!(first, second);
+
+    assert_eq!(
+        [first.0, second.0]
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        [first.0, second.0]
+            .iter()
+            .filter(|status| **status == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    let (updated, conflict) = if first.0 == StatusCode::OK {
+        (&first.1, &second.1)
+    } else {
+        (&second.1, &first.1)
+    };
+    assert_eq!(updated["data"]["settlement"]["version"], "2");
+    assert_eq!(conflict["error"]["code"], "VERSION_CONFLICT");
+
+    let (status, final_settlement) =
+        response(&context, request(&context, "GET", uri, json!(null))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(final_settlement["data"]["settlement"]["version"], "2");
+    assert!(matches!(
+        final_settlement["data"]["settlement"]["amountMinor"].as_str(),
+        Some("2" | "3")
+    ));
+    assert_eq!(activity_side_effects(&context).await, (3, 2));
 }
