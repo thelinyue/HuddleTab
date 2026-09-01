@@ -5,10 +5,11 @@ import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
 import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "../features/accounting/pages";
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
-import { ActivitiesPage, ActivityWorkspace, MePage, NotificationsPage } from "../features/activities/pages";
+import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
 import { useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { ChangePasswordPage } from "../features/me/password-page";
+import { NotificationsPage } from "../features/notifications/pages";
 import { PwaUpdatePrompt } from "./pwa-update";
 
 const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));

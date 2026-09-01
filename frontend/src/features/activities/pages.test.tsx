@@ -13,9 +13,10 @@ const activityApiState = vi.hoisted(() => ({
     currentMemberRole: "OWNER",
     deletedAt: null as string | null,
     endDate: null as string | null,
-    fieldPermissions: { baseCurrency: false, endDate: true, location: true, name: true, startDate: true },
+    fieldPermissions: { baseCurrency: false, endDate: true, inviteMode: true, location: true, name: true, startDate: true },
     hasAccountingRecords: true,
     location: "杭州",
+    inviteMode: "DIRECT_JOIN",
     name: "测试活动",
     ownerMemberId: "member-owner",
     purgeAfter: null as string | null,
@@ -47,6 +48,9 @@ const activityApiState = vi.hoisted(() => ({
     useCount: number;
     version: string;
   }>,
+  joinQueryEnabled: [] as boolean[],
+  joinRequests: [] as Array<Record<string, unknown>>,
+  decideJoinRequest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
 }));
 
 vi.mock("../accounting/api", () => ({
@@ -101,6 +105,11 @@ vi.mock("./api", async (importOriginal) => {
     useCreateGuestMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
     useCreateInvitationMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
     useRevokeInvitationMutation: () => ({ isPending: false, mutate: vi.fn() }),
+    useJoinRequestsQuery: (_userId: string, _activityId: string, enabled: boolean) => {
+      activityApiState.joinQueryEnabled.push(enabled);
+      return { data: activityApiState.joinRequests, isPending: false };
+    },
+    useDecideJoinRequestMutation: () => activityApiState.decideJoinRequest,
   };
 });
 
@@ -127,7 +136,7 @@ afterEach(() => {
   activityApiState.activity.status = "ACTIVE";
   activityApiState.activity.allowedLifecycleActions = ["END"];
   activityApiState.activity.canDelete = true;
-  activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: true, location: true, name: true, startDate: true };
+  activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: true, inviteMode: true, location: true, name: true, startDate: true };
   activityApiState.activity.hasAccountingRecords = true;
   activityApiState.activity.location = "杭州";
   activityApiState.activities = [];
@@ -145,6 +154,12 @@ afterEach(() => {
   activityApiState.restore.mutate.mockReset();
   activityApiState.invitationQueryEnabled.length = 0;
   activityApiState.invitations = [];
+  activityApiState.joinQueryEnabled.length = 0;
+  activityApiState.joinRequests = [];
+  activityApiState.decideJoinRequest.error = null;
+  activityApiState.decideJoinRequest.isPending = false;
+  activityApiState.decideJoinRequest.mutateAsync.mockReset();
+  activityApiState.decideJoinRequest.mutateAsync.mockResolvedValue(undefined);
 });
 
 describe("MePage", () => {
@@ -227,6 +242,34 @@ describe("成员 Overlay", () => {
     expect(screen.queryByRole("button", { name: "邀请成员" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("临时成员名称")).not.toBeInTheDocument();
     expect(activityApiState.invitationQueryEnabled.at(-1)).toBe(false);
+    expect(activityApiState.joinQueryEnabled.at(-1)).toBe(role === "OWNER");
+  });
+
+  it("Owner 可审批 Pending，失败时保留申请和服务端中文错误", async () => {
+    activityApiState.joinRequests = [{
+      activityId: "activity-1",
+      applicantDisplayName: "待加入成员",
+      applicantUserId: "user-2",
+      createdAt: "2026-09-01T10:00:00Z",
+      decidedAt: null,
+      requestId: "request-1",
+      revision: "3",
+      status: "PENDING",
+    }];
+    activityApiState.decideJoinRequest.mutateAsync.mockRejectedValue(
+      new Error("当前活动不允许新成员加入。"),
+    );
+    renderWorkspace();
+
+    expect(screen.getByText("待加入成员")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "批准待加入成员" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前活动不允许新成员加入。");
+    expect(screen.getByText("待加入成员")).toBeInTheDocument();
+    expect(activityApiState.decideJoinRequest.mutateAsync).toHaveBeenCalledWith({
+      decision: "APPROVE",
+      requestId: "request-1",
+    });
   });
 
   it("只显示未撤销、未过期且未用尽的有效邀请", async () => {
@@ -345,6 +388,18 @@ describe("创建活动 Overlay", () => {
 });
 
 describe("活动管理 Overlay", () => {
+  it("Owner 使用分段控件更新活动级加入方式", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    expect(screen.getByRole("button", { name: "直接加入" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "需要审批" }));
+
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
+      inviteMode: "REQUIRE_APPROVAL",
+      version: "7",
+    }));
+  });
+
   it("展示服务端资料、账务锁提示、字段权限、生命周期命令和删除权限", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
 
@@ -361,12 +416,13 @@ describe("活动管理 Overlay", () => {
     activityApiState.activity.currentMemberRole = "MEMBER";
     activityApiState.activity.allowedLifecycleActions = [];
     activityApiState.activity.canDelete = false;
-    activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: false, location: false, name: false, startDate: false };
+    activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: false, inviteMode: false, location: false, name: false, startDate: false };
     renderWorkspace("/activities/activity-1?panel=manage");
 
     expect(screen.queryByRole("button", { name: "编辑活动资料" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "结束活动" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "删除活动" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "直接加入" })).not.toBeInTheDocument();
   });
 
   it("资料编辑只呈现获准字段，失败时携带版本并保留草稿和错误", async () => {
@@ -408,6 +464,7 @@ describe("活动管理 Overlay", () => {
     activityApiState.activity.fieldPermissions = {
       baseCurrency: false,
       endDate: false,
+      inviteMode: true,
       location: true,
       name: false,
       startDate: false,

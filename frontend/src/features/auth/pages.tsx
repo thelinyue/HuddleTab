@@ -3,7 +3,7 @@ import { type FormEvent, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Brand } from "../../components/brand";
 import { Button, ErrorNotice, Field, Input, LoadingState } from "../../components/ui";
-import { useInvitationPreviewQuery, useJoinInvitationMutation, useLoginMutation, useRegisterMutation, useSessionQuery } from "./api";
+import { useInvitationPreviewQuery, useJoinInvitationMutation, useJoinRequestQuery, useLoginMutation, useRegisterMutation, useSessionQuery } from "./api";
 
 function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -140,6 +140,8 @@ export function JoinPage() {
   const session = useSessionQuery();
   const preview = useInvitationPreviewQuery(token);
   const mutation = useJoinInvitationMutation(session.data?.userId ?? "", token);
+  const [requestId, setRequestId] = useState("");
+  const joinRequest = useJoinRequestQuery(session.data?.userId ?? "", requestId);
   const navigate = useNavigate();
 
   if (preview.isPending || session.isPending) return <LoadingState label="正在读取邀请…" />;
@@ -157,12 +159,34 @@ export function JoinPage() {
             {session.data ? (
               <>
                 {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
-                <Button
-                  busy={mutation.isPending}
-                  onClick={() => void mutation.mutateAsync().then((joined) => navigate(`/activities/${joined.activityId}`))}
-                >
-                  加入活动 <ArrowRight aria-hidden="true" size={18} />
-                </Button>
+                {requestId ? (
+                  <div className="join-request-status" role="status" aria-live="polite">
+                    {joinRequest.isPending ? <LoadingState label="正在读取审批结果…" /> : null}
+                    {joinRequest.error ? <ErrorNotice error={joinRequest.error} /> : null}
+                    {!joinRequest.isPending && !joinRequest.error && joinRequest.data?.status === "APPROVED" ? (
+                      <><strong>申请已批准</strong><Link className="button button--primary" to={`/activities/${joinRequest.data.activityId}`}>打开活动 <ArrowRight aria-hidden="true" size={18} /></Link></>
+                    ) : null}
+                    {!joinRequest.isPending && !joinRequest.error && joinRequest.data?.status === "REJECTED" ? (
+                      <><strong>申请未通过</strong><p>活动所有者没有批准本次加入申请。</p></>
+                    ) : null}
+                    {!joinRequest.isPending && !joinRequest.error && (!joinRequest.data || joinRequest.data.status === "PENDING") ? (
+                      <><strong>等待活动所有者审批</strong><p>审批结果会显示在通知中。</p></>
+                    ) : null}
+                  </div>
+                ) : (
+                  <Button
+                    busy={mutation.isPending}
+                    onClick={() => void mutation.mutateAsync().then((joined) => {
+                      if (joined.status === "PENDING_APPROVAL" && joined.requestId) {
+                        setRequestId(joined.requestId);
+                      } else {
+                        navigate(`/activities/${joined.activityId}`);
+                      }
+                    })}
+                  >
+                    加入活动 <ArrowRight aria-hidden="true" size={18} />
+                  </Button>
+                )}
               </>
             ) : (
               <div className="button-row">

@@ -468,7 +468,7 @@ git commit -m "feat: connect join approval client adapters"
 - Join page renders waiting state for `PENDING_APPROVAL` and applicant status query.
 - Notification page renders the two frozen notification types and marks rows read independently of approval state.
 
-- [ ] **Step 1: Write failing UI behavior tests**
+- [x] **Step 1: Write failing UI behavior tests**
 
 Use real components with adapter boundary fakes only. Assert:
 
@@ -483,7 +483,7 @@ Mark-read failure preserves unread appearance and displays an error.
 Activity workspace still renders only 流水 / 结算 navigation.
 ```
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```powershell
 npm --prefix frontend run test:unit -- src/features/activities/pages.test.tsx src/features/notifications/pages.test.tsx src/app/router.test.tsx
@@ -491,11 +491,11 @@ npm --prefix frontend run test:unit -- src/features/activities/pages.test.tsx sr
 
 Expected: controls/pages/states do not exist.
 
-- [ ] **Step 3: Implement the minimal UI**
+- [x] **Step 3: Implement the minimal UI**
 
 Use existing `Overlay`, `Button`, `Field`, `LoadingState`, `EmptyState`, and `ErrorNotice`. Implement the two-option join mode as a stable-width segmented control because it is a mode choice; do not create a generic component abstraction for this one use. Notification buttons use Lucide icons with accessible labels. Keep all compact panels at existing typography scale and avoid nested cards.
 
-- [ ] **Step 4: Run GREEN, full frontend tests, and build**
+- [x] **Step 4: Run GREEN, full frontend tests, and build**
 
 ```powershell
 npm --prefix frontend run test:unit -- src/features/activities/pages.test.tsx src/features/notifications/pages.test.tsx src/app/router.test.tsx
@@ -506,11 +506,11 @@ npm --prefix frontend run build
 
 Expected: focused and full frontend suites, typecheck, and production build pass.
 
-- [ ] **Step 5: Verify responsive UI**
+- [x] **Step 5: Verify responsive UI**
 
 Start the existing local development stack against the disposable database. Use Chromium at `1440x1000` and `390x844` to inspect Activity management, Pending approval list, Join pending state, and Notification results. Assert `document.documentElement.scrollWidth === document.documentElement.clientWidth` and that Activity navigation contains exactly “流水 / 结算”. Save screenshots only under ignored `frontend/artifacts/`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add frontend/src/features/activities/pages.tsx frontend/src/features/auth/pages.tsx frontend/src/features/notifications/pages.tsx frontend/src/app/router.tsx frontend/src/app.css frontend/src/features/activities/pages.test.tsx frontend/src/features/notifications/pages.test.tsx frontend/src/app/router.test.tsx

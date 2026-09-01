@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  Bell,
   ChevronRight,
   CircleDollarSign,
   Download,
@@ -55,7 +54,9 @@ import {
   useCreateGuestMutation,
   useCreateInvitationMutation,
   useInvitationsQuery,
+  useJoinRequestsQuery,
   useMembersQuery,
+  useDecideJoinRequestMutation,
   useRevokeInvitationMutation,
   useRestoreActivityMutation,
   useUpdateActivityMutation,
@@ -456,11 +457,24 @@ function activeInvitations(invitations: readonly Invitation[], now: number): Inv
 export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invite"; onInvite?: () => void }) {
   const { session, activity } = useWorkspace();
   const members = useMembersQuery(session.userId, activity.activityId);
-  const canManage = activity.status === "ACTIVE" && activity.currentMemberRole === "OWNER";
+  const isOwner = activity.currentMemberRole === "OWNER";
+  const canManage = activity.status === "ACTIVE" && isOwner;
   const invitations = useInvitationsQuery(session.userId, activity.activityId, canManage);
+  const joinRequests = useJoinRequestsQuery(session.userId, activity.activityId, isOwner);
+  const decideJoinRequest = useDecideJoinRequestMutation(session.userId, activity.activityId);
   const createGuest = useCreateGuestMutation(session.userId, activity.activityId);
   const revokeInvitation = useRevokeInvitationMutation(session.userId, activity.activityId);
   const [guestName, setGuestName] = useState("");
+  const [decisionError, setDecisionError] = useState<unknown>();
+
+  async function decide(requestId: string, decision: "APPROVE" | "REJECT") {
+    setDecisionError(undefined);
+    try {
+      await decideJoinRequest.mutateAsync({ requestId, decision });
+    } catch (reason) {
+      setDecisionError(reason);
+    }
+  }
 
   if (members.isPending) return <LoadingState label="正在读取成员…" />;
   if (members.error) return <ErrorNotice error={members.error} />;
@@ -477,6 +491,38 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
         <form onSubmit={(event) => { event.preventDefault(); void createGuest.mutateAsync(guestName).then(() => setGuestName("")); }}><Input aria-label="临时成员名称" value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="临时成员名称" required /><Button variant="secondary" type="submit" busy={createGuest.isPending}>添加</Button></form>
       </div> : null}
       {createGuest.error ? <ErrorNotice error={createGuest.error} /> : null}
+      {isOwner && joinRequests.isPending ? <LoadingState label="正在读取待审批申请…" /> : null}
+      {isOwner && joinRequests.error ? <ErrorNotice error={joinRequests.error} /> : null}
+      {isOwner && joinRequests.data?.length ? (
+        <section className="member-section" aria-labelledby="join-requests-heading">
+          <h2 id="join-requests-heading">待审批 · {joinRequests.data.length}人</h2>
+          <div className="join-request-list">
+            {joinRequests.data.map((request) => (
+              <div className="join-request-row" key={request.requestId}>
+                <span>
+                  <strong>{request.applicantDisplayName}</strong>
+                  <small>申请加入活动</small>
+                </span>
+                <div className="join-request-actions">
+                  <Button
+                    variant="secondary"
+                    busy={decideJoinRequest.isPending}
+                    aria-label={`拒绝${request.applicantDisplayName}`}
+                    onClick={() => void decide(request.requestId, "REJECT")}
+                  >拒绝</Button>
+                  <Button
+                    busy={decideJoinRequest.isPending}
+                    disabled={activity.status !== "ACTIVE"}
+                    aria-label={`批准${request.applicantDisplayName}`}
+                    onClick={() => void decide(request.requestId, "APPROVE")}
+                  >批准</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {decisionError ? <ErrorNotice error={decisionError} /> : null}
       <section className="member-section"><h2>活动成员 · {members.data?.length ?? 0}人</h2><div className="member-list">{members.data?.map((member) => <div className="member-row" key={member.memberId}><MemberAvatar memberId={member.memberId} displayName={member.displayName} /><span><strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong><small>{member.userId ? "正式成员" : "临时成员"}</small></span><span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : "成员"}</span></div>)}</div></section>
       {visibleInvitations.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{visibleInvitations.map((invite) => <div key={invite.invitationId}><span><strong>{invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入"}</strong><small>已使用 {invite.useCount}{invite.maxUses ? ` / ${invite.maxUses}` : ""}</small></span><Button variant="ghost" busy={revokeInvitation.isPending} onClick={() => revokeInvitation.mutate(invite.invitationId)}>撤销</Button></div>)}</div></section> : null}
     </div>
@@ -542,8 +588,12 @@ function ActivityProfileEditor({ onSaved }: { onSaved: (warnings: string[]) => v
 export function MorePage({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () => void }) {
   const { session, activity } = useWorkspace();
   const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
+  const update = useUpdateActivityMutation(session.userId, activity.activityId);
   const [error, setError] = useState<unknown>();
-  const canEdit = Object.values(activity.fieldPermissions).some(Boolean);
+  const [inviteModeError, setInviteModeError] = useState<unknown>();
+  const canEdit = fieldPermissionLabels.some(([field]) => activity.fieldPermissions[field]);
+  const canConfigureInviteMode = activity.currentMemberRole === "OWNER"
+    && activity.fieldPermissions.inviteMode;
 
   async function transition(action: string) {
     setError(undefined);
@@ -551,6 +601,16 @@ export function MorePage({ onEdit, onDelete }: { onEdit?: () => void; onDelete?:
       await lifecycle.mutateAsync({ action, version: activity.version });
     } catch (reason) {
       setError(reason);
+    }
+  }
+
+  async function updateInviteMode(inviteMode: "DIRECT_JOIN" | "REQUIRE_APPROVAL") {
+    if (inviteMode === activity.inviteMode) return;
+    setInviteModeError(undefined);
+    try {
+      await update.mutateAsync({ inviteMode, version: activity.version });
+    } catch (reason) {
+      setInviteModeError(reason);
     }
   }
 
@@ -566,6 +626,26 @@ export function MorePage({ onEdit, onDelete }: { onEdit?: () => void; onDelete?:
           <div><UsersRound aria-hidden="true" size={17} /><span>状态</span><strong>{activityStatus(activity.status)}</strong></div>
         </div>
       </section>
+      {canConfigureInviteMode ? (
+        <section className="invite-mode-setting" aria-labelledby="invite-mode-heading">
+          <h2 id="invite-mode-heading">加入方式</h2>
+          <div className="segmented" role="group" aria-label="加入方式">
+            <button
+              type="button"
+              aria-pressed={activity.inviteMode === "DIRECT_JOIN"}
+              disabled={update.isPending}
+              onClick={() => void updateInviteMode("DIRECT_JOIN")}
+            >直接加入</button>
+            <button
+              type="button"
+              aria-pressed={activity.inviteMode === "REQUIRE_APPROVAL"}
+              disabled={update.isPending}
+              onClick={() => void updateInviteMode("REQUIRE_APPROVAL")}
+            >需要审批</button>
+          </div>
+          {inviteModeError ? <ErrorNotice error={inviteModeError} /> : null}
+        </section>
+      ) : null}
       {activity.hasAccountingRecords ? <div className="notice">已有账务记录，主币种等受账务锁约束的字段可能不可编辑。</div> : null}
       <section>
         <h2>数据导出</h2>
@@ -619,10 +699,6 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function NotificationsPage() {
-  return <TopLevelPlaceholder icon={<Bell size={28} />} title="通知" description="通知能力将在后续阶段接入。" />;
-}
-
 export function MePage() {
   const session = useSessionQuery();
   const logout = useLogoutMutation();
@@ -650,8 +726,4 @@ export function MePage() {
       <ProductBottomNavigation />
     </div>
   );
-}
-
-function TopLevelPlaceholder({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
-  return <div className="top-level-page"><main className="app-frame app-frame--with-nav"><header className="home-header"><h1>{title}</h1></header><EmptyState icon={icon} title={title} description={description} /></main><ProductBottomNavigation /></div>;
 }

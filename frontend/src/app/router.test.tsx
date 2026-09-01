@@ -29,9 +29,12 @@ vi.mock("../features/activities/pages", async () => {
     ActivitiesPage: () => <p>活动列表</p>,
     ActivityWorkspace: () => <Outlet />,
     MePage: () => <p>我的</p>,
-    NotificationsPage: () => <p>通知</p>,
   };
 });
+
+vi.mock("../features/notifications/pages", () => ({
+  NotificationsPage: () => <p>通知</p>,
+}));
 
 vi.mock("../features/accounting/pages", () => ({
   ExpenseDetailPage: () => <p>账单详情</p>,
@@ -73,6 +76,11 @@ describe("ApplicationRouter", () => {
     renderRoute("/activities/activity-1?tab=settlement");
     expect(screen.getByText("结算页")).toBeInTheDocument();
     expect(screen.queryByText("流水页")).not.toBeInTheDocument();
+  });
+
+  it("已登录用户可打开通知页", () => {
+    renderRoute("/notifications");
+    expect(screen.getByText("通知")).toBeInTheDocument();
   });
 
   it("已登录用户可以直接打开修改密码二级页", () => {
