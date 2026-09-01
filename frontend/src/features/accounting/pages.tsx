@@ -23,6 +23,7 @@ import {
   useUpdateSettlementMutation,
   useVoidSettlementMutation,
 } from "./api";
+import { usePendingExpenseMutations } from "./expense-queue-sync";
 
 const categories = [
   ["FOOD", "餐饮", "food"], ["TRANSPORT", "交通", "transport"], ["LODGING", "住宿", "lodging"],
@@ -88,6 +89,10 @@ function dateHeading(date: string): string {
 export function ExpenseFeedPage() {
   const { session, activity } = useWorkspace();
   const expenses = useExpensesQuery(session.userId, activity.activityId);
+  const pendingExpenses = usePendingExpenseMutations(
+    session.userId,
+    activity.activityId,
+  );
   const members = useMembersQuery(session.userId, activity.activityId);
   const [entryOpen, setEntryOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -101,6 +106,10 @@ export function ExpenseFeedPage() {
   const filteredExpenses = allExpenses.filter(({ expense }) =>
     (!query.trim() || `${expense.title} ${expense.note ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
     (!category || expense.category === category),
+  );
+  const filteredPending = (pendingExpenses.data ?? []).filter(({ payload }) =>
+    (!query.trim() || `${payload.title} ${payload.note ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
+    (!category || payload.category === category),
   );
   const groups = groupExpensesByDate(filteredExpenses, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const total = allExpenses.reduce((sum, item) => sum + BigInt(item.expense.baseAmountMinor), 0n);
@@ -125,6 +134,33 @@ export function ExpenseFeedPage() {
 
       <section className="expense-feed-section" aria-labelledby="expense-feed-heading">
         <header><h2 id="expense-feed-heading">全部流水</h2><Button variant="ghost" onClick={() => setFilterOpen(true)}><Filter aria-hidden="true" size={16} /> 筛选{query || category ? " · 已启用" : ""}</Button></header>
+        {pendingExpenses.error ? <ErrorNotice error={pendingExpenses.error} /> : null}
+        {filteredPending.length ? (
+          <section className="expense-date-group" aria-labelledby="pending-expenses-heading">
+            <h3 id="pending-expenses-heading">待同步</h3>
+            <div className="expense-list">
+              {filteredPending.map((record) => {
+                const categoryInfo = categories.find(([value]) => value === record.payload.category) ?? categories.at(-1)!;
+                const payerNames = record.payload.payments.map((payment) => memberName(payment.memberId, members.data)).join("、");
+                const shareCount = record.payload.split.members?.length ?? record.payload.split.entries?.length ?? 0;
+                const statusLabel = record.status === "SYNCING"
+                  ? "正在同步"
+                  : record.status === "RETRYABLE"
+                    ? "同步失败，将稍后重试"
+                    : record.status === "REJECTED"
+                      ? "需要修改"
+                      : "等待同步";
+                return (
+                  <div key={record.id} className="expense-row expense-row--pending">
+                    <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
+                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}</span>
+                    <span className="expense-row__amount"><Money value={formatMoney(record.payload.originalCurrency, record.payload.originalAmountMinor)} /><small>{new Date(record.payload.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
         {groups.length ? groups.map((group) => (
           <section className="expense-date-group" key={group.date} aria-labelledby={`date-${group.date}`}>
             <h3 id={`date-${group.date}`}>{dateHeading(group.date)}</h3>

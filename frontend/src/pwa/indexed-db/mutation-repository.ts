@@ -3,6 +3,13 @@ import type { PendingExpenseMutation } from "./schema";
 
 type MutationInput = Omit<PendingExpenseMutation, "userId">;
 
+function byCreationOrder(
+  left: PendingExpenseMutation,
+  right: PendingExpenseMutation,
+) {
+  return left.createdAt - right.createdAt || left.id.localeCompare(right.id);
+}
+
 /** Task 25 只持久化完整记录；状态转换、退避和同步顺序由 Task 26 负责。 */
 export class MutationRepository {
   constructor(private readonly userId: string) {}
@@ -29,9 +36,13 @@ export class MutationRepository {
         activityId,
       ),
     );
-    return records.sort(
-      (left, right) =>
-        left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+    return records.sort(byCreationOrder);
+  }
+
+  async listAll() {
+    const records = await withUserDatabase(this.userId, (database) =>
+      database.getAll("pending_mutations"),
     );
+    return records.sort(byCreationOrder);
   }
 }

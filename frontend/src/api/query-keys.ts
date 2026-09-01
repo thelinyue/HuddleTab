@@ -12,6 +12,8 @@ export const queryKeys = {
     ["users", userId, "activities", activityId, "invitations"] as const,
   expenses: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "expenses"] as const,
+  pendingExpenses: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "pending-expenses"] as const,
   expense: (userId: string, activityId: string, expenseId: string) =>
     ["users", userId, "activities", activityId, "expenses", expenseId] as const,
   ledger: (userId: string, activityId: string) =>

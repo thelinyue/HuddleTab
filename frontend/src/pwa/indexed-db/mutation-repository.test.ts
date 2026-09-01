@@ -51,3 +51,21 @@ it("按 activityId 隔离并使用 createdAt、id 提供确定顺序", async () 
     (await repository.listByActivity("activity-1")).map(({ id }) => id),
   ).toEqual(["a", "b"]);
 });
+
+it("全队列跨 activity 仍按 createdAt、id 提供确定顺序", async () => {
+  const repository = new MutationRepository("user-1");
+  await repository.put(
+    pendingMutationFixture("b", { activityId: "activity-2", createdAt: 20 }),
+  );
+  await repository.put(
+    pendingMutationFixture("c", { status: "REJECTED", createdAt: 30 }),
+  );
+  await repository.put(pendingMutationFixture("a", { createdAt: 20 }));
+
+  expect((await repository.listAll()).map(({ id, status }) => [id, status]))
+    .toEqual([
+      ["a", "PENDING"],
+      ["b", "PENDING"],
+      ["c", "REJECTED"],
+    ]);
+});

@@ -4,6 +4,7 @@ import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "r
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
 import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "../features/accounting/pages";
+import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
 import { ActivitiesPage, ActivityWorkspace, MePage, NotificationsPage } from "../features/activities/pages";
 import { useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
@@ -23,7 +24,7 @@ function ProtectedRoute() {
   const location = useLocation();
   if (session.isPending) return <LoadingState label="正在确认登录状态…" />;
   if (!session.data) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
-  return <Outlet />;
+  return <><ExpenseQueueSync userId={session.data.userId} /><Outlet /></>;
 }
 
 function NotFoundPage() {

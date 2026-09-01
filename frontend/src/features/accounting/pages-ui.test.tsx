@@ -48,6 +48,7 @@ const settlement = vi.hoisted(() => ({
 }));
 
 const mutation = vi.hoisted(() => () => ({ error: null, isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() }));
+const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 
 vi.mock("../activities/pages", () => ({
   useWorkspace: () => ({
@@ -74,6 +75,14 @@ vi.mock("./api", () => ({
   useVoidSettlementMutation: mutation,
 }));
 
+vi.mock("./expense-queue-sync", () => ({
+  usePendingExpenseMutations: () => ({
+    data: pendingMutations.records,
+    error: null,
+    isPending: false,
+  }),
+}));
+
 import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "./pages";
 
 function renderPage(node: ReactNode) {
@@ -83,6 +92,43 @@ function renderPage(node: ReactNode) {
 afterEach(() => {
   cleanup();
   activity.status = "ACTIVE";
+  pendingMutations.records = [];
+});
+
+describe("Expense pending 流水隔离", () => {
+  it("显示待同步账单但不计入权威消费统计", () => {
+    pendingMutations.records = [{
+      activityId: "activity-1",
+      attemptCount: 0,
+      createdAt: 1,
+      id: "pending-1",
+      kind: "CREATE_EXPENSE",
+      nextAttemptAt: 1,
+      payload: {
+        category: "FOOD",
+        clientMutationId: "pending-1",
+        exchangeRate: "1",
+        exchangeRateKind: "IDENTITY",
+        occurredAt: "2026-09-01T10:00:00Z",
+        originalAmountMinor: "200",
+        originalCurrency: "CNY",
+        payments: [{ amountMinor: "200", memberId: "member-1" }],
+        split: { members: ["member-1"], mode: "EQUAL" },
+        title: "离线早餐",
+      },
+      status: "PENDING",
+      updatedAt: 1,
+      userId: "user-1",
+    }];
+
+    renderPage(<ExpenseFeedPage />);
+
+    expect(screen.getByText("离线早餐")).toBeInTheDocument();
+    expect(screen.getByText(/等待同步/)).toBeInTheDocument();
+    expect(screen.getByText(/1 笔消费/)).toBeInTheDocument();
+    expect(screen.getByLabelText("消费摘要")).toHaveTextContent("¥10.00");
+    expect(screen.getByLabelText("消费摘要")).not.toHaveTextContent("¥12.00");
+  });
 });
 
 describe("Activity 生命周期写权限", () => {

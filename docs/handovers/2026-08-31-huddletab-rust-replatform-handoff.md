@@ -6,7 +6,7 @@
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag 与 Task 25 的 IndexedDB 隔离和本地存储边界已完成，可以进入 Task 26。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 2 Task 26–28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离和 Task 26 的 Expense Create 前台同步队列已完成，可以进入 Task 27。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 2 Task 27–28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag 与 Task 25 的 Indexed
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24、Task 25 与本文档已形成 Git 检查点。Task 25 增加按用户隔离的 IndexedDB、Snapshot 完整替换/条件刷新和 Expense Create Queue 存储，但没有增加同步器、重试状态机、pending 流水叠加或离线 UI。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–26 与本文档已形成 Git 检查点。Task 26 在 Task 25 store 上增加单用途 Expense Create 前台串行同步、有限重试、业务拒绝和 pending 流水展示；没有进入审批、附件、通知、Guest Binding、汇率 Provider 或 Service Worker 后台业务写入。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -134,13 +134,13 @@ huddletab openapi
 | 多付款人、四种分摊、手工汇率 | 可用 | IDENTITY/MANUAL；Provider 属于 Phase 2 |
 | Ledger、成员余额、推荐转账 | 可用 | 全部由 Rust 权威计算 |
 | Settlement 创建、修改、作废 | 可用 | 删除语义为 VOID，不物理删除 |
-| PWA Shell | 可用 | 不缓存 API；没有业务离线队列 |
+| PWA Shell | 可用 | 不缓存 API；Expense Create 使用前台同步队列，Service Worker 不执行业务写入 |
 | 通知页 | 占位 | Phase 2 尚未实现通知域 |
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
 | CSV、结算分享 | 可用 | 有效 ActivityMember 可下载 CSV，并从结算页生成受保护摘要和 1600px PNG |
 | Activity Revision Snapshot / weak ETag | 可用 | Task 24；Task 25 已接入按用户隔离的完整 Snapshot 本地存储 |
 | IndexedDB Snapshot / Queue stores | 可用 | Task 25；schema v1，只保存 Snapshot 与 Expense Create mutation，不持久化 Query cache |
-| 离线 Expense Create 同步 | 未实现 | Task 26；尚无前台串行、重试、REJECTED 或 pending 流水叠加 |
+| 离线 Expense Create 同步 | 可用 | Task 26；前台串行、幂等重放、有限重试、REJECTED 和 pending 流水展示 |
 | 审批、附件、汇率 Provider | 未实现 | 属于 Phase 2 |
 | 系统管理、注册策略、管理员重置密码 | 未实现 | 属于 Phase 3 |
 
@@ -300,6 +300,29 @@ git diff --check
 
 精确结果：IndexedDB 专项 3 个文件、10 passed；认证生命周期与 IndexedDB scoped 回归 5 个文件、17 passed；Frontend 全量 19 个文件、88 passed、0 failed。typecheck 与 production build 通过，Query cache 持久化源码/依赖检查 0 命中，`git diff --check` 通过。本轮没有服务端、OpenAPI、可见 UI 或运行镜像变化，因此未重复 Rust/PostgreSQL 与 Phase 1E Playwright/Compose 验收。
 
+### 7.4 Phase 2 Task 26 Expense Create Queue
+
+Task 26 将新增 Expense 的提交成功边界改为“完整输入已写入当前用户 IndexedDB”。记录主键直接使用既有 `clientMutationId`；登录后的受保护应用树、重新联网和新入队事件会触发前台同步。同步器跨 Activity 按 `createdAt`、`id` 串行执行，同一实例的并发 flush 合并；响应丢失后重放同一 payload，由 Rust 已有幂等合同返回同一 Expense。
+
+网络错误、401、429 与 5xx 保留为 `RETRYABLE`；单次 flush 对同一记录最多尝试 3 次，退避为 1 秒、5 秒。其他业务 4xx 写为 `REJECTED`，完整原始输入和中文错误继续保留。每次发送前检查当前前台 Session 用户；旧用户在退避期间退出后立即停止，不能借用随后登录用户的 Session。成功记录写为 `SYNCED` 并刷新 Expense、Ledger、Recommendation、Settlement 和 Activity detail 权威查询。
+
+流水页单独显示 `PENDING`、`SYNCING`、`RETRYABLE` 和 `REJECTED` 行；这些记录不是 `ExpenseAggregate`，不可打开详情，也不进入总消费、人均、外币统计、Ledger、余额或 Recommendation。Task 26 没有实现 REJECTED 修正交互、后台同步或完整断网浏览器矩阵，这些仍属于 Task 28。
+
+本轮实际执行：
+
+```powershell
+npm --prefix frontend run test:unit -- src/pwa/indexed-db/mutation-repository.test.ts
+npm --prefix frontend run test:unit -- src/features/accounting/expense-queue.test.ts
+npm --prefix frontend run test:unit -- src/features/accounting/expense-queue-sync.test.tsx src/features/accounting/expense-queue.test.ts src/features/accounting/api.test.tsx
+npm --prefix frontend run test:unit -- src/app/router.test.tsx src/app/providers.test.tsx src/features/auth/api.test.tsx src/features/accounting
+npm --prefix frontend run test:unit
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+git diff --check
+```
+
+精确结果：Task 26 最终 scoped 回归 8 个文件、27 passed；Frontend 全量 21 个文件、96 passed、0 failed；typecheck、production build 和 `git diff --check` 通过。另用 production build 和受控 API/IndexedDB 数据在 Chromium `1440 x 1000`、`390 x 844` 检查 pending 行：两种 viewport 均无横向溢出，长标题与金额不重叠，活动导航仍只有“流水 / 结算”，pending 金额不改变权威汇总。Task 26 没有服务端、PostgreSQL、OpenAPI 或运行镜像变化，因此没有重复 Rust/PostgreSQL/OpenAPI 和 Phase 1E Compose 矩阵；断网刷新、PWA 更新不丢 pending、REJECTED 修正和浏览器端到端矩阵保留给 Task 28。
+
 ## 8. 当前本地运行现场
 
 交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
@@ -409,7 +432,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. Phase 2 Task 26–28：实现离线 Expense Create 同步、审批、Guest Binding、通知、附件、汇率 Provider 和 Phase 2 E2E；Task 24 Revision Snapshot/ETag 与 Task 25 IndexedDB 隔离已完成。
+1. Phase 2 Task 27–28：实现审批、Guest Binding、通知、附件、汇率 Provider 和 Phase 2 E2E；Task 24 Revision Snapshot/ETag、Task 25 IndexedDB 隔离与 Task 26 Expense Create 前台同步已完成。
 2. Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。
 3. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
 4. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
@@ -422,5 +445,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-08-31-huddletab-rust-replatform.md`
 - `docs/superpowers/specs/2026-09-01-huddletab-task25-indexeddb-design.md`
 - `docs/superpowers/plans/2026-09-01-huddletab-task25-indexeddb.md`
+- `docs/superpowers/specs/2026-09-01-huddletab-task26-expense-queue-design.md`
+- `docs/superpowers/plans/2026-09-01-huddletab-task26-expense-queue.md`
 
 这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-01 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。

@@ -307,6 +307,8 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .expense-row { display: grid; min-height: 72px; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .expense-row:last-child { border-bottom: 0; }
 .expense-row:hover { background: var(--surface-muted); }
+.expense-row--pending { background: var(--surface-muted); color: var(--muted-foreground); }
+.expense-row--pending:hover { background: var(--surface-muted); }
 .category-illustration { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 8px; background: var(--secondary); }
 .category-illustration img { width: 38px; height: 38px; object-fit: contain; }
 .expense-row__content, .expense-row__amount { display: grid; min-width: 0; }

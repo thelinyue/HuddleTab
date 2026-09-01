@@ -5,6 +5,7 @@ import { mutationHeaders } from "../../api/csrf";
 import { unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
+import { expenseQueueFor } from "./expense-queue";
 
 export type ExpenseAggregate = components["schemas"]["ExpenseAggregateData"];
 export type ExpenseDraft = components["schemas"]["ExpenseDraftRequest"];
@@ -26,16 +27,6 @@ async function getExpense(activityId: string, expenseId: string): Promise<Expens
   return unwrap(
     await apiClient.GET("/api/activities/{activity_id}/expenses/{expense_id}", {
       params: { path: { activity_id: activityId, expense_id: expenseId } },
-    }),
-  ).data;
-}
-
-async function createExpense(activityId: string, input: ExpenseDraft) {
-  return unwrap(
-    await apiClient.POST("/api/activities/{activity_id}/expenses", {
-      params: { path: { activity_id: activityId } },
-      body: input,
-      headers: await mutationHeaders(),
     }),
   ).data;
 }
@@ -145,8 +136,10 @@ export function useExpenseQuery(userId: string, activityId: string, expenseId: s
 }
 
 export function useCreateExpenseMutation(userId: string, activityId: string) {
-  const invalidate = useAccountingInvalidation(userId, activityId);
-  return useMutation({ mutationFn: (input: ExpenseDraft) => createExpense(activityId, input), onSuccess: invalidate });
+  return useMutation({
+    mutationFn: (input: ExpenseDraft) =>
+      expenseQueueFor(userId).enqueue(activityId, input),
+  });
 }
 
 export function useUpdateExpenseMutation(userId: string, activityId: string, expenseId: string) {
