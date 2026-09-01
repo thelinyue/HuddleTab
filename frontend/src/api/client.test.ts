@@ -44,4 +44,16 @@ describe("apiClient 401 处理", () => {
 
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it("匿名读取会话返回 401 时不重置会话查询", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      unauthorizedResponse("UNAUTHENTICATED", "当前登录已失效，请重新登录。"),
+    );
+    const listener = vi.fn();
+    window.addEventListener(AUTH_EXPIRED_EVENT, listener, { once: true });
+
+    await apiClient.GET("/api/auth/session", { baseUrl: "http://localhost", fetch });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
 });

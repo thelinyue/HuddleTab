@@ -74,4 +74,12 @@ describe("ApplicationRouter", () => {
     expect(await screen.findByText("登录页")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "修改密码" })).not.toBeInTheDocument();
   });
+
+  it("未登录用户打开分享摘要页时跳转登录", async () => {
+    authState.data = undefined;
+    render(<MemoryRouter initialEntries={["/share-summary/activity-1"]}><ApplicationRouter /></MemoryRouter>);
+
+    expect(await screen.findByText("登录页")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "结算分享摘要" })).not.toBeInTheDocument();
+  });
 });

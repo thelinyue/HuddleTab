@@ -15,6 +15,7 @@ apiClient.use({
     if (
       response.status === 401 &&
       schemaPath !== "/api/me/password" &&
+      schemaPath !== "/api/auth/session" &&
       typeof window !== "undefined"
     ) {
       window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
