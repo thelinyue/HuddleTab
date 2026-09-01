@@ -1,0 +1,232 @@
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$frontendDir = Split-Path -Parent $PSScriptRoot
+$repoDir = Split-Path -Parent $frontendDir
+$artifactDir = Join-Path $frontendDir "artifacts"
+$composeProject = "huddletab-phase1e-$([Guid]::NewGuid().ToString('N').Substring(0, 10))"
+$temporaryData = $null
+$script:composeFileWsl = $null
+$originalWslEnv = $env:WSLENV
+$sensitiveNames = @(
+  "HUDDLETAB_E2E_USERNAME",
+  "HUDDLETAB_E2E_PASSWORD",
+  "POSTGRES_PASSWORD"
+)
+
+function Invoke-Wsl {
+  param(
+    [Parameter(Mandatory)] [string[]] $ArgumentList,
+    [string] $InputText,
+    [switch] $AllowFailure,
+    [switch] $Quiet
+  )
+
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = "wsl.exe"
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.RedirectStandardInput = $true
+  foreach ($argument in $ArgumentList) { [void] $startInfo.ArgumentList.Add($argument) }
+
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  [void] $process.Start()
+  if ($PSBoundParameters.ContainsKey("InputText")) {
+    $process.StandardInput.Write($InputText)
+  }
+  $process.StandardInput.Close()
+  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+  $stderrTask = $process.StandardError.ReadToEndAsync()
+  $process.WaitForExit()
+  $stdout = $stdoutTask.GetAwaiter().GetResult()
+  $stderr = $stderrTask.GetAwaiter().GetResult()
+  $combined = "$stdout$stderr".TrimEnd()
+  if (-not $Quiet -and $combined) { Write-Host $combined }
+  if (-not $AllowFailure -and $process.ExitCode -ne 0) {
+    throw "WSL 命令失败（退出码 $($process.ExitCode)）。"
+  }
+  [PSCustomObject]@{ ExitCode = $process.ExitCode; Output = $combined }
+}
+
+function Invoke-Compose {
+  param(
+    [Parameter(Mandatory)] [string] $Command,
+    [string] $InputText,
+    [switch] $AllowFailure,
+    [switch] $Quiet
+  )
+  $arguments = @("sh", "-lc", "docker compose -f '$script:composeFileWsl' $Command")
+  $invoke = @{ ArgumentList = $arguments; AllowFailure = $AllowFailure; Quiet = $Quiet }
+  if ($PSBoundParameters.ContainsKey("InputText")) { $invoke.InputText = $InputText }
+  Invoke-Wsl @invoke
+}
+
+function Get-AvailablePort {
+  $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+  $listener.Start()
+  try { return ([System.Net.IPEndPoint] $listener.LocalEndpoint).Port }
+  finally { $listener.Stop() }
+}
+
+function ConvertTo-WslPath {
+  param([Parameter(Mandatory)] [string] $WindowsPath)
+  $fullPath = [System.IO.Path]::GetFullPath($WindowsPath)
+  if ($fullPath -notmatch '^([A-Za-z]):\\(.*)$') {
+    throw "Phase 1E 入口只接受带盘符的 Windows 仓库路径。"
+  }
+  $drive = $Matches[1].ToLowerInvariant()
+  $tail = $Matches[2].Replace('\', '/')
+  "/mnt/$drive/$tail"
+}
+
+function Wait-Health {
+  param([Parameter(Mandatory)] [string] $BaseUrl)
+  for ($attempt = 1; $attempt -le 60; $attempt++) {
+    try {
+      $response = Invoke-WebRequest -Uri "$BaseUrl/api/health" -TimeoutSec 2 -UseBasicParsing
+      if ($response.StatusCode -eq 200) { return }
+    } catch {
+      if ($attempt -eq 60) { throw "HuddleTab health 在等待期内未就绪。" }
+      Start-Sleep -Seconds 2
+    }
+  }
+}
+
+function Assert-TemporaryPath {
+  param([Parameter(Mandatory)] [string] $Path)
+  if ($Path -notmatch '^/tmp/huddletab-phase1e-[A-Za-z0-9._-]+$') {
+    throw "拒绝清理未通过前缀校验的 WSL 路径。"
+  }
+}
+
+try {
+  Write-Host "[1/9] 准备前端依赖与 Playwright 浏览器"
+  Push-Location $frontendDir
+  try {
+    npm ci
+    if ($LASTEXITCODE -ne 0) { throw "前端依赖安装失败。" }
+    npx playwright install chromium webkit
+    if ($LASTEXITCODE -ne 0) { throw "Playwright 浏览器安装失败。" }
+  } finally {
+    Pop-Location
+  }
+
+  New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+  $script:composeFileWsl = ConvertTo-WslPath (Join-Path $repoDir "compose.yaml")
+  $temporaryData = (Invoke-Wsl -ArgumentList @("mktemp", "-d", "/tmp/huddletab-phase1e-XXXXXXXX") -Quiet).Output.Trim()
+  $temporaryData = (Invoke-Wsl -ArgumentList @("readlink", "-f", "--", $temporaryData) -Quiet).Output.Trim()
+  Assert-TemporaryPath $temporaryData
+  # bind mount 不会继承镜像内 /data 的所有权，启动前只放开本次临时子目录供两个非 root 容器初始化。
+  Invoke-Wsl -ArgumentList @("install", "-d", "-m", "0777", "--", "$temporaryData/app", "$temporaryData/postgres") -Quiet | Out-Null
+
+  $appPort = Get-AvailablePort
+  $baseUrl = "http://127.0.0.1:$appPort"
+  $env:HUDDLETAB_E2E_USERNAME = "phase1e$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
+  $env:HUDDLETAB_E2E_PASSWORD = "$([Guid]::NewGuid().ToString('N'))Aa1!"
+  $env:POSTGRES_PASSWORD = "$([Guid]::NewGuid().ToString('N'))Pg1!"
+  $env:DATA_HOST_DIR = $temporaryData
+  $env:APP_PORT = [string] $appPort
+  $env:APP_BASE_URL = $baseUrl
+  $env:COMPOSE_PROJECT_NAME = $composeProject
+  $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
+  $forwarded = "HUDDLETAB_E2E_USERNAME:HUDDLETAB_E2E_PASSWORD:POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:COMPOSE_PROJECT_NAME"
+  $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
+
+  Write-Host "[2/9] 构建并启动独立生产 Compose（project=$composeProject, port=$appPort）"
+  Invoke-Compose "up -d --build --wait" | Out-Null
+  Wait-Health $baseUrl
+
+  Write-Host "[3/9] 验证 fresh migration 并通过 stdin bootstrap"
+  $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
+  if ([int] $migration.Output.Trim() -lt 3) { throw "fresh migration 未完整应用。" }
+  # 一次性脚本整体从 stdin 执行，临时值不会进入主机命令行；CLI 的用户名回显也被丢弃。
+  $bootstrapInput = @"
+set -eu
+username='$($env:HUDDLETAB_E2E_USERNAME)'
+password='$($env:HUDDLETAB_E2E_PASSWORD)'
+printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --password-stdin >/dev/null
+"@
+  $bootstrap = Invoke-Compose "exec -T app sh -s" -InputText $bootstrapInput -AllowFailure -Quiet
+  if ($bootstrap.ExitCode -ne 0) {
+    $safeBootstrapError = $bootstrap.Output
+    foreach ($secret in @($env:HUDDLETAB_E2E_USERNAME, $env:HUDDLETAB_E2E_PASSWORD, $env:POSTGRES_PASSWORD)) {
+      $safeBootstrapError = $safeBootstrapError.Replace($secret, "[REDACTED]")
+    }
+    throw "stdin bootstrap 失败：$safeBootstrapError"
+  }
+  $bootstrapInput = $null
+
+  Write-Host "[4/9] 运行 Chromium Desktop/Mobile 核心矩阵与 WebKit smoke"
+  Push-Location $frontendDir
+  try {
+    npm run test:e2e
+    if ($LASTEXITCODE -ne 0) { throw "Playwright 验收失败，报告已留在 frontend/artifacts。" }
+  } finally {
+    Pop-Location
+  }
+
+  Write-Host "[5/9] 检查 summary/CSV 产物之外的生产 SPA 深链"
+  $deepLink = Invoke-WebRequest -Uri "$baseUrl/activities/deep-link-release-check" -UseBasicParsing
+  if ($deepLink.StatusCode -ne 200 -or $deepLink.Content -notmatch '<div id="root">') {
+    throw "生产镜像没有正确回退 React SPA 深链。"
+  }
+
+  Write-Host "[6/9] 检查非 root UID 与运行镜像技术栈边界"
+  $uid = (Invoke-Compose "exec -T app id -u" -Quiet).Output.Trim()
+  if ($uid -ne "10001") { throw "运行容器 UID 不是预期的非 root 用户 10001。" }
+  $runtimeCommands = Invoke-Compose "exec -T app sh -c '! command -v node >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1 && ! command -v npx >/dev/null 2>&1 && ! command -v next >/dev/null 2>&1'" -AllowFailure -Quiet
+  $runtimeDirectories = Invoke-Compose "exec -T app sh -c 'find /app /usr/local -type d \( -name node_modules -o -name next -o -name drizzle-orm -o -name better-auth \) -print -quit'" -AllowFailure -Quiet
+  if ($runtimeCommands.ExitCode -ne 0 -or $runtimeDirectories.ExitCode -ne 0 -or $runtimeDirectories.Output) {
+    throw "运行镜像仍包含 Node/Next/Drizzle/Better Auth 运行时内容。"
+  }
+
+  Write-Host "[7/9] 验证 app 与 PostgreSQL 重启后的数据持久性"
+  Invoke-Compose "restart app" -Quiet | Out-Null
+  Wait-Health $baseUrl
+  node (Join-Path $PSScriptRoot "support/persistence-check.mjs")
+  if ($LASTEXITCODE -ne 0) { throw "app 重启持久性检查失败。" }
+  Invoke-Compose "restart postgres app" -Quiet | Out-Null
+  Wait-Health $baseUrl
+  node (Join-Path $PSScriptRoot "support/persistence-check.mjs")
+  if ($LASTEXITCODE -ne 0) { throw "PostgreSQL 重启持久性检查失败。" }
+
+  Write-Host "[8/9] 验证数据库不可用时的中文冷启动错误"
+  Invoke-Compose "stop app postgres" -Quiet | Out-Null
+  $coldStart = Invoke-Compose "run --no-deps --rm app" -AllowFailure -Quiet
+  if ($coldStart.ExitCode -eq 0) { throw "数据库不可用时 app 冷启动意外成功。" }
+  if ($coldStart.Output -notmatch '无法连接 PostgreSQL，请检查 DATABASE_URL 和数据库状态') {
+    throw "数据库不可用时未输出明确的中文冷启动错误。"
+  }
+
+  Write-Host "[9/9] 全部验收通过，准备执行限定范围清理"
+} finally {
+  $cleanupFailure = $null
+  try {
+    if ($script:composeFileWsl) {
+      $composeCleanup = Invoke-Compose "down --remove-orphans" -AllowFailure -Quiet
+      if ($composeCleanup.ExitCode -ne 0) { throw "无法关闭本次 Phase 1E Compose project。" }
+    }
+    if ($temporaryData) {
+      $resolvedForCleanup = (Invoke-Wsl -ArgumentList @("readlink", "-f", "--", $temporaryData) -AllowFailure -Quiet).Output.Trim()
+      Assert-TemporaryPath $resolvedForCleanup
+      # PostgreSQL 会把数据文件收紧为容器用户所有；用限定到本次 mount 的一次性 root 容器清空内容，再删除父目录。
+      Invoke-Wsl -ArgumentList @("docker", "run", "--rm", "--user", "0", "--volume", "${resolvedForCleanup}:/cleanup", "postgres:18-alpine", "sh", "-c", "rm -rf /cleanup/* /cleanup/.[!.]* /cleanup/..?*") -Quiet | Out-Null
+      Invoke-Wsl -ArgumentList @("rm", "-rf", "--", $resolvedForCleanup) -Quiet | Out-Null
+      $remaining = Invoke-Wsl -ArgumentList @("test", "!", "-e", $resolvedForCleanup) -AllowFailure -Quiet
+      if ($remaining.ExitCode -ne 0) { throw "WSL 临时目录清理后仍然存在。" }
+      Write-Host "清理验证通过：本次 Compose 已关闭，限定前缀临时目录已删除；Windows 测试报告已保留。"
+    }
+  } catch {
+    $cleanupFailure = $_
+  }
+
+  foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:COMPOSE_PROJECT_NAME, Env:HUDDLETAB_E2E_BASE_URL -ErrorAction SilentlyContinue
+  $env:WSLENV = $originalWslEnv
+  if ($cleanupFailure) { throw $cleanupFailure }
+}
