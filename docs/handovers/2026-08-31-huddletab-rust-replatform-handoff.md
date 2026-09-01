@@ -4,9 +4,9 @@
 
 ## 1. 当前结论
 
-迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动、成员、邀请、记账、账本、推荐转账和结算可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。
+迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账和结算可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。
 
-当前状态不能描述为“完整迁移完成”。通知、修改密码以外的账户设置、活动编辑与删除、CSV/分享，以及 Phase 2/3 能力仍未实现。
+当前状态仍不能描述为“完整迁移完成”。通知、修改密码以外的账户设置、CSV/分享，以及 Phase 2/3 能力仍未实现。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。
 
 ## 2. 代码位置与 Git 状态
 
@@ -120,7 +120,8 @@ huddletab openapi
 | 登录、退出、Session、CSRF | 可用 | 同源 Cookie；首位用户只能由 CLI 创建 |
 | 邀请注册、邀请预览、加入活动 | 可用 | 注册和加入都会重新验证邀请 |
 | 修改密码 API 与页面 | 可用 | `/me/password`；成功后轮换 Session 并清理旧 CSRF token |
-| 活动列表、详情、创建 | 可用 | 管理 Overlay 当前只读 |
+| 活动列表、详情、创建、资料编辑 | 可用 | 名称、地点、日期由 Owner 管理；存在历史 Expense 或 Settlement 后主币种永久锁定 |
+| 活动生命周期、删除与恢复 | 可用 | ACTIVE/ENDED/ARCHIVED 封闭状态机；删除覆盖原状态，30 天内 Owner 可恢复 |
 | 成员列表、临时成员 | 可用 | 成员是唯一账务身份 |
 | 链接与定向邀请创建、列表、撤销 | 可用 | 定向邀请按用户名绑定且固定单次使用；明文口令只保留在当前组件内存 |
 | Expense CRUD | 可用 | 支持幂等、版本冲突、软删除和双金额事实 |
@@ -130,7 +131,6 @@ huddletab openapi
 | PWA Shell | 可用 | 不缓存 API；没有业务离线队列 |
 | 通知页 | 占位 | Phase 2 尚未实现通知域 |
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
-| 活动改名、地点、日期、状态、删除 | 未实现 | 后端和前端均需按真实 API 补齐 |
 | CSV、结算分享 | 未实现 | 不应提前宣称 v0.0.2 全功能等价 |
 | 离线 Snapshot、Expense Queue | 未实现 | 属于 Phase 2 |
 | 审批、附件、汇率 Provider | 未实现 | 属于 Phase 2 |
@@ -155,6 +155,17 @@ huddletab openapi
 
 定向邀请前端流程已按真实 OpenAPI DTO 接入：Owner 在 `ACTIVE` 活动的成员 Overlay 中进入邀请子面板，选择“定向邀请”并输入目标用户名；adapter 固定映射为 `DIRECT`、`maxUses: 1`。普通成员和非活动状态不会发起必然返回 403 的邀请列表请求；已撤销、已过期或已用尽的邀请不会显示在“有效邀请”中。服务端定向邀请注册、加入和撤销仍由既有 `collaboration_api` 集成测试覆盖，本轮未修改 Rust 或 OpenAPI。
 
+活动管理闭环已连接真实 Rust、React 与 PostgreSQL 在 Chromium 中走通：
+
+```text
+登录 -> 创建完整活动 -> 编辑资料 -> 添加临时成员 -> 创建账单
+-> 确认主币种锁定 -> END -> Settlement 新增/修改/作废
+-> ARCHIVE 后 Expense/Settlement 只读 -> UNARCHIVE -> REOPEN
+-> 删除 -> 已删除活动 Overlay -> 恢复到删除前 ACTIVE 状态
+```
+
+浏览器流程还验证了 Activity 管理 Overlay 子视图焦点、删除二次确认、回收列表懒加载，以及 accounting mutation 后立即刷新服务端字段权限。`ENDED` 仅保留 Settlement 写入，`ARCHIVED` 关闭全部账务写入口；非 ACTIVE Expense 详情仍显示分类、原始/折算金额、汇率、付款事实、分摊方式和成员份额。
+
 已检查桌面与移动端尺寸：
 
 ```text
@@ -168,16 +179,20 @@ huddletab openapi
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a05631-f9b2-7cf1-8bc3-d299acfdcdb3\huddletab-rust-v002
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a05834-e7c5-76e3-b28f-d9030154f213\password-e2e-output
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a05883-1c70-7162-b722-d65070b30e4b\direct-invite-implementation
+C:\Users\林樾\.codex\visualizations\2026\08\31\01a058ab-62c3-7141-be71-7df4385d4e93\activity-management-e2e
 ```
 
 最近已知通过的检查：
 
-- Frontend Vitest：7 个测试文件、22 个测试通过；其中定向邀请相关测试为 2 个文件、9 个测试通过。
+- Frontend Vitest：9 个测试文件、47 个测试通过；Activity/Accounting focused 测试覆盖 generated adapter、精确 query invalidation、完整创建、资料草稿与 warning、生命周期命令、回收恢复、焦点和写入口。
 - Frontend TypeScript typecheck 通过。
-- Frontend production build 通过。
-- Rust `cargo test --all-targets --all-features`：34 个测试通过；12 个需要 `TEST_DATABASE_URL` 的用例按显式条件跳过。
+- Frontend production build 通过；Vite 转换 1641 modules，PWA service worker 生成成功。
+- Rust `cargo test --all-targets --all-features` 通过；数据库用例按显式条件跳过后，其余测试 0 failed。
+- WSL 可丢弃 PostgreSQL 串行集成测试：Activity 9、Accounting 6、Collaboration 3、schema 1、migration replay 1，全部通过。
 - Rust `cargo fmt --check` 通过。
 - Rust clippy `--all-targets --all-features -D warnings` 通过。
+- OpenAPI 已由 Rust 重新导出，generated TypeScript client 已重新生成；`view` 类型为 `"current" | "deleted"`。
+- 真实浏览器 `1440 x 1000` 与 `390 x 844` 均无横向溢出，Overlay 位于视口内，活动导航读取结果均为 `['流水', '结算']`。
 - WSL Compose 完成生产镜像构建和启动验收。
 - `/api/health` 返回 `{"data":{"status":"ok"}}`。
 - SPA 深链返回 HTTP 200。
@@ -192,13 +207,13 @@ C:\Users\林樾\.codex\visualizations\2026\08\31\01a05883-1c70-7162-b722-d65070b
 
 | 服务 | 地址/名称 |
 | --- | --- |
-| 应用 | 已停止；提交前经授权终止占用构建产物的本地 `huddletab.exe` |
-| 健康检查 | `5661` 当前不可用 |
-| Vite 前端预览 | `http://127.0.0.1:5174`；仅前端进程，真实请求仍代理到 `127.0.0.1:5660` |
+| Rust API | `http://127.0.0.1:5660`；使用专用浏览器验收数据库 |
+| 健康检查 | `http://127.0.0.1:5660/api/health` |
+| Vite 前端 | `http://127.0.0.1:5173`；真实请求代理到 `127.0.0.1:5660` |
 | WSL PostgreSQL 容器 | `huddletab-rust-dev-postgres-6831` |
 | PostgreSQL 主机端口 | `127.0.0.1:55432` |
 
-`5661` 和容器名属于当前开发现场，不是产品固定配置。WSL PostgreSQL 现场仍保留；标准 Compose 对外端口默认是 `5660`。不要把现场数据库中的临时账号密码写入文档或提交。
+端口和容器名属于当前开发现场，不是产品固定配置。WSL PostgreSQL 现场仍保留；标准 Compose 对外端口默认是 `5660`。浏览器验收账号只用于专用可丢弃数据库，临时密码未写入代码、文档或提交。
 
 ## 9. 启动方式
 
@@ -254,6 +269,17 @@ npm --prefix frontend run typecheck
 
 不要在组件中手写重复 DTO，也不要直接调用 `fetch`。当前 API 合同覆盖 Auth、Activity、Member、Guest、Invitation、Expense、Ledger、Recommendation 和 Settlement。
 
+Activity 管理合同：
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `POST /api/activities` | 创建完整活动资料 |
+| `GET /api/activities?view=current\|deleted` | 当前活动或 Owner 恢复窗口列表 |
+| `PUT /api/activities/{id}` | 按 version 更新获准字段，返回 warnings |
+| `POST /api/activities/{id}/lifecycle` | END/REOPEN/ARCHIVE/UNARCHIVE |
+| `DELETE /api/activities/{id}` | 保留原生命周期的软删除 |
+| `POST /api/activities/{id}/restore` | 在 `now < purgeAfter` 时恢复 |
+
 ## 11. 按改动范围验证
 
 避免无目的地反复运行全套测试。建议按以下映射执行：
@@ -263,9 +289,11 @@ npm --prefix frontend run typecheck
 | 活动流水排序/渲染 | `npm --prefix frontend test -- --run src/features/accounting/pages.test.ts` |
 | 活动两视图路由 | `npm --prefix frontend test -- --run src/app/router.test.tsx` |
 | 成员与邀请前端 | `npm --prefix frontend test -- --run src/features/activities/api.test.ts src/features/activities/pages.test.tsx` |
+| Activity/Accounting 生命周期 UI | `npm --prefix frontend test -- --run src/features/activities/api.test.ts src/features/activities/pages.test.tsx src/features/accounting/api.test.tsx src/features/accounting/pages-ui.test.tsx` |
 | 一般前端类型改动 | `npm --prefix frontend run typecheck` |
 | 前端构建/PWA 配置 | `npm --prefix frontend run build` |
 | 账务 API | `cargo test --manifest-path server/Cargo.toml --test accounting_api` |
+| 活动管理 API | `cargo test --manifest-path server/Cargo.toml --test activity_api` |
 | 成员与邀请 API | `cargo test --manifest-path server/Cargo.toml --test collaboration_api` |
 | Rust 格式 | `cargo fmt --manifest-path server/Cargo.toml --check` |
 | Rust 警告边界 | `cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings` |
@@ -275,9 +303,9 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 设计并实现活动编辑、生命周期和删除 API，再接入管理 Overlay；不要只做前端假交互。
-2. 补齐 CSV 与结算分享，完成 `v0.0.2` 明确范围内的外围功能。
-3. 完成 Phase 1 仍缺少的真实安全/并发/E2E 验收后，再进入 Phase 2。
+1. 补齐 CSV 与结算分享，完成 `v0.0.2` 明确范围内的外围功能。
+2. 完成 Phase 1 仍缺少的真实安全/并发/E2E 验收后，再进入 Phase 2。
+3. 另立后台清理任务处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复。
 4. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider。
 
 每完成一项，只运行对应测试和一个真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。

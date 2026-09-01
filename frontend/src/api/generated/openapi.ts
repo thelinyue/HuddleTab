@@ -28,9 +28,9 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getActivity"];
-        put?: never;
+        put: operations["updateActivity"];
         post?: never;
-        delete?: never;
+        delete: operations["deleteActivity"];
         options?: never;
         head?: never;
         patch?: never;
@@ -116,6 +116,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["transitionActivity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/members": {
         parameters: {
             query?: never;
@@ -158,6 +174,22 @@ export interface paths {
         get: operations["recommendations"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activities/{activity_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restoreActivity"];
         delete?: never;
         options?: never;
         head?: never;
@@ -347,17 +379,39 @@ export interface components {
     schemas: {
         ActivityData: {
             activityId: string;
+            allowedLifecycleActions: string[];
             baseCurrency: string;
+            canDelete: boolean;
+            canRestore: boolean;
             currentMemberId: string;
             currentMemberRole: string;
+            deletedAt?: string | null;
+            endDate?: string | null;
+            fieldPermissions: components["schemas"]["ActivityFieldPermissionsData"];
+            hasAccountingRecords: boolean;
+            location?: string | null;
             name: string;
             ownerMemberId: string;
+            purgeAfter?: string | null;
             revision: string;
+            startDate: string;
             status: string;
             version: string;
         };
         ActivityEnvelope: {
             data: components["schemas"]["ActivityData"];
+        };
+        /** @description HTTP 合同逐字段镜像领域权限，客户端只消费服务端结论，不自行重建权限规则。 */
+        ActivityFieldPermissionsData: {
+            baseCurrency: boolean;
+            endDate: boolean;
+            location: boolean;
+            name: boolean;
+            startDate: boolean;
+        };
+        ActivityLifecycleRequest: {
+            action: string;
+            version: string;
         };
         ActivityListEnvelope: {
             data: components["schemas"]["ActivityData"][];
@@ -373,6 +427,13 @@ export interface components {
         };
         ActivityMemberListEnvelope: {
             data: components["schemas"]["ActivityMemberData"][];
+        };
+        ActivityUpdateEnvelope: {
+            data: components["schemas"]["ActivityData"];
+            warnings: string[];
+        };
+        ActivityVersionRequest: {
+            version: string;
         };
         BalanceData: {
             memberId: string;
@@ -390,7 +451,10 @@ export interface components {
         };
         CreateActivityRequest: {
             baseCurrency: string;
+            endDate?: string | null;
+            location?: string | null;
             name: string;
+            startDate: string;
         };
         CreateGuestRequest: {
             displayName: string;
@@ -679,6 +743,14 @@ export interface components {
         SettlementListEnvelope: {
             data: components["schemas"]["SettlementData"][];
         };
+        UpdateActivityRequest: {
+            baseCurrency?: string | null;
+            endDate?: string | null;
+            location?: string | null;
+            name?: string | null;
+            startDate?: string | null;
+            version: string;
+        };
         UpdateExpenseRequest: components["schemas"]["ExpenseDraftRequest"] & {
             version: string;
         };
@@ -702,7 +774,10 @@ export type $defs = Record<string, never>;
 export interface operations {
     listActivities: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 活动视图：current 或 deleted */
+                view?: "current" | "deleted";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -812,6 +887,105 @@ export interface operations {
             };
             /** @description 活动不存在 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    updateActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateActivityRequest"];
+            };
+        };
+        responses: {
+            /** @description 活动资料已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityUpdateEnvelope"];
+                };
+            };
+            /** @description 活动输入无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无活动管理权限 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 活动不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 活动版本或状态冲突 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    deleteActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description 活动已进入恢复窗口 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEnvelope"];
+                };
+            };
+            /** @description 活动版本或状态冲突 */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1205,6 +1379,42 @@ export interface operations {
             };
         };
     };
+    transitionActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityLifecycleRequest"];
+            };
+        };
+        responses: {
+            /** @description 活动状态已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEnvelope"];
+                };
+            };
+            /** @description 活动版本或状态冲突 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     listActivityMembers: {
         parameters: {
             query?: never;
@@ -1323,6 +1533,42 @@ export interface operations {
             };
             /** @description 无读取权限 */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    restoreActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivityVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description 活动已恢复 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEnvelope"];
+                };
+            };
+            /** @description 活动版本冲突或恢复窗口已过期 */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

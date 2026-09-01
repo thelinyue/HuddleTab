@@ -179,6 +179,56 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn activity_version_conflict(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "VERSION_CONFLICT",
+            "活动资料已被其他成员更新，请刷新后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn activity_field_locked(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "ACTIVITY_FIELD_LOCKED",
+            "当前活动状态不允许修改所选字段。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn activity_base_currency_locked(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "BASE_CURRENCY_LOCKED",
+            "活动已有账务记录，主币种不可修改。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn invalid_activity_transition(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "INVALID_ACTIVITY_TRANSITION",
+            "当前活动状态不能执行此转换。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn restore_window_expired(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "RESTORE_WINDOW_EXPIRED",
+            "活动已超过 30 天恢复期限。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn mutation_conflict(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

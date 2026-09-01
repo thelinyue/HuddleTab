@@ -62,6 +62,8 @@ pub fn router(static_dir: Option<PathBuf>) -> Router {
     finish_router(api, static_dir)
 }
 
+// 路由表集中展示完整 HTTP 面，拆分只会隐藏路径与 handler 的对应关系。
+#[allow(clippy::too_many_lines)]
 pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health).fallback(api_method_not_allowed))
@@ -97,7 +99,18 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         )
         .route(
             "/activities/{activity_id}",
-            get(activity::get).fallback(api_method_not_allowed),
+            get(activity::get)
+                .put(activity::update)
+                .delete(activity::delete)
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/lifecycle",
+            axum::routing::post(activity::transition).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/restore",
+            axum::routing::post(activity::restore).fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}/members",

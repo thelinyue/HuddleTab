@@ -13,6 +13,22 @@
       "get": {
         "tags": [],
         "operationId": "listActivities",
+        "parameters": [
+          {
+            "name": "view",
+            "in": "query",
+            "description": "活动视图：current 或 deleted",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "活动列表支持的视图筛选值。",
+              "enum": [
+                "current",
+                "deleted"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "当前用户可访问的活动",
@@ -131,6 +147,130 @@
           },
           "404": {
             "description": "活动不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "updateActivity",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateActivityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "活动资料已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityUpdateEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "活动输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无活动管理权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "活动不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "活动版本或状态冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "deleteActivity",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "活动已进入恢复窗口",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "活动版本或状态冲突",
             "content": {
               "application/json": {
                 "schema": {
@@ -641,6 +781,55 @@
         }
       }
     },
+    "/api/activities/{activity_id}/lifecycle": {
+      "post": {
+        "tags": [],
+        "operationId": "transitionActivity",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityLifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "活动状态已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "活动版本或状态冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/members": {
       "get": {
         "tags": [],
@@ -787,6 +976,55 @@
           },
           "403": {
             "description": "无读取权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/restore": {
+      "post": {
+        "tags": [],
+        "operationId": "restoreActivity",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "活动已恢复",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "活动版本冲突或恢复窗口已过期",
             "content": {
               "application/json": {
                 "schema": {
@@ -1449,18 +1687,36 @@
           "ownerMemberId",
           "name",
           "baseCurrency",
+          "startDate",
           "status",
           "version",
           "revision",
           "currentMemberId",
-          "currentMemberRole"
+          "currentMemberRole",
+          "hasAccountingRecords",
+          "fieldPermissions",
+          "allowedLifecycleActions",
+          "canDelete",
+          "canRestore"
         ],
         "properties": {
           "activityId": {
             "type": "string"
           },
+          "allowedLifecycleActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "baseCurrency": {
             "type": "string"
+          },
+          "canDelete": {
+            "type": "boolean"
+          },
+          "canRestore": {
+            "type": "boolean"
           },
           "currentMemberId": {
             "type": "string"
@@ -1468,13 +1724,46 @@
           "currentMemberRole": {
             "type": "string"
           },
+          "deletedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fieldPermissions": {
+            "$ref": "#/components/schemas/ActivityFieldPermissionsData"
+          },
+          "hasAccountingRecords": {
+            "type": "boolean"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
           "ownerMemberId": {
             "type": "string"
           },
+          "purgeAfter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "revision": {
+            "type": "string"
+          },
+          "startDate": {
             "type": "string"
           },
           "status": {
@@ -1493,6 +1782,49 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ActivityData"
+          }
+        }
+      },
+      "ActivityFieldPermissionsData": {
+        "type": "object",
+        "description": "HTTP 合同逐字段镜像领域权限，客户端只消费服务端结论，不自行重建权限规则。",
+        "required": [
+          "name",
+          "location",
+          "baseCurrency",
+          "startDate",
+          "endDate"
+        ],
+        "properties": {
+          "baseCurrency": {
+            "type": "boolean"
+          },
+          "endDate": {
+            "type": "boolean"
+          },
+          "location": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "boolean"
+          },
+          "startDate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ActivityLifecycleRequest": {
+        "type": "object",
+        "required": [
+          "action",
+          "version"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -1561,6 +1893,35 @@
           }
         }
       },
+      "ActivityUpdateEnvelope": {
+        "type": "object",
+        "required": [
+          "data",
+          "warnings"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActivityData"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ActivityVersionRequest": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "BalanceData": {
         "type": "object",
         "required": [
@@ -1617,13 +1978,29 @@
         "type": "object",
         "required": [
           "name",
-          "baseCurrency"
+          "baseCurrency",
+          "startDate"
         ],
         "properties": {
           "baseCurrency": {
             "type": "string"
           },
+          "endDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
+            "type": "string"
+          },
+          "startDate": {
             "type": "string"
           }
         }
@@ -2754,6 +3131,47 @@
             "items": {
               "$ref": "#/components/schemas/SettlementData"
             }
+          }
+        }
+      },
+      "UpdateActivityRequest": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "baseCurrency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "string"
           }
         }
       },

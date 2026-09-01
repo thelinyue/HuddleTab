@@ -66,7 +66,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
         sqlx::query_as::<_, (String, Uuid, String)>(
             "SELECT a.base_currency, m.id, m.role FROM activities a \
              JOIN activity_members m ON m.activity_id = a.id \
-             WHERE a.id = $1 AND a.status = 'ACTIVE' AND m.user_id = $2 AND m.status = 'ACTIVE'",
+             WHERE a.id = $1 AND a.deleted_at IS NULL AND m.user_id = $2 AND m.status = 'ACTIVE'",
         )
         .bind(activity_id)
         .bind(actor_user_id)
@@ -353,7 +353,8 @@ async fn lock_activity_context(
     sqlx::query_as::<_, (String, Uuid, String)>(
         "SELECT a.base_currency, m.id, m.role FROM activities a \
          JOIN activity_members m ON m.activity_id = a.id \
-         WHERE a.id = $1 AND a.status = 'ACTIVE' AND m.user_id = $2 AND m.status = 'ACTIVE' \
+         WHERE a.id = $1 AND a.status = 'ACTIVE' AND a.deleted_at IS NULL \
+         AND m.user_id = $2 AND m.status = 'ACTIVE' \
          FOR UPDATE OF a",
     )
     .bind(activity_id)
@@ -477,7 +478,7 @@ async fn load_aggregate(
          e.base_currency, e.base_amount_minor, e.exchange_rate_kind, \
          e.exchange_rate::text AS exchange_rate, e.split_mode, e.version, a.revision, e.deleted_at, \
          e.created_at, e.updated_at FROM expenses e JOIN activities a ON a.id = e.activity_id \
-         WHERE e.id = $1 AND ($2 = FALSE OR e.deleted_at IS NULL)",
+         WHERE e.id = $1 AND a.deleted_at IS NULL AND ($2 = FALSE OR e.deleted_at IS NULL)",
     )
     .bind(expense_id)
     .bind(require_active)

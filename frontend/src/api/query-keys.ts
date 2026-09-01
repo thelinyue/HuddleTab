@@ -1,8 +1,11 @@
 export const queryKeys = {
   session: ["session"] as const,
-  activities: (userId: string) => ["users", userId, "activities"] as const,
-  activity: (userId: string, activityId: string) =>
-    ["users", userId, "activities", activityId] as const,
+  activitiesCurrent: (userId: string) =>
+    ["users", userId, "activities", "current"] as const,
+  activitiesDeleted: (userId: string) =>
+    ["users", userId, "activities", "deleted"] as const,
+  activityDetail: (userId: string, activityId: string) =>
+    ["users", userId, "activities", "detail", activityId] as const,
   members: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "members"] as const,
   invitations: (userId: string, activityId: string) =>

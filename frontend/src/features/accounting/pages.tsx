@@ -107,6 +107,8 @@ export function ExpenseFeedPage() {
   const activeMemberCount = members.data?.filter((member) => member.status === "ACTIVE").length ?? 0;
   const average = activeMemberCount ? (total + BigInt(activeMemberCount) / 2n) / BigInt(activeMemberCount) : 0n;
   const foreignTotals = new Map<string, bigint>();
+  // 生命周期只约束本领域写面：结束后账单只读，但不会反推活动管理权限。
+  const expenseWritable = activity.status === "ACTIVE";
   for (const item of allExpenses) {
     if (item.expense.originalCurrency === activity.baseCurrency) continue;
     foreignTotals.set(item.expense.originalCurrency, (foreignTotals.get(item.expense.originalCurrency) ?? 0n) + BigInt(item.expense.originalAmountMinor));
@@ -143,8 +145,8 @@ export function ExpenseFeedPage() {
         )) : <EmptyState icon={<ReceiptText size={28} />} title={allExpenses.length ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length ? "调整筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} />}
       </section>
 
-      <button className="quick-expense-trigger" type="button" aria-label="快速记账" onClick={() => setEntryOpen(true)}><Plus aria-hidden="true" size={24} /></button>
-      <AccountingOverlay open={entryOpen} title="记一笔消费" onClose={() => setEntryOpen(false)} className="quick-expense-overlay"><ExpenseEditor onSaved={() => setEntryOpen(false)} onCancel={() => setEntryOpen(false)} compact /></AccountingOverlay>
+      {expenseWritable ? <button className="quick-expense-trigger" type="button" aria-label="快速记账" onClick={() => setEntryOpen(true)}><Plus aria-hidden="true" size={24} /></button> : null}
+      <AccountingOverlay open={expenseWritable && entryOpen} title="记一笔消费" onClose={() => setEntryOpen(false)} className="quick-expense-overlay"><ExpenseEditor onSaved={() => setEntryOpen(false)} onCancel={() => setEntryOpen(false)} compact /></AccountingOverlay>
       <AccountingOverlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
         <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
       </AccountingOverlay>
@@ -275,6 +277,10 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
 }
 
 export function NewExpensePage() {
+  const { activity } = useWorkspace();
+  if (activity.status !== "ACTIVE") {
+    return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><div className="notice"><Info aria-hidden="true" size={18} /><span>活动已结束或归档，当前不能新增账单；已有账单仍可只读查看。</span></div></div>;
+  }
   return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><ExpenseEditor /></div>;
 }
 
@@ -282,11 +288,36 @@ export function ExpenseDetailPage() {
   const { expenseId = "" } = useParams();
   const { session, activity } = useWorkspace();
   const expense = useExpenseQuery(session.userId, activity.activityId, expenseId);
+  const members = useMembersQuery(session.userId, activity.activityId);
   const remove = useDeleteExpenseMutation(session.userId, activity.activityId, expenseId);
   const navigate = useNavigate();
-  if (expense.isPending) return <LoadingState label="正在读取账单…" />;
-  if (expense.error) return <ErrorNotice error={expense.error} />;
+  if (expense.isPending || members.isPending) return <LoadingState label="正在读取账单…" />;
+  if (expense.error || members.error) return <ErrorNotice error={expense.error ?? members.error} />;
   if (!expense.data) return null;
+  if (activity.status !== "ACTIVE") {
+    const aggregate = expense.data;
+    const categoryLabel = categories.find(([value]) => value === aggregate.expense.category)?.[1] ?? "其他";
+    const splitModeLabel = splitModes.find(([value]) => value === aggregate.expense.splitMode)?.[1] ?? aggregate.expense.splitMode;
+    return (
+      <div className="workspace-page">
+        <Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link>
+        <div className="notice"><Info aria-hidden="true" size={18} /><span>活动已结束或归档，账单仅供查看。</span></div>
+        <section className="expense-readonly" aria-label="账单详情">
+          <header><h2>{aggregate.expense.title}</h2><small>{new Date(aggregate.expense.occurredAt).toLocaleString("zh-CN")}</small></header>
+          <dl className="expense-readonly__facts">
+            <div><dt>分类</dt><dd>{categoryLabel}</dd></div>
+            <div><dt>原始金额</dt><dd><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></dd></div>
+            <div><dt>折算金额</dt><dd><Money value={formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)} /></dd></div>
+            <div><dt>汇率</dt><dd>{aggregate.expense.exchangeRate}</dd></div>
+            <div><dt>付款事实</dt><dd>{aggregate.payments.map((payment) => <span key={payment.factId}>{memberName(payment.memberId, members.data)}<Money value={formatMoney(aggregate.expense.originalCurrency, payment.originalAmountMinor)} /></span>)}</dd></div>
+            <div><dt>分摊方式</dt><dd>{splitModeLabel}</dd></div>
+            <div><dt>成员分摊</dt><dd>{aggregate.shares.map((share) => <span key={share.factId}>{memberName(share.memberId, members.data)}<Money value={formatMoney(aggregate.expense.originalCurrency, share.originalAmountMinor)} /></span>)}</dd></div>
+          </dl>
+          {aggregate.expense.note ? <p>{aggregate.expense.note}</p> : null}
+        </section>
+      </div>
+    );
+  }
   return (
     <div className="workspace-page">
       <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => { if (window.confirm("确定删除这笔账单吗？账本会立即重新计算。")) void remove.mutateAsync(expense.data!.expense.version).then(() => navigate(`/activities/${activity.activityId}`)); }}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
@@ -296,7 +327,7 @@ export function ExpenseDetailPage() {
   );
 }
 
-function SettlementRow({ settlement, members }: { settlement: Settlement; members: ReturnType<typeof useMembersQuery>["data"] }) {
+function SettlementRow({ settlement, members, writable }: { settlement: Settlement; members: ReturnType<typeof useMembersQuery>["data"]; writable: boolean }) {
   const { session, activity } = useWorkspace();
   const update = useUpdateSettlementMutation(session.userId, activity.activityId);
   const voidMutation = useVoidSettlementMutation(session.userId, activity.activityId);
@@ -310,7 +341,7 @@ function SettlementRow({ settlement, members }: { settlement: Settlement; member
     <div className={`settlement-row${settlement.status === "VOID" ? " settlement-row--void" : ""}`}>
       <span className="settlement-row__route"><strong>{memberName(settlement.payerMemberId, members)}</strong><span>付给</span><strong>{memberName(settlement.receiverMemberId, members)}</strong><small>{new Date(settlement.createdAt).toLocaleDateString("zh-CN")}{settlement.status === "VOID" ? " · 已作废" : ""}</small></span>
       {editing ? <div className="inline-edit"><Input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" aria-label="结算金额" /><Button busy={update.isPending} onClick={() => void save()}>保存</Button><Button variant="ghost" onClick={() => setEditing(false)}>取消</Button></div> : <Money value={formatMoney(settlement.currency, settlement.amountMinor)} />}
-      {settlement.status === "ACTIVE" && !editing ? <div className="row-actions"><Button variant="ghost" onClick={() => setEditing(true)}>修改</Button><Button variant="ghost" busy={voidMutation.isPending} onClick={() => { if (window.confirm("确定作废这笔结算吗？")) voidMutation.mutate({ settlementId: settlement.settlementId, version: settlement.version }); }}>作废</Button></div> : null}
+      {writable && settlement.status === "ACTIVE" && !editing ? <div className="row-actions"><Button variant="ghost" onClick={() => setEditing(true)}>修改</Button><Button variant="ghost" busy={voidMutation.isPending} onClick={() => { if (window.confirm("确定作废这笔结算吗？")) voidMutation.mutate({ settlementId: settlement.settlementId, version: settlement.version }); }}>作废</Button></div> : null}
       {update.error || voidMutation.error ? <ErrorNotice error={update.error ?? voidMutation.error} /> : null}
     </div>
   );
@@ -358,6 +389,8 @@ export function SettlementsPage() {
   const settledCount = otherBalances.length - unsettledCount;
   const recommendationsList = recommendations.data?.recommendations ?? [];
   const fullySettled = balances.every((balance) => BigInt(balance.netMinor) === 0n);
+  // ENDED 仍允许成员结清余额；只有 ARCHIVED 才关闭全部结算写入口。
+  const settlementWritable = activity.status !== "ARCHIVED";
   return (
     <div className="workspace-page settlement-page">
       <section className="settlement-summary" aria-label="我的结算">
@@ -368,20 +401,20 @@ export function SettlementsPage() {
 
       <section className="settlement-section" aria-labelledby="recommendations-heading">
         <h2 id="recommendations-heading">推荐转账</h2>
-        {recommendationsList.length ? <div className="settlement-recommendations">{recommendationsList.map((recommendation) => <button key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`} type="button" onClick={() => openForm(recommendation)}><span className="settlement-recommendation__party"><MemberAvatar memberId={recommendation.payerMemberId} displayName={memberName(recommendation.payerMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.payerMemberId, members.data)}</strong><ArrowRight aria-hidden="true" size={16} /><MemberAvatar memberId={recommendation.receiverMemberId} displayName={memberName(recommendation.receiverMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.receiverMemberId, members.data)}</strong></span><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} /><ChevronRight aria-hidden="true" size={16} /></button>)}</div> : <p className="settlement-empty">{fullySettled ? "所有成员余额均已结清" : "当前暂无推荐转账"}</p>}
+        {recommendationsList.length ? <div className="settlement-recommendations">{recommendationsList.map((recommendation) => settlementWritable ? <button key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`} type="button" onClick={() => openForm(recommendation)}><span className="settlement-recommendation__party"><MemberAvatar memberId={recommendation.payerMemberId} displayName={memberName(recommendation.payerMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.payerMemberId, members.data)}</strong><ArrowRight aria-hidden="true" size={16} /><MemberAvatar memberId={recommendation.receiverMemberId} displayName={memberName(recommendation.receiverMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.receiverMemberId, members.data)}</strong></span><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} /><ChevronRight aria-hidden="true" size={16} /></button> : <div key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`} className="settlement-recommendation-readonly"><span className="settlement-recommendation__party"><MemberAvatar memberId={recommendation.payerMemberId} displayName={memberName(recommendation.payerMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.payerMemberId, members.data)}</strong><ArrowRight aria-hidden="true" size={16} /><MemberAvatar memberId={recommendation.receiverMemberId} displayName={memberName(recommendation.receiverMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.receiverMemberId, members.data)}</strong></span><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} /></div>)}</div> : <p className="settlement-empty">{fullySettled ? "所有成员余额均已结清" : "当前暂无推荐转账"}</p>}
       </section>
 
       <button className="balance-entry" type="button" aria-expanded={balanceOpen} onClick={() => setBalanceOpen(true)}><span><strong>成员余额</strong><small>查看 Rust 账本计算的全员余额</small></span><ChevronRight aria-hidden="true" size={18} /></button>
 
-      {!fullySettled ? <Button className="settlement-primary-action" onClick={() => openForm()}>记录结算</Button> : <div className="settlement-complete"><Check aria-hidden="true" size={19} /> 全部已结清</div>}
+      {settlementWritable && !fullySettled ? <Button className="settlement-primary-action" onClick={() => openForm()}>记录结算</Button> : fullySettled ? <div className="settlement-complete"><Check aria-hidden="true" size={19} /> 全部已结清</div> : null}
 
-      <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{!fullySettled ? <Button variant="ghost" onClick={() => openForm()}>补记结算</Button> : null}</header>{settlements.data?.length ? <div className="settlement-list">{settlements.data.map((settlement) => <SettlementRow key={settlement.settlementId} settlement={settlement} members={members.data} />)}</div> : <EmptyState icon={<UsersRound size={26} />} title="还没有结算记录" description="账本产生应收应付后，可按建议记录成员间付款。" />}</section>
+      <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{settlementWritable && !fullySettled ? <Button variant="ghost" onClick={() => openForm()}>补记结算</Button> : null}</header>{settlements.data?.length ? <div className="settlement-list">{settlements.data.map((settlement) => <SettlementRow key={settlement.settlementId} settlement={settlement} members={members.data} writable={settlementWritable} />)}</div> : <EmptyState icon={<UsersRound size={26} />} title="还没有结算记录" description="账本产生应收应付后，可按建议记录成员间付款。" />}</section>
 
       <AccountingOverlay open={balanceOpen} title="成员余额" onClose={() => setBalanceOpen(false)}>
         <div className="settlement-balance-list">{balances.map((balance) => { const balanceMember = members.data?.find((member) => member.memberId === balance.memberId); const net = BigInt(balance.netMinor); return <div className="balance-row" key={balance.memberId}><MemberAvatar memberId={balance.memberId} displayName={balanceMember?.displayName ?? "未知成员"} /><span><strong>{balanceMember?.displayName ?? "未知成员"}</strong></span><span>{net > 0n ? "应收" : net < 0n ? "应付" : "已结清"}{net !== 0n ? <Money value={formatMoney(activity.baseCurrency, (net < 0n ? -net : net).toString())} tone={net > 0n ? "positive" : "negative"} /> : null}</span></div>; })}</div>
       </AccountingOverlay>
 
-      <AccountingOverlay open={formOpen} title="记录结算" onClose={() => setFormOpen(false)} className="settlement-form-overlay">
+      <AccountingOverlay open={settlementWritable && formOpen} title="记录结算" onClose={() => setFormOpen(false)} className="settlement-form-overlay">
         <form className="form-stack" onSubmit={submit}>
           <Field label="付款人"><Select value={payerMemberId} onChange={(event) => setPayer(event.target.value)} required><option value="">请选择</option>{members.data?.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>
           <Field label="收款人"><Select value={receiverMemberId} onChange={(event) => setReceiver(event.target.value)} required><option value="">请选择</option>{members.data?.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>

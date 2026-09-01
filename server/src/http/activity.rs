@@ -1,21 +1,24 @@
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use axum_extra::extract::cookie::CookieJar;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
     application::{
         activity::{
-            ActivityMemberView, ActivityView, CreateActivityError, CreateActivityInput,
-            ReadActivityError, create_activity, get_activity, list_activities,
-            list_activity_members,
+            ActivityLifecycleInput, ActivityMemberView, ActivityVersionInput, ActivityView,
+            CreateActivityError, CreateActivityInput, ReadActivityError, UpdateActivityError,
+            UpdateActivityInput, create_activity, delete_activity, get_activity, list_activities,
+            list_activity_members, list_deleted_activities, restore_activity, transition_activity,
+            update_activity,
         },
         auth::{CurrentSessionError, current_session},
     },
+    domain::activity::{ActivityCapabilities, ActivityStatus},
     infrastructure::{
         activity_repository::PostgresActivityRepository, auth_repository::PostgresAuthRepository,
         clock::SystemClock,
@@ -33,7 +36,49 @@ use super::{
 #[serde(rename_all = "camelCase")]
 pub struct CreateActivityRequest {
     pub name: String,
+    pub location: Option<String>,
     pub base_currency: String,
+    pub start_date: String,
+    pub end_date: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateActivityRequest {
+    pub version: String,
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub location: Option<Option<String>>,
+    pub base_currency: Option<String>,
+    pub start_date: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub end_date: Option<Option<String>>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityLifecycleRequest {
+    pub action: String,
+    pub version: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ActivityVersionRequest {
+    pub version: String,
+}
+
+/// 活动列表支持的视图筛选值。
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ActivityListView {
+    Current,
+    Deleted,
+}
+
+/// 活动列表视图筛选；未传值时默认读取当前活动。
+#[derive(Deserialize)]
+pub struct ActivityListQuery {
+    pub view: Option<ActivityListView>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -47,6 +92,12 @@ pub struct ActivityListEnvelope {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct ActivityUpdateEnvelope {
+    pub data: ActivityData,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct ActivityMemberListEnvelope {
     pub data: Vec<ActivityMemberData>,
 }
@@ -57,12 +108,34 @@ pub struct ActivityData {
     pub activity_id: String,
     pub owner_member_id: String,
     pub name: String,
+    pub location: Option<String>,
     pub base_currency: String,
+    pub start_date: String,
+    pub end_date: Option<String>,
     pub status: String,
     pub version: String,
     pub revision: String,
     pub current_member_id: String,
     pub current_member_role: String,
+    pub deleted_at: Option<String>,
+    pub purge_after: Option<String>,
+    pub has_accounting_records: bool,
+    pub field_permissions: ActivityFieldPermissionsData,
+    pub allowed_lifecycle_actions: Vec<String>,
+    pub can_delete: bool,
+    pub can_restore: bool,
+}
+
+/// HTTP 合同逐字段镜像领域权限，客户端只消费服务端结论，不自行重建权限规则。
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityFieldPermissionsData {
+    pub name: bool,
+    pub location: bool,
+    pub base_currency: bool,
+    pub start_date: bool,
+    pub end_date: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -110,16 +183,19 @@ pub(crate) async fn create(
         &SystemClock,
         CreateActivityInput {
             name: request.name,
+            location: request.location,
             base_currency: request.base_currency,
+            start_date: request.start_date,
+            end_date: request.end_date,
             actor_user_id: actor.user_id,
             actor_display_name: actor.display_name,
         },
     )
     .await
     .map_err(|error| match error {
-        CreateActivityError::InvalidName | CreateActivityError::InvalidCurrency => {
-            ApiError::invalid_activity(request_id.clone())
-        }
+        CreateActivityError::InvalidName
+        | CreateActivityError::InvalidCurrency
+        | CreateActivityError::InvalidDetails => ApiError::invalid_activity(request_id.clone()),
         CreateActivityError::Unavailable => ApiError::internal(request_id.clone()),
     })?;
 
@@ -130,12 +206,28 @@ pub(crate) async fn create(
                 activity_id: activity.activity_id.to_string(),
                 owner_member_id: activity.owner_member_id.to_string(),
                 name: activity.name,
+                location: activity.location,
                 base_currency: activity.base_currency,
+                start_date: activity.start_date.to_string(),
+                end_date: activity.end_date.map(|value| value.to_string()),
                 status: "ACTIVE".to_owned(),
                 version: activity.version.to_string(),
                 revision: activity.revision.to_string(),
                 current_member_id: activity.owner_member_id.to_string(),
                 current_member_role: "OWNER".to_owned(),
+                deleted_at: None,
+                purge_after: None,
+                has_accounting_records: false,
+                field_permissions: ActivityFieldPermissionsData {
+                    name: true,
+                    location: true,
+                    base_currency: true,
+                    start_date: true,
+                    end_date: true,
+                },
+                allowed_lifecycle_actions: vec!["END".to_owned()],
+                can_delete: true,
+                can_restore: false,
             },
         }),
     ))
@@ -145,6 +237,7 @@ pub(crate) async fn create(
     get,
     path = "/api/activities",
     operation_id = "listActivities",
+    params(("view" = inline(Option<ActivityListView>), Query, description = "活动视图：current 或 deleted")),
     responses(
         (status = 200, description = "当前用户可访问的活动", body = ActivityListEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope)
@@ -154,12 +247,17 @@ pub(crate) async fn list(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
     jar: CookieJar,
+    Query(query): Query<ActivityListQuery>,
 ) -> Result<Json<ActivityListEnvelope>, ApiError> {
     let actor = authenticate(&state, &jar, request_id.clone()).await?;
     let repository = PostgresActivityRepository::new(state.pool);
-    let activities = list_activities(&repository, actor.user_id)
-        .await
-        .map_err(|error| map_read_error(error, request_id))?;
+    let activities = match query.view.unwrap_or(ActivityListView::Current) {
+        ActivityListView::Current => list_activities(&repository, actor.user_id).await,
+        ActivityListView::Deleted => {
+            list_deleted_activities(&repository, &SystemClock, actor.user_id).await
+        }
+    }
+    .map_err(|error| map_read_error(error, request_id))?;
     Ok(Json(ActivityListEnvelope {
         data: activities.into_iter().map(activity_data).collect(),
     }))
@@ -195,6 +293,171 @@ pub(crate) async fn get(
 }
 
 #[utoipa::path(
+    put,
+    path = "/api/activities/{activity_id}",
+    operation_id = "updateActivity",
+    params(("activity_id" = String, Path, description = "活动 UUID")),
+    request_body = UpdateActivityRequest,
+    responses(
+        (status = 200, description = "活动资料已更新", body = ActivityUpdateEnvelope),
+        (status = 400, description = "活动输入无效", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无活动管理权限", body = super::error::ErrorEnvelope),
+        (status = 404, description = "活动不存在", body = super::error::ErrorEnvelope),
+        (status = 409, description = "活动版本或状态冲突", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn update(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<UpdateActivityRequest>,
+) -> Result<Json<ActivityUpdateEnvelope>, ApiError> {
+    let actor =
+        super::collaboration::authenticate_mutation(&state, &jar, &headers, request_id.clone())
+            .await?;
+    let activity_id =
+        uuid::Uuid::parse_str(&activity_id).map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let repository = PostgresActivityRepository::new(state.pool);
+    let result = update_activity(
+        &repository,
+        &SystemClock,
+        UpdateActivityInput {
+            activity_id,
+            actor_user_id: actor.user_id,
+            version: request.version,
+            name: request.name,
+            location: request.location,
+            base_currency: request.base_currency,
+            start_date: request.start_date,
+            end_date: request.end_date,
+        },
+    )
+    .await
+    .map_err(|error| map_update_error(error, request_id))?;
+    Ok(Json(ActivityUpdateEnvelope {
+        data: activity_data(result.activity),
+        warnings: result.warnings,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/activities/{activity_id}/lifecycle",
+    operation_id = "transitionActivity",
+    params(("activity_id" = String, Path, description = "活动 UUID")),
+    request_body = ActivityLifecycleRequest,
+    responses(
+        (status = 200, description = "活动状态已更新", body = ActivityEnvelope),
+        (status = 409, description = "活动版本或状态冲突", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn transition(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<ActivityLifecycleRequest>,
+) -> Result<Json<ActivityEnvelope>, ApiError> {
+    let actor =
+        super::collaboration::authenticate_mutation(&state, &jar, &headers, request_id.clone())
+            .await?;
+    let activity = transition_activity(
+        &PostgresActivityRepository::new(state.pool),
+        &SystemClock,
+        ActivityLifecycleInput {
+            activity_id: parse_activity_id(&activity_id, request_id.clone())?,
+            actor_user_id: actor.user_id,
+            version: request.version,
+            action: request.action,
+        },
+    )
+    .await
+    .map_err(|error| map_update_error(error, request_id))?;
+    Ok(Json(ActivityEnvelope {
+        data: activity_data(activity),
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/activities/{activity_id}",
+    operation_id = "deleteActivity",
+    params(("activity_id" = String, Path, description = "活动 UUID")),
+    request_body = ActivityVersionRequest,
+    responses(
+        (status = 200, description = "活动已进入恢复窗口", body = ActivityEnvelope),
+        (status = 409, description = "活动版本或状态冲突", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn delete(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<ActivityVersionRequest>,
+) -> Result<Json<ActivityEnvelope>, ApiError> {
+    let actor =
+        super::collaboration::authenticate_mutation(&state, &jar, &headers, request_id.clone())
+            .await?;
+    let activity = delete_activity(
+        &PostgresActivityRepository::new(state.pool),
+        &SystemClock,
+        ActivityVersionInput {
+            activity_id: parse_activity_id(&activity_id, request_id.clone())?,
+            actor_user_id: actor.user_id,
+            version: request.version,
+        },
+    )
+    .await
+    .map_err(|error| map_update_error(error, request_id))?;
+    Ok(Json(ActivityEnvelope {
+        data: activity_data(activity),
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/activities/{activity_id}/restore",
+    operation_id = "restoreActivity",
+    params(("activity_id" = String, Path, description = "活动 UUID")),
+    request_body = ActivityVersionRequest,
+    responses(
+        (status = 200, description = "活动已恢复", body = ActivityEnvelope),
+        (status = 409, description = "活动版本冲突或恢复窗口已过期", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn restore(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<ActivityVersionRequest>,
+) -> Result<Json<ActivityEnvelope>, ApiError> {
+    let actor =
+        super::collaboration::authenticate_mutation(&state, &jar, &headers, request_id.clone())
+            .await?;
+    let activity = restore_activity(
+        &PostgresActivityRepository::new(state.pool),
+        &SystemClock,
+        ActivityVersionInput {
+            activity_id: parse_activity_id(&activity_id, request_id.clone())?,
+            actor_user_id: actor.user_id,
+            version: request.version,
+        },
+    )
+    .await
+    .map_err(|error| map_update_error(error, request_id))?;
+    Ok(Json(ActivityEnvelope {
+        data: activity_data(activity),
+    }))
+}
+
+#[utoipa::path(
     get,
     path = "/api/activities/{activity_id}/members",
     operation_id = "listActivityMembers",
@@ -224,17 +487,50 @@ pub(crate) async fn list_members(
 }
 
 fn activity_data(activity: ActivityView) -> ActivityData {
+    let status = ActivityStatus::parse(&activity.status).expect("数据库约束保证活动状态有效");
+    let capabilities = ActivityCapabilities::for_actor(
+        activity.current_member_role == "OWNER",
+        status,
+        activity.has_accounting_records,
+        activity.deleted_at.is_some(),
+    );
     ActivityData {
         activity_id: activity.activity_id.to_string(),
         owner_member_id: activity.owner_member_id.to_string(),
         name: activity.name,
+        location: activity.location,
         base_currency: activity.base_currency,
+        start_date: activity.start_date.to_string(),
+        end_date: activity.end_date.map(|value| value.to_string()),
         status: activity.status,
         version: activity.version.to_string(),
         revision: activity.revision.to_string(),
         current_member_id: activity.current_member_id.to_string(),
         current_member_role: activity.current_member_role,
+        deleted_at: activity.deleted_at.map(format_time),
+        purge_after: activity.purge_after.map(format_time),
+        has_accounting_records: activity.has_accounting_records,
+        field_permissions: ActivityFieldPermissionsData {
+            name: capabilities.fields.name,
+            location: capabilities.fields.location,
+            base_currency: capabilities.fields.base_currency,
+            start_date: capabilities.fields.start_date,
+            end_date: capabilities.fields.end_date,
+        },
+        allowed_lifecycle_actions: capabilities
+            .lifecycle_actions
+            .into_iter()
+            .map(|action| action.as_str().to_owned())
+            .collect(),
+        can_delete: capabilities.can_delete,
+        can_restore: capabilities.can_restore,
     }
+}
+
+fn format_time(value: time::OffsetDateTime) -> String {
+    value
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("数据库时间始终可格式化")
 }
 
 fn member_data(member: ActivityMemberView) -> ActivityMemberData {
@@ -254,4 +550,34 @@ fn map_read_error(error: ReadActivityError, request_id: RequestId) -> ApiError {
         ReadActivityError::NotFound => ApiError::not_found(request_id),
         ReadActivityError::Unavailable => ApiError::internal(request_id),
     }
+}
+
+fn map_update_error(error: UpdateActivityError, request_id: RequestId) -> ApiError {
+    match error {
+        UpdateActivityError::InvalidInput => ApiError::invalid_activity(request_id),
+        UpdateActivityError::NotFound => ApiError::not_found(request_id),
+        UpdateActivityError::Forbidden => ApiError::operation_forbidden(request_id),
+        UpdateActivityError::VersionConflict => ApiError::activity_version_conflict(request_id),
+        UpdateActivityError::FieldLocked => ApiError::activity_field_locked(request_id),
+        UpdateActivityError::BaseCurrencyLocked => {
+            ApiError::activity_base_currency_locked(request_id)
+        }
+        UpdateActivityError::InvalidTransition => ApiError::invalid_activity_transition(request_id),
+        UpdateActivityError::RestoreExpired => ApiError::restore_window_expired(request_id),
+        UpdateActivityError::Unavailable => ApiError::internal(request_id),
+    }
+}
+
+fn parse_activity_id(value: &str, request_id: RequestId) -> Result<uuid::Uuid, ApiError> {
+    uuid::Uuid::parse_str(value).map_err(|_| ApiError::not_found(request_id))
+}
+
+// PATCH 字段必须区分“未提交”“显式清空”和“提交值”，因此保留两层 Option。
+#[allow(clippy::option_option)]
+fn deserialize_optional_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }

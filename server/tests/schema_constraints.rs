@@ -28,9 +28,9 @@ async fn composite_member_foreign_keys_and_single_owner_are_enforced() {
         "INSERT INTO expenses (
             id, activity_id, created_by_user_id, client_mutation_id, title, category,
             occurred_at, original_currency, original_amount_minor, base_currency,
-            base_amount_minor, exchange_rate_kind, exchange_rate, created_at, updated_at
+            base_amount_minor, exchange_rate_kind, exchange_rate, split_mode, created_at, updated_at
          ) VALUES ($1, $2, $3, $4, '测试账单', 'OTHER', NOW(), 'CNY', 100, 'CNY',
-                   100, 'IDENTITY', 1, NOW(), NOW())",
+                   100, 'IDENTITY', 1, 'EXACT', NOW(), NOW())",
     )
     .bind(expense)
     .bind(first_activity)
@@ -109,8 +109,8 @@ async fn insert_activity_and_owner(
 ) {
     sqlx::query(
         "INSERT INTO activities (
-            id, name, base_currency, owner_member_id, created_by_user_id, created_at, updated_at
-         ) VALUES ($1, '测试活动', 'CNY', $2, $3, NOW(), NOW())",
+            id, name, base_currency, start_date, owner_member_id, created_by_user_id, created_at, updated_at
+         ) VALUES ($1, '测试活动', 'CNY', '2026-08-30', $2, $3, NOW(), NOW())",
     )
     .bind(activity_id)
     .bind(owner_member_id)

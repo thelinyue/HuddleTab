@@ -8,6 +8,9 @@ import { queryKeys } from "../../api/query-keys";
 export type Activity = components["schemas"]["ActivityData"];
 export type ActivityMember = components["schemas"]["ActivityMemberData"];
 export type CreateActivityInput = components["schemas"]["CreateActivityRequest"];
+export type UpdateActivityInput = components["schemas"]["UpdateActivityRequest"];
+export type ActivityUpdateEnvelope = components["schemas"]["ActivityUpdateEnvelope"];
+export type ActivityLifecycleInput = components["schemas"]["ActivityLifecycleRequest"];
 export type Invitation = components["schemas"]["InvitationData"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationData"];
 export type CreateInvitationInput = components["schemas"]["CreateInvitationRequest"];
@@ -27,8 +30,10 @@ export function invitationRequest(intent: InvitationIntent): CreateInvitationInp
   };
 }
 
-async function listActivities(): Promise<Activity[]> {
-  return unwrap(await apiClient.GET("/api/activities")).data;
+async function listActivities(view: "current" | "deleted"): Promise<Activity[]> {
+  return unwrap(
+    await apiClient.GET("/api/activities", { params: { query: { view } } }),
+  ).data;
 }
 
 async function getActivity(activityId: string): Promise<Activity> {
@@ -43,6 +48,46 @@ async function createActivity(input: CreateActivityInput): Promise<Activity> {
   return unwrap(
     await apiClient.POST("/api/activities", {
       body: input,
+      headers: await mutationHeaders(),
+    }),
+  ).data;
+}
+
+async function updateActivity(activityId: string, input: UpdateActivityInput): Promise<ActivityUpdateEnvelope> {
+  return unwrap(
+    await apiClient.PUT("/api/activities/{activity_id}", {
+      params: { path: { activity_id: activityId } },
+      body: input,
+      headers: await mutationHeaders(),
+    }),
+  );
+}
+
+async function transitionActivity(activityId: string, input: ActivityLifecycleInput): Promise<Activity> {
+  return unwrap(
+    await apiClient.POST("/api/activities/{activity_id}/lifecycle", {
+      params: { path: { activity_id: activityId } },
+      body: input,
+      headers: await mutationHeaders(),
+    }),
+  ).data;
+}
+
+async function deleteActivity(activityId: string, version: string): Promise<Activity> {
+  return unwrap(
+    await apiClient.DELETE("/api/activities/{activity_id}", {
+      params: { path: { activity_id: activityId } },
+      body: { version },
+      headers: await mutationHeaders(),
+    }),
+  ).data;
+}
+
+async function restoreActivity(activityId: string, version: string): Promise<Activity> {
+  return unwrap(
+    await apiClient.POST("/api/activities/{activity_id}/restore", {
+      params: { path: { activity_id: activityId } },
+      body: { version },
       headers: await mutationHeaders(),
     }),
   ).data;
@@ -101,15 +146,23 @@ async function revokeInvitation(activityId: string, invitationId: string) {
 
 export function useActivitiesQuery(userId: string) {
   return useQuery({
-    queryKey: queryKeys.activities(userId),
-    queryFn: listActivities,
+    queryKey: queryKeys.activitiesCurrent(userId),
+    queryFn: () => listActivities("current"),
     enabled: userId.length > 0,
+  });
+}
+
+export function useDeletedActivitiesQuery(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.activitiesDeleted(userId),
+    queryFn: () => listActivities("deleted"),
+    enabled: enabled && userId.length > 0,
   });
 }
 
 export function useActivityQuery(userId: string, activityId: string) {
   return useQuery({
-    queryKey: queryKeys.activity(userId, activityId),
+    queryKey: queryKeys.activityDetail(userId, activityId),
     queryFn: () => getActivity(activityId),
     enabled: userId.length > 0 && activityId.length > 0,
   });
@@ -120,7 +173,51 @@ export function useCreateActivityMutation(userId: string) {
   return useMutation({
     mutationFn: createActivity,
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.activities(userId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+  });
+}
+
+/** 只有删除域操作会改变 deleted list；普通资料和状态更新不应触发 Owner-only 查询。 */
+function useActivityManagementInvalidation(userId: string, activityId: string, includeDeleted: boolean) {
+  const queryClient = useQueryClient();
+  return () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+      ...(includeDeleted
+        ? [queryClient.invalidateQueries({ queryKey: queryKeys.activitiesDeleted(userId) })]
+        : []),
+    ]);
+}
+
+export function useUpdateActivityMutation(userId: string, activityId: string) {
+  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  return useMutation({
+    mutationFn: (input: UpdateActivityInput) => updateActivity(activityId, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useActivityLifecycleMutation(userId: string, activityId: string) {
+  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  return useMutation({
+    mutationFn: (input: ActivityLifecycleInput) => transitionActivity(activityId, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteActivityMutation(userId: string, activityId: string) {
+  const invalidate = useActivityManagementInvalidation(userId, activityId, true);
+  return useMutation({
+    mutationFn: (version: string) => deleteActivity(activityId, version),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreActivityMutation(userId: string, activityId: string) {
+  const invalidate = useActivityManagementInvalidation(userId, activityId, true);
+  return useMutation({
+    mutationFn: (version: string) => restoreActivity(activityId, version),
+    onSuccess: invalidate,
   });
 }
 

@@ -56,8 +56,9 @@ async fn seed_context() -> AccountingContext {
     .await
     .expect("应插入用户");
     sqlx::query(
-        "INSERT INTO activities (id, name, base_currency, owner_member_id, created_by_user_id, \
-         created_at, updated_at) VALUES ($1, 'Tokyo Trip', 'CNY', $2, $3, $4, $4)",
+        "INSERT INTO activities (id, name, base_currency, start_date, owner_member_id, \
+         created_by_user_id, created_at, updated_at) \
+         VALUES ($1, 'Tokyo Trip', 'CNY', '2026-08-30', $2, $3, $4, $4)",
     )
     .bind(activity_id)
     .bind(owner_member_id)
@@ -220,14 +221,21 @@ async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: 
     let settlement_id = created["data"]["settlement"]["settlementId"]
         .as_str()
         .expect("应返回 Settlement ID");
-    let (status, replay) =
-        response(context, request(context, "POST", collection_uri, create)).await;
+    let (status, replay) = response(
+        context,
+        request(context, "POST", collection_uri.clone(), create),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(replay["data"]["idempotentReplay"], true);
     let item_uri = format!(
         "/api/activities/{}/settlements/{settlement_id}",
         context.activity_id
     );
+    for uri in [collection_uri.clone(), item_uri.clone()] {
+        let (status, _) = response(context, request(context, "GET", uri, json!(null))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
     let update = json!({
         "version": "1",
         "payerMemberId": recommendation["payerMemberId"],
@@ -358,4 +366,315 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     .await
     .expect("应读取 revision 与 Audit");
     assert_eq!(side_effects, (7, 6));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 单一场景按顺序验证 ENDED 下 Expense 冻结与 Settlement 三种写操作，拆分会重复昂贵数据库准备。
+#[allow(clippy::too_many_lines)]
+async fn ended_only_keeps_settlement_mutations_writable() {
+    let context = seed_context().await;
+    let expense_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            expense_uri.clone(),
+            expense_payload(&context, Uuid::new_v4(), "Sushi"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应结束活动");
+
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            expense_uri,
+            expense_payload(&context, Uuid::new_v4(), "Late expense"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let recommendation_uri = format!("/api/activities/{}/recommendations", context.activity_id);
+    let (_, recommendations) = response(
+        &context,
+        request(&context, "GET", recommendation_uri, json!(null)),
+    )
+    .await;
+    let recommendation = &recommendations["data"]["recommendations"][0];
+    let collection_uri = format!("/api/activities/{}/settlements", context.activity_id);
+    let create = json!({
+        "clientMutationId": Uuid::new_v4(),
+        "payerMemberId": recommendation["payerMemberId"],
+        "receiverMemberId": recommendation["receiverMemberId"],
+        "currency": "CNY",
+        "amountMinor": recommendation["amountMinor"]
+    });
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", collection_uri.clone(), create),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let settlement_id = created["data"]["settlement"]["settlementId"]
+        .as_str()
+        .expect("应返回 Settlement ID");
+    let item_uri = format!(
+        "/api/activities/{}/settlements/{settlement_id}",
+        context.activity_id
+    );
+    for uri in [collection_uri.clone(), item_uri.clone()] {
+        let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, updated) = response(
+        &context,
+        request(
+            &context,
+            "PUT",
+            item_uri.clone(),
+            json!({
+                "version": "1",
+                "payerMemberId": recommendation["payerMemberId"],
+                "receiverMemberId": recommendation["receiverMemberId"],
+                "amountMinor": recommendation["amountMinor"]
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["data"]["settlement"]["version"], "2");
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "DELETE",
+            item_uri.clone(),
+            json!({"version": "2"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    sqlx::query("UPDATE activities SET status = 'ARCHIVED' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应归档活动");
+    for uri in [collection_uri.clone(), item_uri.clone()] {
+        let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection_uri.clone(),
+            json!({
+                "clientMutationId": Uuid::new_v4(),
+                "payerMemberId": context.owner_member_id,
+                "receiverMemberId": context.guest_member_id,
+                "currency": "CNY",
+                "amountMinor": "1"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    sqlx::query(
+        "UPDATE activities SET status = 'ENDED', deleted_at = now(), \
+         purge_after = now() + interval '30 days' WHERE id = $1",
+    )
+    .bind(context.activity_id)
+    .execute(&context.pool)
+    .await
+    .expect("应删除活动");
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection_uri,
+            json!({
+                "clientMutationId": Uuid::new_v4(),
+                "payerMemberId": context.owner_member_id,
+                "receiverMemberId": context.guest_member_id,
+                "currency": "CNY",
+                "amountMinor": "1"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn ended_activity_keeps_expense_reads_available_to_members() {
+    let context = seed_context().await;
+    let collection_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let (status, created) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection_uri.clone(),
+            expense_payload(&context, Uuid::new_v4(), "Sushi"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let expense_id = created["data"]["expense"]["expenseId"]
+        .as_str()
+        .expect("应返回 Expense ID");
+
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应结束活动");
+
+    let (status, expenses) = response(
+        &context,
+        request(&context, "GET", collection_uri, json!(null)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(expenses["data"].as_array().map(Vec::len), Some(1));
+
+    let (status, expense) = response(
+        &context,
+        request(
+            &context,
+            "GET",
+            format!(
+                "/api/activities/{}/expenses/{expense_id}",
+                context.activity_id
+            ),
+            json!(null),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(expense["data"]["expense"]["title"], "Sushi");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn archived_accounting_reads_reject_the_same_activity_after_soft_delete() {
+    let context = seed_context().await;
+    let expense_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            expense_uri,
+            expense_payload(&context, Uuid::new_v4(), "Sushi"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    sqlx::query("UPDATE activities SET status = 'ARCHIVED' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应归档活动");
+    let read_uris = [
+        format!("/api/activities/{}/ledger", context.activity_id),
+        format!("/api/activities/{}/recommendations", context.activity_id),
+    ];
+    for uri in &read_uris {
+        let (status, _) =
+            response(&context, request(&context, "GET", uri.clone(), json!(null))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    sqlx::query(
+        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
+         WHERE id = $1",
+    )
+    .bind(context.activity_id)
+    .execute(&context.pool)
+    .await
+    .expect("应软删除活动");
+    for uri in read_uris {
+        let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn soft_deleted_active_activity_rejects_expense_creation() {
+    let context = seed_context().await;
+    sqlx::query(
+        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
+         WHERE id = $1",
+    )
+    .bind(context.activity_id)
+    .execute(&context.pool)
+    .await
+    .expect("应软删除活动");
+
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            format!("/api/activities/{}/expenses", context.activity_id),
+            expense_payload(&context, Uuid::new_v4(), "Sushi"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn archived_activity_keeps_expense_list_and_detail_readable() {
+    let context = seed_context().await;
+    let collection_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let (status, created) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection_uri.clone(),
+            expense_payload(&context, Uuid::new_v4(), "Sushi"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let expense_id = created["data"]["expense"]["expenseId"]
+        .as_str()
+        .expect("应返回 Expense ID");
+    sqlx::query("UPDATE activities SET status = 'ARCHIVED' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应归档活动");
+
+    for uri in [
+        collection_uri,
+        format!(
+            "/api/activities/{}/expenses/{expense_id}",
+            context.activity_id
+        ),
+    ] {
+        let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
 }

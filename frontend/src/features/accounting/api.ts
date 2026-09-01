@@ -126,6 +126,7 @@ function useAccountingInvalidation(userId: string, activityId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.ledger(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.recommendations(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settlements(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
     ]);
 }
 

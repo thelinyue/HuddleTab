@@ -243,7 +243,8 @@ impl CollaborationRepository for PostgresCollaborationRepository {
               WHERE m.activity_id = a.id AND m.status = 'ACTIVE'), i.kind, i.expires_at \
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
-               AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE'",
+               AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
+               AND a.status = 'ACTIVE' AND a.deleted_at IS NULL",
         )
         .bind(token_hash.as_slice())
         .bind(now)
@@ -273,7 +274,8 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             "SELECT i.id, i.activity_id, i.kind, i.target_username \
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
-               AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE' \
+               AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
+               AND a.status = 'ACTIVE' AND a.deleted_at IS NULL \
              FOR UPDATE OF i, a",
         )
         .bind(input.token_hash.as_slice())
@@ -395,7 +397,7 @@ async fn authorize_owner(
 ) -> Result<Uuid, CollaborationRepositoryError> {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT m.id FROM activities a JOIN activity_members m ON m.activity_id = a.id \
-         WHERE a.id = $1 AND a.status = 'ACTIVE' AND m.user_id = $2 \
+         WHERE a.id = $1 AND a.status = 'ACTIVE' AND a.deleted_at IS NULL AND m.user_id = $2 \
            AND m.role = 'OWNER' AND m.status = 'ACTIVE' FOR UPDATE OF a",
     )
     .bind(activity_id)

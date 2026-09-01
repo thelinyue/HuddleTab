@@ -30,7 +30,8 @@ impl AccountingRepository for PostgresAccountingRepository {
         let activity = sqlx::query_as::<_, (String, i64)>(
             "SELECT a.base_currency, a.revision FROM activities a \
              WHERE a.id = $1 AND EXISTS(SELECT 1 FROM activity_members m \
-               WHERE m.activity_id = a.id AND m.user_id = $2 AND m.status = 'ACTIVE')",
+               WHERE m.activity_id = a.id AND m.user_id = $2 AND m.status = 'ACTIVE') \
+             AND a.deleted_at IS NULL",
         )
         .bind(activity_id)
         .bind(actor_user_id)

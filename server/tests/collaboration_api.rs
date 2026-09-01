@@ -77,8 +77,9 @@ async fn seed_activity(pool: &PgPool, owner: &TestActor) -> (Uuid, Uuid) {
     let now = OffsetDateTime::now_utc();
     let mut transaction = pool.begin().await.expect("应开启事务");
     sqlx::query(
-        "INSERT INTO activities (id, name, base_currency, owner_member_id, \
-         created_by_user_id, created_at, updated_at) VALUES ($1, 'Tokyo Trip', 'JPY', $2, $3, $4, $4)",
+        "INSERT INTO activities (id, name, base_currency, start_date, owner_member_id, \
+         created_by_user_id, created_at, updated_at) \
+         VALUES ($1, 'Tokyo Trip', 'JPY', '2026-08-30', $2, $3, $4, $4)",
     )
     .bind(activity_id)
     .bind(owner_member_id)
@@ -353,4 +354,151 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     assert!(revoked["data"]["revokedAt"].is_string());
 
     assert_collaboration_side_effects(&pool, activity_id).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn ended_and_deleted_activities_reject_collaboration_mutations() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+
+    for state_change in [
+        "UPDATE activities SET status = 'ENDED' WHERE id = $1",
+        "UPDATE activities SET status = 'ACTIVE', deleted_at = now(), \
+         purge_after = now() + interval '30 days' WHERE id = $1",
+    ] {
+        sqlx::query(state_change)
+            .bind(activity_id)
+            .execute(&pool)
+            .await
+            .expect("应更新活动状态");
+        let (guest_status, _) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "POST",
+                format!("/api/activities/{activity_id}/members/guests"),
+                r#"{"displayName":"小林"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(guest_status, StatusCode::FORBIDDEN);
+        let (invite_status, _) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "POST",
+                format!("/api/activities/{activity_id}/invitations"),
+                r#"{"kind":"LINK","targetUsername":null,"maxUses":null}"#,
+            ),
+        )
+        .await;
+        assert_eq!(invite_status, StatusCode::FORBIDDEN);
+    }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn deleted_activity_rejects_invitation_registration_and_join() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            secret.clone(),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+
+    let mut tokens = Vec::new();
+    for _ in 0..2 {
+        let (status, invitation) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "POST",
+                format!("/api/activities/{activity_id}/invitations"),
+                r#"{"kind":"LINK","targetUsername":null,"maxUses":null}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        tokens.push(
+            invitation["data"]["token"]
+                .as_str()
+                .expect("应返回邀请 token")
+                .to_owned(),
+        );
+    }
+    let joining_user = register_invited_actor(&app, &secret, &tokens[1]).await;
+
+    sqlx::query(
+        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
+         WHERE id = $1",
+    )
+    .bind(activity_id)
+    .execute(&pool)
+    .await
+    .expect("应软删除活动");
+
+    let pre_auth = SessionToken::generate();
+    let csrf = CsrfToken::mint(&secret, CsrfContext::PreAuth(pre_auth.expose_for_cookie()));
+    let (status, registration) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/register")
+            .header(CONTENT_TYPE, "application/json")
+            .header(
+                COOKIE,
+                format!("huddletab_pre_auth={}", pre_auth.expose_for_cookie()),
+            )
+            .header(ORIGIN, "http://localhost:5660")
+            .header("sec-fetch-site", "same-origin")
+            .header("x-csrf-token", csrf.expose_for_header())
+            .body(Body::from(format!(
+                r#"{{"username":"carol","password":"correct horse battery staple","displayName":"Carol","invitationToken":"{}"}}"#,
+                tokens[0]
+            )))
+            .expect("注册请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(registration["error"]["code"], "INVALID_INVITATION");
+
+    let (status, joined) = json_response(
+        &app,
+        authenticated_request(
+            &joining_user,
+            "POST",
+            format!("/api/invitations/{}/join", tokens[1]),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(joined["error"]["code"], "INVALID_INVITATION");
 }

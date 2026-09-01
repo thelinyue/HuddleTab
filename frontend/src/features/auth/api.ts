@@ -124,6 +124,6 @@ export function useJoinInvitationMutation(userId: string, token: string) {
   return useMutation({
     mutationFn: () => joinInvitation(token),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.activities(userId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
   });
 }

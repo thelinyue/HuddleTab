@@ -3,11 +3,15 @@ import {
   Bell,
   ChevronRight,
   CircleDollarSign,
+  CalendarDays,
   KeyRound,
   Link as LinkIcon,
   MapPin,
   MoreHorizontal,
   Plus,
+  Pencil,
+  RotateCcw,
+  Trash2,
   UserPlus,
   UserRound,
   UsersRound,
@@ -18,6 +22,9 @@ import {
   type FormEvent,
   type ReactNode,
   useContext,
+  useEffect,
+  useId,
+  useRef,
   useState,
 } from "react";
 import {
@@ -37,14 +44,20 @@ import {
   type CreatedInvitation,
   type Invitation,
   type InvitationIntent,
+  type UpdateActivityInput,
+  useActivityLifecycleMutation,
   useActivitiesQuery,
   useActivityQuery,
   useCreateActivityMutation,
+  useDeleteActivityMutation,
+  useDeletedActivitiesQuery,
   useCreateGuestMutation,
   useCreateInvitationMutation,
   useInvitationsQuery,
   useMembersQuery,
   useRevokeInvitationMutation,
+  useRestoreActivityMutation,
+  useUpdateActivityMutation,
 } from "./api";
 import { type Session, useLogoutMutation, useSessionQuery } from "../auth/api";
 
@@ -69,16 +82,64 @@ function stableIndex(value: string, length: number): number {
   return hash % length;
 }
 
-function Overlay({ open, title, onBack, onClose, children }: { open: boolean; title: string; onBack?: () => void; onClose: () => void; children: ReactNode }) {
+function localCalendarToday(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function Overlay({ open, title, backLabel, onBack, onClose, focusKey, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; children: ReactNode }) {
+  const titleId = useId();
+  const sheetRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const sheet = sheetRef.current;
+    const focusableSelector = "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
+    const initialFocus = sheet?.querySelector<HTMLElement>("[data-overlay-initial-focus]")
+      ?? sheet?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")
+      ?? sheet?.querySelector<HTMLElement>(focusableSelector);
+    initialFocus?.focus();
+
+    // Overlay 自行维持 Escape、Tab 循环和焦点回还，URL 驱动的面板也能得到一致键盘行为。
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !sheet) return;
+      const focusable = [...sheet.querySelectorAll<HTMLElement>(focusableSelector)];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [focusKey, open]);
+
   if (!open) return null;
   return (
     <div className="form-overlay" role="presentation">
-      <button className="form-overlay__scrim" type="button" aria-label={`关闭${title}`} onClick={onClose} />
-      <section className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+      <button className="form-overlay__scrim" type="button" aria-hidden="true" tabIndex={-1} onClick={onClose} />
+      <section ref={sheetRef} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="form-overlay__header">
           <div className="form-overlay__header-main">
-            {onBack ? <button className="icon-button" type="button" aria-label="返回成员" onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : null}
-            <h2 id="overlay-title">{title}</h2>
+            {onBack ? <button className="icon-button" type="button" aria-label={backLabel ?? "返回"} onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : null}
+            <h2 id={titleId}>{title}</h2>
           </div>
           <button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><X aria-hidden="true" size={20} /></button>
         </header>
@@ -136,7 +197,7 @@ export function ActivityWorkspace() {
         <main className="workspace-content"><Outlet /></main>
       </section>
       {panel === "members" ? <MembersOverlay onClose={closePanel} /> : null}
-      <Overlay open={panel === "manage"} title="活动管理" onClose={closePanel}><MorePage /></Overlay>
+      {panel === "manage" ? <ActivityManagementOverlay onClose={closePanel} /> : null}
     </WorkspaceContext.Provider>
   );
 }
@@ -179,20 +240,73 @@ function ActivityGroup({ title, activities, allActivities, ledgers }: { title: s
   );
 }
 
+function activityDateTime(value: string): string {
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function DeletedActivityRow({ activity, userId }: { activity: Activity; userId: string }) {
+  const restore = useRestoreActivityMutation(userId, activity.activityId);
+  return (
+    <li className="deleted-activity-row">
+      <span>
+        <strong>{activity.name}</strong>
+        <small>删除于 {activityDateTime(activity.deletedAt!)}</small>
+        <small>可恢复至 {activityDateTime(activity.purgeAfter!)}</small>
+      </span>
+      {activity.canRestore ? <Button variant="secondary" busy={restore.isPending} aria-label={`恢复${activity.name}`} onClick={() => restore.mutate(activity.version)}> <RotateCcw aria-hidden="true" size={17} />恢复</Button> : null}
+      {restore.error ? <ErrorNotice error={restore.error} /> : null}
+    </li>
+  );
+}
+
+function DeletedActivities({ activities, userId }: { activities: readonly Activity[]; userId: string }) {
+  // deleted 查询可能来自陈旧缓存；恢复期限已过的条目不得重新出现在操作面板中。
+  const visible = activities.filter((activity) =>
+    Boolean(activity.deletedAt && activity.purgeAfter && Date.parse(activity.purgeAfter) > Date.now()),
+  );
+  return (
+    <section className="activity-group deleted-activities" aria-labelledby="deleted-activities-heading">
+      <h2 id="deleted-activities-heading">已删除活动</h2>
+      {visible.length ? <ul className="deleted-activity-list">{visible.map((activity) => <DeletedActivityRow key={activity.activityId} activity={activity} userId={userId} />)}</ul> : <p className="muted-copy">当前没有可恢复的活动。</p>}
+    </section>
+  );
+}
+
 export function ActivitiesPage() {
   const session = useSessionQuery();
   const activities = useActivitiesQuery(session.data?.userId ?? "");
+  const [deletedOpen, setDeletedOpen] = useState(false);
+  const deletedActivities = useDeletedActivitiesQuery(session.data?.userId ?? "", deletedOpen);
   const ledgers = useActivityLedgersQuery(session.data?.userId ?? "", activities.data ?? []);
   const create = useCreateActivityMutation(session.data?.userId ?? "");
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [location, setLocation] = useState("");
   const [baseCurrency, setBaseCurrency] = useState("CNY");
+  const [startDate, setStartDate] = useState(localCalendarToday);
+  const [endDate, setEndDate] = useState("");
+  const [createError, setCreateError] = useState<unknown>();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await create.mutateAsync({ name, baseCurrency });
-    setName("");
-    setOpen(false);
+    setCreateError(undefined);
+    try {
+      await create.mutateAsync({
+        name,
+        location: location.trim() || null,
+        baseCurrency,
+        startDate,
+        endDate: endDate || null,
+      });
+      setName("");
+      setLocation("");
+      setBaseCurrency("CNY");
+      setStartDate(localCalendarToday());
+      setEndDate("");
+      setOpen(false);
+    } catch (error) {
+      setCreateError(error);
+    }
   }
 
   if (session.isPending || activities.isPending) return <LoadingState label="正在读取活动…" />;
@@ -214,15 +328,30 @@ export function ActivitiesPage() {
         {!items.length ? <EmptyState icon={<Plus size={28} />} title="还没有活动" description="创建第一个活动后，就可以开始记录消费。" action={<Button onClick={() => setOpen(true)}>创建活动</Button>} /> : null}
         <ActivityGroup title="进行中的活动" activities={active} allActivities={items} ledgers={ledgers} />
         <ActivityGroup title="最近结束" activities={ended} allActivities={items} ledgers={ledgers} />
+        <button className="settings-link deleted-activities-entry" type="button" aria-label="已删除活动" onClick={() => setDeletedOpen(true)}>
+          <RotateCcw aria-hidden="true" size={18} />
+          <span><strong>已删除活动</strong><small>查看恢复期限内可恢复的活动</small></span>
+          <ChevronRight aria-hidden="true" size={18} />
+        </button>
       </main>
       <ProductBottomNavigation />
       <Overlay open={open} title="创建活动" onClose={() => setOpen(false)}>
         <form className="form-stack" onSubmit={submit}>
-          <Field label="活动名称"><Input value={name} onChange={(event) => setName(event.target.value)} required autoFocus maxLength={120} /></Field>
+          <Field label="活动名称"><Input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></Field>
+          <Field label="地点（可选）"><Input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} /></Field>
           <Field label="主币种"><Select value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field>
-          {create.error ? <ErrorNotice error={create.error} /> : null}
+          <Field label="开始日期"><Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field>
+          <Field label="结束日期（可选）"><Input type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></Field>
+          {createError ?? create.error ? <ErrorNotice error={createError ?? create.error} /> : null}
           <Button type="submit" busy={create.isPending}>创建活动</Button>
         </form>
+      </Overlay>
+      <Overlay open={deletedOpen} title="已删除活动" onClose={() => setDeletedOpen(false)}>
+        {deletedActivities.isPending ? <LoadingState label="正在读取已删除活动…" /> : null}
+        {deletedActivities.error ? <ErrorNotice error={deletedActivities.error} /> : null}
+        {!deletedActivities.isPending && !deletedActivities.error
+          ? <DeletedActivities activities={deletedActivities.data ?? []} userId={session.data?.userId ?? ""} />
+          : null}
       </Overlay>
     </div>
   );
@@ -234,6 +363,7 @@ function MembersOverlay({ onClose }: { onClose: () => void }) {
     <Overlay
       open
       title={view === "list" ? "成员" : "邀请成员"}
+      backLabel="返回成员"
       onBack={view === "invite" ? () => setView("list") : undefined}
       onClose={onClose}
     >
@@ -352,13 +482,135 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
   );
 }
 
-export function MorePage() {
-  const { activity } = useWorkspace();
+const lifecycleLabels: Record<string, string> = {
+  END: "结束活动",
+  REOPEN: "重新开启活动",
+  ARCHIVE: "归档活动",
+  UNARCHIVE: "取消归档",
+};
+
+const fieldPermissionLabels: Array<[keyof Activity["fieldPermissions"], string]> = [
+  ["name", "活动名称"],
+  ["location", "地点"],
+  ["baseCurrency", "主币种"],
+  ["startDate", "开始日期"],
+  ["endDate", "结束日期"],
+];
+
+function ActivityProfileEditor({ onSaved }: { onSaved: (warnings: string[]) => void }) {
+  const { session, activity } = useWorkspace();
+  const update = useUpdateActivityMutation(session.userId, activity.activityId);
+  const [name, setName] = useState(activity.name);
+  const [location, setLocation] = useState(activity.location ?? "");
+  const [baseCurrency, setBaseCurrency] = useState(activity.baseCurrency);
+  const [startDate, setStartDate] = useState(activity.startDate);
+  const [endDate, setEndDate] = useState(activity.endDate ?? "");
+  const [error, setError] = useState<unknown>();
+  const permissions = activity.fieldPermissions;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(undefined);
+    const input: UpdateActivityInput = { version: activity.version };
+    if (permissions.name) input.name = name;
+    if (permissions.location) input.location = location.trim() || null;
+    if (permissions.baseCurrency) input.baseCurrency = baseCurrency;
+    if (permissions.startDate) input.startDate = startDate;
+    if (permissions.endDate) input.endDate = endDate || null;
+    try {
+      const result = await update.mutateAsync(input);
+      onSaved(result.warnings);
+    } catch (reason) {
+      setError(reason);
+    }
+  }
+
+  return (
+    <form className="form-stack" onSubmit={submit}>
+      {permissions.name ? <Field label="活动名称"><Input value={name} onChange={(event) => setName(event.target.value)} required autoFocus maxLength={120} /></Field> : null}
+      {permissions.location ? <Field label="地点（可选）"><Input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} /></Field> : null}
+      {permissions.baseCurrency ? <Field label="主币种"><Select value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field> : null}
+      {permissions.startDate ? <Field label="开始日期"><Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field> : null}
+      {permissions.endDate ? <Field label="结束日期（可选）"><Input type="date" min={startDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></Field> : null}
+      {error ?? update.error ? <ErrorNotice error={error ?? update.error} /> : null}
+      <Button type="submit" busy={update.isPending}>保存活动资料</Button>
+    </form>
+  );
+}
+
+export function MorePage({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () => void }) {
+  const { session, activity } = useWorkspace();
+  const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
+  const [error, setError] = useState<unknown>();
+  const canEdit = Object.values(activity.fieldPermissions).some(Boolean);
+
+  async function transition(action: string) {
+    setError(undefined);
+    try {
+      await lifecycle.mutateAsync({ action, version: activity.version });
+    } catch (reason) {
+      setError(reason);
+    }
+  }
+
   return (
     <div className="activity-more">
-      <section><h2>活动信息</h2><div className="settings-list"><div><MapPin aria-hidden="true" size={17} /><span>活动名称</span><strong>{activity.name}</strong></div><div><CircleDollarSign aria-hidden="true" size={17} /><span>主币种</span><strong>{activity.baseCurrency}</strong></div><div><UsersRound aria-hidden="true" size={17} /><span>状态</span><strong>{activityStatus(activity.status)}</strong></div></div></section>
-      <section><h2>协作与分享</h2><div className="settings-list"><div><LinkIcon aria-hidden="true" size={17} /><span>成员和邀请请从页头“成员”进入</span></div></div></section>
+      <section>
+        <h2>活动资料</h2>
+        <div className="settings-list">
+          <div><Pencil aria-hidden="true" size={17} /><span>活动名称</span><strong>{activity.name}</strong></div>
+          <div><MapPin aria-hidden="true" size={17} /><span>地点</span><strong>{activity.location || "未填写"}</strong></div>
+          <div><CircleDollarSign aria-hidden="true" size={17} /><span>主币种</span><strong>{activity.baseCurrency}</strong></div>
+          <div><CalendarDays aria-hidden="true" size={17} /><span>日期</span><strong>{activity.startDate}{activity.endDate ? ` 至 ${activity.endDate}` : " 起"}</strong></div>
+          <div><UsersRound aria-hidden="true" size={17} /><span>状态</span><strong>{activityStatus(activity.status)}</strong></div>
+        </div>
+      </section>
+      {activity.hasAccountingRecords ? <div className="notice">已有账务记录，主币种等受账务锁约束的字段可能不可编辑。</div> : null}
+      <section>
+        <h2>字段权限</h2>
+        <div className="management-permissions">{fieldPermissionLabels.map(([field, label]) => <span key={field}>{label} · {activity.fieldPermissions[field] ? "可编辑" : "不可编辑"}</span>)}</div>
+        {canEdit && onEdit ? <Button variant="secondary" onClick={onEdit}><Pencil aria-hidden="true" size={17} />编辑活动资料</Button> : null}
+      </section>
+      {activity.allowedLifecycleActions.length ? <section><h2>活动状态</h2><div className="management-actions">{activity.allowedLifecycleActions.flatMap((action) => lifecycleLabels[action] ? [<Button key={action} variant="secondary" busy={lifecycle.isPending} onClick={() => void transition(action)}>{lifecycleLabels[action]}</Button>] : [])}</div></section> : null}
+      {error ?? lifecycle.error ? <ErrorNotice error={error ?? lifecycle.error} /> : null}
+      {activity.canDelete && onDelete ? <section className="management-danger"><h2>危险操作</h2><Button variant="danger" onClick={onDelete}><Trash2 aria-hidden="true" size={17} />删除活动</Button></section> : null}
     </div>
+  );
+}
+
+/** 管理流程始终留在同一 Overlay 内，子视图负责返回，删除成功才退出活动工作区。 */
+function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
+  const { session, activity } = useWorkspace();
+  const remove = useDeleteActivityMutation(session.userId, activity.activityId);
+  const navigate = useNavigate();
+  const [view, setView] = useState<"root" | "profile" | "delete">("root");
+  const [deleteError, setDeleteError] = useState<unknown>();
+  const [warnings, setWarnings] = useState<string[]>([]);
+
+  async function confirmDelete() {
+    setDeleteError(undefined);
+    try {
+      await remove.mutateAsync(activity.version);
+      navigate("/activities", { replace: true });
+    } catch (reason) {
+      setDeleteError(reason);
+    }
+  }
+
+  const title = view === "root" ? "活动管理" : view === "profile" ? "编辑活动资料" : "确认删除活动";
+  return (
+    <Overlay open title={title} backLabel="返回活动管理" onBack={view === "root" ? undefined : () => setView("root")} onClose={onClose} focusKey={view}>
+      {view === "root" ? warnings.map((warning) => (
+        <div className="notice" key={warning} role="status">
+          {warning === "EXPENSE_BEFORE_ACTIVITY_START"
+            ? "活动开始日期晚于已有账单的发生时间，请检查日期或历史账单。"
+            : warning}
+        </div>
+      )) : null}
+      {view === "root" ? <MorePage onEdit={() => setView("profile")} onDelete={() => setView("delete")} /> : null}
+      {view === "profile" ? <ActivityProfileEditor onSaved={(nextWarnings) => { setWarnings(nextWarnings); setView("root"); }} /> : null}
+      {view === "delete" ? <div className="delete-confirmation"><p>删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。</p>{deleteError ?? remove.error ? <ErrorNotice error={deleteError ?? remove.error} /> : null}<Button data-overlay-initial-focus variant="danger" busy={remove.isPending} onClick={() => void confirmDelete()}><Trash2 aria-hidden="true" size={17} />确认删除活动</Button></div> : null}
+    </Overlay>
   );
 }
 
