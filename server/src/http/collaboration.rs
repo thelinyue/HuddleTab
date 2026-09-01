@@ -12,9 +12,11 @@ use crate::{
     application::{
         auth::{CurrentSession, CurrentSessionError, current_session},
         collaboration::{
-            CollaborationError, CreateInvitationInput, Invitation, JoinInput,
+            CollaborationError, CreateInvitationInput, Invitation, JoinInput, JoinRequestView,
             create_guest as add_guest, create_invitation as issue_invitation,
+            decide_join_request as decide_request, get_join_request as load_join_request,
             join_invitation as accept_invitation, list_invitations as load_invitations,
+            list_join_requests as load_join_requests,
             preview_invitation as load_invitation_preview, revoke_invitation as cancel_invitation,
         },
     },
@@ -139,6 +141,34 @@ pub struct JoinInvitationData {
     pub member_id: Option<String>,
     pub request_id: Option<String>,
     pub revision: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct JoinRequestListEnvelope {
+    pub data: Vec<JoinRequestData>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct JoinRequestEnvelope {
+    pub data: JoinRequestData,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinRequestData {
+    pub request_id: String,
+    pub activity_id: String,
+    pub applicant_user_id: String,
+    pub applicant_display_name: String,
+    pub status: &'static str,
+    pub decided_at: Option<String>,
+    pub created_at: String,
+    pub revision: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct DecideJoinRequestRequest {
+    pub decision: String,
 }
 
 #[utoipa::path(
@@ -418,6 +448,67 @@ pub(crate) async fn join_invitation(
     }))
 }
 
+pub(crate) async fn list_join_requests(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+) -> Result<Json<JoinRequestListEnvelope>, ApiError> {
+    let actor = authenticate(&state, &jar, request_id.clone()).await?;
+    let activity_id = parse_uuid(&activity_id, request_id.clone())?;
+    let repository = PostgresCollaborationRepository::new(state.pool);
+    let requests = load_join_requests(&repository, activity_id, actor.user_id)
+        .await
+        .map_err(|error| map_error(error, request_id))?;
+    Ok(Json(JoinRequestListEnvelope {
+        data: requests.into_iter().map(join_request_data).collect(),
+    }))
+}
+
+pub(crate) async fn get_join_request(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(join_request_id): Path<String>,
+    jar: CookieJar,
+) -> Result<Json<JoinRequestEnvelope>, ApiError> {
+    let actor = authenticate(&state, &jar, request_id.clone()).await?;
+    let join_request_id = parse_uuid(&join_request_id, request_id.clone())?;
+    let repository = PostgresCollaborationRepository::new(state.pool);
+    let request = load_join_request(&repository, join_request_id, actor.user_id)
+        .await
+        .map_err(|error| map_error(error, request_id))?;
+    Ok(Json(JoinRequestEnvelope {
+        data: join_request_data(request),
+    }))
+}
+
+pub(crate) async fn decide_join_request(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path((activity_id, join_request_id)): Path<(String, String)>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<DecideJoinRequestRequest>,
+) -> Result<Json<JoinRequestEnvelope>, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    let activity_id = parse_uuid(&activity_id, request_id.clone())?;
+    let join_request_id = parse_uuid(&join_request_id, request_id.clone())?;
+    let repository = PostgresCollaborationRepository::new(state.pool);
+    let decided = decide_request(
+        &repository,
+        &SystemClock,
+        activity_id,
+        join_request_id,
+        actor.user_id,
+        &request.decision,
+    )
+    .await
+    .map_err(|error| map_decision_error(error, request_id))?;
+    Ok(Json(JoinRequestEnvelope {
+        data: join_request_data(decided),
+    }))
+}
+
 pub(crate) async fn authenticate_mutation(
     state: &AppState,
     jar: &CookieJar,
@@ -471,6 +562,19 @@ fn invitation_data(invitation: Invitation) -> InvitationData {
     }
 }
 
+fn join_request_data(request: JoinRequestView) -> JoinRequestData {
+    JoinRequestData {
+        request_id: request.id.to_string(),
+        activity_id: request.activity_id.to_string(),
+        applicant_user_id: request.applicant_user_id.to_string(),
+        applicant_display_name: request.applicant_display_name,
+        status: request.status.as_str(),
+        decided_at: request.decided_at.map(|value| value.to_string()),
+        created_at: request.created_at.to_string(),
+        revision: request.revision.to_string(),
+    }
+}
+
 fn parse_uuid(value: &str, request_id: RequestId) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value).map_err(|_| ApiError::not_found(request_id))
 }
@@ -482,6 +586,17 @@ fn map_error(error: CollaborationError, request_id: RequestId) -> ApiError {
         CollaborationError::Forbidden => ApiError::operation_forbidden(request_id),
         CollaborationError::NotFound => ApiError::not_found(request_id),
         CollaborationError::Conflict => ApiError::conflict(request_id),
+        CollaborationError::JoinRequestClosed => ApiError::join_request_closed(request_id),
+        CollaborationError::ActivityNotJoinable => ApiError::activity_not_joinable(request_id),
         CollaborationError::Unavailable => ApiError::internal(request_id),
+    }
+}
+
+fn map_decision_error(error: CollaborationError, request_id: RequestId) -> ApiError {
+    match error {
+        CollaborationError::InvalidInvitation => {
+            ApiError::join_request_invitation_invalid(request_id)
+        }
+        other => map_error(other, request_id),
     }
 }

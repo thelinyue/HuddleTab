@@ -161,6 +161,36 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn join_request_closed(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "JOIN_REQUEST_CLOSED",
+            "加入申请已经处理。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn activity_not_joinable(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "ACTIVITY_NOT_JOINABLE",
+            "当前活动不允许新成员加入。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn join_request_invitation_invalid(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "INVITATION_INVALID",
+            "邀请无效或已失效。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn username_taken(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

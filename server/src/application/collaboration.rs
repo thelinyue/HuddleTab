@@ -5,7 +5,13 @@ use thiserror::Error;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use crate::{application::ports::Clock, domain::identity::Username};
+use crate::{
+    application::ports::Clock,
+    domain::{
+        identity::Username,
+        join_request::{JoinDecision, JoinRequestStatus},
+    },
+};
 
 const INVITATION_LIFETIME: Duration = Duration::days(7);
 
@@ -145,6 +151,18 @@ pub struct JoinedInvitation {
     pub revision: i64,
 }
 
+#[derive(Clone, Debug)]
+pub struct JoinRequestView {
+    pub id: Uuid,
+    pub activity_id: Uuid,
+    pub applicant_user_id: Uuid,
+    pub applicant_display_name: String,
+    pub status: JoinRequestStatus,
+    pub decided_at: Option<OffsetDateTime>,
+    pub created_at: OffsetDateTime,
+    pub revision: i64,
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum CollaborationRepositoryError {
     #[error("没有活动管理权限")]
@@ -153,6 +171,12 @@ pub enum CollaborationRepositoryError {
     NotFound,
     #[error("协作资源状态冲突")]
     Conflict,
+    #[error("加入申请已经处理")]
+    JoinRequestClosed,
+    #[error("当前活动不允许新成员加入")]
+    ActivityNotJoinable,
+    #[error("邀请无效或已失效")]
+    InvalidInvitation,
     #[error("协作数据访问失败")]
     Unavailable,
 }
@@ -194,6 +218,27 @@ pub trait CollaborationRepository: Send + Sync {
         &self,
         input: JoinInvitationInput,
     ) -> Result<JoinedInvitation, CollaborationRepositoryError>;
+
+    async fn list_join_requests(
+        &self,
+        activity_id: Uuid,
+        actor_user_id: Uuid,
+    ) -> Result<Vec<JoinRequestView>, CollaborationRepositoryError>;
+
+    async fn get_join_request(
+        &self,
+        request_id: Uuid,
+        applicant_user_id: Uuid,
+    ) -> Result<JoinRequestView, CollaborationRepositoryError>;
+
+    async fn decide_join_request(
+        &self,
+        activity_id: Uuid,
+        request_id: Uuid,
+        actor_user_id: Uuid,
+        decision: JoinDecision,
+        now: OffsetDateTime,
+    ) -> Result<JoinRequestView, CollaborationRepositoryError>;
 }
 
 #[derive(Clone, Debug)]
@@ -244,6 +289,10 @@ pub enum CollaborationError {
     NotFound,
     #[error("协作资源状态冲突")]
     Conflict,
+    #[error("加入申请已经处理")]
+    JoinRequestClosed,
+    #[error("当前活动不允许新成员加入")]
+    ActivityNotJoinable,
     #[error("协作服务暂时不可用")]
     Unavailable,
 }
@@ -416,11 +465,74 @@ pub async fn join_invitation(
         })
 }
 
+/// 读取 Owner 的待审批队列，普通成员没有读取权限。
+///
+/// # Errors
+///
+/// 活动不存在、操作者不是 Owner 或存储不可用时返回对应错误。
+pub async fn list_join_requests(
+    repository: &dyn CollaborationRepository,
+    activity_id: Uuid,
+    actor_user_id: Uuid,
+) -> Result<Vec<JoinRequestView>, CollaborationError> {
+    repository
+        .list_join_requests(activity_id, actor_user_id)
+        .await
+        .map_err(map_repository_error)
+}
+
+/// 只允许申请人读取自己的加入申请，避免暴露其他用户的审批状态。
+///
+/// # Errors
+///
+/// 申请不存在、不属于当前用户或存储不可用时返回对应错误。
+pub async fn get_join_request(
+    repository: &dyn CollaborationRepository,
+    request_id: Uuid,
+    applicant_user_id: Uuid,
+) -> Result<JoinRequestView, CollaborationError> {
+    repository
+        .get_join_request(request_id, applicant_user_id)
+        .await
+        .map_err(map_repository_error)
+}
+
+/// 解析 Owner 决策并在单个事务内完成成员、邀请、通知、Audit 与 revision 更新。
+///
+/// # Errors
+///
+/// 决策值无效、申请已关闭、活动或邀请失效以及存储失败时返回对应错误。
+pub async fn decide_join_request(
+    repository: &dyn CollaborationRepository,
+    clock: &dyn Clock,
+    activity_id: Uuid,
+    request_id: Uuid,
+    actor_user_id: Uuid,
+    decision: &str,
+) -> Result<JoinRequestView, CollaborationError> {
+    let decision = JoinDecision::parse(decision).map_err(|_| CollaborationError::InvalidInput)?;
+    repository
+        .decide_join_request(
+            activity_id,
+            request_id,
+            actor_user_id,
+            decision,
+            clock.now(),
+        )
+        .await
+        .map_err(map_repository_error)
+}
+
 fn map_repository_error(error: CollaborationRepositoryError) -> CollaborationError {
     match error {
         CollaborationRepositoryError::Forbidden => CollaborationError::Forbidden,
         CollaborationRepositoryError::NotFound => CollaborationError::NotFound,
         CollaborationRepositoryError::Conflict => CollaborationError::Conflict,
+        CollaborationRepositoryError::JoinRequestClosed => CollaborationError::JoinRequestClosed,
+        CollaborationRepositoryError::ActivityNotJoinable => {
+            CollaborationError::ActivityNotJoinable
+        }
+        CollaborationRepositoryError::InvalidInvitation => CollaborationError::InvalidInvitation,
         CollaborationRepositoryError::Unavailable => CollaborationError::Unavailable,
     }
 }

@@ -308,6 +308,480 @@ async fn assert_pending_join_side_effects(
     assert_eq!(state, (expected_revision, 1, 1, 1, 2, 0));
 }
 
+async fn create_pending_join_request(
+    app: &axum::Router,
+    owner: &TestActor,
+    applicant: &TestActor,
+    activity_id: Uuid,
+) -> Uuid {
+    let token = create_link_invitation(app, owner, activity_id).await;
+    let (status, joined) = json_response(
+        app,
+        authenticated_request(
+            applicant,
+            "POST",
+            format!("/api/invitations/{token}/join"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    Uuid::parse_str(
+        joined["data"]["requestId"]
+            .as_str()
+            .expect("Pending 应返回 requestId"),
+    )
+    .expect("requestId 应为 UUID")
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_request_authorization_limits_owner_queue_and_applicant_status() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let member = seed_actor(&pool, &secret, "carol", "Carol").await;
+    let outsider = seed_actor(&pool, &secret, "dave", "Dave").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) \
+         VALUES ($1, $2, $3, $4, 'MEMBER', now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(activity_id)
+    .bind(member.user_id)
+    .bind(member.display_name)
+    .execute(&pool)
+    .await
+    .expect("应插入普通成员");
+    let app = router_with_state(
+        None,
+        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+
+    let (owner_status, queue) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "GET",
+            format!("/api/activities/{activity_id}/join-requests"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(owner_status, StatusCode::OK);
+    assert_eq!(queue["data"].as_array().map(Vec::len), Some(1));
+    assert_eq!(queue["data"][0]["requestId"], request_id.to_string());
+    assert_eq!(queue["data"][0]["applicantDisplayName"], "Bob");
+    assert_eq!(queue["data"][0]["status"], "PENDING");
+
+    let (member_status, _) = json_response(
+        &app,
+        authenticated_request(
+            &member,
+            "GET",
+            format!("/api/activities/{activity_id}/join-requests"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(member_status, StatusCode::FORBIDDEN);
+
+    let (member_decision_status, _) = json_response(
+        &app,
+        authenticated_request(
+            &member,
+            "POST",
+            format!("/api/activities/{activity_id}/join-requests/{request_id}"),
+            r#"{"decision":"APPROVE"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(member_decision_status, StatusCode::FORBIDDEN);
+
+    let (self_status, own_request) = json_response(
+        &app,
+        authenticated_request(
+            &applicant,
+            "GET",
+            format!("/api/join-requests/{request_id}"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(self_status, StatusCode::OK);
+    assert_eq!(own_request["data"]["requestId"], request_id.to_string());
+    assert_eq!(own_request["data"]["status"], "PENDING");
+
+    let (other_status, other_body) = json_response(
+        &app,
+        authenticated_request(
+            &outsider,
+            "GET",
+            format!("/api/join-requests/{request_id}"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(other_status, StatusCode::NOT_FOUND);
+    assert_eq!(other_body["error"]["code"], "NOT_FOUND");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_decision_approve_is_idempotent_and_opposite_decision_conflicts() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+    let decision_uri = format!("/api/activities/{activity_id}/join-requests/{request_id}");
+
+    for _ in 0..2 {
+        let (status, decided) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "POST",
+                decision_uri.clone(),
+                r#"{"decision":"APPROVE"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(decided["data"]["status"], "APPROVED");
+        assert_eq!(decided["data"]["revision"], "4");
+    }
+
+    let state = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        "SELECT a.revision,
+         (SELECT count(*) FROM activity_members m
+          WHERE m.activity_id = a.id AND m.user_id = $2 AND m.status = 'ACTIVE'),
+         (SELECT sum(use_count) FROM activity_invites WHERE activity_id = a.id),
+         (SELECT count(*) FROM notifications
+          WHERE activity_id = a.id AND type = 'JOIN_APPROVAL_RESOLVED'),
+         (SELECT count(*) FROM activity_audit_logs
+          WHERE activity_id = a.id AND action = 'JOIN_REQUEST_APPROVED'),
+         (SELECT count(*) FROM activity_join_requests
+          WHERE activity_id = a.id AND status = 'APPROVED')
+         FROM activities a WHERE a.id = $1",
+    )
+    .bind(activity_id)
+    .bind(applicant.user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取批准副作用");
+    assert_eq!(state, (4, 1, 1, 1, 1, 1));
+
+    let (conflict_status, conflict) = json_response(
+        &app,
+        authenticated_request(&owner, "POST", decision_uri, r#"{"decision":"REJECT"}"#),
+    )
+    .await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+    assert_eq!(conflict["error"]["code"], "JOIN_REQUEST_CLOSED");
+    assert_eq!(conflict["error"]["message"], "加入申请已经处理。");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_decision_concurrent_approve_has_single_side_effect_set() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+    let uri = format!("/api/activities/{activity_id}/join-requests/{request_id}");
+    let first = authenticated_request(&owner, "POST", uri.clone(), r#"{"decision":"APPROVE"}"#);
+    let second = authenticated_request(&owner, "POST", uri, r#"{"decision":"APPROVE"}"#);
+
+    let (first_response, second_response) =
+        tokio::join!(json_response(&app, first), json_response(&app, second));
+    assert_eq!(first_response.0, StatusCode::OK);
+    assert_eq!(second_response.0, StatusCode::OK);
+    assert_eq!(first_response.1["data"]["status"], "APPROVED");
+    assert_eq!(second_response.1["data"]["status"], "APPROVED");
+
+    let state = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+        "SELECT a.revision,
+         (SELECT count(*) FROM activity_members m
+          WHERE m.activity_id = a.id AND m.user_id = $2 AND m.status = 'ACTIVE'),
+         (SELECT sum(use_count) FROM activity_invites WHERE activity_id = a.id),
+         (SELECT count(*) FROM notifications
+          WHERE activity_id = a.id AND type = 'JOIN_APPROVAL_RESOLVED'),
+         (SELECT count(*) FROM activity_audit_logs
+          WHERE activity_id = a.id AND action = 'JOIN_REQUEST_APPROVED')
+         FROM activities a WHERE a.id = $1",
+    )
+    .bind(activity_id)
+    .bind(applicant.user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取并发批准副作用");
+    assert_eq!(state, (4, 1, 1, 1, 1));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_decision_rejects_after_activity_ends_without_consuming_invitation() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应结束活动");
+
+    let (queue_status, queue) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "GET",
+            format!("/api/activities/{activity_id}/join-requests"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(queue_status, StatusCode::OK);
+    assert_eq!(queue["data"][0]["requestId"], request_id.to_string());
+
+    let (status, rejected) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "POST",
+            format!("/api/activities/{activity_id}/join-requests/{request_id}"),
+            r#"{"decision":"REJECT"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(rejected["data"]["status"], "REJECTED");
+    assert_eq!(rejected["data"]["revision"], "4");
+    let state = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+        "SELECT
+         (SELECT count(*) FROM activity_members
+          WHERE activity_id = $1 AND user_id = $2 AND status = 'ACTIVE'),
+         (SELECT sum(use_count) FROM activity_invites WHERE activity_id = $1),
+         (SELECT count(*) FROM notifications
+          WHERE activity_id = $1 AND type = 'JOIN_APPROVAL_RESOLVED'),
+         (SELECT count(*) FROM activity_audit_logs
+          WHERE activity_id = $1 AND action = 'JOIN_REQUEST_REJECTED')",
+    )
+    .bind(activity_id)
+    .bind(applicant.user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取拒绝副作用");
+    assert_eq!(state, (0, 0, 1, 1));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_decision_approve_revalidates_activity_and_invitation() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应结束活动");
+    let uri = format!("/api/activities/{activity_id}/join-requests/{request_id}");
+
+    let (ended_status, ended) = json_response(
+        &app,
+        authenticated_request(&owner, "POST", uri.clone(), r#"{"decision":"APPROVE"}"#),
+    )
+    .await;
+    assert_eq!(ended_status, StatusCode::CONFLICT);
+    assert_eq!(ended["error"]["code"], "ACTIVITY_NOT_JOINABLE");
+    sqlx::query("UPDATE activities SET status = 'ACTIVE' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应恢复活动状态用于邀请校验");
+    sqlx::query("UPDATE activity_invites SET revoked_at = now() WHERE activity_id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应撤销邀请");
+
+    let (invite_status, invite) = json_response(
+        &app,
+        authenticated_request(&owner, "POST", uri, r#"{"decision":"APPROVE"}"#),
+    )
+    .await;
+    assert_eq!(invite_status, StatusCode::CONFLICT);
+    assert_eq!(invite["error"]["code"], "INVITATION_INVALID");
+    assert_eq!(invite["error"]["message"], "邀请无效或已失效。");
+    let state = sqlx::query_as::<_, (String, i64, i64, i64)>(
+        "SELECT request.status,
+         (SELECT count(*) FROM activity_members
+          WHERE activity_id = request.activity_id AND user_id = request.applicant_user_id),
+         (SELECT sum(use_count) FROM activity_invites
+          WHERE activity_id = request.activity_id),
+         (SELECT count(*) FROM notifications
+          WHERE activity_id = request.activity_id AND type = 'JOIN_APPROVAL_RESOLVED')
+         FROM activity_join_requests request WHERE request.id = $1",
+    )
+    .bind(request_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取失败批准后的状态");
+    assert_eq!(state, ("PENDING".to_owned(), 0, 0, 0));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn join_decision_existing_active_member_keeps_request_pending() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at)
+         VALUES ($1, $2, $3, $4, 'MEMBER', now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(activity_id)
+    .bind(applicant.user_id)
+    .bind(applicant.display_name)
+    .execute(&pool)
+    .await
+    .expect("应模拟申请后已成为成员");
+
+    let (status, conflict) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "POST",
+            format!("/api/activities/{activity_id}/join-requests/{request_id}"),
+            r#"{"decision":"APPROVE"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(conflict["error"]["code"], "RESOURCE_CONFLICT");
+    let stored = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT request.status,
+         (SELECT sum(use_count) FROM activity_invites WHERE activity_id = request.activity_id),
+         (SELECT count(*) FROM notifications
+          WHERE activity_id = request.activity_id AND type = 'JOIN_APPROVAL_RESOLVED')
+         FROM activity_join_requests request WHERE request.id = $1",
+    )
+    .bind(request_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取成员冲突后的状态");
+    assert_eq!(stored, ("PENDING".to_owned(), 0, 0));
+}
+
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn join_request_replay_returns_same_pending_without_consuming_invite() {

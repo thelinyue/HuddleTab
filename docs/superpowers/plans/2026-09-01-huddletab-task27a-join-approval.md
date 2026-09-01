@@ -277,13 +277,13 @@ git commit -m "feat: create pending join requests"
 - Produces: `decide_join_request(activity_id, request_id, actor_user_id, JoinDecision)` with replay/closed semantics.
 - Adds routes: `GET /api/activities/{activity_id}/join-requests`, `POST /api/activities/{activity_id}/join-requests/{request_id}`, `GET /api/join-requests/{request_id}`.
 
-- [ ] **Step 1: Write failing authorization, decision, and concurrency tests**
+- [x] **Step 1: Write failing authorization, decision, and concurrency tests**
 
 Cover Owner list, ordinary-member forbidden list/decision, applicant self-read, other-user not found, approve, reject, repeated same decision replay, opposite decision `409 JOIN_REQUEST_CLOSED`, concurrent approve, invitation invalidation, Activity lifecycle, and pre-existing member conflict.
 
 For concurrent approve assert literal counts: one active member for the applicant, `use_count` +1, one result notification, one decision Audit, revision +1. Reject asserts no member and no invitation consumption. Failed approve asserts every count remains unchanged and Pending remains readable.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```powershell
 cargo test --manifest-path server/Cargo.toml --test collaboration_api join_decision_ -- --ignored --test-threads=1
@@ -292,7 +292,7 @@ cargo test --manifest-path server/Cargo.toml --test collaboration_api join_reque
 
 Expected: routes and repository operations do not exist.
 
-- [ ] **Step 3: Implement fixed lock order and stable errors**
+- [x] **Step 3: Implement fixed lock order and stable errors**
 
 Use JoinRequest -> Activity -> Invitation locks for decisions. Authorize the current Owner against the locked Activity. Approve revalidates lifecycle and Invitation, creates/restores the member, consumes exactly one use, closes the request, writes applicant notification, Audit, and revision. Reject may close Pending after END/ARCHIVE and does not validate invitation usability. Deleted Activity remains unavailable through the normal Activity authorization boundary.
 
@@ -304,11 +304,11 @@ ACTIVITY_NOT_JOINABLE: 当前活动不允许新成员加入。
 INVITATION_INVALID: 邀请无效或已失效。
 ```
 
-- [ ] **Step 4: Run GREEN and full collaboration regression**
+- [x] **Step 4: Run GREEN and full collaboration regression**
 
 Run the Step 2 commands, then the full `collaboration_api` ignored suite with one test thread. Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add server/src/application/collaboration.rs server/src/infrastructure/collaboration_repository.rs server/src/http/collaboration.rs server/src/http/router.rs server/tests/collaboration_api.rs

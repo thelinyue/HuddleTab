@@ -146,6 +146,19 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .fallback(api_method_not_allowed),
         )
         .route(
+            "/activities/{activity_id}/join-requests",
+            get(collaboration::list_join_requests).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/join-requests/{join_request_id}",
+            axum::routing::post(collaboration::decide_join_request)
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/join-requests/{join_request_id}",
+            get(collaboration::get_join_request).fallback(api_method_not_allowed),
+        )
+        .route(
             "/invitations/{token}",
             get(collaboration::preview_invitation).fallback(api_method_not_allowed),
         )
