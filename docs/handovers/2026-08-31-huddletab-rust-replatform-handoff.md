@@ -4,9 +4,9 @@
 
 ## 1. 当前结论
 
-迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账和结算可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。
+迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。
 
-当前状态仍不能描述为“完整迁移完成”。通知、修改密码以外的账户设置、CSV/分享，以及 Phase 2/3 能力仍未实现。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。
+当前状态仍不能描述为“完整迁移完成”。通知、修改密码以外的账户设置，以及 Phase 2/3 能力仍未实现。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、修改密码流程、定向邀请前端流程和本文档已形成同一个 Git 检查点。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、修改密码流程、定向邀请、活动管理、CSV 与结算分享流程和本文档已形成 Git 检查点。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -67,6 +67,7 @@ src/features/settlements/components/settlement-page.tsx
 | 活动管理 Overlay | `/activities/:activityId?panel=manage` |
 | 新增支出 | `/activities/:activityId/expenses/new` |
 | 支出详情 | `/activities/:activityId/expenses/:expenseId` |
+| 结算分享摘要 | `/share-summary/:activityId`；受保护的独立 Shell，不渲染全局导航 |
 
 不要恢复旧的 `/ledger`、`/members` 或 `/settlements` 活动子路由。
 
@@ -131,7 +132,7 @@ huddletab openapi
 | PWA Shell | 可用 | 不缓存 API；没有业务离线队列 |
 | 通知页 | 占位 | Phase 2 尚未实现通知域 |
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
-| CSV、结算分享 | 未实现 | 不应提前宣称 v0.0.2 全功能等价 |
+| CSV、结算分享 | 可用 | 有效 ActivityMember 可下载 CSV，并从结算页生成受保护摘要和 1600px PNG |
 | 离线 Snapshot、Expense Queue | 未实现 | 属于 Phase 2 |
 | 审批、附件、汇率 Provider | 未实现 | 属于 Phase 2 |
 | 系统管理、注册策略、管理员重置密码 | 未实现 | 属于 Phase 3 |
@@ -166,6 +167,16 @@ huddletab openapi
 
 浏览器流程还验证了 Activity 管理 Overlay 子视图焦点、删除二次确认、回收列表懒加载，以及 accounting mutation 后立即刷新服务端字段权限。`ENDED` 仅保留 Settlement 写入，`ARCHIVED` 关闭全部账务写入口；非 ACTIVE Expense 详情仍显示分类、原始/折算金额、汇率、付款事实、分摊方式和成员份额。
 
+CSV 与结算分享闭环已在真实 Chromium 中走通：
+
+```text
+未登录访问分享页 -> 跳转登录 -> 登录后活动导航仍只有“流水 / 结算”
+-> ActivityManagement 原生下载 CSV -> 结算页生成分享摘要
+-> 独立分享页预览 -> 导出 huddletab-settlement-summary.png
+```
+
+摘要和 CSV API 均在一次 `REPEATABLE READ READ ONLY` 事务中完成成员权限校验与账务装载。CSV 使用 UTF-8 BOM、固定中文表头、CRLF、全字段双引号和公式注入防护；分享图片只捕获固定 800px 的 `#share-summary-card`，`pixelRatio: 2`，最终 PNG 宽度为 1600px，不包含按钮或导航。ACTIVE、ENDED、ARCHIVED 均只读可见，软删除活动和 LEFT 成员不可访问。
+
 已检查桌面与移动端尺寸：
 
 ```text
@@ -180,19 +191,21 @@ C:\Users\林樾\.codex\visualizations\2026\08\31\01a05631-f9b2-7cf1-8bc3-d299acf
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a05834-e7c5-76e3-b28f-d9030154f213\password-e2e-output
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a05883-1c70-7162-b722-d65070b30e4b\direct-invite-implementation
 C:\Users\林樾\.codex\visualizations\2026\08\31\01a058ab-62c3-7141-be71-7df4385d4e93\activity-management-e2e
+C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555239e8\final-77247d7-browser-evidence.json
+C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555239e8\final-77247d7-huddletab-settlement-summary.png
 ```
 
 最近已知通过的检查：
 
-- Frontend Vitest：9 个测试文件、47 个测试通过；Activity/Accounting focused 测试覆盖 generated adapter、精确 query invalidation、完整创建、资料草稿与 warning、生命周期命令、回收恢复、焦点和写入口。
+- Frontend Vitest：13 个测试文件、67 个测试通过；覆盖 Activity/Accounting、sharing generated adapter、摘要状态转换、入口归属、独立受保护路由和图片导出边界。
 - Frontend TypeScript typecheck 通过。
-- Frontend production build 通过；Vite 转换 1641 modules，PWA service worker 生成成功。
-- Rust `cargo test --all-targets --all-features` 通过；数据库用例按显式条件跳过后，其余测试 0 failed。
-- WSL 可丢弃 PostgreSQL 串行集成测试：Activity 9、Accounting 6、Collaboration 3、schema 1、migration replay 1，全部通过。
+- Frontend production build 通过；Vite 转换 1655 modules，PWA service worker 生成成功。
+- Rust `cargo test --all-targets --all-features` 通过：41 passed、28 个数据库用例按显式条件 ignored、0 failed。
+- WSL 可丢弃 PostgreSQL 串行集成测试：Activity 9、Accounting 6、Collaboration 3、schema 1、migration replay 1 和 Sharing 1，全部通过。
 - Rust `cargo fmt --check` 通过。
 - Rust clippy `--all-targets --all-features -D warnings` 通过。
-- OpenAPI 已由 Rust 重新导出，generated TypeScript client 已重新生成；`view` 类型为 `"current" | "deleted"`。
-- 真实浏览器 `1440 x 1000` 与 `390 x 844` 均无横向溢出，Overlay 位于视口内，活动导航读取结果均为 `['流水', '结算']`。
+- OpenAPI 已由 Rust 重新导出，SHA256 与 `contracts/openapi.json` 一致；generated TypeScript client 重新生成后无 diff。
+- 真实浏览器 `1440 x 1000` 与 `390 x 844` 均无横向溢出，Overlay 位于视口内，活动导航读取结果均为 `['流水', '结算']`；CSV 和 1600px PNG 均由原生下载成功。
 - WSL Compose 完成生产镜像构建和启动验收。
 - `/api/health` 返回 `{"data":{"status":"ok"}}`。
 - SPA 深链返回 HTTP 200。
@@ -203,17 +216,16 @@ C:\Users\林樾\.codex\visualizations\2026\08\31\01a058ab-62c3-7141-be71-7df4385
 
 ## 8. 当前本地运行现场
 
-交接时以下服务可访问：
+交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
 
 | 服务 | 地址/名称 |
 | --- | --- |
-| Rust API | `http://127.0.0.1:5660`；使用专用浏览器验收数据库 |
-| 健康检查 | `http://127.0.0.1:5660/api/health` |
-| Vite 前端 | `http://127.0.0.1:5173`；真实请求代理到 `127.0.0.1:5660` |
+| Rust API | 未启动 |
+| Vite 前端 | 未启动 |
 | WSL PostgreSQL 容器 | `huddletab-rust-dev-postgres-6831` |
 | PostgreSQL 主机端口 | `127.0.0.1:55432` |
 
-端口和容器名属于当前开发现场，不是产品固定配置。WSL PostgreSQL 现场仍保留；标准 Compose 对外端口默认是 `5660`。浏览器验收账号只用于专用可丢弃数据库，临时密码未写入代码、文档或提交。
+端口和容器名属于当前开发现场，不是产品固定配置。该 PostgreSQL 实例是会被集成测试清表的可丢弃数据库，不能存放开发或生产数据；标准 Compose 对外端口默认是 `5660`。浏览器验收账号只用于专用可丢弃数据库，临时密码未写入代码、文档或提交。
 
 ## 9. 启动方式
 
@@ -267,7 +279,7 @@ npm --prefix frontend run api:generate
 npm --prefix frontend run typecheck
 ```
 
-不要在组件中手写重复 DTO，也不要直接调用 `fetch`。当前 API 合同覆盖 Auth、Activity、Member、Guest、Invitation、Expense、Ledger、Recommendation 和 Settlement。
+不要在组件中手写重复 DTO，也不要直接调用 `fetch`。当前 API 合同覆盖 Auth、Activity、Member、Guest、Invitation、Expense、Ledger、Recommendation、Settlement 和 Sharing Summary；CSV 由原生同源下载链接调用。
 
 Activity 管理合同：
 
@@ -279,6 +291,8 @@ Activity 管理合同：
 | `POST /api/activities/{id}/lifecycle` | END/REOPEN/ARCHIVE/UNARCHIVE |
 | `DELETE /api/activities/{id}` | 保留原生命周期的软删除 |
 | `POST /api/activities/{id}/restore` | 在 `now < purgeAfter` 时恢复 |
+| `GET /api/activities/{id}/summary` | 当前成员的实时结算摘要；`private, no-store` |
+| `GET /api/activities/{id}/export.csv` | UTF-8 BOM CSV；固定下载名 `activity-export.csv` |
 
 ## 11. 按改动范围验证
 
@@ -290,11 +304,13 @@ Activity 管理合同：
 | 活动两视图路由 | `npm --prefix frontend test -- --run src/app/router.test.tsx` |
 | 成员与邀请前端 | `npm --prefix frontend test -- --run src/features/activities/api.test.ts src/features/activities/pages.test.tsx` |
 | Activity/Accounting 生命周期 UI | `npm --prefix frontend test -- --run src/features/activities/api.test.ts src/features/activities/pages.test.tsx src/features/accounting/api.test.tsx src/features/accounting/pages-ui.test.tsx` |
+| CSV/分享前端 | `npm --prefix frontend test -- --run src/features/sharing src/features/accounting/pages-ui.test.tsx src/features/activities/pages.test.tsx src/app/router.test.tsx` |
 | 一般前端类型改动 | `npm --prefix frontend run typecheck` |
 | 前端构建/PWA 配置 | `npm --prefix frontend run build` |
 | 账务 API | `cargo test --manifest-path server/Cargo.toml --test accounting_api` |
 | 活动管理 API | `cargo test --manifest-path server/Cargo.toml --test activity_api` |
 | 成员与邀请 API | `cargo test --manifest-path server/Cargo.toml --test collaboration_api` |
+| CSV/分享 API | `cargo test --manifest-path server/Cargo.toml --test sharing_api`；数据库用例设置 `TEST_DATABASE_URL` 后运行 `cargo test --manifest-path server/Cargo.toml --test sharing_api summary_and_csv_use_one_private_authorized_snapshot -- --ignored --exact --test-threads=1` |
 | Rust 格式 | `cargo fmt --manifest-path server/Cargo.toml --check` |
 | Rust 警告边界 | `cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings` |
 | Dockerfile/Compose/runtime 改动 | 在 WSL 中重建镜像并做 health、非 root、无 Node runtime 验收 |
@@ -303,10 +319,9 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 补齐 CSV 与结算分享，完成 `v0.0.2` 明确范围内的外围功能。
-2. 完成 Phase 1 仍缺少的真实安全/并发/E2E 验收后，再进入 Phase 2。
-3. 另立后台清理任务处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复。
-4. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider。
+1. 完成 Phase 1 仍缺少的真实安全、并发和 E2E 验收后，再进入 Phase 2。
+2. 另立后台清理任务处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复。
+3. Phase 2 再实现 Snapshot、IndexedDB、离线 Expense Queue、审批、通知、附件和汇率 Provider。
 
 每完成一项，只运行对应测试和一个真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
 
