@@ -124,8 +124,8 @@ try {
   $temporaryData = (Invoke-Wsl -ArgumentList @("mktemp", "-d", "/tmp/huddletab-phase1e-XXXXXXXX") -Quiet).Output.Trim()
   $temporaryData = (Invoke-Wsl -ArgumentList @("readlink", "-f", "--", $temporaryData) -Quiet).Output.Trim()
   Assert-TemporaryPath $temporaryData
-  # bind mount 不会继承镜像内 /data 的所有权，启动前只放开本次临时子目录供两个非 root 容器初始化。
-  Invoke-Wsl -ArgumentList @("install", "-d", "-m", "0777", "--", "$temporaryData/app", "$temporaryData/postgres") -Quiet | Out-Null
+  # 先模拟新宿主创建的普通目录；app 挂载点随后必须通过正式准备流程收紧，而不是依赖 0777。
+  Invoke-Wsl -ArgumentList @("install", "-d", "-m", "0755", "--", "$temporaryData/app", "$temporaryData/postgres") -Quiet | Out-Null
 
   $appPort = Get-AvailablePort
   $baseUrl = "http://127.0.0.1:$appPort"
@@ -139,9 +139,12 @@ try {
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
-  Write-Host "[2/9] 构建并启动独立生产 Compose（project=$composeProject, port=$appPort）"
+  Write-Host "[2/9] 构建镜像、准备数据目录并启动独立生产 Compose（project=$composeProject, port=$appPort）"
   $composeAttempted = $true
-  Invoke-Compose "up -d --build --wait" | Out-Null
+  Invoke-Compose "build app" | Out-Null
+  $prepareDataScriptWsl = ConvertTo-WslPath (Join-Path $repoDir "scripts/prepare-data-dir.sh")
+  Invoke-Wsl -ArgumentList @("sh", $prepareDataScriptWsl, "-p", $composeProject, "-f", $script:composeFileWsl) -Quiet | Out-Null
+  Invoke-Compose "up -d --wait" | Out-Null
   Wait-Health $baseUrl
 
   Write-Host "[3/9] 验证 fresh migration 并通过 stdin bootstrap"

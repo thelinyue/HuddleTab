@@ -27,6 +27,11 @@ impl AccountingRepository for PostgresAccountingRepository {
         actor_user_id: Uuid,
     ) -> Result<StoredLedgerFacts, AccountingRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        // revision、成员和账务事实必须来自同一快照，否则并发写会让响应携带错误版本。
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
         let activity = sqlx::query_as::<_, (String, i64)>(
             "SELECT a.base_currency, a.revision FROM activities a \
              WHERE a.id = $1 AND EXISTS(SELECT 1 FROM activity_members m \

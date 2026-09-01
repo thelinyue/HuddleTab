@@ -52,13 +52,16 @@ services:
       retries: 20
 ```
 
-启动服务：
+首次部署或重新创建 `./data/app` 后，先拉取镜像并准备应用数据目录，再启动服务：
 
 ```bash
 docker compose pull
+docker compose run --rm --no-deps --user 0:0 --entrypoint sh app -c 'set -eu; chown 10001:10001 /data; chmod 0750 /data; test "$(stat -c "%u:%g:%a" /data)" = "10001:10001:750"'
 docker compose up -d
 docker compose ps
 ```
+
+准备命令只在一次性容器中以 root 调整 `/data` 挂载点本身，不会递归改写已有文件；正式 `app` 服务仍以非 root UID/GID `10001:10001` 运行。bind mount 会隐藏镜像内 `/data` 的属主，新 Linux 主机若跳过这一步，应用将无法创建认证密钥。已有目录正常升级时无需重复准备；从备份恢复时应保留文件属主，并在挂载点属主变化后重新执行。
 
 打开 <http://localhost:5660>，按照首次初始化页面创建首位系统管理员。初始化失败或迁移失败时，查看日志：
 
@@ -99,5 +102,7 @@ docker compose ps
 源码开发和本地构建仍使用仓库中的 `compose.yaml`：
 
 ```bash
-docker compose up -d --build
+docker compose build app
+sh ./scripts/prepare-data-dir.sh
+docker compose up -d
 ```

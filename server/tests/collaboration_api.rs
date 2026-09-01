@@ -235,6 +235,7 @@ async fn register_invited_actor(
         .filter_map(|value| value.to_str().ok())
         .find(|value| value.starts_with("huddletab_session="))
         .expect("注册成功应设置 Session cookie");
+    assert!(session_cookie.contains("Max-Age=7776000"));
     let raw_session = session_cookie
         .split(';')
         .next()

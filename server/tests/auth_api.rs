@@ -112,13 +112,44 @@ async fn csrf_endpoint_sets_a_bound_pre_auth_cookie() {
 }
 
 #[tokio::test]
-async fn csrf_endpoint_binds_to_an_existing_session_cookie() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
-        .expect("测试应创建 lazy pool");
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn csrf_endpoint_binds_to_a_valid_database_session_cookie() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let database_url = std::env::var(TEST_DATABASE_URL_ENV).expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试用户");
+    let user_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) \
+         VALUES ($1, 'alice', 'unused', 'Alice', $2, $2)",
+    )
+    .bind(user_id)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .expect("应插入测试用户");
     let secret = AppSecret::from_bytes([7; 32]);
     let token = SessionToken::generate();
     let token_hash = token.sha256_hash();
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, token_hash, created_at, last_seen_at, \
+         idle_expires_at, absolute_expires_at) VALUES ($1, $2, $3, $4, $4, $5, $6)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(token_hash.as_slice())
+    .bind(now)
+    .bind(now + Duration::days(30))
+    .bind(now + Duration::days(90))
+    .execute(&pool)
+    .await
+    .expect("应插入测试 Session");
     let app = router_with_state(
         None,
         AppState::new(pool, secret.clone(), "http://localhost:5660".to_owned()),
@@ -153,6 +184,132 @@ async fn csrf_endpoint_binds_to_an_existing_session_cookie() {
     let csrf = CsrfToken::parse(json["data"]["token"].as_str().expect("应返回 CSRF token"))
         .expect("应返回规范 CSRF token");
     assert!(csrf.verify(&secret, CsrfContext::Session(&token_hash)));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 单一浏览器式流程必须连续验证旧 Cookie 失效、pre-auth 绑定和新 Session 签发，拆分会丢失真实回归链路。
+#[allow(clippy::too_many_lines)]
+async fn revoked_session_cookie_can_establish_pre_auth_and_log_in_again() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let database_url = std::env::var(TEST_DATABASE_URL_ENV).expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试用户");
+    let created = bootstrap_first_user(
+        &pool,
+        &Argon2PasswordHasher,
+        &SystemClock,
+        BootstrapUserInput {
+            username: "alice".to_owned(),
+            password: "correct horse battery staple".to_owned(),
+        },
+    )
+    .await
+    .expect("应创建登录用户");
+    let revoked_session = SessionToken::generate();
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, token_hash, created_at, last_seen_at, \
+         idle_expires_at, absolute_expires_at, revoked_at) \
+         VALUES ($1, $2, $3, $4, $4, $5, $6, $4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(created.id)
+    .bind(revoked_session.sha256_hash().as_slice())
+    .bind(now)
+    .bind(now + Duration::days(30))
+    .bind(now + Duration::days(90))
+    .execute(&pool)
+    .await
+    .expect("应插入已撤销 Session");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool,
+            AppSecret::from_bytes([7; 32]),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+
+    let csrf_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/auth/csrf")
+                .header(
+                    COOKIE,
+                    format!("huddletab_session={}", revoked_session.expose_for_cookie()),
+                )
+                .body(Body::empty())
+                .expect("请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+
+    assert_eq!(csrf_response.status(), StatusCode::OK);
+    let set_cookies = csrf_response
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|value| value.to_str().expect("Cookie 应为 ASCII"))
+        .collect::<Vec<_>>();
+    let expired_session = set_cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("huddletab_session="))
+        .expect("失效 Session Cookie 应被过期");
+    assert!(expired_session.contains("Max-Age=0"));
+    let pre_auth_cookie = set_cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("huddletab_pre_auth="))
+        .expect("应签发 pre-auth Cookie")
+        .split(';')
+        .next()
+        .expect("应包含 Cookie pair")
+        .to_owned();
+    let csrf_body = csrf_response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取 CSRF 响应")
+        .to_bytes();
+    let csrf_json: Value = serde_json::from_slice(&csrf_body).expect("CSRF 响应应为 JSON");
+    let csrf_token = csrf_json["data"]["token"]
+        .as_str()
+        .expect("应返回 pre-auth CSRF token");
+
+    let login_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/login")
+                .header(CONTENT_TYPE, "application/json")
+                .header(COOKIE, pre_auth_cookie)
+                .header(ORIGIN, "http://localhost:5660")
+                .header("sec-fetch-site", "same-origin")
+                .header("x-csrf-token", csrf_token)
+                .body(Body::from(
+                    r#"{"username":"alice","password":"correct horse battery staple"}"#,
+                ))
+                .expect("请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+
+    assert_eq!(login_response.status(), StatusCode::OK);
+    assert!(
+        login_response
+            .headers()
+            .get_all(SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .any(|cookie| cookie.starts_with("huddletab_session=")),
+        "重新登录应签发新的 Session Cookie",
+    );
 }
 
 #[tokio::test]
@@ -246,6 +403,7 @@ async fn login_creates_a_hashed_database_session_and_cookie() {
         .expect("登录应设置 Session Cookie");
     assert!(session_cookie.contains("HttpOnly"));
     assert!(session_cookie.contains("SameSite=Lax"));
+    assert!(session_cookie.contains("Max-Age=7776000"));
     let encoded_token = session_cookie
         .split(';')
         .next()
@@ -492,6 +650,7 @@ async fn password_change_rotates_current_and_revokes_other_sessions() {
         .filter_map(|value| value.to_str().ok())
         .find(|value| value.starts_with("huddletab_session="))
         .expect("改密应轮换 Session Cookie");
+    assert!(cookie.contains("Max-Age=7776000"));
     let rotated = SessionToken::parse(
         cookie
             .split(';')

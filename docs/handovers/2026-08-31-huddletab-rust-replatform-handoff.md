@@ -201,30 +201,28 @@ C:\Users\林樾\.codex\visualizations\2026\09\01\01a05aaa-8d7f-75b3-9ced-1653555
 以下命令均在 `D:\code\HuddleTab\.worktrees\rust-replatform` 新鲜运行。标记为数据库测试的命令通过进程环境注入 `TEST_DATABASE_URL`，连接指定的 WSL 可丢弃 PostgreSQL；连接值未写入本文档。
 
 ```powershell
-cargo test --manifest-path server/Cargo.toml --lib http::rate_limit::tests
-cargo test --manifest-path server/Cargo.toml --test rate_limit_routes -- --ignored --test-threads=1
-cargo test --manifest-path server/Cargo.toml --test accounting_api concurrent_ -- --ignored --test-threads=1
-cargo test --manifest-path server/Cargo.toml --test auth_api --test collaboration_api --test csrf_security --test session_security --test http_shell --test openapi -- --include-ignored --test-threads=1
+cargo test --manifest-path server/Cargo.toml --all-targets --all-features
+cargo test --manifest-path server/Cargo.toml --all-targets --all-features -- --ignored --test-threads=1
 cargo run --manifest-path server/Cargo.toml -- openapi --output contracts/openapi.json
 npm --prefix frontend run api:generate
 git diff --exit-code -- contracts/openapi.json frontend/src/api/generated/openapi.ts
-npm --prefix frontend run test:unit
+npm --prefix frontend test -- --run
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
-cargo fmt --manifest-path server/Cargo.toml -- --check
+cargo fmt --manifest-path server/Cargo.toml --check
 cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
-cargo test --manifest-path server/Cargo.toml --all-targets --all-features
+& ./frontend/e2e/support/run-phase1e-safety.test.ps1
+wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && sh frontend/e2e/support/data-directory-permissions.test.sh"
 & ./frontend/e2e/run-phase1e.ps1
 ```
 
 精确结果：
 
-- limiter 单元测试 6 passed、0 ignored、0 failed，覆盖 fixed-window、首次请求起算的窗口重置、共享类别、并发原子计数、周期清理、4096 桶容量回收与显式可信代理 IP 解析。
-- WSL 真实 PostgreSQL 限流 API 4 passed、0 failed；Expense/Settlement 幂等创建与相同 version 并发更新 4 passed、0 failed，均以 `--test-threads=1` 运行。
-- 回归目标共 26 passed、0 failed：Auth 8、Collaboration 4、CSRF 3、Session 3、HTTP Shell 4、OpenAPI 4；HTTP Shell 包含 JSON 404/405。
-- Rust 非数据库全量为 53 passed、36 个显式 PostgreSQL 用例 ignored、0 failed；fmt 与 clippy 均通过。
-- Frontend Vitest 为 13 个文件、67 passed、0 failed；typecheck 通过；production build 转换 1655 modules，并生成 PWA service worker。
+- Rust 非数据库全量为 55 passed、39 个显式 PostgreSQL 用例 ignored、0 failed；fmt 与 clippy 均通过。
+- WSL 真实 PostgreSQL 全量为 39 passed、0 failed，均以 `--test-threads=1` 运行；其中 Auth 6、Accounting 11、Activity 9、Bootstrap 3、Collaboration 3、Rate limit 4、Migration 1、Schema 1、Sharing 1。
+- Frontend Vitest 为 14 个文件、69 passed、0 failed；生成后 typecheck 通过；production build 转换 1655 modules，并生成 PWA service worker。
 - Rust OpenAPI 与 TypeScript client 重新生成后 `git diff --exit-code` 为 0，没有需要提交的生成变化。
+- runner 安全专项测试通过；真实目录权限测试证明 root:root `0755` 下 UID 10001 不可写，准备后挂载点为 `10001:10001`、`0750` 且可写。
 
 浏览器矩阵由单 worker、零重试运行：
 
@@ -236,7 +234,7 @@ cargo test --manifest-path server/Cargo.toml --all-targets --all-features
 
 单一入口 `frontend/e2e/run-phase1e.ps1` exit code 为 0，并提供以下生产发布证据：
 
-- 从当前源码 fresh build Rust release binary、Vite 静态产物和独立 WSL Compose 镜像；空 PostgreSQL 完成 fresh migration，首位用户只经 stdin bootstrap。
+- 从当前源码 fresh build Rust release binary、Vite 静态产物和独立 WSL Compose 镜像；runner 从 `0755` host 目录调用正式准备脚本，不再依赖 `0777`；空 PostgreSQL 完成 fresh migration，首位用户只经 stdin bootstrap。
 - `/activities/deep-link-release-check` 返回包含 React root 的 HTTP 200；运行容器 UID 为非 root `10001`。
 - 运行镜像找不到 `node`、`npm`、`npx`、`next`，`/app` 与 `/usr/local` 无 `node_modules`、Next、Drizzle ORM 或 Better Auth runtime 目录。
 - app 单独重启后、PostgreSQL 与 app 一起重启后，浏览器创建的测试活动均仍可读取。
@@ -245,7 +243,7 @@ cargo test --manifest-path server/Cargo.toml --all-targets --all-features
 - artifact 脱敏处理成功，敏感扫描 0 命中；`frontend/artifacts/` 被 Git ignore 且无文件被 tracking。
 - finally 已关闭独立 Compose、删除限定前缀临时数据目录；复查无 `/tmp/huddletab-phase1e-*`、同前缀 Compose project、容器或网络残留。
 
-验证期间新增 limiter 并发计数用例。首次编译因错误地在 `filter` 中消费 `JoinHandle` 失败；修正所有权后，clippy 又分别指出 `iter_filter_is_ok` 与 `map_flatten`，最终改为等价的 `flat_map` 并重跑 limiter、clippy 和 Rust 全量通过。完整命令、exit code 与失败证据记录在 `.superpowers/sdd/2026-09-01-huddletab-phase1e/task-5-report.md`。
+本轮五项最终 review 修复的 RED/GREEN 与完整命令证据记录在 ignored `.superpowers/sdd/2026-09-01-huddletab-phase1e/final-fix-report.md`，该文件不纳入 Git tracking。
 
 ## 8. 当前本地运行现场
 
@@ -267,8 +265,10 @@ cargo test --manifest-path server/Cargo.toml --all-targets --all-features
 从 PowerShell 启动标准双服务环境：
 
 ```powershell
-wsl.exe bash -lc 'cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && docker compose up -d --build'
+wsl.exe bash -lc 'cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && docker compose build app && sh ./scripts/prepare-data-dir.sh && docker compose up -d'
 ```
+
+`prepare-data-dir.sh` 只以一次性 root 容器把 app 挂载点设置为 `10001:10001`、`0750`；正式 app 容器仍以 UID/GID `10001:10001` 运行。首次部署、新建挂载目录或迁移到新宿主时不可跳过；普通升级且目录属主未变化时无需重复执行。
 
 首次空数据库需要交互式创建首位用户：
 

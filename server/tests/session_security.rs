@@ -40,6 +40,27 @@ fn session_expires_at_idle_or_absolute_boundary() {
 }
 
 #[test]
+fn refreshed_session_remains_active_after_day_30_but_not_at_day_90() {
+    let created = OffsetDateTime::UNIX_EPOCH;
+    let refreshed = created + Duration::days(60);
+
+    assert_eq!(
+        evaluate_session(
+            created,
+            refreshed,
+            created + Duration::days(89) + Duration::hours(23)
+        ),
+        SessionState::Active {
+            refresh_last_seen: true
+        }
+    );
+    assert_eq!(
+        evaluate_session(created, refreshed, created + Duration::days(90)),
+        SessionState::Expired
+    );
+}
+
+#[test]
 fn last_seen_refresh_is_throttled_to_once_per_24_hours() {
     let created = OffsetDateTime::UNIX_EPOCH;
     let last_seen = created + Duration::days(2);

@@ -25,9 +25,11 @@ use uuid::Uuid;
 // 账务集成测试会清空同一可丢弃数据库；锁住整个场景，保证测试自身的并发只发生在 HTTP 请求处。
 static DATABASE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
+#[derive(Clone)]
 struct AccountingContext {
     pool: PgPool,
     app: axum::Router,
+    user_id: Uuid,
     activity_id: Uuid,
     owner_member_id: Uuid,
     guest_member_id: Uuid,
@@ -109,11 +111,35 @@ async fn seed_context() -> AccountingContext {
     AccountingContext {
         pool,
         app,
+        user_id,
         activity_id,
         owner_member_id,
         guest_member_id,
         session,
         csrf,
+    }
+}
+
+async fn wait_until_ledger_blocks_on_payments(pool: &PgPool) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let is_blocked = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity \
+             WHERE datname = current_database() AND state = 'active' \
+             AND wait_event_type = 'Lock' \
+             AND query LIKE 'SELECT p.payer_member_id, p.base_amount_minor FROM expense_payments p%')",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("应读取 Ledger 查询等待状态");
+        if is_blocked {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "Ledger 应在读取付款事实时等待表锁"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 }
 
@@ -702,6 +728,76 @@ async fn archived_activity_keeps_expense_list_and_detail_readable() {
         let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
         assert_eq!(status, StatusCode::OK);
     }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn ledger_reads_revision_and_facts_from_one_snapshot() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let mut blocker = context.pool.begin().await.expect("应开启阻塞事务");
+    sqlx::query("LOCK TABLE expense_payments IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .expect("应锁住付款事实表");
+
+    let ledger_context = context.clone();
+    let ledger_request = request(
+        &context,
+        "GET",
+        format!("/api/activities/{}/ledger", context.activity_id),
+        json!(null),
+    );
+    let ledger_task = tokio::spawn(async move { response(&ledger_context, ledger_request).await });
+    wait_until_ledger_blocks_on_payments(&context.pool).await;
+
+    // 写事务在 Ledger 已读取 revision 后提交；一致快照必须继续忽略这笔新结算。
+    let now = OffsetDateTime::now_utc();
+    let mut writer = context.pool.begin().await.expect("应开启并发写事务");
+    sqlx::query("UPDATE activities SET revision = revision + 1, updated_at = $2 WHERE id = $1")
+        .bind(context.activity_id)
+        .bind(now)
+        .execute(&mut *writer)
+        .await
+        .expect("应更新活动 revision");
+    sqlx::query(
+        "INSERT INTO settlements (id, activity_id, created_by_user_id, client_mutation_id, \
+         payer_member_id, receiver_member_id, currency, amount_minor, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, 'CNY', 1, $7, $7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(context.activity_id)
+    .bind(context.user_id)
+    .bind(Uuid::new_v4())
+    .bind(context.owner_member_id)
+    .bind(context.guest_member_id)
+    .bind(now)
+    .execute(&mut *writer)
+    .await
+    .expect("应写入并发结算事实");
+    writer.commit().await.expect("应提交并发写事务");
+    blocker.commit().await.expect("应释放付款事实表锁");
+
+    let (status, ledger) = ledger_task.await.expect("Ledger 请求任务应完成");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ledger["data"]["revision"], "1");
+    assert!(
+        ledger["data"]["balances"]
+            .as_array()
+            .expect("余额应为数组")
+            .iter()
+            .all(|balance| balance["netMinor"] == "0"),
+        "旧 revision 的快照不应混入新结算"
+    );
+    let persisted = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT revision, (SELECT count(*) FROM settlements WHERE activity_id = $1) \
+         FROM activities WHERE id = $1",
+    )
+    .bind(context.activity_id)
+    .fetch_one(&context.pool)
+    .await
+    .expect("应确认并发写已提交");
+    assert_eq!(persisted, (2, 1));
 }
 
 #[tokio::test]

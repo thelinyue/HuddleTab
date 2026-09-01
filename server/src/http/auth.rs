@@ -33,6 +33,8 @@ use super::{
 
 const PRE_AUTH_COOKIE: &str = "huddletab_pre_auth";
 const SESSION_COOKIE: &str = "huddletab_session";
+// 浏览器 Cookie 与服务端 absolute deadline 同为 90 天；idle 过期仍由每次 Session 校验独立执行。
+const SESSION_COOKIE_MAX_AGE: Duration = Duration::days(90);
 
 #[derive(Serialize, ToSchema)]
 pub struct CsrfEnvelope {
@@ -137,22 +139,43 @@ pub struct ChangePasswordData {
 )]
 pub(crate) async fn csrf(
     State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
     jar: CookieJar,
-) -> (CookieJar, Json<CsrfEnvelope>) {
-    if let Some(session) = jar
-        .get(SESSION_COOKIE)
-        .and_then(|cookie| SessionToken::parse(cookie.value()).ok())
-    {
-        let session_hash = session.sha256_hash();
-        let token = CsrfToken::mint(&state.app_secret, CsrfContext::Session(&session_hash));
-        return (
-            jar,
-            Json(CsrfEnvelope {
-                data: CsrfData {
-                    token: token.expose_for_header().to_owned(),
-                },
-            }),
-        );
+) -> Result<(CookieJar, Json<CsrfEnvelope>), ApiError> {
+    let mut jar = jar;
+    if let Some(session_cookie) = jar.get(SESSION_COOKIE) {
+        if let Ok(session) = SessionToken::parse(session_cookie.value()) {
+            let repository = PostgresAuthRepository::new(state.pool.clone());
+            match current_session(&repository, &SystemClock, &session).await {
+                Ok(_) => {
+                    let session_hash = session.sha256_hash();
+                    let token =
+                        CsrfToken::mint(&state.app_secret, CsrfContext::Session(&session_hash));
+                    return Ok((
+                        jar,
+                        Json(CsrfEnvelope {
+                            data: CsrfData {
+                                token: token.expose_for_header().to_owned(),
+                            },
+                        }),
+                    ));
+                }
+                Err(CurrentSessionError::Unauthenticated) => {}
+                Err(CurrentSessionError::Unavailable) => {
+                    return Err(ApiError::internal(request_id));
+                }
+            }
+        }
+
+        // 语法错误、已撤销或已过期的 Cookie 都必须先失效，否则浏览器会继续请求 Session-bound CSRF。
+        let expired_session = Cookie::build((SESSION_COOKIE, ""))
+            .path("/")
+            .http_only(true)
+            .same_site(SameSite::Lax)
+            .secure(state.secure_cookies)
+            .max_age(Duration::ZERO)
+            .build();
+        jar = jar.add(expired_session);
     }
 
     let context = SessionToken::generate();
@@ -167,14 +190,14 @@ pub(crate) async fn csrf(
         .secure(state.secure_cookies)
         .max_age(Duration::minutes(10))
         .build();
-    (
+    Ok((
         jar.add(cookie),
         Json(CsrfEnvelope {
             data: CsrfData {
                 token: token.expose_for_header().to_owned(),
             },
         }),
-    )
+    ))
 }
 
 #[utoipa::path(
@@ -225,7 +248,7 @@ pub(crate) async fn login(
     .http_only(true)
     .same_site(SameSite::Lax)
     .secure(state.secure_cookies)
-    .max_age(Duration::days(30))
+    .max_age(SESSION_COOKIE_MAX_AGE)
     .build();
     let expired_pre_auth = Cookie::build((PRE_AUTH_COOKIE, ""))
         .path("/")
@@ -301,7 +324,7 @@ pub(crate) async fn register(
     .http_only(true)
     .same_site(SameSite::Lax)
     .secure(state.secure_cookies)
-    .max_age(Duration::days(30))
+    .max_age(SESSION_COOKIE_MAX_AGE)
     .build();
     let expired_pre_auth = Cookie::build((PRE_AUTH_COOKIE, ""))
         .path("/")
@@ -451,7 +474,7 @@ pub(crate) async fn change_password(
     .http_only(true)
     .same_site(SameSite::Lax)
     .secure(state.secure_cookies)
-    .max_age(Duration::days(30))
+    .max_age(SESSION_COOKIE_MAX_AGE)
     .build();
     Ok((
         jar.add(session_cookie),
