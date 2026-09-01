@@ -24,7 +24,7 @@ use huddletab_server::{
         session::SessionToken,
     },
 };
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sqlx::PgPool;
 use std::net::SocketAddr;
 use time::{Duration, OffsetDateTime};
@@ -181,6 +181,20 @@ async fn pre_auth_context(app: &Router) -> AuthContext {
 
 async fn assert_rate_limited(response: axum::response::Response) {
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .expect("429 应包含 Content-Type")
+        .to_str()
+        .expect("Content-Type 应为 ASCII");
+    assert!(content_type.starts_with("application/json"));
+    let response_request_id = response
+        .headers()
+        .get("x-request-id")
+        .expect("429 应包含 X-Request-Id")
+        .to_str()
+        .expect("X-Request-Id 应为 ASCII")
+        .to_owned();
     let retry_after = response
         .headers()
         .get("retry-after")
@@ -193,6 +207,13 @@ async fn assert_rate_limited(response: axum::response::Response) {
     let json = response_json(response).await;
     assert_eq!(json["error"]["code"], "RATE_LIMITED");
     assert_eq!(json["error"]["message"], "请求过于频繁，请稍后再试。");
+    assert_eq!(json["error"]["fieldErrors"], Value::Object(Map::default()));
+    assert_eq!(json["error"]["details"], Value::Object(Map::default()));
+    let body_request_id = json["error"]["requestId"]
+        .as_str()
+        .expect("429 body 应包含 requestId");
+    assert!(!body_request_id.is_empty());
+    assert_eq!(response_request_id, body_request_id);
 }
 
 async fn create_link_invitation(
@@ -212,6 +233,68 @@ async fn create_link_invitation(
         .expect("router 应响应");
     assert_eq!(response.status(), StatusCode::CREATED);
     response_json(response).await
+}
+
+async fn create_activity(app: &Router, context: &AuthContext, name: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(mutation_request(
+            "POST",
+            "/api/activities",
+            Body::from(format!(
+                r#"{{"name":"{name}","baseCurrency":"CNY","startDate":"2026-09-01"}}"#
+            )),
+            context,
+        ))
+        .await
+        .expect("router 应响应");
+    assert_eq!(response.status(), StatusCode::CREATED);
+    response_json(response).await
+}
+
+async fn assert_repeated_mutation_status(
+    app: &Router,
+    context: &AuthContext,
+    method: &str,
+    uri: &str,
+    body: &str,
+    expected_status: StatusCode,
+) {
+    for _ in 0..11 {
+        let response = app
+            .clone()
+            .oneshot(mutation_request(
+                method,
+                uri,
+                Body::from(body.to_owned()),
+                context,
+            ))
+            .await
+            .expect("router 应响应");
+        assert_eq!(response.status(), expected_status);
+    }
+}
+
+async fn assert_repeated_read_status(
+    app: &Router,
+    context: &AuthContext,
+    uri: &str,
+    expected_status: StatusCode,
+) {
+    for _ in 0..11 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header(COOKIE, &context.cookie)
+                    .body(Body::empty())
+                    .expect("请求应可构造"),
+            )
+            .await
+            .expect("router 应响应");
+        assert_eq!(response.status(), expected_status);
+    }
 }
 
 #[tokio::test]
@@ -288,12 +371,13 @@ async fn anonymous_preview_and_join_share_limit_before_authentication() {
     for _ in 0..29 {
         let response = app
             .clone()
-            .oneshot(
+            .oneshot(with_peer_ip(
                 Request::builder()
                     .uri("/api/invitations/invalid-token")
                     .body(Body::empty())
                     .expect("请求应可构造"),
-            )
+                "198.51.100.20:1024",
+            ))
             .await
             .expect("router 应响应");
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -301,7 +385,7 @@ async fn anonymous_preview_and_join_share_limit_before_authentication() {
 
     let join_response = app
         .clone()
-        .oneshot(
+        .oneshot(with_peer_ip(
             Request::builder()
                 .method("POST")
                 .uri("/api/invitations/invalid-token/join")
@@ -309,21 +393,36 @@ async fn anonymous_preview_and_join_share_limit_before_authentication() {
                 .header("sec-fetch-site", "same-origin")
                 .body(Body::empty())
                 .expect("请求应可构造"),
-        )
+            "198.51.100.20:1024",
+        ))
         .await
         .expect("router 应响应");
     assert_eq!(join_response.status(), StatusCode::UNAUTHORIZED);
 
     let response = app
-        .oneshot(
+        .clone()
+        .oneshot(with_peer_ip(
             Request::builder()
                 .uri("/api/invitations/invalid-token")
                 .body(Body::empty())
                 .expect("请求应可构造"),
-        )
+            "198.51.100.20:1024",
+        ))
         .await
         .expect("router 应响应");
     assert_rate_limited(response).await;
+
+    let response = app
+        .oneshot(with_peer_ip(
+            Request::builder()
+                .uri("/api/invitations/invalid-token")
+                .body(Body::empty())
+                .expect("请求应可构造"),
+            "198.51.100.21:1024",
+        ))
+        .await
+        .expect("router 应响应");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -451,42 +550,88 @@ async fn ordinary_business_summary_and_csv_routes_remain_unlimited() {
     let context = session_context(&pool, &secret, user_id).await;
     let app = app(pool, secret);
 
-    let activity_response = app
+    let activity_json = create_activity(&app, &context, "Unlimited routes").await;
+    let activity_id = activity_json["data"]["activityId"]
+        .as_str()
+        .expect("应返回活动 ID");
+    let owner_member_id = activity_json["data"]["ownerMemberId"]
+        .as_str()
+        .expect("应返回 Owner 成员 ID");
+    let activity_uri = format!("/api/activities/{activity_id}");
+    let members_uri = format!("{activity_uri}/members");
+    let guests_uri = format!("{members_uri}/guests");
+    let expenses_uri = format!("{activity_uri}/expenses");
+    let settlements_uri = format!("{activity_uri}/settlements");
+
+    assert_repeated_mutation_status(
+        &app,
+        &context,
+        "POST",
+        "/api/activities",
+        r#"{"name":"Unlimited activity","baseCurrency":"CNY","startDate":"2026-09-01"}"#,
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_repeated_read_status(&app, &context, "/api/activities", StatusCode::OK).await;
+
+    let guest_response = app
         .clone()
         .oneshot(mutation_request(
             "POST",
-            "/api/activities",
-            Body::from(
-                r#"{"name":"Unlimited routes","baseCurrency":"CNY","startDate":"2026-09-01"}"#,
-            ),
+            &guests_uri,
+            Body::from(r#"{"displayName":"Settlement member"}"#),
             &context,
         ))
         .await
         .expect("router 应响应");
-    assert_eq!(activity_response.status(), StatusCode::CREATED);
-    let activity_json = response_json(activity_response).await;
-    let activity_id = activity_json["data"]["activityId"]
+    assert_eq!(guest_response.status(), StatusCode::CREATED);
+    let guest_json = response_json(guest_response).await;
+    let guest_member_id = guest_json["data"]["memberId"]
         .as_str()
-        .expect("应返回活动 ID");
+        .expect("应返回 Guest 成员 ID");
+    assert_repeated_mutation_status(
+        &app,
+        &context,
+        "POST",
+        &guests_uri,
+        r#"{"displayName":"Unlimited guest"}"#,
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_repeated_read_status(&app, &context, &members_uri, StatusCode::OK).await;
+
+    let invalid_expense = format!(
+        r#"{{"clientMutationId":"00000000-0000-0000-0000-000000000001","title":"Unlimited expense","category":"OTHER","occurredAt":"not-a-timestamp","originalCurrency":"CNY","originalAmountMinor":"1","exchangeRateKind":"IDENTITY","exchangeRate":"1","payments":[],"split":{{"mode":"EQUAL","members":["{owner_member_id}"]}}}}"#
+    );
+    assert_repeated_mutation_status(
+        &app,
+        &context,
+        "POST",
+        &expenses_uri,
+        &invalid_expense,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    )
+    .await;
+    assert_repeated_read_status(&app, &context, &expenses_uri, StatusCode::OK).await;
+
+    let invalid_settlement = format!(
+        r#"{{"clientMutationId":"00000000-0000-0000-0000-000000000002","payerMemberId":"{owner_member_id}","receiverMemberId":"{guest_member_id}","currency":"CNY","amountMinor":"0"}}"#
+    );
+    assert_repeated_mutation_status(
+        &app,
+        &context,
+        "POST",
+        &settlements_uri,
+        &invalid_settlement,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    )
+    .await;
+    assert_repeated_read_status(&app, &context, &settlements_uri, StatusCode::OK).await;
 
     for uri in [
-        "/api/activities".to_owned(),
         format!("/api/activities/{activity_id}/summary"),
         format!("/api/activities/{activity_id}/export.csv"),
     ] {
-        for _ in 0..11 {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(&uri)
-                        .header(COOKIE, &context.cookie)
-                        .body(Body::empty())
-                        .expect("请求应可构造"),
-                )
-                .await
-                .expect("router 应响应");
-            assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        }
+        assert_repeated_read_status(&app, &context, &uri, StatusCode::OK).await;
     }
 }
