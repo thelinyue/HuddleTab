@@ -50,7 +50,7 @@ JoinRequest 不进入 Activity Snapshot。它有独立授权查询边界，避�
 
 ## 4. 加入流程
 
-`POST /api/invitations/join` 保留现有入口并扩展结果：
+`POST /api/invitations/{token}/join` 保留现有入口并扩展结果：
 
 - `DIRECT_JOIN` 返回现有 `JOINED` 或 `ALREADY_MEMBER`；
 - `REQUIRE_APPROVAL` 首次提交返回 `PENDING_APPROVAL`、`activityId`、`requestId`；
@@ -91,7 +91,7 @@ approve 遇到活动或邀请失效时返回明确 `409`，Pending 保持不变�
 本切片新增或扩展以下合同：
 
 - `PUT /api/activities/{activity_id}`：请求与响应增加 `inviteMode`；
-- `POST /api/invitations/join`：增加 `PENDING_APPROVAL` 结果；
+- `POST /api/invitations/{token}/join`：增加 `PENDING_APPROVAL` 结果；
 - `GET /api/activities/{activity_id}/join-requests`：Owner 读取 Pending 列表；
 - `POST /api/activities/{activity_id}/join-requests/{request_id}`：Owner 提交 `APPROVE | REJECT`；
 - `GET /api/join-requests/{request_id}`：申请人读取自己的状态；
