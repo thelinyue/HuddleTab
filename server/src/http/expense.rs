@@ -418,7 +418,7 @@ fn split(
     }
 }
 
-fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateData {
+pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateData {
     ExpenseAggregateData {
         expense: ExpenseData {
             expense_id: aggregate.expense.id.to_string(),

@@ -244,6 +244,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getActivitySnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/summary": {
         parameters: {
             query?: never;
@@ -459,6 +475,18 @@ export interface components {
         };
         ActivityMemberListEnvelope: {
             data: components["schemas"]["ActivityMemberData"][];
+        };
+        ActivitySnapshotData: {
+            activity: components["schemas"]["ActivityData"];
+            expenses: components["schemas"]["ExpenseAggregateData"][];
+            ledger: components["schemas"]["LedgerData"];
+            members: components["schemas"]["ActivityMemberData"][];
+            recommendations: components["schemas"]["RecommendationData"];
+            revision: string;
+            settlements: components["schemas"]["SettlementData"][];
+        };
+        ActivitySnapshotEnvelope: {
+            data: components["schemas"]["ActivitySnapshotData"];
         };
         ActivitySummaryData: {
             activityName: string;
@@ -1874,6 +1902,74 @@ export interface operations {
             };
             /** @description 版本冲突 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getActivitySnapshot: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 上次完整 Snapshot 的 weak ETag */
+                "If-None-Match"?: string | null;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 完整 Activity Snapshot */
+            200: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    /** @description 基于 Activity revision 的 weak ETag */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivitySnapshotEnvelope"];
+                };
+            };
+            /** @description Activity revision 未变化 */
+            304: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    /** @description 当前 weak ETag */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 活动不存在或不可访问 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Snapshot 数据不完整 */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

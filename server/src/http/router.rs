@@ -19,7 +19,7 @@ use super::static_files::mount_static_files;
 use super::{
     accounting, activity, auth, collaboration,
     error::{ApiError, RequestId},
-    expense, settlement, sharing,
+    expense, settlement, sharing, snapshot,
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -177,6 +177,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         .route(
             "/activities/{activity_id}/summary",
             get(sharing::summary).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/snapshot",
+            get(snapshot::get).fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}/export.csv",

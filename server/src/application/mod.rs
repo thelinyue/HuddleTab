@@ -9,3 +9,4 @@ pub mod expense;
 pub mod ports;
 pub mod settlement;
 pub mod sharing;
+pub mod snapshot;

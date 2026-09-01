@@ -212,6 +212,13 @@ impl SettlementRepository for PostgresSettlementRepository {
             settlement.receiver_member_id,
         )
         .await?;
+        if current.payer_member_id == settlement.payer_member_id
+            && current.receiver_member_id == settlement.receiver_member_id
+            && current.amount_minor == settlement.amount_minor
+        {
+            transaction.commit().await.map_err(log_repository_error)?;
+            return Ok(current);
+        }
         sqlx::query(
             "UPDATE settlements SET payer_member_id = $1, receiver_member_id = $2, \
              amount_minor = $3, version = version + 1, updated_at = $4 WHERE id = $5",
@@ -398,7 +405,7 @@ async fn require_members(
     Ok(())
 }
 
-async fn load(
+pub(crate) async fn load(
     connection: &mut PgConnection,
     settlement_id: Uuid,
 ) -> Result<SettlementRecord, SettlementRepositoryError> {

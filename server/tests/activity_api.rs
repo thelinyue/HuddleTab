@@ -351,6 +351,7 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(deleted["data"]["status"], "ARCHIVED");
     assert_eq!(deleted["data"]["version"], "4");
+    assert_eq!(deleted["data"]["revision"], "4");
     assert!(deleted["data"]["deletedAt"].is_string());
     assert!(deleted["data"]["purgeAfter"].is_string());
 
@@ -381,6 +382,7 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(restored["data"]["status"], "ARCHIVED");
     assert_eq!(restored["data"]["version"], "5");
+    assert_eq!(restored["data"]["revision"], "5");
     assert!(restored["data"]["deletedAt"].is_null());
 
     for (action, version, expected_status, expected_version) in [
@@ -401,6 +403,7 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["data"]["status"], expected_status);
         assert_eq!(body["data"]["version"], expected_version);
+        assert_eq!(body["data"]["revision"], expected_version);
     }
 
     let actions = sqlx::query_scalar::<_, String>(

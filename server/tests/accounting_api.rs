@@ -239,6 +239,8 @@ async fn activity_side_effects(context: &AccountingContext) -> (i64, i64) {
     .expect("应读取活动 revision 与 Audit 数量")
 }
 
+// 单一连续场景证明 Settlement 的 replay、noop、更新、冲突和 VOID 共享同一 revision 序列。
+#[allow(clippy::too_many_lines)]
 async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: &str) {
     let recommendation_uri = format!("/api/activities/{}/recommendations", context.activity_id);
     let (status, recommendations) = response(
@@ -269,6 +271,7 @@ async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: 
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["data"]["settlement"]["revision"], "4");
     let settlement_id = created["data"]["settlement"]["settlementId"]
         .as_str()
         .expect("应返回 Settlement ID");
@@ -279,6 +282,7 @@ async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: 
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(replay["data"]["idempotentReplay"], true);
+    assert_eq!(replay["data"]["settlement"]["revision"], "4");
     let item_uri = format!(
         "/api/activities/{}/settlements/{settlement_id}",
         context.activity_id
@@ -287,6 +291,22 @@ async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: 
         let (status, _) = response(context, request(context, "GET", uri, json!(null))).await;
         assert_eq!(status, StatusCode::OK);
     }
+    let unchanged = json!({
+        "version": "1",
+        "payerMemberId": recommendation["payerMemberId"],
+        "receiverMemberId": recommendation["receiverMemberId"],
+        "amountMinor": partial_amount.to_string()
+    });
+    let (status, unchanged) = response(
+        context,
+        request(context, "PUT", item_uri.clone(), unchanged),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(unchanged["data"]["settlement"]["version"], "1");
+    assert_eq!(unchanged["data"]["settlement"]["revision"], "4");
+    assert_eq!(activity_side_effects(context).await, (4, 3));
+
     let update = json!({
         "version": "1",
         "payerMemberId": recommendation["payerMemberId"],
@@ -300,6 +320,7 @@ async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: 
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(updated["data"]["settlement"]["version"], "2");
+    assert_eq!(updated["data"]["settlement"]["revision"], "5");
     let (status, _) = response(context, request(context, "PUT", item_uri.clone(), update)).await;
     assert_eq!(status, StatusCode::CONFLICT);
     let (_, settled_ledger) = response(
@@ -321,10 +342,13 @@ async fn exercise_settlement_lifecycle(context: &AccountingContext, ledger_uri: 
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(voided["data"]["settlement"]["status"], "VOID");
+    assert_eq!(voided["data"]["settlement"]["revision"], "6");
 }
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 单一连续场景证明 Expense 与后续 Settlement 的 revision、Audit 和账本副作用。
+#[allow(clippy::too_many_lines)]
 async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     let context = seed_context().await;
     let mutation_id = Uuid::new_v4();
@@ -337,6 +361,7 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["data"]["expense"]["revision"], "2");
     let expense_id = created["data"]["expense"]["expenseId"]
         .as_str()
         .expect("应返回 Expense ID");
@@ -355,6 +380,7 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(replay["data"]["idempotentReplay"], true);
     assert_eq!(replay["data"]["expense"]["expenseId"], expense_id);
+    assert_eq!(replay["data"]["expense"]["revision"], "2");
 
     let item_uri = format!(
         "/api/activities/{}/expenses/{expense_id}",
@@ -368,6 +394,22 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(detail["data"]["expense"]["version"], "1");
 
+    let original_payments = detail["data"]["payments"].clone();
+    let original_shares = detail["data"]["shares"].clone();
+    let mut unchanged = payload.clone();
+    unchanged["version"] = json!("1");
+    let (status, unchanged) = response(
+        &context,
+        request(&context, "PUT", item_uri.clone(), unchanged),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(unchanged["data"]["expense"]["version"], "1");
+    assert_eq!(unchanged["data"]["expense"]["revision"], "2");
+    assert_eq!(unchanged["data"]["payments"], original_payments);
+    assert_eq!(unchanged["data"]["shares"], original_shares);
+    assert_eq!(activity_side_effects(&context).await, (2, 1));
+
     let mut update = expense_payload(&context, mutation_id, "Updated Sushi");
     update["version"] = json!("1");
     let (status, updated) = response(
@@ -377,6 +419,7 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(updated["data"]["expense"]["version"], "2");
+    assert_eq!(updated["data"]["expense"]["revision"], "3");
     let (status, _) = response(&context, request(&context, "PUT", item_uri.clone(), update)).await;
     assert_eq!(status, StatusCode::CONFLICT);
 
@@ -398,6 +441,7 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(deleted["data"]["status"], "DELETED");
+    assert_eq!(deleted["data"]["revision"], "7");
     let (status, ledger) =
         response(&context, request(&context, "GET", ledger_uri, json!(null))).await;
     assert_eq!(status, StatusCode::OK);
@@ -417,6 +461,128 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     .await
     .expect("应读取 revision 与 Audit");
     assert_eq!(side_effects, (7, 6));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn expense_noop_ignores_zero_base_fact_input_order() {
+    let context = seed_context().await;
+    let mut members = [context.owner_member_id, context.guest_member_id];
+    members.sort_unstable();
+    members.reverse();
+    let payload = json!({
+        "clientMutationId": Uuid::new_v4(),
+        "title": "Tiny expense",
+        "category": "OTHER",
+        "occurredAt": "2026-08-30T12:00:00Z",
+        "originalCurrency": "USD",
+        "originalAmountMinor": "3",
+        "exchangeRateKind": "MANUAL",
+        "exchangeRate": "0.000001",
+        "payments": [
+            {"memberId": members[0], "amountMinor": "1"},
+            {"memberId": members[0], "amountMinor": "1"},
+            {"memberId": members[1], "amountMinor": "1"}
+        ],
+        "split": {
+            "mode": "EXACT",
+            "entries": [
+                {"memberId": members[0], "value": "1"},
+                {"memberId": members[1], "value": "2"}
+            ]
+        }
+    });
+    let collection_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", collection_uri, payload.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["data"]["expense"]["baseAmountMinor"], "0");
+
+    let expense_id = created["data"]["expense"]["expenseId"]
+        .as_str()
+        .expect("应返回 Expense ID");
+    let mut unchanged = payload.clone();
+    unchanged["version"] = json!("1");
+    let item_uri = format!(
+        "/api/activities/{}/expenses/{expense_id}",
+        context.activity_id
+    );
+    let (status, unchanged) = response(
+        &context,
+        request(&context, "PUT", item_uri.clone(), unchanged),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(unchanged["data"]["expense"]["version"], "1");
+    assert_eq!(unchanged["data"]["expense"]["revision"], "2");
+    assert_eq!(unchanged["data"]["payments"], created["data"]["payments"]);
+    assert_eq!(unchanged["data"]["shares"], created["data"]["shares"]);
+    assert_eq!(activity_side_effects(&context).await, (2, 1));
+
+    let mut changed = payload;
+    changed["version"] = json!("1");
+    changed["payments"] = json!([
+        {"memberId": members[0], "amountMinor": "1"},
+        {"memberId": members[1], "amountMinor": "1"},
+        {"memberId": members[1], "amountMinor": "1"}
+    ]);
+    let (status, changed) = response(&context, request(&context, "PUT", item_uri, changed)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(changed["data"]["expense"]["version"], "2");
+    assert_eq!(changed["data"]["expense"]["revision"], "3");
+    let second_member_count = changed["data"]["payments"]
+        .as_array()
+        .expect("应返回付款事实")
+        .iter()
+        .filter(|fact| fact["memberId"] == members[1].to_string())
+        .count();
+    assert_eq!(second_member_count, 2);
+    assert_eq!(activity_side_effects(&context).await, (3, 2));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn expense_noop_uses_postgresql_timestamp_precision() {
+    let context = seed_context().await;
+    let collection_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    for (index, occurred_at) in [
+        "2026-08-30T12:00:00.123456789Z",
+        "1999-12-31T12:00:00.123456789Z",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut payload = expense_payload(&context, Uuid::new_v4(), "Nanosecond expense");
+        payload["occurredAt"] = json!(occurred_at);
+        let (status, created) = response(
+            &context,
+            request(&context, "POST", collection_uri.clone(), payload.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let expense_id = created["data"]["expense"]["expenseId"]
+            .as_str()
+            .expect("应返回 Expense ID");
+        let mut unchanged = payload;
+        unchanged["version"] = json!("1");
+        let item_uri = format!(
+            "/api/activities/{}/expenses/{expense_id}",
+            context.activity_id
+        );
+        let (status, unchanged) =
+            response(&context, request(&context, "PUT", item_uri, unchanged)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(unchanged["data"]["expense"]["version"], "1");
+        assert_eq!(
+            unchanged["data"]["expense"]["revision"],
+            (index + 2).to_string()
+        );
+    }
+    assert_eq!(activity_side_effects(&context).await, (3, 2));
 }
 
 #[tokio::test]

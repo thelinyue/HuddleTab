@@ -43,6 +43,58 @@ fn protected_operations_publish_the_rate_limit_response() {
 }
 
 #[test]
+fn activity_snapshot_publishes_conditional_get_contract() {
+    let document = huddletab_server::http::openapi::document();
+    let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
+    let operation = &value["paths"]["/api/activities/{activity_id}/snapshot"]["get"];
+
+    assert!(
+        operation.is_object(),
+        "contract 缺少 Activity Snapshot 路由"
+    );
+    let if_none_match = operation["parameters"]
+        .as_array()
+        .and_then(|parameters| {
+            parameters
+                .iter()
+                .find(|parameter| parameter["name"] == "If-None-Match")
+        })
+        .expect("Snapshot 应发布 If-None-Match 请求头");
+    assert_eq!(if_none_match["in"], "header");
+    assert_eq!(if_none_match["required"], false);
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/ActivitySnapshotEnvelope"
+    );
+    assert!(operation["responses"]["304"]["content"].is_null());
+    for status in ["200", "304"] {
+        assert_eq!(
+            operation["responses"][status]["headers"]["ETag"]["schema"]["type"],
+            "string"
+        );
+        assert_eq!(
+            operation["responses"][status]["headers"]["Cache-Control"]["schema"]["type"],
+            "string"
+        );
+    }
+
+    let properties = value["components"]["schemas"]["ActivitySnapshotData"]["properties"]
+        .as_object()
+        .expect("ActivitySnapshotData 应发布 properties");
+    for field in [
+        "revision",
+        "activity",
+        "members",
+        "expenses",
+        "settlements",
+        "ledger",
+        "recommendations",
+    ] {
+        assert!(properties.contains_key(field), "Snapshot 缺少字段 {field}");
+    }
+}
+
+#[test]
 // 合同测试集中核对同一 OpenAPI 文档的路径、查询参数和 schema，保持断言上下文连续。
 #[allow(clippy::too_many_lines)]
 fn document_contains_phase1_auth_and_activity_routes() {

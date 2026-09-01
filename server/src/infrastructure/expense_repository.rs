@@ -235,6 +235,11 @@ impl ExpenseRepository for PostgresExpenseRepository {
             return Err(ExpenseRepositoryError::VersionConflict);
         }
         require_active_members(&mut transaction, expense.activity_id, &expense.prepared).await?;
+        let current = load_aggregate(&mut transaction, expense.expense_id, true).await?;
+        if aggregate_matches_update(&current, &expense) {
+            transaction.commit().await.map_err(log_repository_error)?;
+            return Ok(current);
+        }
         sqlx::query(
             "UPDATE expenses SET title = $1, category = $2, note = $3, occurred_at = $4, \
              original_currency = $5, original_amount_minor = $6, base_currency = $7, \
@@ -343,6 +348,83 @@ impl ExpenseRepository for PostgresExpenseRepository {
         transaction.commit().await.map_err(log_repository_error)?;
         Ok((version, revision))
     }
+}
+
+fn aggregate_matches_update(current: &ExpenseAggregate, update: &ExpenseUpdate) -> bool {
+    // facts 排序后按多重集合比较，既忽略输入顺序，也保留重复成员事实的次数。
+    current.expense.title == update.title
+        && current.expense.category == update.category
+        && current.expense.note == update.note
+        && timestamps_match(current.expense.occurred_at, update.occurred_at)
+        && current.expense.original_currency == update.prepared.original_currency
+        && current.expense.original_amount_minor == update.prepared.original_amount_minor
+        && current.expense.base_currency == update.prepared.base_currency
+        && current.expense.base_amount_minor == update.prepared.base_amount_minor
+        && current.expense.exchange_rate_kind == update.prepared.exchange_rate_kind
+        && current.expense.exchange_rate == update.prepared.exchange_rate
+        && current.expense.split_mode == update.prepared.split_mode
+        && facts_match(&current.payments, &update.prepared.payments)
+        && shares_match(&current.shares, &update.prepared.shares)
+}
+
+fn facts_match(current: &[ExpensePayment], prepared: &[ExpenseFactRow]) -> bool {
+    let mut current = current
+        .iter()
+        .map(|fact| {
+            (
+                fact.member_id,
+                fact.original_amount_minor,
+                fact.base_amount_minor,
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut prepared = prepared
+        .iter()
+        .map(|fact| {
+            (
+                fact.member_id,
+                fact.original_amount_minor,
+                fact.base_amount_minor,
+            )
+        })
+        .collect::<Vec<_>>();
+    current.sort_unstable();
+    prepared.sort_unstable();
+    current == prepared
+}
+
+fn shares_match(current: &[ExpenseShare], prepared: &[ExpenseFactRow]) -> bool {
+    let mut current = current
+        .iter()
+        .map(|fact| {
+            (
+                fact.member_id,
+                fact.original_amount_minor,
+                fact.base_amount_minor,
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut prepared = prepared
+        .iter()
+        .map(|fact| {
+            (
+                fact.member_id,
+                fact.original_amount_minor,
+                fact.base_amount_minor,
+            )
+        })
+        .collect::<Vec<_>>();
+    current.sort_unstable();
+    prepared.sort_unstable();
+    current == prepared
+}
+
+fn timestamps_match(current: OffsetDateTime, requested: OffsetDateTime) -> bool {
+    const POSTGRES_EPOCH_UNIX_NANOS: i128 = 946_684_800_000_000_000;
+
+    let postgres_microseconds =
+        |value: OffsetDateTime| (value.unix_timestamp_nanos() - POSTGRES_EPOCH_UNIX_NANOS) / 1_000;
+    postgres_microseconds(current) == postgres_microseconds(requested)
 }
 
 async fn lock_activity_context(
@@ -467,7 +549,7 @@ async fn insert_share(
     Ok(())
 }
 
-async fn load_aggregate(
+pub(crate) async fn load_aggregate(
     connection: &mut PgConnection,
     expense_id: Uuid,
     require_active: bool,

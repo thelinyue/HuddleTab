@@ -293,7 +293,7 @@ pub(crate) async fn void(
     }))
 }
 
-fn settlement_data(record: SettlementRecord) -> SettlementData {
+pub(crate) fn settlement_data(record: SettlementRecord) -> SettlementData {
     SettlementData {
         settlement_id: record.id.to_string(),
         activity_id: record.activity_id.to_string(),

@@ -6,7 +6,7 @@
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”。Phase 2 Task 24–28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot 与 weak ETag 已完成，可以进入 Task 25。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 2 Task 25–28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复与本文档已形成 Git 检查点。收口内容包括 Session/CSRF 竞态防护、数据目录准备边界、源码构建说明和 `0.0.3` 发布边界。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24 与本文档已形成 Git 检查点。Task 24 增加授权后的一致性 Snapshot、weak ETag 条件请求和 Frontend adapter，但没有增加 IndexedDB 或离线 UI。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -99,8 +99,12 @@ server/src/application/activity.rs
 server/src/application/expense.rs
 server/src/application/accounting.rs
 server/src/application/settlement.rs
+server/src/application/snapshot.rs
+server/src/infrastructure/snapshot_repository.rs
+server/src/http/snapshot.rs
 frontend/src/app/router.tsx
 frontend/src/features/activities/pages.tsx
+frontend/src/features/activities/snapshot-api.ts
 frontend/src/features/accounting/pages.tsx
 frontend/src/api/generated/openapi.ts
 contracts/openapi.json
@@ -134,7 +138,8 @@ huddletab openapi
 | 通知页 | 占位 | Phase 2 尚未实现通知域 |
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
 | CSV、结算分享 | 可用 | 有效 ActivityMember 可下载 CSV，并从结算页生成受保护摘要和 1600px PNG |
-| 离线 Snapshot、Expense Queue | 未实现 | 属于 Phase 2 |
+| Activity Revision Snapshot / weak ETag | 可用 | Task 24；完整 Snapshot 条件读取，尚未接 IndexedDB |
+| IndexedDB、离线 Expense Queue | 未实现 | Task 25 及后续 Phase 2 任务 |
 | 审批、附件、汇率 Provider | 未实现 | 属于 Phase 2 |
 | 系统管理、注册策略、管理员重置密码 | 未实现 | 属于 Phase 3 |
 
@@ -247,6 +252,32 @@ wsl.exe -d Debian -- sh -lc "cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform
 
 此前五项 review 修复的 RED/GREEN 与完整命令证据记录在 ignored `.superpowers/sdd/2026-09-01-huddletab-phase1e/final-fix-report.md`，该文件不纳入 Git tracking。本次收口新增的认证竞态与目录安全证据已记录在上述 tracked 测试和实际命令结果中。
 
+### 7.2 Phase 2 Task 24 Activity Revision Snapshot
+
+Task 24 新增 `GET /api/activities/{activity_id}/snapshot`。Repository 在单个 `REPEATABLE READ READ ONLY` 事务中完成 ACTIVE ActivityMember 授权、revision 读取和 Activity、成员、未删除 Expense 及 Payment/Share、Settlement 的完整装载；application 层使用同一批事实计算 Ledger 与 Recommendation。Snapshot 不包含 Invitation、Audit、CSV、分享数据或敏感 token。
+
+响应使用 `ETag: W/"<revision>"` 与 `Cache-Control: private, no-store`。合法 `If-None-Match` 在授权和 revision 读取后判断：命中返回带相同响应头、无 body 的 304；过期或非法条件头返回完整 200 JSON。Frontend `fetchActivitySnapshot()` 只允许 200 整体替换或 304 复用原对象；无本地 Snapshot 却收到 304 时只做一次无条件 GET，协议异常使用明确中文错误。Task 24 没有创建 IndexedDB store、持久化 Query cache 或离线页面切换。
+
+本轮实际执行：
+
+```powershell
+cargo test --manifest-path server/Cargo.toml --test snapshot_api -- --ignored --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test activity_api lifecycle_delete_and_restore_follow_the_frozen_state_machine -- --ignored --exact --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test collaboration_api owner_can_add_guest_and_invite_a_user_into_the_activity -- --ignored --exact --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test accounting_api expense_crud_keeps_double_amount_facts_idempotency_and_versions -- --ignored --exact --test-threads=1
+cargo test --manifest-path server/Cargo.toml --test accounting_api expense_noop_ -- --ignored --test-threads=1
+cargo run --manifest-path server/Cargo.toml -- openapi --output contracts/openapi.json
+npm --prefix frontend run api:generate
+npm --prefix frontend test -- --run
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+cargo fmt --manifest-path server/Cargo.toml -- --check
+cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --manifest-path server/Cargo.toml
+```
+
+精确结果：Task 24 scoped PostgreSQL 共 7 passed，包括 Snapshot 2 个、Activity 生命周期/协作 revision/Expense 与 Settlement 完整生命周期 3 个，以及 Expense noop 边界 2 个。其中 Expense/Settlement 同值 PUT 均保持 version、revision、Audit 不变，Expense Payment/Share fact ID 也保持不变；额外覆盖零主币金额的逆序与重复付款事实，以及 PostgreSQL 2000 epoch 前后的纳秒时间精度。Rust 非数据库 53 passed、0 failed；OpenAPI 5 passed；Frontend 16 个文件、76 passed、0 failed，typecheck 与 production build 通过；fmt 与 clippy 通过。OpenAPI 和 TypeScript client 连续生成两次后 SHA-256 均保持一致。本轮没有 UI 或运行镜像变化，因此未重复 Phase 1E Playwright/Compose 矩阵。
+
 ## 8. 当前本地运行现场
 
 交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
@@ -327,6 +358,7 @@ Activity 管理合同：
 | `DELETE /api/activities/{id}` | 保留原生命周期的软删除 |
 | `POST /api/activities/{id}/restore` | 在 `now < purgeAfter` 时恢复 |
 | `GET /api/activities/{id}/summary` | 当前成员的实时结算摘要；`private, no-store` |
+| `GET /api/activities/{id}/snapshot` | 授权后的完整 Activity Snapshot；weak ETag 条件读取；`private, no-store` |
 | `GET /api/activities/{id}/export.csv` | UTF-8 BOM CSV；固定下载名 `activity-export.csv` |
 
 ## 11. 按改动范围验证
@@ -346,6 +378,7 @@ Activity 管理合同：
 | 活动管理 API | `cargo test --manifest-path server/Cargo.toml --test activity_api` |
 | 成员与邀请 API | `cargo test --manifest-path server/Cargo.toml --test collaboration_api` |
 | CSV/分享 API | `cargo test --manifest-path server/Cargo.toml --test sharing_api`；数据库用例设置 `TEST_DATABASE_URL` 后运行 `cargo test --manifest-path server/Cargo.toml --test sharing_api summary_and_csv_use_one_private_authorized_snapshot -- --ignored --exact --test-threads=1` |
+| Activity Revision Snapshot | 设置可丢弃 `TEST_DATABASE_URL` 后运行 `cargo test --manifest-path server/Cargo.toml --test snapshot_api -- --ignored --test-threads=1` |
 | Rust 格式 | `cargo fmt --manifest-path server/Cargo.toml --check` |
 | Rust 警告边界 | `cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings` |
 | Dockerfile/Compose/runtime 改动 | 在 WSL 中重建镜像并做 health、非 root、无 Node runtime 验收 |
@@ -354,12 +387,12 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. Phase 2 Task 24–28：实现 Revision Snapshot/ETag、IndexedDB 隔离、离线 Expense Queue、审批、Guest Binding、通知、附件、汇率 Provider 和 Phase 2 E2E。
+1. Phase 2 Task 25–28：实现 IndexedDB 隔离、离线 Expense Queue、审批、Guest Binding、通知、附件、汇率 Provider 和 Phase 2 E2E；Task 24 Revision Snapshot/ETag 已完成。
 2. Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。
 3. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
 4. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
 
-每完成一项，只运行对应测试和一个真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
+每完成一项，只运行对应测试；涉及 UI 或运行镜像时再运行对应真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
 
 ## 13. 相关设计文档
 

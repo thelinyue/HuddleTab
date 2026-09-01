@@ -486,7 +486,7 @@ pub(crate) async fn list_members(
     }))
 }
 
-fn activity_data(activity: ActivityView) -> ActivityData {
+pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
     let status = ActivityStatus::parse(&activity.status).expect("数据库约束保证活动状态有效");
     let capabilities = ActivityCapabilities::for_actor(
         activity.current_member_role == "OWNER",
@@ -533,7 +533,7 @@ fn format_time(value: time::OffsetDateTime) -> String {
         .expect("数据库时间始终可格式化")
 }
 
-fn member_data(member: ActivityMemberView) -> ActivityMemberData {
+pub(crate) fn member_data(member: ActivityMemberView) -> ActivityMemberData {
     ActivityMemberData {
         member_id: member.member_id.to_string(),
         activity_id: member.activity_id.to_string(),

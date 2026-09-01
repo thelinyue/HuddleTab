@@ -1377,6 +1377,108 @@
         }
       }
     },
+    "/api/activities/{activity_id}/snapshot": {
+      "get": {
+        "tags": [],
+        "operationId": "getActivitySnapshot",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "上次完整 Snapshot 的 weak ETag",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "完整 Activity Snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "基于 Activity revision 的 weak ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitySnapshotEnvelope"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Activity revision 未变化",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "当前 weak ETag"
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "活动不存在或不可访问",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Snapshot 数据不完整",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/summary": {
       "get": {
         "tags": [],
@@ -2124,6 +2226,61 @@
             "items": {
               "$ref": "#/components/schemas/ActivityMemberData"
             }
+          }
+        }
+      },
+      "ActivitySnapshotData": {
+        "type": "object",
+        "required": [
+          "revision",
+          "activity",
+          "members",
+          "expenses",
+          "settlements",
+          "ledger",
+          "recommendations"
+        ],
+        "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/ActivityData"
+          },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseAggregateData"
+            }
+          },
+          "ledger": {
+            "$ref": "#/components/schemas/LedgerData"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityMemberData"
+            }
+          },
+          "recommendations": {
+            "$ref": "#/components/schemas/RecommendationData"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "settlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementData"
+            }
+          }
+        }
+      },
+      "ActivitySnapshotEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActivitySnapshotData"
           }
         }
       },

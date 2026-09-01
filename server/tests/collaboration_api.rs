@@ -303,6 +303,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(guest["data"]["displayName"], "小林");
     assert!(guest["data"]["userId"].is_null());
+    assert_eq!(guest["data"]["revision"], "2");
 
     let (status, invitation) = json_response(
         &app,
@@ -315,6 +316,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(invitation["data"]["revision"], "3");
     let invitation_id = invitation["data"]["invitationId"]
         .as_str()
         .expect("应返回 invitationId");
@@ -363,6 +365,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(joined["data"]["status"], "JOINED");
     assert_eq!(joined["data"]["activityId"], activity_id.to_string());
+    assert_eq!(joined["data"]["revision"], "4");
 
     let (status, activities) = json_response(
         &app,
@@ -414,6 +417,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(revoked["data"]["revokedAt"].is_string());
+    assert_eq!(revoked["data"]["revision"], "5");
 
     assert_collaboration_side_effects(&pool, activity_id).await;
 }

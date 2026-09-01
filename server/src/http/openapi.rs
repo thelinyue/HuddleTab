@@ -49,6 +49,9 @@ use super::{
         __path_export_csv, __path_summary, ActivitySummaryData, ActivitySummaryEnvelope,
         SummaryBalanceData, SummaryRecommendationData,
     },
+    snapshot::{
+        __path_get as __path_get_activity_snapshot, ActivitySnapshotData, ActivitySnapshotEnvelope,
+    },
 };
 
 #[derive(OpenApi)]
@@ -83,6 +86,7 @@ use super::{
         expense_delete,
         ledger,
         recommendations,
+        get_activity_snapshot,
         summary,
         export_csv,
         settlement_create,
@@ -156,6 +160,8 @@ use super::{
         RecommendationItemData,
         RecommendationData,
         RecommendationEnvelope,
+        ActivitySnapshotData,
+        ActivitySnapshotEnvelope,
         ActivitySummaryData,
         ActivitySummaryEnvelope,
         SummaryBalanceData,
