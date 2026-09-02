@@ -36,12 +36,34 @@ const activityApiState = vi.hoisted(() => ({
   remove: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   restore: { error: null as unknown, isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() },
   invitationQueryEnabled: [] as boolean[],
+  members: [
+    {
+      activityId: "activity-1",
+      displayName: "测试用户",
+      memberId: "member-owner",
+      role: "OWNER",
+      status: "ACTIVE",
+      userId: "user-1",
+      version: "1",
+    },
+    {
+      activityId: "activity-1",
+      displayName: "临时成员",
+      memberId: "guest-1",
+      role: "MEMBER",
+      status: "ACTIVE",
+      userId: null,
+      version: "1",
+    },
+  ],
   invitations: [] as Array<{
     activityId: string;
     expiresAt: string;
+    guestMemberId?: string | null;
     invitationId: string;
     kind: string;
     maxUses: number | null;
+    purpose?: string;
     revision: string;
     revokedAt: string | null;
     targetUsername: string | null;
@@ -50,6 +72,7 @@ const activityApiState = vi.hoisted(() => ({
   }>,
   joinQueryEnabled: [] as boolean[],
   joinRequests: [] as Array<Record<string, unknown>>,
+  createGuestBinding: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   decideJoinRequest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
 }));
 
@@ -84,26 +107,14 @@ vi.mock("./api", async (importOriginal) => {
     useActivityLifecycleMutation: () => activityApiState.lifecycle,
     useDeleteActivityMutation: () => activityApiState.remove,
     useRestoreActivityMutation: () => activityApiState.restore,
-    useMembersQuery: () => ({
-      data: [
-        {
-          activityId: "activity-1",
-          displayName: "测试用户",
-          memberId: "member-owner",
-          role: "OWNER",
-          status: "ACTIVE",
-          userId: "user-1",
-          version: "1",
-        },
-      ],
-      isPending: false,
-    }),
+    useMembersQuery: () => ({ data: activityApiState.members, isPending: false }),
     useInvitationsQuery: (_userId: string, _activityId: string, enabled: boolean) => {
       activityApiState.invitationQueryEnabled.push(enabled);
       return { data: activityApiState.invitations, isPending: false };
     },
     useCreateGuestMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
     useCreateInvitationMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
+    useCreateGuestBindingInvitationMutation: () => activityApiState.createGuestBinding,
     useRevokeInvitationMutation: () => ({ isPending: false, mutate: vi.fn() }),
     useJoinRequestsQuery: (_userId: string, _activityId: string, enabled: boolean) => {
       activityApiState.joinQueryEnabled.push(enabled);
@@ -153,9 +164,21 @@ afterEach(() => {
   activityApiState.update.mutateAsync.mockResolvedValue({ data: activityApiState.activity, warnings: [] });
   activityApiState.restore.mutate.mockReset();
   activityApiState.invitationQueryEnabled.length = 0;
+  activityApiState.members[1] = {
+    activityId: "activity-1",
+    displayName: "临时成员",
+    memberId: "guest-1",
+    role: "MEMBER",
+    status: "ACTIVE",
+    userId: null,
+    version: "1",
+  };
   activityApiState.invitations = [];
   activityApiState.joinQueryEnabled.length = 0;
   activityApiState.joinRequests = [];
+  activityApiState.createGuestBinding.error = null;
+  activityApiState.createGuestBinding.isPending = false;
+  activityApiState.createGuestBinding.mutateAsync.mockReset();
   activityApiState.decideJoinRequest.error = null;
   activityApiState.decideJoinRequest.isPending = false;
   activityApiState.decideJoinRequest.mutateAsync.mockReset();
@@ -243,6 +266,70 @@ describe("成员 Overlay", () => {
     expect(screen.queryByLabelText("临时成员名称")).not.toBeInTheDocument();
     expect(activityApiState.invitationQueryEnabled.at(-1)).toBe(false);
     expect(activityApiState.joinQueryEnabled.at(-1)).toBe(role === "OWNER");
+  });
+
+  it("ACTIVE Owner 只可为 Guest 打开账号绑定编辑器", () => {
+    renderWorkspace();
+
+    expect(screen.getAllByRole("button", { name: "绑定账号" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "绑定账号" }));
+    expect(screen.getByRole("textbox", { name: /目标用户名/ })).toHaveFocus();
+  });
+
+  it.each([
+    ["MEMBER", "ACTIVE", null],
+    ["OWNER", "ENDED", null],
+    ["OWNER", "ACTIVE", "user-2"],
+  ])("角色 %s、状态 %s、Guest userId %s 时不显示绑定入口", (role, status, userId) => {
+    activityApiState.activity.currentMemberRole = role;
+    activityApiState.activity.status = status;
+    activityApiState.members[1] = { ...activityApiState.members[1], userId };
+
+    renderWorkspace();
+
+    expect(screen.queryByRole("button", { name: "绑定账号" })).not.toBeInTheDocument();
+  });
+
+  it("绑定失败保留用户名，成功显示一次性口令", async () => {
+    activityApiState.createGuestBinding.mutateAsync
+      .mockRejectedValueOnce(new Error("绑定邀请创建失败"))
+      .mockResolvedValueOnce({ token: "binding-token" });
+    renderWorkspace();
+    fireEvent.click(screen.getByRole("button", { name: "绑定账号" }));
+    const input = screen.getByRole("textbox", { name: /目标用户名/ });
+    fireEvent.change(input, { target: { value: "alice" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建绑定邀请" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("绑定邀请创建失败");
+    expect(input).toHaveValue("alice");
+
+    fireEvent.click(screen.getByRole("button", { name: "创建绑定邀请" }));
+    expect(await screen.findAllByText("binding-token")).toHaveLength(1);
+    expect(activityApiState.createGuestBinding.mutateAsync).toHaveBeenLastCalledWith({
+      memberId: "guest-1",
+      targetUsername: "alice",
+    });
+  });
+
+  it("有效绑定邀请显示 Guest 与目标账号", () => {
+    activityApiState.invitations = [{
+      activityId: "activity-1",
+      expiresAt: "2999-09-08T00:00:00Z",
+      guestMemberId: "guest-1",
+      invitationId: "binding-1",
+      kind: "DIRECT",
+      maxUses: 1,
+      purpose: "GUEST_BINDING",
+      revision: "2",
+      revokedAt: null,
+      targetUsername: "alice",
+      useCount: 0,
+      version: "1",
+    }];
+    renderWorkspace();
+
+    expect(screen.getByText("绑定「临时成员」给 @alice")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "撤销" })).toBeInTheDocument();
   });
 
   it("Owner 可审批 Pending，失败时保留申请和服务端中文错误", async () => {

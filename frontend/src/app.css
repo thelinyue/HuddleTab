@@ -279,6 +279,13 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .invite-mode-panel > .button { width: 100%; }
 .member-section h2, .activity-more h2 { margin-bottom: 8px; font-size: 15px; }
 .member-list, .settings-list { border-top: 1px solid var(--border); }
+.member-entry { border-bottom: 1px solid var(--border); }
+.member-entry:last-child { border-bottom: 0; }
+.member-entry .member-row { border-bottom: 0; }
+.member-row__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.guest-binding-form { display: grid; gap: 12px; border-top: 1px solid var(--border); padding: 14px 0 18px 52px; }
+.guest-binding-form > .button { justify-self: end; }
+.guest-binding-form .issued-invite { margin-top: 0; }
 .join-request-list { border-top: 1px solid var(--border); }
 .join-request-row { display: grid; min-height: 64px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 8px 0; }
 .join-request-row > span { display: grid; min-width: 0; }
@@ -286,6 +293,7 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .join-request-actions { display: flex; gap: 8px; }
 .join-request-status { display: grid; gap: 12px; border-top: 1px solid var(--border); padding-top: 16px; }
 .join-request-status > .button { width: 100%; }
+.join-panel__guest { overflow-wrap: anywhere; }
 .settings-row { display: grid; width: 100%; min-height: 56px; grid-template-columns: auto minmax(0, 1fr) minmax(0, auto) auto; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--border); padding: 8px 4px; background: transparent; text-align: left; }
 button.settings-row:hover { background: var(--surface-muted); }
 .settings-row > svg { color: var(--primary); }
@@ -465,6 +473,8 @@ button.settings-row:hover { background: var(--surface-muted); }
   .activity-list-item { grid-template-columns: 64px minmax(0, 1fr) auto; padding-inline: 8px; }
   .activity-list-item > img { width: 64px; height: 52px; }
   .member-actions { grid-template-columns: 1fr; }
+  .member-row__actions { align-items: flex-end; flex-direction: column; }
+  .guest-binding-form { padding-left: 0; }
   .join-request-row { grid-template-columns: 1fr; }
   .join-request-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 48%) auto; }

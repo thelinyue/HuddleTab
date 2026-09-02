@@ -14,6 +14,7 @@ import {
   Trash2,
   UserPlus,
   UserRound,
+  UserRoundCheck,
   UsersRound,
   X,
 } from "lucide-react";
@@ -52,6 +53,7 @@ import {
   useDeleteActivityMutation,
   useDeletedActivitiesQuery,
   useCreateGuestMutation,
+  useCreateGuestBindingInvitationMutation,
   useCreateInvitationMutation,
   useInvitationsQuery,
   useJoinRequestsQuery,
@@ -463,9 +465,31 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
   const joinRequests = useJoinRequestsQuery(session.userId, activity.activityId, isOwner);
   const decideJoinRequest = useDecideJoinRequestMutation(session.userId, activity.activityId);
   const createGuest = useCreateGuestMutation(session.userId, activity.activityId);
+  const createGuestBinding = useCreateGuestBindingInvitationMutation(
+    session.userId,
+    activity.activityId,
+  );
   const revokeInvitation = useRevokeInvitationMutation(session.userId, activity.activityId);
   const [guestName, setGuestName] = useState("");
+  const [bindingMemberId, setBindingMemberId] = useState<string>();
+  const [bindingUsername, setBindingUsername] = useState("");
+  const [bindingToken, setBindingToken] = useState<string>();
+  const [bindingError, setBindingError] = useState<unknown>();
   const [decisionError, setDecisionError] = useState<unknown>();
+
+  async function createBindingInvitation(memberId: string) {
+    setBindingError(undefined);
+    setBindingToken(undefined);
+    try {
+      const invitation = await createGuestBinding.mutateAsync({
+        memberId,
+        targetUsername: bindingUsername,
+      });
+      setBindingToken(invitation.token);
+    } catch (reason) {
+      setBindingError(reason);
+    }
+  }
 
   async function decide(requestId: string, decision: "APPROVE" | "REJECT") {
     setDecisionError(undefined);
@@ -523,8 +547,75 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
         </section>
       ) : null}
       {decisionError ? <ErrorNotice error={decisionError} /> : null}
-      <section className="member-section"><h2>活动成员 · {members.data?.length ?? 0}人</h2><div className="member-list">{members.data?.map((member) => <div className="member-row" key={member.memberId}><MemberAvatar memberId={member.memberId} displayName={member.displayName} /><span><strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong><small>{member.userId ? "正式成员" : "临时成员"}</small></span><span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : "成员"}</span></div>)}</div></section>
-      {visibleInvitations.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{visibleInvitations.map((invite) => <div key={invite.invitationId}><span><strong>{invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入"}</strong><small>已使用 {invite.useCount}{invite.maxUses ? ` / ${invite.maxUses}` : ""}</small></span><Button variant="ghost" busy={revokeInvitation.isPending} onClick={() => revokeInvitation.mutate(invite.invitationId)}>撤销</Button></div>)}</div></section> : null}
+      <section className="member-section">
+        <h2>活动成员 · {members.data?.length ?? 0}人</h2>
+        <div className="member-list">
+          {members.data?.map((member) => {
+            const canBind = canManage && member.status === "ACTIVE" && member.userId == null;
+            const editorOpen = bindingMemberId === member.memberId;
+            return (
+              <div className="member-entry" key={member.memberId}>
+                <div className="member-row">
+                  <MemberAvatar memberId={member.memberId} displayName={member.displayName} />
+                  <span>
+                    <strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong>
+                    <small>{member.userId ? "正式成员" : "临时成员"}</small>
+                  </span>
+                  <div className="member-row__actions">
+                    <span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : "成员"}</span>
+                    {canBind ? (
+                      <Button
+                        variant="ghost"
+                        aria-expanded={editorOpen}
+                        onClick={() => {
+                          setBindingMemberId(editorOpen ? undefined : member.memberId);
+                          setBindingUsername("");
+                          setBindingToken(undefined);
+                          setBindingError(undefined);
+                        }}
+                      >
+                        <UserRoundCheck aria-hidden="true" size={17} />绑定账号
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                {editorOpen ? (
+                  <form
+                    className="guest-binding-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void createBindingInvitation(member.memberId);
+                    }}
+                  >
+                    <Field label="目标用户名" hint="该用户确认后，将继承此临时成员的账务身份。">
+                      <Input
+                        value={bindingUsername}
+                        onChange={(event) => setBindingUsername(event.target.value)}
+                        autoComplete="username"
+                        autoCapitalize="none"
+                        minLength={3}
+                        maxLength={32}
+                        required
+                        autoFocus
+                      />
+                    </Field>
+                    <Button type="submit" busy={createGuestBinding.isPending}>创建绑定邀请</Button>
+                    {bindingToken ? <div className="issued-invite" role="status" aria-live="polite"><strong>绑定口令已创建</strong><code>{bindingToken}</code><small>口令只在本次创建后显示，请及时发送给对方。</small></div> : null}
+                    {bindingError ? <ErrorNotice error={bindingError} /> : null}
+                  </form>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      {visibleInvitations.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{visibleInvitations.map((invite) => {
+        const guestName = members.data?.find((member) => member.memberId === invite.guestMemberId)?.displayName ?? "临时成员";
+        const label = invite.purpose === "GUEST_BINDING"
+          ? `绑定「${guestName}」给 @${invite.targetUsername ?? "目标用户"}`
+          : invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入";
+        return <div key={invite.invitationId}><span><strong>{label}</strong><small>已使用 {invite.useCount}{invite.maxUses ? ` / ${invite.maxUses}` : ""}</small></span><Button variant="ghost" busy={revokeInvitation.isPending} onClick={() => revokeInvitation.mutate(invite.invitationId)}>撤销</Button></div>;
+      })}</div></section> : null}
     </div>
   );
 }

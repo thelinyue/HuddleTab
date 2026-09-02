@@ -1,4 +1,4 @@
-import { ArrowRight, Eye, EyeOff, LogIn, UserPlus, UsersRound } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LogIn, UserPlus, UserRoundCheck, UsersRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Brand } from "../../components/brand";
@@ -152,9 +152,10 @@ export function JoinPage() {
         <Brand />
         {preview.error ? <ErrorNotice error={preview.error} /> : preview.data ? (
           <>
-            <span className="join-panel__icon"><UsersRound aria-hidden="true" size={30} /></span>
-            <p className="eyebrow">活动邀请</p>
+            <span className="join-panel__icon">{preview.data.purpose === "GUEST_BINDING" ? <UserRoundCheck aria-hidden="true" size={30} /> : <UsersRound aria-hidden="true" size={30} />}</span>
+            <p className="eyebrow">{preview.data.purpose === "GUEST_BINDING" ? "绑定临时成员身份" : "活动邀请"}</p>
             <h1>{preview.data.activityName}</h1>
+            {preview.data.purpose === "GUEST_BINDING" && preview.data.guestDisplayName ? <strong className="join-panel__guest">{preview.data.guestDisplayName}</strong> : null}
             <p>已有 {preview.data.activeMemberCount} 位成员，邀请有效期至 {new Date(preview.data.expiresAt).toLocaleDateString("zh-CN")}。</p>
             {session.data ? (
               <>
@@ -182,15 +183,15 @@ export function JoinPage() {
                       } else {
                         navigate(`/activities/${joined.activityId}`);
                       }
-                    })}
+                    }).catch(() => undefined)}
                   >
-                    加入活动 <ArrowRight aria-hidden="true" size={18} />
+                    {preview.data.purpose === "GUEST_BINDING" ? "确认绑定" : "加入活动"} <ArrowRight aria-hidden="true" size={18} />
                   </Button>
                 )}
               </>
             ) : (
               <div className="button-row">
-                <Link className="button button--primary" to={`/register?invite=${encodeURIComponent(token)}`}>注册并加入</Link>
+                <Link className="button button--primary" to={`/register?invite=${encodeURIComponent(token)}`}>{preview.data.purpose === "GUEST_BINDING" ? "注册并绑定" : "注册并加入"}</Link>
                 <Link className="button button--secondary" to="/login" state={{ from: `/join/${token}` }}>登录</Link>
               </div>
             )}
