@@ -35,6 +35,29 @@ export type PendingExpenseMutation = {
   updatedAt: number;
 };
 
+export type PendingAttachment = {
+  id: string;
+  userId: string;
+  activityId: string;
+  mutationId: string;
+  clientAttachmentId: string;
+  fileName: string;
+  mimeType: string;
+  blob: Blob;
+  status: MutationStatus;
+  attemptCount: number;
+  nextAttemptAt: number;
+  lastError?: { code: string; message: string };
+  serverAttachmentId?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type PendingAttachmentDraft = Pick<
+  PendingAttachment,
+  "id" | "clientAttachmentId" | "fileName" | "mimeType" | "blob"
+>;
+
 export interface HuddleTabDb extends DBSchema {
   activity_snapshots: {
     key: string;
@@ -44,5 +67,10 @@ export interface HuddleTabDb extends DBSchema {
     key: string;
     value: PendingExpenseMutation;
     indexes: { "by-activity": string };
+  };
+  pending_attachments: {
+    key: string;
+    value: PendingAttachment;
+    indexes: { "by-mutation": string };
   };
 }

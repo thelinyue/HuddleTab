@@ -17,16 +17,23 @@ afterEach(async () => {
 });
 
 describe("HuddleTab IndexedDB", () => {
-  it("fresh database 只创建 Task 25 的两个 store 和活动索引", async () => {
+  it("fresh database 保持 schema v1 并一次创建三个 store", async () => {
     await withUserDatabase("user-1", async (database) => {
       expect(database.version).toBe(1);
       expect([...database.objectStoreNames]).toEqual([
         "activity_snapshots",
+        "pending_attachments",
         "pending_mutations",
       ]);
       const transaction = database.transaction("pending_mutations", "readonly");
       expect([...transaction.store.indexNames]).toEqual(["by-activity"]);
       await transaction.done;
+      const attachments = database.transaction(
+        "pending_attachments",
+        "readonly",
+      );
+      expect([...attachments.store.indexNames]).toEqual(["by-mutation"]);
+      await attachments.done;
     });
   });
 

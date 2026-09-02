@@ -27,6 +27,11 @@ export async function withUserDatabase<T>(
             { keyPath: "id" },
           );
           mutations.createIndex("by-activity", "activityId");
+          const attachments = upgradeDatabase.createObjectStore(
+            "pending_attachments",
+            { keyPath: "id" },
+          );
+          attachments.createIndex("by-mutation", "mutationId");
         },
       },
     );
