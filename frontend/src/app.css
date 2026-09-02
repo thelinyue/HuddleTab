@@ -513,3 +513,7 @@ button.settings-row:hover { background: var(--surface-muted); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+.exchange-rate-input { display: flex; gap: .5rem; align-items: center; }
+.exchange-rate-input .input { min-width: 0; flex: 1; }
+.exchange-rate-input .button { flex: none; white-space: nowrap; }
+@media (max-width: 520px) { .exchange-rate-input { align-items: stretch; flex-direction: column; } }

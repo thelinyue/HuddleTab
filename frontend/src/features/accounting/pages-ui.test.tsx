@@ -68,6 +68,13 @@ const deleteAttachmentMutation = vi.hoisted(() => ({
   mutateAsync: vi.fn().mockResolvedValue(undefined),
   variables: undefined as string | undefined,
 }));
+const rateMutation = vi.hoisted(() => ({
+  isPending: false,
+  mutateAsync: vi.fn().mockResolvedValue({
+    fromCurrency: "JPY", toCurrency: "CNY", rate: "0.04209",
+    source: "PROVIDER", provider: "FRANKFURTER", referenceDate: "2026-08-30",
+  }),
+}));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 
 vi.mock("../activities/pages", () => ({
@@ -87,6 +94,7 @@ vi.mock("./api", () => ({
   useDeleteExpenseMutation: mutation,
   useDeleteAttachmentMutation: () => deleteAttachmentMutation,
   useExpenseQuery: () => ({ data: expense, isPending: false }),
+  useExchangeRateSuggestionMutation: () => rateMutation,
   useExpensesQuery: () => ({ data: [expense], isPending: false }),
   useLedgerQuery: () => ({ data: { balances: [{ memberId: "member-1", netMinor: "-500" }, { memberId: "member-2", netMinor: "500" }] }, isPending: false }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
@@ -116,7 +124,37 @@ afterEach(() => {
   pendingMutations.records = [];
   createMutation.mutateAsync.mockClear();
   deleteAttachmentMutation.mutateAsync.mockClear();
+  rateMutation.mutateAsync.mockClear();
   vi.restoreAllMocks();
+});
+
+describe("Expense 参考汇率", () => {
+  it("只在点击后填入建议，手工修改立即清除自动来源", async () => {
+    renderPage(<NewExpensePage />);
+    fireEvent.change(screen.getByLabelText("币种"), { target: { value: "JPY" } });
+    fireEvent.click(screen.getByRole("button", { name: "获取参考汇率" }));
+
+    await waitFor(() => expect(rateMutation.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(screen.getByPlaceholderText("例如 7.25")).toHaveValue("0.04209");
+    expect(screen.getByText("Frankfurter 参考汇率 · 2026-08-30")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("例如 7.25"), { target: { value: "0.043" } });
+    expect(screen.queryByText(/Frankfurter 参考汇率/)).not.toBeInTheDocument();
+  });
+
+  it("Provider 失败时保留金额、币种与手工输入", async () => {
+    rateMutation.mutateAsync.mockRejectedValueOnce(new Error("upstream"));
+    renderPage(<NewExpensePage />);
+    fireEvent.change(screen.getByPlaceholderText("0.00"), { target: { value: "123" } });
+    fireEvent.change(screen.getByLabelText("币种"), { target: { value: "JPY" } });
+    fireEvent.change(screen.getByPlaceholderText("例如 7.25"), { target: { value: "0.041" } });
+    fireEvent.click(screen.getByRole("button", { name: "获取参考汇率" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("暂时无法获取参考汇率，请手动输入。");
+    expect(screen.getByPlaceholderText("0.00")).toHaveValue("123");
+    expect(screen.getByLabelText("币种")).toHaveValue("JPY");
+    expect(screen.getByPlaceholderText("例如 7.25")).toHaveValue("0.041");
+  });
 });
 
 describe("Expense 附件选择与私有预览", () => {

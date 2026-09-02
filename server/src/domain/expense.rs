@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use time::Date;
 use uuid::Uuid;
 
 use super::{
@@ -57,6 +58,8 @@ pub struct PreparedExpense {
     pub base_amount_minor: i64,
     pub exchange_rate_kind: String,
     pub exchange_rate: String,
+    pub exchange_rate_reference_date: Option<Date>,
+    pub exchange_rate_provider: Option<String>,
     pub split_mode: String,
     pub payments: Vec<ExpenseFactRow>,
     pub shares: Vec<ExpenseFactRow>,
@@ -107,7 +110,7 @@ pub fn prepare_expense(
         exchange_rate_kind,
         rate.to_api().as_str(),
     ) {
-        (true, "IDENTITY", "1") | (false, "MANUAL", _) => {}
+        (true, "IDENTITY", "1") | (false, "MANUAL" | "PROVIDER" | "CACHE", _) => {}
         _ => return Err(PrepareExpenseError::InvalidRateKind),
     }
     let base_total = rate
@@ -150,6 +153,8 @@ pub fn prepare_expense(
         base_amount_minor: base_total,
         exchange_rate_kind: exchange_rate_kind.to_owned(),
         exchange_rate: rate.to_api(),
+        exchange_rate_reference_date: None,
+        exchange_rate_provider: None,
         split_mode,
         payments,
         shares,

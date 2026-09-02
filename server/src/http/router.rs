@@ -8,18 +8,22 @@ use axum::{
 };
 use serde::Serialize;
 use sqlx::PgPool;
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::infrastructure::app_secret::AppSecret;
+use crate::{
+    application::exchange_rate::ExchangeRateProvider,
+    infrastructure::exchange_rate_provider::FrankfurterExchangeRateProvider,
+};
 
 use super::rate_limit::{ClientIp, RateLimiter};
 use super::static_files::mount_static_files;
 use super::{
     accounting, activity, attachment, auth, collaboration,
     error::{ApiError, RequestId},
-    expense, notification, settlement, sharing, snapshot,
+    exchange_rate, expense, notification, settlement, sharing, snapshot,
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -46,6 +50,7 @@ pub struct AppState {
     pub(crate) trust_proxy: bool,
     pub(crate) rate_limiter: RateLimiter,
     pub(crate) uploads_dir: PathBuf,
+    pub(crate) exchange_rate_provider: Arc<dyn ExchangeRateProvider>,
 }
 
 impl AppState {
@@ -66,12 +71,19 @@ impl AppState {
             trust_proxy,
             rate_limiter: RateLimiter::new(),
             uploads_dir: PathBuf::from("/data/uploads"),
+            exchange_rate_provider: Arc::new(FrankfurterExchangeRateProvider::new()),
         }
     }
 
     #[must_use]
     pub fn with_uploads_dir(mut self, uploads_dir: PathBuf) -> Self {
         self.uploads_dir = uploads_dir;
+        self
+    }
+
+    #[must_use]
+    pub fn with_exchange_rate_provider(mut self, provider: Arc<dyn ExchangeRateProvider>) -> Self {
+        self.exchange_rate_provider = provider;
         self
     }
 }
@@ -118,6 +130,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             get(activity::list)
                 .post(activity::create)
                 .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/exchange-rate",
+            get(exchange_rate::suggest).fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}",

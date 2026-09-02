@@ -4,6 +4,7 @@ pub mod attachment;
 pub mod auth;
 pub mod collaboration;
 pub mod error;
+pub mod exchange_rate;
 pub mod expense;
 pub mod notification;
 pub mod openapi;

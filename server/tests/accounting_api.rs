@@ -152,8 +152,10 @@ fn expense_payload(context: &AccountingContext, mutation_id: Uuid, title: &str) 
         "occurredAt": "2026-08-30T12:00:00Z",
         "originalCurrency": "USD",
         "originalAmountMinor": "1001",
-        "exchangeRateKind": "MANUAL",
+        "exchangeRateKind": "PROVIDER",
         "exchangeRate": "7.2",
+        "exchangeRateReferenceDate": "2026-08-30",
+        "exchangeRateProvider": "FRANKFURTER",
         "payments": [
             {"memberId": context.owner_member_id, "amountMinor": "600"},
             {"memberId": context.guest_member_id, "amountMinor": "401"}
@@ -366,6 +368,15 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
         .as_str()
         .expect("应返回 Expense ID");
     assert_eq!(created["data"]["expense"]["baseAmountMinor"], "7207");
+    assert_eq!(created["data"]["expense"]["exchangeRateKind"], "PROVIDER");
+    assert_eq!(
+        created["data"]["expense"]["exchangeRateReferenceDate"],
+        "2026-08-30"
+    );
+    assert_eq!(
+        created["data"]["expense"]["exchangeRateProvider"],
+        "FRANKFURTER"
+    );
     assert_eq!(
         fact_sum(&created["data"]["payments"], "baseAmountMinor"),
         7207
@@ -381,6 +392,7 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     assert_eq!(replay["data"]["idempotentReplay"], true);
     assert_eq!(replay["data"]["expense"]["expenseId"], expense_id);
     assert_eq!(replay["data"]["expense"]["revision"], "2");
+    assert_eq!(replay["data"]["expense"]["exchangeRateKind"], "PROVIDER");
 
     let item_uri = format!(
         "/api/activities/{}/expenses/{expense_id}",
@@ -653,6 +665,12 @@ async fn ended_only_keeps_settlement_mutations_writable() {
         let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
         assert_eq!(status, StatusCode::OK);
     }
+    let updated_amount = recommendation["amountMinor"]
+        .as_str()
+        .expect("推荐金额应为字符串")
+        .parse::<i64>()
+        .expect("推荐金额应为整数")
+        - 1;
     let (status, updated) = response(
         &context,
         request(
@@ -663,7 +681,7 @@ async fn ended_only_keeps_settlement_mutations_writable() {
                 "version": "1",
                 "payerMemberId": recommendation["payerMemberId"],
                 "receiverMemberId": recommendation["receiverMemberId"],
-                "amountMinor": recommendation["amountMinor"]
+                "amountMinor": updated_amount.to_string()
             }),
         ),
     )

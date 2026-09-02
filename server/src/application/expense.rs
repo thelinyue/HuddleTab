@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use thiserror::Error;
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
@@ -31,6 +31,8 @@ pub struct ExpenseRecord {
     pub base_amount_minor: i64,
     pub exchange_rate_kind: String,
     pub exchange_rate: String,
+    pub exchange_rate_reference_date: Option<Date>,
+    pub exchange_rate_provider: Option<String>,
     pub split_mode: String,
     pub version: i64,
     pub revision: i64,
@@ -181,6 +183,8 @@ pub struct ExpenseDraftInput {
     pub original_amount_minor: String,
     pub exchange_rate_kind: String,
     pub exchange_rate: String,
+    pub exchange_rate_reference_date: Option<Date>,
+    pub exchange_rate_provider: Option<String>,
     pub payments: Vec<PaymentInput>,
     pub split: ExpenseSplitInput,
 }
@@ -234,7 +238,8 @@ pub async fn create_expense(
         .activity_context(input.activity_id, input.actor_user_id)
         .await
         .map_err(map_repository_error)?;
-    let prepared = prepare(&context.base_currency, &input.draft)?;
+    let mut prepared = prepare(&context.base_currency, &input.draft)?;
+    apply_rate_metadata(&mut prepared, &input.draft);
     repository
         .create(NewExpense {
             id: Uuid::new_v4(),
@@ -269,7 +274,8 @@ pub async fn update_expense(
         .activity_context(input.activity_id, input.actor_user_id)
         .await
         .map_err(map_repository_error)?;
-    let prepared = prepare(&context.base_currency, &input.draft)?;
+    let mut prepared = prepare(&context.base_currency, &input.draft)?;
+    apply_rate_metadata(&mut prepared, &input.draft);
     repository
         .update(ExpenseUpdate {
             activity_id: input.activity_id,
@@ -381,7 +387,23 @@ fn validate_metadata(draft: &ExpenseDraftInput) -> Result<(), ExpenseError> {
     {
         return Err(ExpenseError::InvalidInput);
     }
+    let metadata_is_empty =
+        draft.exchange_rate_reference_date.is_none() && draft.exchange_rate_provider.is_none();
+    match draft.exchange_rate_kind.as_str() {
+        "IDENTITY" | "MANUAL" if metadata_is_empty => {}
+        "PROVIDER" | "CACHE"
+            if draft.exchange_rate_reference_date.is_some()
+                && draft.exchange_rate_provider.as_deref() == Some("FRANKFURTER") => {}
+        _ => return Err(ExpenseError::InvalidInput),
+    }
     Ok(())
+}
+
+fn apply_rate_metadata(prepared: &mut PreparedExpense, draft: &ExpenseDraftInput) {
+    prepared.exchange_rate_reference_date = draft.exchange_rate_reference_date;
+    prepared
+        .exchange_rate_provider
+        .clone_from(&draft.exchange_rate_provider);
 }
 
 fn normalize_note(note: Option<String>) -> Option<String> {

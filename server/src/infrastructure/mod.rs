@@ -12,6 +12,8 @@ pub mod clock;
 pub mod collaboration_repository;
 pub mod csrf;
 pub mod database;
+pub mod exchange_rate_provider;
+pub mod exchange_rate_repository;
 pub mod expense_repository;
 pub mod invitation_token;
 pub mod notification_repository;

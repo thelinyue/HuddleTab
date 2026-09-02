@@ -95,6 +95,33 @@ fn activity_snapshot_publishes_conditional_get_contract() {
 }
 
 #[test]
+fn exchange_rate_contract_publishes_query_and_stable_errors() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    let operation = &value["paths"]["/api/activities/{activity_id}/exchange-rate"]["get"];
+    assert!(operation.is_object());
+    for name in ["from", "date"] {
+        assert!(
+            operation["parameters"]
+                .as_array()
+                .expect("参数应为数组")
+                .iter()
+                .any(|parameter| parameter["name"] == name && parameter["in"] == "query")
+        );
+    }
+    for status in ["200", "401", "403", "422", "503"] {
+        assert!(operation["responses"][status].is_object(), "缺少 {status}");
+    }
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/ExchangeRateSuggestionEnvelope"
+    );
+    let expense = &value["components"]["schemas"]["ExpenseData"]["properties"];
+    assert!(expense["exchangeRateReferenceDate"].is_object());
+    assert!(expense["exchangeRateProvider"].is_object());
+}
+
+#[test]
 fn attachment_contract_publishes_multipart_and_private_binary_download() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");

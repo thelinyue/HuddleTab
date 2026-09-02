@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/exchange-rate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["suggest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/expenses": {
         parameters: {
             query?: never;
@@ -752,6 +768,17 @@ export interface components {
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
         };
+        ExchangeRateSuggestionData: {
+            fromCurrency: string;
+            provider: string;
+            rate: string;
+            referenceDate: string;
+            source: string;
+            toCurrency: string;
+        };
+        ExchangeRateSuggestionEnvelope: {
+            data: components["schemas"]["ExchangeRateSuggestionData"];
+        };
         ExpenseAggregateData: {
             attachments: components["schemas"]["ExpenseAttachmentData"][];
             expense: components["schemas"]["ExpenseData"];
@@ -777,6 +804,8 @@ export interface components {
             createdAt: string;
             exchangeRate: string;
             exchangeRateKind: string;
+            exchangeRateProvider?: string | null;
+            exchangeRateReferenceDate?: string | null;
             expenseId: string;
             note?: string | null;
             occurredAt: string;
@@ -793,6 +822,8 @@ export interface components {
             clientMutationId: string;
             exchangeRate: string;
             exchangeRateKind: string;
+            exchangeRateProvider?: string | null;
+            exchangeRateReferenceDate?: string | null;
             note?: string | null;
             occurredAt: string;
             originalAmountMinor: string;
@@ -1273,6 +1304,70 @@ export interface operations {
             };
             /** @description 活动版本或状态冲突 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    suggest: {
+        parameters: {
+            query: {
+                /** @description 原币三字母代码 */
+                from: string;
+                /** @description Expense occurredAt 的 UTC 日期 */
+                date: string;
+            };
+            header?: never;
+            path: {
+                /** @description Activity UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 参考汇率建议 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExchangeRateSuggestionEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无活动写入权限 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 币种或日期无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Provider 与缓存均不可用 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
 async fn composite_member_foreign_keys_and_single_owner_are_enforced() {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .expect("运行 Schema 集成测试前必须设置 TEST_DATABASE_URL");
@@ -39,6 +40,32 @@ async fn composite_member_foreign_keys_and_single_owner_are_enforced() {
     .execute(&mut *transaction)
     .await
     .expect("合法账单应可创建");
+
+    transaction
+        .execute("SAVEPOINT invalid_rate_metadata")
+        .await
+        .expect("应建立 savepoint");
+    let invalid_rate = sqlx::query(
+        "INSERT INTO expenses (
+            id, activity_id, created_by_user_id, client_mutation_id, title, category,
+            occurred_at, original_currency, original_amount_minor, base_currency,
+            base_amount_minor, exchange_rate_kind, exchange_rate, exchange_rate_reference_date,
+            exchange_rate_provider, split_mode, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, '错误汇率', 'OTHER', NOW(), 'JPY', 100, 'CNY',
+                   4, 'PROVIDER', 0.04, NULL, 'FRANKFURTER', 'EXACT', NOW(), NOW())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(first_activity)
+    .bind(first_user)
+    .bind(Uuid::new_v4())
+    .execute(&mut *transaction)
+    .await
+    .expect_err("自动汇率缺少参考日期必须被数据库拒绝");
+    assert_eq!(constraint_name(&invalid_rate), Some("expenses_rate_kind"));
+    transaction
+        .execute("ROLLBACK TO SAVEPOINT invalid_rate_metadata")
+        .await
+        .expect("应恢复 savepoint");
 
     transaction
         .execute("SAVEPOINT cross_activity_member")

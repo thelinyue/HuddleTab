@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use async_trait::async_trait;
 use sqlx::{FromRow, PgConnection, PgPool};
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::application::expense::{
@@ -40,6 +40,8 @@ struct ExpenseRow {
     base_amount_minor: i64,
     exchange_rate_kind: String,
     exchange_rate: String,
+    exchange_rate_reference_date: Option<Date>,
+    exchange_rate_provider: Option<String>,
     split_mode: String,
     version: i64,
     revision: i64,
@@ -125,9 +127,10 @@ impl ExpenseRepository for PostgresExpenseRepository {
         sqlx::query(
             "INSERT INTO expenses (id, activity_id, created_by_user_id, client_mutation_id, title, \
              category, note, occurred_at, original_currency, original_amount_minor, base_currency, \
-             base_amount_minor, exchange_rate_kind, exchange_rate, split_mode, created_at, updated_at) \
+             base_amount_minor, exchange_rate_kind, exchange_rate, exchange_rate_reference_date, \
+             exchange_rate_provider, split_mode, created_at, updated_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, \
-                     CAST($14 AS NUMERIC), $15, $16, $16)",
+                     CAST($14 AS NUMERIC), $15, $16, $17, $18, $18)",
         )
         .bind(expense.id)
         .bind(expense.activity_id)
@@ -143,6 +146,8 @@ impl ExpenseRepository for PostgresExpenseRepository {
         .bind(expense.prepared.base_amount_minor)
         .bind(&expense.prepared.exchange_rate_kind)
         .bind(&expense.prepared.exchange_rate)
+        .bind(expense.prepared.exchange_rate_reference_date)
+        .bind(&expense.prepared.exchange_rate_provider)
         .bind(&expense.prepared.split_mode)
         .bind(expense.now)
         .execute(&mut *transaction)
@@ -254,8 +259,9 @@ impl ExpenseRepository for PostgresExpenseRepository {
             "UPDATE expenses SET title = $1, category = $2, note = $3, occurred_at = $4, \
              original_currency = $5, original_amount_minor = $6, base_currency = $7, \
              base_amount_minor = $8, exchange_rate_kind = $9, \
-             exchange_rate = CAST($10 AS NUMERIC), split_mode = $11, \
-             version = version + 1, updated_at = $12 WHERE id = $13",
+             exchange_rate = CAST($10 AS NUMERIC), exchange_rate_reference_date = $11, \
+             exchange_rate_provider = $12, split_mode = $13, \
+             version = version + 1, updated_at = $14 WHERE id = $15",
         )
         .bind(&expense.title)
         .bind(&expense.category)
@@ -267,6 +273,8 @@ impl ExpenseRepository for PostgresExpenseRepository {
         .bind(expense.prepared.base_amount_minor)
         .bind(&expense.prepared.exchange_rate_kind)
         .bind(&expense.prepared.exchange_rate)
+        .bind(expense.prepared.exchange_rate_reference_date)
+        .bind(&expense.prepared.exchange_rate_provider)
         .bind(&expense.prepared.split_mode)
         .bind(expense.now)
         .bind(expense.expense_id)
@@ -372,6 +380,9 @@ fn aggregate_matches_update(current: &ExpenseAggregate, update: &ExpenseUpdate) 
         && current.expense.base_amount_minor == update.prepared.base_amount_minor
         && current.expense.exchange_rate_kind == update.prepared.exchange_rate_kind
         && current.expense.exchange_rate == update.prepared.exchange_rate
+        && current.expense.exchange_rate_reference_date
+            == update.prepared.exchange_rate_reference_date
+        && current.expense.exchange_rate_provider == update.prepared.exchange_rate_provider
         && current.expense.split_mode == update.prepared.split_mode
         && facts_match(&current.payments, &update.prepared.payments)
         && shares_match(&current.shares, &update.prepared.shares)
@@ -568,7 +579,8 @@ pub(crate) async fn load_aggregate(
         "SELECT e.id, e.activity_id, e.created_by_user_id, e.client_mutation_id, e.title, \
          e.category, e.note, e.occurred_at, e.original_currency, e.original_amount_minor, \
          e.base_currency, e.base_amount_minor, e.exchange_rate_kind, \
-         e.exchange_rate::text AS exchange_rate, e.split_mode, e.version, a.revision, e.deleted_at, \
+         e.exchange_rate::text AS exchange_rate, e.exchange_rate_reference_date, \
+         e.exchange_rate_provider, e.split_mode, e.version, a.revision, e.deleted_at, \
          e.created_at, e.updated_at FROM expenses e JOIN activities a ON a.id = e.activity_id \
          WHERE e.id = $1 AND a.deleted_at IS NULL AND ($2 = FALSE OR e.deleted_at IS NULL)",
     )
@@ -644,6 +656,8 @@ pub(crate) async fn load_aggregate(
             base_amount_minor: row.base_amount_minor,
             exchange_rate_kind: row.exchange_rate_kind,
             exchange_rate: normalize_numeric_text(&row.exchange_rate),
+            exchange_rate_reference_date: row.exchange_rate_reference_date,
+            exchange_rate_provider: row.exchange_rate_provider,
             split_mode: row.split_mode,
             version: row.version,
             revision: row.revision,

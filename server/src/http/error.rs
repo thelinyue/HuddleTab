@@ -231,6 +231,26 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_exchange_rate_query(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_EXCHANGE_RATE_QUERY",
+            "参考汇率币种或日期无效。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn exchange_rate_unavailable(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "EXCHANGE_RATE_UNAVAILABLE",
+            "暂时无法获取参考汇率，请手动输入。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn invalid_attachment(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,

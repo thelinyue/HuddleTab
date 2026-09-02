@@ -282,6 +282,93 @@
         }
       }
     },
+    "/api/activities/{activity_id}/exchange-rate": {
+      "get": {
+        "tags": [],
+        "operationId": "suggest",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "Activity UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "原币三字母代码",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "description": "Expense occurredAt 的 UTC 日期",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "参考汇率建议",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExchangeRateSuggestionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无活动写入权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "币种或日期无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider 与缓存均不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/expenses": {
       "get": {
         "tags": [],
@@ -3554,6 +3641,48 @@
           }
         }
       },
+      "ExchangeRateSuggestionData": {
+        "type": "object",
+        "required": [
+          "fromCurrency",
+          "toCurrency",
+          "rate",
+          "source",
+          "provider",
+          "referenceDate"
+        ],
+        "properties": {
+          "fromCurrency": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "string"
+          },
+          "referenceDate": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "toCurrency": {
+            "type": "string"
+          }
+        }
+      },
+      "ExchangeRateSuggestionEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExchangeRateSuggestionData"
+          }
+        }
+      },
       "ExpenseAggregateData": {
         "type": "object",
         "required": [
@@ -3665,6 +3794,18 @@
           "exchangeRateKind": {
             "type": "string"
           },
+          "exchangeRateProvider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exchangeRateReferenceDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "expenseId": {
             "type": "string"
           },
@@ -3726,6 +3867,18 @@
           },
           "exchangeRateKind": {
             "type": "string"
+          },
+          "exchangeRateProvider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exchangeRateReferenceDate": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "note": {
             "type": [

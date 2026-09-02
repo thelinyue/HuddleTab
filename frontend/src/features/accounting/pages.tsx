@@ -16,6 +16,7 @@ import {
   useDeleteAttachmentMutation,
   useDeleteExpenseMutation,
   useExpenseQuery,
+  useExchangeRateSuggestionMutation,
   useExpensesQuery,
   useLedgerQuery,
   useRecommendationsQuery,
@@ -369,6 +370,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
   const create = useCreateExpenseMutation(session.userId, activity.activityId);
   const update = useUpdateExpenseMutation(session.userId, activity.activityId, expenseId ?? "");
   const deleteAttachment = useDeleteAttachmentMutation(session.userId, activity.activityId, expenseId ?? "");
+  const rateSuggestion = useExchangeRateSuggestionMutation(activity.activityId);
   const [title, setTitle] = useState(initial?.expense.title ?? "");
   const [category, setCategory] = useState(initial?.expense.category ?? "FOOD");
   const [note, setNote] = useState(initial?.expense.note ?? "");
@@ -376,6 +378,9 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
   const [currency, setCurrency] = useState(initial?.expense.originalCurrency ?? activity.baseCurrency);
   const [amount, setAmount] = useState(initial ? minorToInput(initial.expense.originalAmountMinor, initial.expense.originalCurrency) : "");
   const [exchangeRate, setExchangeRate] = useState(initial?.expense.exchangeRate ?? "");
+  const [exchangeRateKind, setExchangeRateKind] = useState(initial?.expense.exchangeRateKind ?? (initial?.expense.originalCurrency === activity.baseCurrency ? "IDENTITY" : "MANUAL"));
+  const [exchangeRateReferenceDate, setExchangeRateReferenceDate] = useState(initial?.expense.exchangeRateReferenceDate ?? null);
+  const [exchangeRateProvider, setExchangeRateProvider] = useState(initial?.expense.exchangeRateProvider ?? null);
   const [splitMode, setSplitMode] = useState<SplitMode>(initial ? "EXACT" : "EQUAL");
   const [selectedMembers, setSelectedMembers] = useState<Record<string, boolean>>(() => Object.fromEntries((initial?.shares ?? []).map((share) => [share.memberId, true])));
   const [splitValues, setSplitValues] = useState<Record<string, string>>(() => Object.fromEntries((initial?.shares ?? []).map((share) => [share.memberId, minorToInput(share.originalAmountMinor, initial!.expense.originalCurrency)])));
@@ -400,6 +405,34 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
     }
     setLocalError(undefined);
     setFiles(selected);
+  }
+
+  function clearAutomaticRate(keepValue: boolean) {
+    if (exchangeRateKind !== "PROVIDER" && exchangeRateKind !== "CACHE") return;
+    if (!keepValue) setExchangeRate("");
+    setExchangeRateKind("MANUAL");
+    setExchangeRateReferenceDate(null);
+    setExchangeRateProvider(null);
+  }
+
+  async function requestReferenceRate() {
+    setLocalError(undefined);
+    if (!navigator.onLine) {
+      setLocalError("当前处于离线状态，请手动输入汇率。");
+      return;
+    }
+    try {
+      const suggestion = await rateSuggestion.mutateAsync({
+        from: normalizeCurrency(currency),
+        date: new Date(occurredAt).toISOString().slice(0, 10),
+      });
+      setExchangeRate(suggestion.rate);
+      setExchangeRateKind(suggestion.source);
+      setExchangeRateReferenceDate(suggestion.referenceDate);
+      setExchangeRateProvider(suggestion.provider);
+    } catch {
+      setLocalError("暂时无法获取参考汇率，请手动输入。");
+    }
   }
 
   async function submit(event: FormEvent) {
@@ -430,8 +463,10 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
         clientMutationId: initial?.expense.clientMutationId ?? crypto.randomUUID(),
         originalCurrency: normalizedCurrency,
         originalAmountMinor: totalMinor,
-        exchangeRateKind: normalizedCurrency === activity.baseCurrency ? "IDENTITY" : "MANUAL",
+        exchangeRateKind: normalizedCurrency === activity.baseCurrency ? "IDENTITY" : exchangeRateKind,
         exchangeRate: normalizedCurrency === activity.baseCurrency ? "1" : exchangeRate.trim(),
+        exchangeRateReferenceDate: normalizedCurrency === activity.baseCurrency ? null : exchangeRateReferenceDate,
+        exchangeRateProvider: normalizedCurrency === activity.baseCurrency ? null : exchangeRateProvider,
         payments,
         split,
       };
@@ -454,11 +489,11 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
         <header className="panel__header"><div><p className="eyebrow">基本信息</p><h2>{initial ? "修改账单" : "记一笔支出"}</h2></div></header>
         <div className="form-grid form-grid--two">
           <Field label="金额"><div className="amount-input"><span>{currency}</span><Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required autoFocus /></div></Field>
-          <Field label="币种"><Input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} required /></Field>
-          {currency.trim().toUpperCase() !== activity.baseCurrency ? <Field label={`汇率（1 ${currency || "原币"} = N ${activity.baseCurrency}）`}><Input inputMode="decimal" value={exchangeRate} onChange={(event) => setExchangeRate(event.target.value)} required placeholder="例如 7.25" /></Field> : null}
+          <Field label="币种"><Input value={currency} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} maxLength={3} required /></Field>
+          {currency.trim().toUpperCase() !== activity.baseCurrency ? <Field label={`汇率（1 ${currency || "原币"} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input inputMode="decimal" value={exchangeRate} onChange={(event) => { setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} required placeholder="例如 7.25" /><Button type="button" variant="secondary" onClick={() => void requestReferenceRate()} disabled={rateSuggestion.isPending}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : "Frankfurter 参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field> : null}
           <Field label="标题"><Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required /></Field>
           <Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field>
-          <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} required /></Field>
+          <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); clearAutomaticRate(false); }} required /></Field>
         </div>
         <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
         {!initial ? <Field label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => { selectAttachments(event.target.files); event.target.value = ""; }} />{files.length ? <small className="attachment-selection">已选择 {files.length} 张</small> : null}<SelectedAttachmentPreviews files={files} onRemove={(index) => setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field> : null}
@@ -530,7 +565,7 @@ export function ExpenseDetailPage() {
             <div><dt>分类</dt><dd>{categoryLabel}</dd></div>
             <div><dt>原始金额</dt><dd><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></dd></div>
             <div><dt>折算金额</dt><dd><Money value={formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)} /></dd></div>
-            <div><dt>汇率</dt><dd>{aggregate.expense.exchangeRate}</dd></div>
+            <div><dt>汇率</dt><dd>{aggregate.expense.exchangeRate}{aggregate.expense.exchangeRateReferenceDate ? <small>{aggregate.expense.exchangeRateKind === "CACHE" ? "缓存参考汇率" : "Frankfurter 参考汇率"} · {aggregate.expense.exchangeRateReferenceDate}</small> : null}</dd></div>
             <div><dt>付款事实</dt><dd>{aggregate.payments.map((payment) => <span key={payment.factId}>{memberName(payment.memberId, members.data)}<Money value={formatMoney(aggregate.expense.originalCurrency, payment.originalAmountMinor)} /></span>)}</dd></div>
             <div><dt>分摊方式</dt><dd>{splitModeLabel}</dd></div>
             <div><dt>成员分摊</dt><dd>{aggregate.shares.map((share) => <span key={share.factId}>{memberName(share.memberId, members.data)}<Money value={formatMoney(aggregate.expense.originalCurrency, share.originalAmountMinor)} /></span>)}</dd></div>

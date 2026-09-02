@@ -6,6 +6,7 @@ pub mod attachment;
 pub mod auth;
 pub mod bootstrap_user;
 pub mod collaboration;
+pub mod exchange_rate;
 pub mod expense;
 pub mod notification;
 pub mod ports;

@@ -270,6 +270,15 @@ async fn wait_until_snapshot_blocks(pool: &PgPool) {
 async fn snapshot_returns_complete_authorized_data_and_weak_etag() {
     let _guard = DATABASE_TEST_LOCK.lock().await;
     let context = seed_context().await;
+    sqlx::query(
+        "UPDATE expenses SET original_currency = 'JPY', exchange_rate_kind = 'CACHE', \
+         exchange_rate = 0.04209, exchange_rate_reference_date = '2026-08-29', \
+         exchange_rate_provider = 'FRANKFURTER' WHERE activity_id = $1",
+    )
+    .bind(context.activity_id)
+    .execute(&context.pool)
+    .await
+    .expect("应写入缓存汇率快照");
 
     let (status, headers, bytes) = raw_response(
         &context,
@@ -289,6 +298,18 @@ async fn snapshot_returns_complete_authorized_data_and_weak_etag() {
     assert_eq!(snapshot["activity"]["revision"], "7");
     assert_eq!(snapshot["members"].as_array().map(Vec::len), Some(2));
     assert_eq!(snapshot["expenses"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        snapshot["expenses"][0]["expense"]["exchangeRateKind"],
+        "CACHE"
+    );
+    assert_eq!(
+        snapshot["expenses"][0]["expense"]["exchangeRateReferenceDate"],
+        "2026-08-29"
+    );
+    assert_eq!(
+        snapshot["expenses"][0]["expense"]["exchangeRateProvider"],
+        "FRANKFURTER"
+    );
     assert_eq!(
         snapshot["expenses"][0]["payments"].as_array().map(Vec::len),
         Some(1)

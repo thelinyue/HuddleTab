@@ -5,7 +5,7 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{Date, OffsetDateTime, format_description::well_known::Rfc3339};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -58,6 +58,8 @@ pub struct ExpenseDraftRequest {
     pub original_amount_minor: String,
     pub exchange_rate_kind: String,
     pub exchange_rate: String,
+    pub exchange_rate_reference_date: Option<String>,
+    pub exchange_rate_provider: Option<String>,
     pub payments: Vec<ExpensePaymentRequest>,
     pub split: ExpenseSplitRequest,
 }
@@ -91,6 +93,8 @@ pub struct ExpenseData {
     pub base_amount_minor: String,
     pub exchange_rate_kind: String,
     pub exchange_rate: String,
+    pub exchange_rate_reference_date: Option<String>,
+    pub exchange_rate_provider: Option<String>,
     pub split_mode: String,
     pub version: String,
     pub revision: String,
@@ -193,7 +197,7 @@ pub(crate) async fn create(
         CreateExpenseInput {
             activity_id,
             actor_user_id: actor.user_id,
-            draft: draft(request, request_id.clone())?,
+            draft: draft(request, &request_id)?,
         },
     )
     .await
@@ -307,7 +311,7 @@ pub(crate) async fn update(
             expense_id,
             actor_user_id: actor.user_id,
             version: request.version,
-            draft: draft(request.draft, request_id.clone())?,
+            draft: draft(request.draft, &request_id)?,
         },
     )
     .await
@@ -364,7 +368,7 @@ pub(crate) async fn delete(
 
 fn draft(
     request: ExpenseDraftRequest,
-    request_id: RequestId,
+    request_id: &RequestId,
 ) -> Result<ExpenseDraftInput, ApiError> {
     let client_mutation_id = parse_uuid(&request.client_mutation_id, request_id.clone())?;
     let occurred_at = OffsetDateTime::parse(&request.occurred_at, &Rfc3339)
@@ -379,7 +383,7 @@ fn draft(
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
-    let split = split(request.split, request_id)?;
+    let split = split(request.split, request_id.clone())?;
     Ok(ExpenseDraftInput {
         client_mutation_id,
         title: request.title,
@@ -390,6 +394,17 @@ fn draft(
         original_amount_minor: request.original_amount_minor,
         exchange_rate_kind: request.exchange_rate_kind,
         exchange_rate: request.exchange_rate,
+        exchange_rate_reference_date: request
+            .exchange_rate_reference_date
+            .map(|value| {
+                Date::parse(
+                    &value,
+                    &time::macros::format_description!("[year]-[month]-[day]"),
+                )
+            })
+            .transpose()
+            .map_err(|_| ApiError::invalid_expense(request_id.clone()))?,
+        exchange_rate_provider: request.exchange_rate_provider,
         payments,
         split,
     })
@@ -447,6 +462,11 @@ pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateDat
             base_amount_minor: aggregate.expense.base_amount_minor.to_string(),
             exchange_rate_kind: aggregate.expense.exchange_rate_kind,
             exchange_rate: aggregate.expense.exchange_rate,
+            exchange_rate_reference_date: aggregate
+                .expense
+                .exchange_rate_reference_date
+                .map(|value| value.to_string()),
+            exchange_rate_provider: aggregate.expense.exchange_rate_provider,
             split_mode: aggregate.expense.split_mode,
             version: aggregate.expense.version.to_string(),
             revision: aggregate.expense.revision.to_string(),

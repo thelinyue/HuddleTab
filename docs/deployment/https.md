@@ -1,5 +1,9 @@
 # HTTPS 与反向代理
 
+## 出站汇率服务
+
+“获取参考汇率”会由 Rust 服务端访问 `https://api.frankfurter.dev`。防火墙需要允许该 HTTPS 出站连接；Frankfurter 日参考数据不是实时交易报价，服务不可用时用户仍可手工输入汇率。HuddleTab 不要求 API Key，也不接受浏览器直连 Provider。
+
 HuddleTab 可以直接以 HTTP 运行。默认 Compose 在 `http://localhost:5660` 提供服务，适合本机、受控 LAN 和部署者自己的反向代理之后的内部通信。核心 `compose.yaml` 只包含 `app` 与 `postgres`，不会内置 Caddy、Nginx、Traefik、TLS 证书或域名管理。
 
 公网访问、完整 PWA 安全上下文和更安全的 Session 传输建议由部署者在应用外提供 HTTPS。反向代理和容器日志均应仅向部署管理员开放。

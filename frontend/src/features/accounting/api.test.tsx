@@ -10,7 +10,7 @@ import { AttachmentRepository } from "../../pwa/indexed-db/attachment-repository
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
 import type { PendingAttachment } from "../../pwa/indexed-db/schema";
 
-const client = vi.hoisted(() => ({ DELETE: vi.fn(), POST: vi.fn() }));
+const client = vi.hoisted(() => ({ DELETE: vi.fn(), GET: vi.fn(), POST: vi.fn() }));
 const csrf = vi.hoisted(() => ({ mutationHeaders: vi.fn().mockResolvedValue({ "X-CSRF-Token": "csrf-token" }) }));
 
 vi.mock("../../api/client", () => ({ apiClient: client }));
@@ -18,6 +18,7 @@ vi.mock("../../api/csrf", () => csrf);
 
 import {
   deleteExpenseAttachment,
+  fetchExchangeRateSuggestion,
   uploadExpenseAttachment,
   useCreateExpenseMutation,
 } from "./api";
@@ -29,6 +30,20 @@ afterEach(async () => {
 });
 
 describe("Expense Create Queue", () => {
+  it("参考汇率 adapter 只发送活动、原币和日期", async () => {
+    client.GET.mockResolvedValue({ data: { data: {
+      fromCurrency: "JPY", toCurrency: "CNY", rate: "0.04209",
+      source: "PROVIDER", provider: "FRANKFURTER", referenceDate: "2026-08-30",
+    } } });
+
+    await expect(fetchExchangeRateSuggestion("activity-1", "JPY", "2026-08-30"))
+      .resolves.toMatchObject({ rate: "0.04209", source: "PROVIDER" });
+    expect(client.GET).toHaveBeenCalledWith(
+      "/api/activities/{activity_id}/exchange-rate",
+      { params: { path: { activity_id: "activity-1" }, query: { from: "JPY", date: "2026-08-30" } } },
+    );
+  });
+
   it("创建账单先完整持久化为 PENDING 而不在 hook 内直接 POST", async () => {
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
     const wrapper = ({ children }: PropsWithChildren) =>

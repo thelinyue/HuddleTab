@@ -15,6 +15,19 @@ export type Ledger = components["schemas"]["LedgerData"];
 export type Recommendation = components["schemas"]["RecommendationItemData"];
 export type Settlement = components["schemas"]["SettlementData"];
 export type CreateSettlementInput = components["schemas"]["CreateSettlementRequest"];
+export type ExchangeRateSuggestion = components["schemas"]["ExchangeRateSuggestionData"];
+
+export async function fetchExchangeRateSuggestion(
+  activityId: string,
+  from: string,
+  date: string,
+): Promise<ExchangeRateSuggestion> {
+  return unwrap(
+    await apiClient.GET("/api/activities/{activity_id}/exchange-rate", {
+      params: { path: { activity_id: activityId }, query: { from, date } },
+    }),
+  ).data;
+}
 
 async function listExpenses(activityId: string): Promise<ExpenseAggregate[]> {
   return unwrap(
@@ -169,6 +182,13 @@ export function useCreateExpenseMutation(userId: string, activityId: string) {
       input: ExpenseDraft;
       files?: readonly File[];
     }) => expenseQueueFor(userId).enqueue(activityId, input, files),
+  });
+}
+
+export function useExchangeRateSuggestionMutation(activityId: string) {
+  return useMutation({
+    mutationFn: ({ from, date }: { from: string; date: string }) =>
+      fetchExchangeRateSuggestion(activityId, from, date),
   });
 }
 

@@ -37,6 +37,10 @@ use super::{
         JoinRequestListEnvelope,
     },
     error::{ErrorBody, ErrorEnvelope},
+    exchange_rate::{
+        __path_suggest as __path_exchange_rate_suggest, ExchangeRateSuggestionData,
+        ExchangeRateSuggestionEnvelope,
+    },
     expense::{
         __path_create as __path_expense_create, __path_delete as __path_expense_delete,
         __path_get as __path_expense_get, __path_list as __path_expense_list,
@@ -103,6 +107,7 @@ use super::{
         expense_get,
         expense_update,
         expense_delete,
+        exchange_rate_suggest,
         attachment_upload,
         attachment_download,
         attachment_delete,
@@ -189,6 +194,8 @@ use super::{
         ExpenseListEnvelope,
         DeletedExpenseData,
         DeletedExpenseEnvelope,
+        ExchangeRateSuggestionData,
+        ExchangeRateSuggestionEnvelope,
         BalanceData,
         LedgerData,
         LedgerEnvelope,
