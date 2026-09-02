@@ -594,6 +594,79 @@ async fn sensitive_writes_require_session_and_csrf_before_sharing_user_limit() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn sensitive_authenticated_bucket_includes_guest_binding_invites() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let pool = test_pool().await;
+    let owner_user_id = bootstrap_user(&pool).await;
+    let secret = AppSecret::from_bytes([7; 32]);
+    let owner = session_context(&pool, &secret, owner_user_id).await;
+    let other_user_id = insert_user(&pool, "bob", "second user password").await;
+    let other = session_context(&pool, &secret, other_user_id).await;
+    let app = app(pool, secret);
+
+    let activity = create_activity(&app, &owner, "Binding rate limit").await;
+    let activity_id = activity["data"]["activityId"]
+        .as_str()
+        .expect("应返回活动 ID");
+    let guest_response = app
+        .clone()
+        .oneshot(mutation_request(
+            "POST",
+            &format!("/api/activities/{activity_id}/members/guests"),
+            Body::from(r#"{"displayName":"临时成员"}"#),
+            &owner,
+        ))
+        .await
+        .expect("router 应响应");
+    assert_eq!(guest_response.status(), StatusCode::CREATED);
+    let guest = response_json(guest_response).await;
+    let guest_member_id = guest["data"]["memberId"].as_str().expect("应返回 Guest ID");
+    let invitations_uri = format!("/api/activities/{activity_id}/invitations");
+    let binding_uri =
+        format!("/api/activities/{activity_id}/members/{guest_member_id}/binding-invitations");
+
+    for _ in 0..9 {
+        create_link_invitation(&app, &invitations_uri, &owner).await;
+    }
+
+    let binding_response = app
+        .clone()
+        .oneshot(mutation_request(
+            "POST",
+            &binding_uri,
+            Body::from(r#"{"targetUsername":"target-user"}"#),
+            &owner,
+        ))
+        .await
+        .expect("router 应响应");
+    assert_eq!(binding_response.status(), StatusCode::CREATED);
+
+    let limited_response = app
+        .clone()
+        .oneshot(mutation_request(
+            "POST",
+            &binding_uri,
+            Body::from(r#"{"targetUsername":"target-user"}"#),
+            &owner,
+        ))
+        .await
+        .expect("router 应响应");
+    assert_rate_limited(limited_response).await;
+
+    let isolated_response = app
+        .oneshot(mutation_request(
+            "POST",
+            &binding_uri,
+            Body::from(r#"{"targetUsername":"target-user"}"#),
+            &other,
+        ))
+        .await
+        .expect("router 应响应");
+    assert_eq!(isolated_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn ordinary_business_summary_and_csv_routes_remain_unlimited() {
     let _guard = DATABASE_TEST_LOCK.lock().await;
     let pool = test_pool().await;

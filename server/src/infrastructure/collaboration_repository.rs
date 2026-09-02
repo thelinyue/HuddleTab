@@ -79,10 +79,26 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             invitation.actor_user_id,
         )
         .await?;
+        if let Some(guest_member_id) = invitation.guest_member_id {
+            let guest_exists = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM activity_members
+                 WHERE id = $1 AND activity_id = $2 AND user_id IS NULL AND status = 'ACTIVE'
+                 FOR UPDATE",
+            )
+            .bind(guest_member_id)
+            .bind(invitation.activity_id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?
+            .is_some();
+            if !guest_exists {
+                return Err(CollaborationRepositoryError::GuestNotFound);
+            }
+        }
         sqlx::query(
             "INSERT INTO activity_invites (id, activity_id, created_by_member_id, token_hash, \
-             kind, target_username, expires_at, max_uses, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+             kind, target_username, guest_member_id, expires_at, max_uses, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(invitation.id)
         .bind(invitation.activity_id)
@@ -90,6 +106,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .bind(invitation.token_hash.as_slice())
         .bind(invitation.kind.as_str())
         .bind(&invitation.target_username)
+        .bind(invitation.guest_member_id)
         .bind(invitation.expires_at)
         .bind(invitation.max_uses)
         .bind(invitation.now)
@@ -115,6 +132,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             activity_id: invitation.activity_id,
             kind: invitation.kind,
             target_username: invitation.target_username,
+            guest_member_id: invitation.guest_member_id,
             expires_at: invitation.expires_at,
             max_uses: invitation.max_uses,
             use_count: 0,
@@ -137,6 +155,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 Uuid,
                 String,
                 Option<String>,
+                Option<Uuid>,
                 OffsetDateTime,
                 Option<i32>,
                 i32,
@@ -144,7 +163,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 i64,
             ),
         >(
-            "SELECT id, kind, target_username, expires_at, max_uses, use_count, revoked_at, version \
+            "SELECT id, kind, target_username, guest_member_id, expires_at, max_uses, use_count, revoked_at, version \
              FROM activity_invites WHERE activity_id = $1 ORDER BY created_at DESC, id",
         )
         .bind(activity_id)
@@ -177,6 +196,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             (
                 String,
                 Option<String>,
+                Option<Uuid>,
                 OffsetDateTime,
                 Option<i32>,
                 i32,
@@ -184,7 +204,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 i64,
             ),
         >(
-            "SELECT kind, target_username, expires_at, max_uses, use_count, revoked_at, version \
+            "SELECT kind, target_username, guest_member_id, expires_at, max_uses, use_count, revoked_at, version \
              FROM activity_invites WHERE activity_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(activity_id)
@@ -193,7 +213,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .await
         .map_err(log_repository_error)?
         .ok_or(CollaborationRepositoryError::NotFound)?;
-        let revision = if row.5.is_some() {
+        let revision = if row.6.is_some() {
             sqlx::query_scalar("SELECT revision FROM activities WHERE id = $1")
                 .bind(activity_id)
                 .fetch_one(&mut *transaction)
@@ -228,11 +248,12 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             activity_id,
             kind: parse_kind(&row.0)?,
             target_username: row.1,
-            expires_at: row.2,
-            max_uses: row.3,
-            use_count: row.4,
-            revoked_at: row.5.or(Some(now)),
-            version: row.6 + i64::from(row.5.is_none()),
+            guest_member_id: row.2,
+            expires_at: row.3,
+            max_uses: row.4,
+            use_count: row.5,
+            revoked_at: row.6.or(Some(now)),
+            version: row.7 + i64::from(row.6.is_none()),
             revision,
         })
     }
@@ -584,6 +605,7 @@ type InvitationRow = (
     Uuid,
     String,
     Option<String>,
+    Option<Uuid>,
     OffsetDateTime,
     Option<i32>,
     i32,
@@ -601,11 +623,12 @@ fn invitation_from_row(
         activity_id,
         kind: parse_kind(&row.1)?,
         target_username: row.2,
-        expires_at: row.3,
-        max_uses: row.4,
-        use_count: row.5,
-        revoked_at: row.6,
-        version: row.7,
+        guest_member_id: row.3,
+        expires_at: row.4,
+        max_uses: row.5,
+        use_count: row.6,
+        revoked_at: row.7,
+        version: row.8,
         revision,
     })
 }

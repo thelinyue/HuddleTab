@@ -12,11 +12,12 @@ use crate::{
     application::{
         auth::{CurrentSession, CurrentSessionError, current_session},
         collaboration::{
-            CollaborationError, CreateInvitationInput, Invitation, JoinInput, JoinRequestView,
-            create_guest as add_guest, create_invitation as issue_invitation,
-            decide_join_request as decide_request, get_join_request as load_join_request,
-            join_invitation as accept_invitation, list_invitations as load_invitations,
-            list_join_requests as load_join_requests,
+            CollaborationError, CreateGuestBindingInvitationInput, CreateInvitationInput,
+            Invitation, JoinInput, JoinRequestView, create_guest as add_guest,
+            create_guest_binding_invitation as issue_guest_binding_invitation,
+            create_invitation as issue_invitation, decide_join_request as decide_request,
+            get_join_request as load_join_request, join_invitation as accept_invitation,
+            list_invitations as load_invitations, list_join_requests as load_join_requests,
             preview_invitation as load_invitation_preview, revoke_invitation as cancel_invitation,
         },
     },
@@ -68,6 +69,12 @@ pub struct CreateInvitationRequest {
     pub max_uses: Option<i32>,
 }
 
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGuestBindingInvitationRequest {
+    pub target_username: String,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct CreatedInvitationEnvelope {
     pub data: CreatedInvitationData,
@@ -79,7 +86,9 @@ pub struct CreatedInvitationData {
     pub invitation_id: String,
     pub activity_id: String,
     pub kind: &'static str,
+    pub purpose: &'static str,
     pub target_username: Option<String>,
+    pub guest_member_id: Option<String>,
     pub token: String,
     pub expires_at: String,
     pub max_uses: Option<i32>,
@@ -104,7 +113,9 @@ pub struct InvitationData {
     pub invitation_id: String,
     pub activity_id: String,
     pub kind: &'static str,
+    pub purpose: &'static str,
     pub target_username: Option<String>,
+    pub guest_member_id: Option<String>,
     pub expires_at: String,
     pub max_uses: Option<i32>,
     pub use_count: i32,
@@ -222,6 +233,77 @@ pub(crate) async fn create_guest(
 
 #[utoipa::path(
     post,
+    path = "/api/activities/{activity_id}/members/{member_id}/binding-invitations",
+    params(
+        ("activity_id" = String, Path, description = "活动 UUID"),
+        ("member_id" = String, Path, description = "Guest 成员 UUID")
+    ),
+    request_body = CreateGuestBindingInvitationRequest,
+    responses(
+        (status = 201, description = "Guest Binding 邀请已创建", body = CreatedInvitationEnvelope),
+        (status = 400, description = "目标用户名无效", body = super::error::ErrorEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无权限", body = super::error::ErrorEnvelope),
+        (status = 404, description = "Guest 不存在或已绑定", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn create_guest_binding_invitation(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path((activity_id, member_id)): Path<(String, String)>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<CreateGuestBindingInvitationRequest>,
+) -> Result<(StatusCode, Json<CreatedInvitationEnvelope>), ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    state
+        .rate_limiter
+        .check(
+            RateLimitCategory::SensitiveAuthenticated,
+            actor.user_id.to_string(),
+        )
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
+    let activity_id = parse_uuid(&activity_id, request_id.clone())?;
+    let guest_member_id = parse_uuid(&member_id, request_id.clone())?;
+    let repository = PostgresCollaborationRepository::new(state.pool);
+    let created = issue_guest_binding_invitation(
+        &repository,
+        &SecureInvitationTokenCodec,
+        &SystemClock,
+        CreateGuestBindingInvitationInput {
+            activity_id,
+            guest_member_id,
+            actor_user_id: actor.user_id,
+            target_username: request.target_username,
+        },
+    )
+    .await
+    .map_err(|error| map_error(error, request_id))?;
+    let invitation = created.invitation;
+    Ok((
+        StatusCode::CREATED,
+        Json(CreatedInvitationEnvelope {
+            data: CreatedInvitationData {
+                invitation_id: invitation.id.to_string(),
+                activity_id: invitation.activity_id.to_string(),
+                kind: invitation.kind.as_str(),
+                purpose: invitation.purpose().as_str(),
+                target_username: invitation.target_username,
+                guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
+                token: created.token.expose_once().to_owned(),
+                expires_at: invitation.expires_at.to_string(),
+                max_uses: invitation.max_uses,
+                use_count: invitation.use_count,
+                version: invitation.version.to_string(),
+                revision: invitation.revision.to_string(),
+            },
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
     path = "/api/activities/{activity_id}/invitations",
     params(("activity_id" = String, Path, description = "活动 UUID")),
     request_body = CreateInvitationRequest,
@@ -273,7 +355,9 @@ pub(crate) async fn create_invitation(
                 invitation_id: invitation.id.to_string(),
                 activity_id: invitation.activity_id.to_string(),
                 kind: invitation.kind.as_str(),
+                purpose: invitation.purpose().as_str(),
                 target_username: invitation.target_username,
+                guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
                 token: created.token.expose_once().to_owned(),
                 expires_at: invitation.expires_at.to_string(),
                 max_uses: invitation.max_uses,
@@ -590,7 +674,9 @@ fn invitation_data(invitation: Invitation) -> InvitationData {
         invitation_id: invitation.id.to_string(),
         activity_id: invitation.activity_id.to_string(),
         kind: invitation.kind.as_str(),
+        purpose: invitation.purpose().as_str(),
         target_username: invitation.target_username,
+        guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
         expires_at: invitation.expires_at.to_string(),
         max_uses: invitation.max_uses,
         use_count: invitation.use_count,
@@ -623,6 +709,7 @@ fn map_error(error: CollaborationError, request_id: RequestId) -> ApiError {
         CollaborationError::InvalidInvitation => ApiError::invalid_invitation(request_id),
         CollaborationError::Forbidden => ApiError::operation_forbidden(request_id),
         CollaborationError::NotFound => ApiError::not_found(request_id),
+        CollaborationError::GuestNotFound => ApiError::guest_not_found(request_id),
         CollaborationError::Conflict => ApiError::conflict(request_id),
         CollaborationError::JoinRequestClosed => ApiError::join_request_closed(request_id),
         CollaborationError::ActivityNotJoinable => ApiError::activity_not_joinable(request_id),

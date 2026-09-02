@@ -151,6 +151,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn guest_not_found(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "GUEST_NOT_FOUND",
+            "该临时成员不存在或已绑定账号。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn conflict(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

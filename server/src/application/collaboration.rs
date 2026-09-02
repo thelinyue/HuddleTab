@@ -31,6 +31,22 @@ impl InvitationKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InvitationPurpose {
+    Join,
+    GuestBinding,
+}
+
+impl InvitationPurpose {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Join => "JOIN",
+            Self::GuestBinding => "GUEST_BINDING",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct IssuedInvitationToken {
     raw: String,
@@ -87,6 +103,7 @@ pub struct NewInvitation {
     pub token_hash: [u8; 32],
     pub kind: InvitationKind,
     pub target_username: Option<String>,
+    pub guest_member_id: Option<Uuid>,
     pub expires_at: OffsetDateTime,
     pub max_uses: Option<i32>,
     pub now: OffsetDateTime,
@@ -98,12 +115,24 @@ pub struct Invitation {
     pub activity_id: Uuid,
     pub kind: InvitationKind,
     pub target_username: Option<String>,
+    pub guest_member_id: Option<Uuid>,
     pub expires_at: OffsetDateTime,
     pub max_uses: Option<i32>,
     pub use_count: i32,
     pub revoked_at: Option<OffsetDateTime>,
     pub version: i64,
     pub revision: i64,
+}
+
+impl Invitation {
+    #[must_use]
+    pub const fn purpose(&self) -> InvitationPurpose {
+        if self.guest_member_id.is_some() {
+            InvitationPurpose::GuestBinding
+        } else {
+            InvitationPurpose::Join
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -169,6 +198,8 @@ pub enum CollaborationRepositoryError {
     Forbidden,
     #[error("协作资源不存在")]
     NotFound,
+    #[error("临时成员不存在或已绑定账号")]
+    GuestNotFound,
     #[error("协作资源状态冲突")]
     Conflict,
     #[error("加入申请已经处理")]
@@ -251,6 +282,14 @@ pub struct CreateInvitationInput {
 }
 
 #[derive(Clone, Debug)]
+pub struct CreateGuestBindingInvitationInput {
+    pub activity_id: Uuid,
+    pub guest_member_id: Uuid,
+    pub actor_user_id: Uuid,
+    pub target_username: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct CreatedInvitation {
     pub invitation: Invitation,
     pub token: IssuedInvitationToken,
@@ -287,6 +326,8 @@ pub enum CollaborationError {
     Forbidden,
     #[error("协作资源不存在")]
     NotFound,
+    #[error("临时成员不存在或已绑定账号")]
+    GuestNotFound,
     #[error("协作资源状态冲突")]
     Conflict,
     #[error("加入申请已经处理")]
@@ -370,8 +411,47 @@ pub async fn create_invitation(
             token_hash: token.hash,
             kind,
             target_username,
+            guest_member_id: None,
             expires_at,
             max_uses: input.max_uses,
+            now,
+        })
+        .await
+        .map_err(map_repository_error)?;
+    Ok(CreatedInvitation { invitation, token })
+}
+
+/// 为指定 ACTIVE Guest 创建定向单次绑定邀请，明文 token 只随本次结果返回。
+///
+/// # Errors
+///
+/// 目标用户名无效、Guest 不可绑定、操作者无权限或事务失败时返回对应错误。
+pub async fn create_guest_binding_invitation(
+    repository: &dyn CollaborationRepository,
+    codec: &dyn InvitationTokenCodec,
+    clock: &dyn Clock,
+    input: CreateGuestBindingInvitationInput,
+) -> Result<CreatedInvitation, CollaborationError> {
+    let target_username = Username::parse(&input.target_username)
+        .map_err(|_| CollaborationError::InvalidInput)?
+        .as_str()
+        .to_owned();
+    let now = clock.now();
+    let expires_at = now
+        .checked_add(INVITATION_LIFETIME)
+        .ok_or(CollaborationError::Unavailable)?;
+    let token = codec.generate();
+    let invitation = repository
+        .create_invitation(NewInvitation {
+            id: Uuid::new_v4(),
+            activity_id: input.activity_id,
+            actor_user_id: input.actor_user_id,
+            token_hash: token.hash,
+            kind: InvitationKind::Direct,
+            target_username: Some(target_username),
+            guest_member_id: Some(input.guest_member_id),
+            expires_at,
+            max_uses: Some(1),
             now,
         })
         .await
@@ -527,6 +607,7 @@ fn map_repository_error(error: CollaborationRepositoryError) -> CollaborationErr
     match error {
         CollaborationRepositoryError::Forbidden => CollaborationError::Forbidden,
         CollaborationRepositoryError::NotFound => CollaborationError::NotFound,
+        CollaborationRepositoryError::GuestNotFound => CollaborationError::GuestNotFound,
         CollaborationRepositoryError::Conflict => CollaborationError::Conflict,
         CollaborationRepositoryError::JoinRequestClosed => CollaborationError::JoinRequestClosed,
         CollaborationRepositoryError::ActivityNotJoinable => {

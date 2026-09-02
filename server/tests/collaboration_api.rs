@@ -308,6 +308,164 @@ async fn assert_pending_join_side_effects(
     assert_eq!(state, (expected_revision, 1, 1, 1, 2, 0));
 }
 
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let member = seed_actor(&pool, &secret, "carol", "Carol").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let formal_member_id = Uuid::new_v4();
+    let left_guest_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) \
+         VALUES ($1, $2, $3, 'Carol', 'MEMBER', NOW()), \
+                ($4, $2, NULL, '已退出临时成员', 'MEMBER', NOW())",
+    )
+    .bind(formal_member_id)
+    .bind(activity_id)
+    .bind(member.user_id)
+    .bind(left_guest_id)
+    .execute(&pool)
+    .await
+    .expect("应插入测试成员");
+    sqlx::query("UPDATE activity_members SET status = 'LEFT', left_at = NOW() WHERE id = $1")
+        .bind(left_guest_id)
+        .execute(&pool)
+        .await
+        .expect("应将测试 Guest 设为 LEFT");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+
+    let (guest_status, guest) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "POST",
+            format!("/api/activities/{activity_id}/members/guests"),
+            r#"{"displayName":"原临时昵称"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(guest_status, StatusCode::CREATED);
+    let guest_member_id = guest["data"]["memberId"]
+        .as_str()
+        .expect("应返回 Guest member ID");
+    let binding_uri =
+        format!("/api/activities/{activity_id}/members/{guest_member_id}/binding-invitations");
+
+    let (created_status, created) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "POST",
+            binding_uri.clone(),
+            r#"{"targetUsername":"bob"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(created_status, StatusCode::CREATED);
+    assert_eq!(created["data"]["purpose"], "GUEST_BINDING");
+    assert_eq!(created["data"]["guestMemberId"], guest_member_id);
+    assert_eq!(created["data"]["kind"], "DIRECT");
+    assert_eq!(created["data"]["targetUsername"], "bob");
+    assert_eq!(created["data"]["maxUses"], 1);
+    assert_eq!(created["data"]["useCount"], 0);
+    assert_eq!(created["data"]["revision"], "3");
+    assert!(
+        created["data"]["token"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+
+    let stored = sqlx::query_as::<_, (Option<Uuid>, i64, i64)>(
+        "SELECT invite.guest_member_id, activity.revision,
+         (SELECT count(*) FROM activity_audit_logs
+          WHERE activity_id = activity.id AND action = 'INVITATION_CREATED')
+         FROM activity_invites invite
+         JOIN activities activity ON activity.id = invite.activity_id
+         WHERE invite.id = $1",
+    )
+    .bind(
+        Uuid::parse_str(
+            created["data"]["invitationId"]
+                .as_str()
+                .expect("应返回 invitation ID"),
+        )
+        .expect("invitation ID 应为 UUID"),
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("应读取绑定邀请");
+    assert_eq!(
+        stored,
+        (Some(Uuid::parse_str(guest_member_id).unwrap()), 3, 1)
+    );
+
+    let (member_status, _) = json_response(
+        &app,
+        authenticated_request(
+            &member,
+            "POST",
+            binding_uri.clone(),
+            r#"{"targetUsername":"bob"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(member_status, StatusCode::FORBIDDEN);
+
+    for invalid_member_id in [Uuid::new_v4(), formal_member_id, left_guest_id] {
+        let (status, body) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "POST",
+                format!(
+                    "/api/activities/{activity_id}/members/{invalid_member_id}/binding-invitations"
+                ),
+                r#"{"targetUsername":"bob"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
+    }
+
+    let (invalid_username_status, _) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "POST",
+            binding_uri.clone(),
+            r#"{"targetUsername":"??"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(invalid_username_status, StatusCode::BAD_REQUEST);
+
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应结束活动");
+    let (ended_status, _) = json_response(
+        &app,
+        authenticated_request(&owner, "POST", binding_uri, r#"{"targetUsername":"bob"}"#),
+    )
+    .await;
+    assert_eq!(ended_status, StatusCode::FORBIDDEN);
+}
+
 async fn create_pending_join_request(
     app: &axum::Router,
     owner: &TestActor,
