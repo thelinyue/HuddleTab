@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, render, renderHook, waitFor } from "@testing-library/react";
 import { deleteDB } from "idb";
 import { type PropsWithChildren } from "react";
 import { afterEach, expect, it, vi } from "vitest";
@@ -20,10 +20,15 @@ vi.mock("../../api/client", () => ({ apiClient: client }));
 vi.mock("../../api/csrf", () => csrf);
 
 import { expenseQueueFor } from "./expense-queue";
-import { ExpenseQueueSync } from "./expense-queue-sync";
+import {
+  ExpenseQueueSync,
+  usePendingExpenseMutations,
+} from "./expense-queue-sync";
 
 afterEach(async () => {
+  onlineManager.setOnline(true);
   cleanup();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
   await deleteDB(databaseName("user-sync"));
 });
@@ -78,4 +83,38 @@ it("挂载后新入队会前台同步并刷新全部权威账务查询", async (
   for (const key of authoritativeKeys) {
     expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
   }
+});
+
+it("离线入队后立即刷新本地待同步列表", async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  render(<ExpenseQueueSync userId="user-sync" />, { wrapper });
+  const { result } = renderHook(
+    () => usePendingExpenseMutations("user-sync", "activity-1"),
+    { wrapper },
+  );
+  await waitFor(() => expect(result.current.data).toEqual([]));
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  onlineManager.setOnline(false);
+
+  await act(async () => {
+    await expenseQueueFor("user-sync").enqueue("activity-1", {
+      ...expensePayload,
+      clientMutationId: "offline-list-mutation",
+      title: "离线午餐",
+    });
+  });
+
+  await waitFor(() => {
+    expect(result.current.data).toEqual([
+      expect.objectContaining({
+        id: "offline-list-mutation",
+        status: "PENDING",
+      }),
+    ]);
+  });
 });

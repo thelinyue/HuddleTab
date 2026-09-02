@@ -168,6 +168,95 @@ describe("Expense 附件选择与私有预览", () => {
     expect(amount).toHaveValue("12.34");
   });
 
+  it("选择图片后显示缩略图，点击缩略图打开大图预览", () => {
+    vi.spyOn(URL, "createObjectURL")
+      .mockReturnValueOnce("blob:receipt-a")
+      .mockReturnValueOnce("blob:receipt-b");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    renderPage(<NewExpensePage />);
+    const files = [
+      new File(["a"], "receipt-a.png", { type: "image/png" }),
+      new File(["b"], "receipt-b.webp", { type: "image/webp" }),
+    ];
+
+    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+      target: { files },
+    });
+
+    expect(screen.getByRole("img", { name: "receipt-a.png 缩略图" }))
+      .toHaveAttribute("src", "blob:receipt-a");
+    expect(screen.getByRole("img", { name: "receipt-b.webp 缩略图" }))
+      .toHaveAttribute("src", "blob:receipt-b");
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "预览附件 receipt-b.webp",
+    }));
+    const preview = screen.getByRole("dialog", {
+      name: "附件大图预览 receipt-b.webp",
+    });
+    expect(preview.querySelector("img")).toHaveAttribute(
+      "src",
+      "blob:receipt-b",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关闭附件预览" }));
+    expect(screen.queryByRole("dialog", { name: /附件大图预览/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("移除选中图片后只提交剩余附件", async () => {
+    vi.spyOn(URL, "createObjectURL")
+      .mockReturnValueOnce("blob:receipt-a")
+      .mockReturnValueOnce("blob:receipt-b")
+      .mockReturnValueOnce("blob:receipt-b-next");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    renderPage(<NewExpensePage />);
+    const first = new File(["a"], "receipt-a.png", { type: "image/png" });
+    const second = new File(["b"], "receipt-b.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+      target: { files: [first, second] },
+    });
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "移除附件 receipt-a.png",
+    }));
+    expect(screen.queryByRole("img", { name: "receipt-a.png 缩略图" }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "receipt-b.png 缩略图" }))
+      .toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("标题"), {
+      target: { value: "保留一张附件" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存账单" }));
+
+    await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalled());
+    expect(createMutation.mutateAsync).toHaveBeenCalledWith({
+      input: expect.objectContaining({ title: "保留一张附件" }),
+      files: [second],
+    });
+  });
+
+  it("移除图片时释放对应的本地预览地址", () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:receipt");
+    const revoke = vi.spyOn(URL, "revokeObjectURL")
+      .mockImplementation(() => undefined);
+    renderPage(<NewExpensePage />);
+    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+      target: {
+        files: [new File(["receipt"], "receipt.png", { type: "image/png" })],
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "移除附件 receipt.png",
+    }));
+
+    expect(revoke).toHaveBeenCalledWith("blob:receipt");
+  });
+
   it("保存时把同一 File[] 与账单输入一起交给创建 mutation", async () => {
     renderPage(<NewExpensePage />);
     const file = new File(["receipt"], "receipt.png", {

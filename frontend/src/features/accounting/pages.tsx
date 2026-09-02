@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Filter, ImageDown, Info, Plus, ReceiptText, Trash2, UsersRound, X } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
@@ -112,6 +112,83 @@ function ExpenseAttachments({
         })}
       </div>
     </section>
+  );
+}
+
+function SelectedAttachmentPreviews({
+  files,
+  onRemove,
+}: {
+  files: readonly File[];
+  onRemove: (index: number) => void;
+}) {
+  const [previews, setPreviews] = useState<Array<{ file: File; url: string }>>([]);
+  const [previewedFile, setPreviewedFile] = useState<File>();
+
+  useEffect(() => {
+    const next = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+    setPreviews(next);
+    // 本地原图只在当前表单存活，附件变化或离开页面时必须释放浏览器资源。
+    return () => next.forEach(({ url }) => URL.revokeObjectURL(url));
+  }, [files]);
+
+  const activePreview = previews.find(({ file }) => file === previewedFile);
+  if (previews.length === 0) return null;
+  return (
+    <>
+      <div className="selected-attachments" aria-label="已选择的附件">
+        {previews.map(({ file, url }, index) => (
+          <div className="selected-attachments__item" key={`${file.name}-${file.size}-${file.lastModified}-${index}`}>
+            <button
+              type="button"
+              className="selected-attachments__preview"
+              aria-label={`预览附件 ${file.name}`}
+              onClick={() => setPreviewedFile(file)}
+            >
+              <img src={url} alt={`${file.name} 缩略图`} />
+            </button>
+            <button
+              type="button"
+              className="selected-attachments__remove"
+              aria-label={`移除附件 ${file.name}`}
+              title={`移除附件 ${file.name}`}
+              onClick={() => onRemove(index)}
+            >
+              <X aria-hidden="true" size={16} />
+            </button>
+          </div>
+        ))}
+      </div>
+      {activePreview ? (
+        <div className="attachment-lightbox" role="presentation" onKeyDown={(event) => {
+          if (event.key === "Escape") setPreviewedFile(undefined);
+        }}>
+          <button
+            type="button"
+            className="attachment-lightbox__scrim"
+            aria-label="关闭大图预览背景"
+            onClick={() => setPreviewedFile(undefined)}
+          />
+          <section
+            className="attachment-lightbox__dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`附件大图预览 ${activePreview.file.name}`}
+          >
+            <img src={activePreview.url} alt={activePreview.file.name} />
+            <button
+              type="button"
+              className="attachment-lightbox__close"
+              aria-label="关闭附件预览"
+              autoFocus
+              onClick={() => setPreviewedFile(undefined)}
+            >
+              <X aria-hidden="true" size={20} />
+            </button>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -384,7 +461,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
           <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} required /></Field>
         </div>
         <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
-        {!initial ? <Field label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => selectAttachments(event.target.files)} />{files.length ? <small className="attachment-selection">已选择 {files.length} 张：{files.map((file) => file.name).join("、")}</small> : null}</Field> : null}
+        {!initial ? <Field label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => { selectAttachments(event.target.files); event.target.value = ""; }} />{files.length ? <small className="attachment-selection">已选择 {files.length} 张</small> : null}<SelectedAttachmentPreviews files={files} onRemove={(index) => setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field> : null}
       </section>
 
       {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={(attachmentId) => { if (window.confirm("确定删除这张附件吗？此操作会立即生效。")) void deleteAttachment.mutateAsync(attachmentId).catch(() => undefined); }} /> : null}

@@ -644,6 +644,8 @@ In `pages-ui.test.tsx`, render the real `ExpenseEditor` and `ExpenseDetailPage` 
 - four files, a file over 10 MiB, and SVG each preserve the form and show the matching Chinese error;
 - edit mode has no attachment selector;
 - submit passes the exact selected `File[]` to the create mutation;
+- selected images render fixed thumbnails, support local removal, and open a page-level original-image preview without losing the draft;
+- ACTIVE edit mode confirms and immediately deletes an existing server attachment;
 - ACTIVE, ENDED and ARCHIVED detail variants all show public attachment images through the nested private API URL;
 - the DOM contains no `storageKey`, Blob URL or internal path;
 - synchronized Expense rows show attachment pending/rejected status without being duplicated in the “待同步” Expense group.
@@ -658,7 +660,7 @@ Expected: FAIL because selection, status and preview UI are absent.
 
 - [ ] **Step 6: Implement and verify GREEN**
 
-Add `files` state only for create mode, validate count/type/size before enqueue, and keep all existing Expense fields on error. Render an unframed “附件” section after facts/notes in both editable and read-only details; use `<img loading="lazy">` inside links opening the authorized API URL. Add stable responsive grid dimensions and ensure images cannot resize the layout.
+Add `files` state only for create mode, validate count/type/size before enqueue, and keep all existing Expense fields on error. Render selected image thumbnails with an independent X remove button and a page-level original-image preview. Render an unframed “附件” section after facts/notes in both editable and read-only details; use `<img loading="lazy">` inside links opening the authorized API URL. ACTIVE edit mode may confirm and immediately delete an existing attachment. Add stable responsive grid dimensions and ensure images cannot resize the layout.
 
 Run:
 
@@ -700,9 +702,10 @@ Add an attachment Playwright project for each Chromium viewport. The test perfor
 
 ```text
 login -> create Activity -> open quick Expense -> select in-memory PNG
+-> verify thumbnails, open and close the page-level original-image preview
 -> set browser offline -> save to IndexedDB -> verify waiting state
 -> restore online -> wait for authoritative Expense and attachment preview
--> open detail/download -> verify image/webp and private headers
+-> open detail/download -> verify image/webp and private headers -> delete one attachment
 -> verify navigation exactly 流水/结算 and no horizontal overflow
 ```
 
@@ -779,7 +782,7 @@ Expected: all commands pass; OpenAPI generation is clean; both Chromium viewport
 
 - [ ] **Step 5: Perform a scoped review**
 
-Review the diff from commit `235477d` and reject any unrelated Rate Provider, new notification type, attachment deletion, object storage, Service Worker write, IndexedDB version migration, hash, legacy compatibility, tag or publish change. Confirm no component calls raw `fetch`, no response/log exposes `storage_key`, and no activity navigation other than “流水 / 结算” was added.
+Review the diff from commit `235477d` and reject any unrelated Rate Provider, new notification type, attachment replacement, object storage, Service Worker write, IndexedDB version migration, hash, legacy compatibility, tag or publish change. Confirm the approved ACTIVE edit-page attachment deletion is the only delete surface, no component calls raw `fetch`, no response/log exposes `storage_key`, and no activity navigation other than “流水 / 结算” was added.
 
 - [ ] **Step 6: Update handover with exact evidence**
 
@@ -794,3 +797,13 @@ git status --short --branch
 ```
 
 Expected: worktree clean on `codex/rust-replatform`; no tag or remote image action performed.
+
+## 实施记录（2026-09-02）
+
+用户在实施阶段明确补充：创建表单选择后必须显示图片缩略图，右上角 X 只移除本地待上传图片，点击缩略图在当前页面显示原图；关闭后返回原表单且草稿不变。ACTIVE 编辑页同时允许确认后即时删除已有服务端附件。项目尚未正式发布，因此没有增加旧 IndexedDB 或旧上传目录兼容。
+
+最终实现为纯页面内状态，不增加路由、对象存储、Service Worker 写队列或 IndexedDB 版本。Object URL 在附件变化、移除或组件卸载时释放；本地 Expense enqueue mutation 与 pending IndexedDB query 均使用 `networkMode: "always"`，真实网络同步仍由 `navigator.onLine` 门控。
+
+实际验证包括 Frontend `25 files / 149 tests`、typecheck、production build、runner 安全专项，以及 `run-phase1e.ps1 -AttachmentOnly` 的 Chromium Desktop/Mobile `2/2`。最终 Compose 运行还通过 fresh migration、stdin bootstrap、SPA 深链、非 root/运行镜像边界、app/PostgreSQL 重启持久性、中文冷启动错误、artifact 脱敏和 finally 清理。
+
+浏览器收口并非首次即通过：第一次被遗留 Vite 进程锁住 Rolldown 文件；终止明确 PID 后，真实 E2E 暴露离线本地 mutation/query 被 TanStack 默认在线模式暂停；修复后 trace 又证明 DOM 已出现待同步行，但 E2E 错把组合状态文案当成独立精确文本节点。最终选择器改为定位目标 pending 行并断言包含“等待同步”，完整矩阵通过。失败报告均经过脱敏，所有独立 Compose project 与 `/tmp/huddletab-phase1e-*` 临时目录均已清理。

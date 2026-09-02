@@ -436,6 +436,19 @@ button.settings-row:hover { background: var(--surface-muted); }
 .update-prompt > span { display: grid; min-width: 0; flex: 1; }
 .attachment-input { height: auto; padding-block: 10px; }
 .attachment-selection { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.selected-attachments { display: grid; grid-template-columns: repeat(3, minmax(0, 104px)); gap: 12px; padding-top: 4px; }
+.selected-attachments__item { position: relative; min-width: 0; aspect-ratio: 1; }
+.selected-attachments__preview { display: block; width: 100%; height: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; padding: 0; background: var(--surface-muted); }
+.selected-attachments__preview:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.selected-attachments__preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.selected-attachments__remove { position: absolute; top: -8px; right: -8px; display: inline-grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--danger); box-shadow: var(--shadow-sm); }
+.selected-attachments__remove:hover { background: var(--danger-soft); }
+.attachment-lightbox { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 24px; }
+.attachment-lightbox__scrim { position: absolute; inset: 0; border: 0; background: rgb(0 0 0 / .78); }
+.attachment-lightbox__dialog { position: relative; display: grid; max-width: min(960px, 100%); max-height: calc(100dvh - 48px); place-items: center; }
+.attachment-lightbox__dialog img { display: block; max-width: 100%; max-height: calc(100dvh - 48px); border-radius: 6px; object-fit: contain; }
+.attachment-lightbox__close { position: absolute; top: 8px; right: 8px; display: inline-grid; width: 44px; height: 44px; place-items: center; border: 1px solid rgb(255 255 255 / .35); border-radius: 50%; background: rgb(0 0 0 / .62); color: #fff; }
+.attachment-lightbox__close:hover { background: rgb(0 0 0 / .8); }
 .expense-attachments { display: grid; gap: 10px; }
 .expense-attachments h2 { margin: 0; font-size: 18px; }
 .expense-attachments__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }

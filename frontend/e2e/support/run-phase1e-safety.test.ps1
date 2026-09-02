@@ -23,6 +23,12 @@ Assert-True ($attemptedCleanup -eq "cleanup-called") "up 已尝试后没有执�
 $forwarded = New-Phase1EForwardedWslEnv
 Assert-True ($forwarded -eq "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL") "WSLENV 转发集合不符合最小凭据边界。"
 
+$defaultPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false
+Assert-True (($defaultPlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=webkit-smoke") "默认模式不再是原 Phase 1E 浏览器矩阵。"
+$attachmentPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $true
+Assert-True (($attachmentPlaywright -join " ") -eq "run test:e2e -- attachment.spec.ts --project=chromium-attachment-desktop --project=chromium-attachment-mobile") "AttachmentOnly 没有固定到两个附件项目。"
+Assert-True (-not ($attachmentPlaywright -match "--grep|--config|--headed")) "AttachmentOnly 注入了未批准的 Playwright 参数。"
+
 $primary = [System.Management.Automation.ErrorRecord]::new(
   [System.InvalidOperationException]::new("主流程失败标记"),
   "Phase1EPrimary",
@@ -40,4 +46,4 @@ Assert-True ($null -ne $combined) "主失败和清理失败同时存在时没有
 Assert-True ($combined.Exception.Message.StartsWith("主流程失败标记")) "组合诊断没有以主失败为首。"
 Assert-True ($combined.Exception.Message.Contains("清理失败标记")) "组合诊断没有附带清理失败。"
 
-Write-Host "runner 安全专项测试通过：显式 project、启动门控、凭据边界与双失败诊断均已覆盖。"
+Write-Host "runner 安全专项测试通过：显式 project、固定浏览器矩阵、启动门控、凭据边界与双失败诊断均已覆盖。"

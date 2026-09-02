@@ -6,7 +6,7 @@
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列、Task 27A 的加入审批与最小通知，以及 Task 27B Guest Binding 已完成。Task 27B Guest Binding 完成，可以继续 Task 27 Attachment。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Task 27 的 Attachment、Rate Provider 与其余通知事件、Phase 2 Task 28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列、Task 27A 的加入审批与最小通知、Task 27B Guest Binding，以及 Task 27 Attachment 已完成。Task 27 Attachment 完成，可以继续 Task 27 Rate Provider 与其余通知事件。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Task 27 的 Rate Provider 与其余通知事件、Phase 2 Task 28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–26、Task 27A、Task 27B 与本文档已形成 Git 检查点。Task 27A 增加 Activity 级加入方式、Pending JoinRequest、Owner approve/reject、申请人状态和两类最小站内通知；Task 27B 增加 Owner 发起、目标用户确认的 Guest Binding，原地绑定既有成员身份。当前没有进入 Attachment、汇率 Provider、其余通知事件或 Service Worker 后台业务写入。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–26、Task 27A、Task 27B、Task 27 Attachment 与本文档已形成 Git 检查点。Attachment 使用私有本地文件系统和 PostgreSQL 元数据，接入现有 Snapshot、前台 Expense Queue、图片安全处理、受权读写、孤立文件清理及 Desktop/Mobile 浏览器验收；Service Worker 仍不执行业务写入。当前没有进入汇率 Provider、其余通知事件、对象存储或发布。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -140,10 +140,11 @@ huddletab openapi
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
 | CSV、结算分享 | 可用 | 有效 ActivityMember 可下载 CSV，并从结算页生成受保护摘要和 1600px PNG |
 | Activity Revision Snapshot / weak ETag | 可用 | Task 24；Task 25 已接入按用户隔离的完整 Snapshot 本地存储 |
-| IndexedDB Snapshot / Queue stores | 可用 | Task 25；schema v1，只保存 Snapshot 与 Expense Create mutation，不持久化 Query cache |
+| IndexedDB Snapshot / Queue stores | 可用 | schema v1 保存 Snapshot、Expense Create mutation 与 Pending Attachment Blob，不持久化 Query cache |
 | 离线 Expense Create 同步 | 可用 | Task 26；前台串行、幂等重放、有限重试、REJECTED 和 pending 流水展示 |
 | Guest Binding | 可用 | Task 27B；Owner 为 ACTIVE Guest 创建定向单次邀请，目标用户确认后原地绑定账号 |
-| 附件、汇率 Provider | 未实现 | Task 27 后续切片；其余通知事件也未实现 |
+| 图片附件 | 可用 | Task 27；JPEG/PNG/WebP，最多三张，私有 WebP、离线前台同步、缩略图/大图、ACTIVE 编辑即时删除 |
+| 汇率 Provider | 未实现 | Task 27 后续切片；其余通知事件也未实现 |
 | 系统管理、注册策略、管理员重置密码 | 未实现 | 属于 Phase 3 |
 
 ## 7. 已验证的核心流程
@@ -383,6 +384,30 @@ git diff --check
 
 相对 Task 27B 设计基准 `48d5e9d` 的范围审查确认：没有第二邀请表、`member_type`、成员 merge SQL、新通知类型、邀请 IndexedDB 持久化、Attachment、Provider、tag 或发布改动；组件没有直接 `fetch`，合同发布了 CSRF header，adapter 只精确失效邀请列表，绑定口令只存在前端组件内存。测试中的固定 token/CSRF 字符串不是真实凭据。
 
+### 7.7 Phase 2 Task 27 Attachment
+
+Attachment 只属于未删除 Expense。上传只接受 JPEG、PNG、WebP，单张原图最多 10 MiB、每笔最多三张；服务端校验声明 MIME、Magic Bytes、解码和 4000 万像素上限，应用 EXIF orientation、最长边 2048px，丢弃原元数据并统一编码为私有 WebP。存储键完全由服务端 UUID 构造，图片位于 `DATA_DIR/uploads`，PostgreSQL 只保存公开元数据和内部 `storage_key`；HTTP DTO、Snapshot、日志和 Audit 不暴露内部路径。
+
+上传、下载和删除合同为同一嵌套路由下的 `POST`、`GET`、`DELETE`。上传使用 `clientAttachmentId` 幂等，Expense 行锁串行化三张上限；首次上传和删除各推进 revision 一次并写 Audit。ACTIVE 正式成员可上传和删除，历史成员可按现有可见性读取；错误资源组合使用私有 404。删除在 ACTIVE 编辑页确认后立即生效，不等待账单保存；文件删除失败由每 24 小时运行且不跟随 symlink 的孤立文件清理器最终收敛。
+
+创建表单只允许选择上述图片类型，选择后显示固定缩略图，右上角 X 只移除本地待上传图片；点击缩略图在当前页面打开原图，关闭按钮、遮罩和 Escape 均可返回原表单且草稿不变。Expense 与全部 Blob 在同一个 IndexedDB 事务中入队，Expense 确认后再串行上传附件。两条仅读本地数据的 TanStack mutation/query 使用 `networkMode: "always"`，真实发送仍由前台同步器和 `navigator.onLine` 门控；不增加 Service Worker 写队列、对象存储、hash 或未发布 schema 的兼容分支。
+
+本次 UI/运行时收口最终执行：
+
+```powershell
+npm --prefix frontend test -- --run
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+& ./frontend/e2e/support/run-phase1e-safety.test.ps1
+& ./frontend/e2e/run-phase1e.ps1 -AttachmentOnly
+```
+
+精确结果：Frontend `25 files / 149 tests`；typecheck 与 production build 通过；runner 安全专项通过。最终 Chromium Desktop `1440x1000` 与 Mobile `390x844` 为 `2/2`，覆盖缩略图、页面内大图、离线待同步、恢复联网、私有 WebP 响应头、即时删除和无横向溢出。Compose 还通过 fresh migration、stdin bootstrap、SPA 深链、非 root/运行镜像边界、app/PostgreSQL 重启后账单与剩余附件可读、中文冷启动数据库错误、artifact 脱敏和 finally 清理。
+
+收口过程保留真实失败记录：首轮在环境创建前被遗留 Vite `4174` 进程锁住 Rolldown 原生文件；明确终止对应 PID 后，E2E 暴露离线本地 mutation/query 被 TanStack 默认在线模式暂停；修复后 trace 证明待同步行已经出现，剩余失败是 E2E 将组合状态文案误写成独立精确文本断言。最终改为定位目标 pending 行并断言包含状态，完整 runner 退出 `0`。每次失败均执行 artifact 脱敏和 finally 清理，最终复查没有本次 Compose project 或 `/tmp/huddletab-phase1e-*` 临时目录残留。
+
+范围审查边界：没有 Rate Provider、新通知类型、对象存储、Service Worker 业务写入、IndexedDB v2、hash、旧版本兼容、tag 或发布改动。Task 27 Attachment 完成，可以继续 Task 27 Rate Provider 与其余通知事件。
+
 ## 8. 当前本地运行现场
 
 交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
@@ -391,6 +416,7 @@ git diff --check
 | --- | --- |
 | Rust API | 未启动 |
 | Vite 前端 | 未启动 |
+| `v0.0.2` UI 对照环境 | `http://127.0.0.1:5682`；Compose project `huddletab-v002-reference`，仅用于 UI 对照 |
 | WSL PostgreSQL 容器 | `huddletab-rust-dev-postgres-6831` |
 | PostgreSQL 主机端口 | `127.0.0.1:55432` |
 
@@ -492,7 +518,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 继续 Phase 2 Task 27 Attachment；随后完成 Rate Provider、其余通知事件和 Task 28 Phase 2 E2E。Task 27A 加入审批与最小通知、Task 27B Guest Binding 已经完成。
+1. 继续 Phase 2 Task 27 Rate Provider 与其余通知事件，随后完成 Task 28 Phase 2 E2E。Task 27A、Task 27B 与 Task 27 Attachment 已经完成。
 2. Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。
 3. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
 4. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
@@ -511,5 +537,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-01-huddletab-task27a-join-approval.md`
 - `docs/superpowers/specs/2026-09-02-huddletab-task27b-guest-binding-design.md`
 - `docs/superpowers/plans/2026-09-02-huddletab-task27b-guest-binding.md`
+- `docs/superpowers/specs/2026-09-02-huddletab-task27-attachment-design.md`
+- `docs/superpowers/plans/2026-09-02-huddletab-task27-attachment.md`
 
 这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-02 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。

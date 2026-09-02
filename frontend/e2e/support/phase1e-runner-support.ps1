@@ -5,6 +5,29 @@ function New-Phase1EForwardedWslEnv {
   "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL"
 }
 
+function New-Phase1EPlaywrightArguments {
+  param([Parameter(Mandatory)] [bool] $AttachmentOnly)
+
+  if ($AttachmentOnly) {
+    return @(
+      "run",
+      "test:e2e",
+      "--",
+      "attachment.spec.ts",
+      "--project=chromium-attachment-desktop",
+      "--project=chromium-attachment-mobile"
+    )
+  }
+  @(
+    "run",
+    "test:e2e",
+    "--",
+    "--project=chromium-desktop",
+    "--project=chromium-mobile",
+    "--project=webkit-smoke"
+  )
+}
+
 function New-Phase1EComposeArguments {
   param(
     [Parameter(Mandatory)] [string] $Project,

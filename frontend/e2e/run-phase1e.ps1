@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch] $AttachmentOnly)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -136,6 +136,7 @@ try {
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
+  $env:HUDDLETAB_E2E_ATTACHMENT_MODE = if ($AttachmentOnly) { "true" } else { "false" }
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
@@ -167,10 +168,12 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
   $bootstrapInput = $null
 
-  Write-Host "[4/9] 运行 Chromium Desktop/Mobile 核心矩阵与 WebKit smoke"
+  $matrixLabel = if ($AttachmentOnly) { "Chromium Desktop/Mobile 附件矩阵" } else { "Chromium Desktop/Mobile 核心矩阵与 WebKit smoke" }
+  Write-Host "[4/9] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    npm run test:e2e
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent
+    & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
     $sanitizerExitCode = $LASTEXITCODE
@@ -241,7 +244,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE -ErrorAction SilentlyContinue
   $env:WSLENV = $originalWslEnv
 }
 

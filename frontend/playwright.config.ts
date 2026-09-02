@@ -38,5 +38,15 @@ export default defineConfig({
       testMatch: "smoke.spec.ts",
       use: { ...devices["Desktop Safari"], viewport: { width: 1440, height: 1000 } },
     },
+    {
+      name: "chromium-attachment-desktop",
+      testMatch: "attachment.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "chromium-attachment-mobile",
+      testMatch: "attachment.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
+    },
   ],
 });

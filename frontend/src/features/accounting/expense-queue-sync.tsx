@@ -68,6 +68,8 @@ export function usePendingExpenseMutations(
 ) {
   return useQuery({
     queryKey: queryKeys.pendingExpenses(userId, activityId),
+    // 仅读取当前用户的 IndexedDB，离线时也要响应队列变更并刷新页面。
+    networkMode: "always",
     queryFn: async () => {
       const [mutations, attachments] = await Promise.all([
         new MutationRepository(userId).listByActivity(activityId),

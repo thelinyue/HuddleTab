@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { deleteDB } from "idb";
 import { createElement, type PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +23,7 @@ import {
 } from "./api";
 
 afterEach(async () => {
+  onlineManager.setOnline(true);
   vi.clearAllMocks();
   await deleteDB(databaseName("user-1"));
 });
@@ -100,6 +101,44 @@ describe("Expense Create Queue", () => {
       mutationId: "mutation-with-file",
       status: "PENDING",
     });
+  });
+
+  it("浏览器离线时仍执行本地创建队列", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const { result } = renderHook(
+      () => useCreateExpenseMutation("user-1", "activity-1"),
+      { wrapper },
+    );
+    onlineManager.setOnline(false);
+
+    act(() => {
+      result.current.mutate({
+        input: {
+          category: "FOOD",
+          clientMutationId: "offline-mutation",
+          exchangeRate: "1",
+          exchangeRateKind: "IDENTITY",
+          note: null,
+          occurredAt: "2026-09-01T08:00:00Z",
+          originalAmountMinor: "1000",
+          originalCurrency: "CNY",
+          payments: [{ amountMinor: "1000", memberId: "member-1" }],
+          split: { members: ["member-1"], mode: "EQUAL" },
+          title: "离线午餐",
+        },
+        files: [],
+      });
+    });
+
+    await waitFor(async () => {
+      expect(await new MutationRepository("user-1").get("offline-mutation"))
+        .toMatchObject({ status: "PENDING" });
+    });
+    queryClient.clear();
   });
 
   it("附件 adapter 发送原始文件、稳定 client ID 与 CSRF", async () => {

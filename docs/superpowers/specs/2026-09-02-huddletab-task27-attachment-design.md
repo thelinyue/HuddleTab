@@ -15,8 +15,8 @@
 - 附件只属于未删除的 Expense。
 - 每笔 Expense 最多三张图片；单张原图最多 10 MiB。
 - 仅接受 JPEG、PNG、WebP；SVG 和其他格式一律拒绝。
-- 新增支出时可选择附件；支出详情可查看附件。
-- 不提供附件删除、替换、重命名、批量管理、评论或独立附件导航。
+- 新增支出时可选择附件并在提交前预览或移除；支出详情可查看附件。
+- ACTIVE Activity 的账单编辑页可确认后即时删除已有附件；不提供替换、重命名、批量管理、评论或独立附件导航。
 - 附件上传独立于 Expense 创建事务。Expense 已确认而附件失败时，不回滚或重新创建 Expense。
 - Service Worker 不读取业务队列、不上传附件，也不缓存附件响应。
 
@@ -77,6 +77,7 @@ Snapshot 在同一 `REPEATABLE READ READ ONLY` 事务中为每条 Expense 装载
 ## 7. 权限与生命周期
 
 - ACTIVE Activity 的 ACTIVE 正式成员可向未删除 Expense 上传附件。
+- ACTIVE Activity 的 ACTIVE 正式成员可从未删除 Expense 即时删除已有附件；删除后推进 revision 并写 Audit。
 - ENDED、ARCHIVED、DELETED Activity 禁止上传。
 - LEFT 成员禁止上传。
 - ACTIVE 或 LEFT 的历史 ActivityMember 可读取仍可见的未删除 Expense 附件；ENDED 和 ARCHIVED 不妨碍历史读取。
@@ -122,6 +123,12 @@ X-Content-Type-Options: nosniff
 
 OpenAPI 明确描述 multipart 请求、`200/201` 上传响应、二进制下载响应及相关响应头。TypeScript client 由合同重新生成；组件不直接拼装未受控网络请求。
 
+### 删除
+
+`DELETE /api/activities/{activity_id}/expenses/{expense_id}/attachments/{attachment_id}`
+
+删除要求 Session、CSRF、ACTIVE Activity、ACTIVE 正式成员和仍可见的 Expense。成功返回 `204 No Content`，原子删除元数据、推进 Activity revision 一次并写入 `ATTACHMENT_DELETED` Audit；事务提交后删除私有文件，文件系统失败记录中文错误并由孤立文件清理器最终收敛。错误 Activity/Expense/Attachment 组合继续返回私有 404。
+
 ## 9. 孤立文件清理
 
 Rust 进程启动后执行一次清理，此后每 24 小时执行一次；同一进程内不允许清理任务重入。清理器只遍历 uploads 根目录中的普通文件，不跟随符号链接。
@@ -155,9 +162,11 @@ Rust 进程启动后执行一次清理，此后每 24 小时执行一次；同�
 
 ## 11. UI
 
-新增支出高级区域沿用 `v0.0.2` 的附件选择：最多三张、`accept` 仅声明允许的三种 MIME，并在选择阶段提示数量、类型和单张大小错误。服务端仍是最终权威校验。
+新增支出高级区域最多选择三张图片，`accept` 仅声明 JPEG、PNG、WebP，并在选择阶段提示数量、类型和单张大小错误。选择后显示固定方形缩略图；右上角 X 只移除当前本地待上传文件，点击缩略图在当前页面打开原图大图，关闭后保留完整表单草稿。服务端仍是最终权威校验。
 
 Expense 详情在现有内容流中增加“附件”区，以稳定网格展示懒加载缩略图；点击后在新标签打开同一个受权下载 URL。移动端和桌面端不新增主导航或管理入口，活动导航继续只有“流水 / 结算”。
+
+ACTIVE Activity 的账单编辑页在已有附件缩略图上提供删除按钮；用户确认后立即调用服务端删除，不把删除推迟到保存账单。ENDED 与 ARCHIVED 详情保持只读。
 
 待同步流水沿用 Task 26 状态区域，增加“附件待同步”和“附件被拒绝”结果，不展示 Blob URL，不把附件内容写入日志、报告或 Snapshot。
 
@@ -168,13 +177,13 @@ Expense 详情在现有内容流中增加“附件”区，以稳定网格展示
 - Rust 单元测试：格式/Magic Bytes/MIME、10 MiB、像素上限、方向与缩放、WebP 输出、路径穿越、符号链接、原子写入和补偿删除。
 - PostgreSQL 测试：schema 约束、权限/lifecycle、三张限制、并发相同幂等键、并发第四张、Audit/revision、Snapshot 元数据与 ETag。
 - HTTP/OpenAPI：multipart 总体限制、CSRF、`200/201`、错误 envelope、下载私有 404、二进制响应头、内部字段不泄漏、生成结果可重复。
-- Frontend Vitest：schema v1 新建三 store、Expense 与 Blob 原子入队、附件独立有限重试、4xx REJECTED、Expense 不回退、Snapshot 刷新、表单校验和详情预览。
-- 浏览器：使用可丢弃 WSL PostgreSQL 与本地 Rust/Vite，Chromium Desktop `1440x1000` 和 Mobile `390x844` 验证登录、创建带附件 Expense、详情预览、断网入队、恢复联网后附件出现，以及页面无横向溢出、活动导航仅有“流水/结算”。
+- Frontend Vitest：schema v1 新建三 store、Expense 与 Blob 原子入队、附件独立有限重试、4xx REJECTED、Expense 不回退、离线本地 Query 刷新、Snapshot 刷新、表单校验、缩略图移除、大图预览和已有附件删除。
+- 浏览器：使用可丢弃 WSL PostgreSQL 与独立 Compose，Chromium Desktop `1440x1000` 和 Mobile `390x844` 验证登录、创建带附件 Expense、缩略图与页面内大图、断网入队、恢复联网后附件出现、受权原图读取、即时删除，以及页面无横向溢出、活动导航仅有“流水/结算”。
 - 运行镜像：仅做附件变化所需的 `/data/uploads` 持久性、非 root 写入和 App 重启后下载检查；不重复未受影响的 Phase 1E 全矩阵。
 
 ## 13. 明确不做
 
-- 不实现附件删除、替换、任意文件、PDF、原图下载或公开分享。
+- 不实现附件替换、任意文件、PDF、公开分享或创建表单之外的本地附件管理。
 - 不实现对象存储、S3、CDN、缩略图多规格或后台转码队列。
 - 不实现内容 hash、去重、病毒扫描或视觉 baseline。
 - 不新增通知类型；Attachment 不产生站内通知。

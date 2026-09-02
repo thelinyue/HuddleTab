@@ -160,6 +160,8 @@ export function useExpenseQuery(userId: string, activityId: string, expenseId: s
 
 export function useCreateExpenseMutation(userId: string, activityId: string) {
   return useMutation({
+    // 该 mutation 只负责写入本地离线队列，断网时也必须立即执行。
+    networkMode: "always",
     mutationFn: ({
       input,
       files = [],
