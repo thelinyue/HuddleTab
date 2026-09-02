@@ -147,6 +147,118 @@ async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
     transaction.rollback().await.expect("测试事务应可回滚");
 }
 
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_binding_invites_enforce_activity_identity_and_shape() {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .expect("运行 Schema 集成测试前必须设置 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试库应可 migration");
+    let mut transaction = pool.begin().await.expect("应可开始测试事务");
+
+    let first_owner_user = Uuid::new_v4();
+    let second_owner_user = Uuid::new_v4();
+    let first_activity = Uuid::new_v4();
+    let second_activity = Uuid::new_v4();
+    let first_owner = Uuid::new_v4();
+    let second_owner = Uuid::new_v4();
+    let first_guest = Uuid::new_v4();
+    let second_guest = Uuid::new_v4();
+    insert_user(&mut transaction, first_owner_user, "binding-owner-a").await;
+    insert_user(&mut transaction, second_owner_user, "binding-owner-b").await;
+    insert_activity_and_owner(
+        &mut transaction,
+        first_activity,
+        first_owner,
+        first_owner_user,
+    )
+    .await;
+    insert_activity_and_owner(
+        &mut transaction,
+        second_activity,
+        second_owner,
+        second_owner_user,
+    )
+    .await;
+    insert_guest(&mut transaction, first_guest, first_activity, "临时成员甲").await;
+    insert_guest(
+        &mut transaction,
+        second_guest,
+        second_activity,
+        "临时成员乙",
+    )
+    .await;
+
+    transaction
+        .execute("SAVEPOINT cross_activity_binding")
+        .await
+        .expect("应可建立 savepoint");
+    let cross_activity = insert_binding_invitation(
+        &mut transaction,
+        first_activity,
+        first_owner,
+        "DIRECT",
+        Some("target-a"),
+        Some(1),
+        second_guest,
+    )
+    .await
+    .expect_err("绑定邀请不能引用其他活动成员");
+    assert_eq!(
+        constraint_name(&cross_activity),
+        Some("activity_invites_activity_guest_member_fkey")
+    );
+    transaction
+        .execute("ROLLBACK TO SAVEPOINT cross_activity_binding")
+        .await
+        .expect("应可恢复 savepoint");
+
+    for (savepoint, kind, target_username, max_uses) in [
+        ("binding_link", "LINK", None, Some(1)),
+        ("binding_without_target", "DIRECT", None, Some(1)),
+        ("binding_multiple_uses", "DIRECT", Some("target-a"), Some(2)),
+    ] {
+        transaction
+            .execute(format!("SAVEPOINT {savepoint}").as_str())
+            .await
+            .expect("应可建立 savepoint");
+        let invalid = insert_binding_invitation(
+            &mut transaction,
+            first_activity,
+            first_owner,
+            kind,
+            target_username,
+            max_uses,
+            first_guest,
+        )
+        .await
+        .expect_err("非法绑定邀请形状必须被数据库拒绝");
+        assert_eq!(
+            constraint_name(&invalid),
+            Some("activity_invites_guest_binding_shape")
+        );
+        transaction
+            .execute(format!("ROLLBACK TO SAVEPOINT {savepoint}").as_str())
+            .await
+            .expect("应可恢复 savepoint");
+    }
+
+    insert_binding_invitation(
+        &mut transaction,
+        first_activity,
+        first_owner,
+        "DIRECT",
+        Some("target-a"),
+        Some(1),
+        first_guest,
+    )
+    .await
+    .expect("同活动的定向单次绑定邀请应可创建");
+
+    transaction.rollback().await.expect("测试事务应可回滚");
+}
+
 async fn assert_invite_mode_constraints(
     transaction: &mut Transaction<'_, Postgres>,
     activity_id: Uuid,
@@ -275,6 +387,59 @@ async fn insert_user(transaction: &mut Transaction<'_, Postgres>, id: Uuid, user
     .execute(&mut **transaction)
     .await
     .expect("测试用户应可创建");
+}
+
+async fn insert_guest(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    activity_id: Uuid,
+    display_name: &str,
+) {
+    sqlx::query(
+        "INSERT INTO activity_members (
+            id, activity_id, display_name, role, status, joined_at
+         ) VALUES ($1, $2, $3, 'MEMBER', 'ACTIVE', NOW())",
+    )
+    .bind(id)
+    .bind(activity_id)
+    .bind(display_name)
+    .execute(&mut **transaction)
+    .await
+    .expect("测试 Guest 应可创建");
+}
+
+async fn insert_binding_invitation(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    owner_member_id: Uuid,
+    kind: &str,
+    target_username: Option<&str>,
+    max_uses: Option<i32>,
+    guest_member_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let invitation_id = Uuid::new_v4();
+    let token_hash = [
+        activity_id.as_bytes().as_slice(),
+        invitation_id.as_bytes().as_slice(),
+    ]
+    .concat();
+    sqlx::query(
+        "INSERT INTO activity_invites (
+            id, activity_id, created_by_member_id, token_hash, kind, target_username,
+            expires_at, max_uses, guest_member_id, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '1 day', $7, $8, NOW())",
+    )
+    .bind(invitation_id)
+    .bind(activity_id)
+    .bind(owner_member_id)
+    .bind(token_hash)
+    .bind(kind)
+    .bind(target_username)
+    .bind(max_uses)
+    .bind(guest_member_id)
+    .execute(&mut **transaction)
+    .await
+    .map(|_| ())
 }
 
 async fn insert_activity_and_owner(
