@@ -19,6 +19,12 @@ pub struct StoredAttachmentFile {
     pub modified_at: OffsetDateTime,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttachmentFileScan {
+    pub scanned: usize,
+    pub candidates: Vec<StoredAttachmentFile>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum AttachmentStoreError {
     #[error("附件存储键无效")]
@@ -101,7 +107,7 @@ impl LocalAttachmentStore {
     pub async fn files_older_than(
         &self,
         cutoff: OffsetDateTime,
-    ) -> Result<Vec<StoredAttachmentFile>, AttachmentStoreError> {
+    ) -> Result<AttachmentFileScan, AttachmentStoreError> {
         let root = self.root.clone();
         tokio::task::spawn_blocking(move || scan_files(&root, cutoff))
             .await
@@ -211,11 +217,15 @@ impl LocalAttachmentStore {
 fn scan_files(
     root: &Path,
     cutoff: OffsetDateTime,
-) -> Result<Vec<StoredAttachmentFile>, AttachmentStoreError> {
+) -> Result<AttachmentFileScan, AttachmentStoreError> {
     if !root.exists() {
-        return Ok(Vec::new());
+        return Ok(AttachmentFileScan {
+            scanned: 0,
+            candidates: Vec::new(),
+        });
     }
     let mut directories = vec![root.to_path_buf()];
+    let mut scanned = 0;
     let mut files = Vec::new();
     while let Some(directory) = directories.pop() {
         for entry in fs::read_dir(directory).map_err(|_| AttachmentStoreError::Unavailable)? {
@@ -234,6 +244,7 @@ fn scan_files(
             {
                 continue;
             }
+            scanned += 1;
             let modified_at = OffsetDateTime::from(
                 metadata
                     .modified()
@@ -255,7 +266,10 @@ fn scan_files(
         }
     }
     files.sort_by(|left, right| left.storage_key.cmp(&right.storage_key));
-    Ok(files)
+    Ok(AttachmentFileScan {
+        scanned,
+        candidates: files,
+    })
 }
 
 fn map_read_error(error: std::io::Error) -> AttachmentStoreError {
