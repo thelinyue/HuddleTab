@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json, Router,
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, DefaultBodyLimit, State},
     http::{HeaderName, HeaderValue, Request},
     middleware::{self, Next},
     response::Response,
@@ -17,7 +17,7 @@ use crate::infrastructure::app_secret::AppSecret;
 use super::rate_limit::{ClientIp, RateLimiter};
 use super::static_files::mount_static_files;
 use super::{
-    accounting, activity, auth, collaboration,
+    accounting, activity, attachment, auth, collaboration,
     error::{ApiError, RequestId},
     expense, notification, settlement, sharing, snapshot,
 };
@@ -45,6 +45,7 @@ pub struct AppState {
     pub(crate) time_zone: String,
     pub(crate) trust_proxy: bool,
     pub(crate) rate_limiter: RateLimiter,
+    pub(crate) uploads_dir: PathBuf,
 }
 
 impl AppState {
@@ -64,7 +65,14 @@ impl AppState {
             time_zone,
             trust_proxy,
             rate_limiter: RateLimiter::new(),
+            uploads_dir: PathBuf::from("/data/uploads"),
         }
+    }
+
+    #[must_use]
+    pub fn with_uploads_dir(mut self, uploads_dir: PathBuf) -> Self {
+        self.uploads_dir = uploads_dir;
+        self
     }
 }
 
@@ -191,6 +199,16 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .put(expense::update)
                 .delete(expense::delete)
                 .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/expenses/{expense_id}/attachments",
+            axum::routing::post(attachment::upload)
+                .layer(DefaultBodyLimit::max(attachment::MAX_MULTIPART_BYTES))
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/expenses/{expense_id}/attachments/{attachment_id}",
+            get(attachment::download).fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}/ledger",

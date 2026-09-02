@@ -1,5 +1,6 @@
 pub mod accounting;
 pub mod activity;
+pub mod attachment;
 pub mod auth;
 pub mod collaboration;
 pub mod error;

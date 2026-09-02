@@ -112,7 +112,8 @@ async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {
     .context("无法初始化持久化 app-secret，请检查 DATA_DIR 的所有权和权限")?;
     let base_origin =
         std::env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:5660".to_owned());
-    let state = huddletab_server::http::router::AppState::new(database, app_secret, base_origin);
+    let state = huddletab_server::http::router::AppState::new(database, app_secret, base_origin)
+        .with_uploads_dir(data_dir.join("uploads"));
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("无法监听 {bind}，请检查端口是否被占用"))?;

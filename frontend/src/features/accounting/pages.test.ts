@@ -4,6 +4,7 @@ import { groupExpensesByDate } from "./pages";
 
 function aggregate(expenseId: string, occurredAt: string): ExpenseAggregate {
   return {
+    attachments: [],
     expense: {
       activityId: "activity-1",
       baseAmountMinor: "100",

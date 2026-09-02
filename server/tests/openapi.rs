@@ -95,6 +95,50 @@ fn activity_snapshot_publishes_conditional_get_contract() {
 }
 
 #[test]
+fn attachment_contract_publishes_multipart_and_private_binary_download() {
+    let document = huddletab_server::http::openapi::document();
+    let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
+    let path = "/api/activities/{activity_id}/expenses/{expense_id}/attachments";
+    let upload = &value["paths"][path]["post"];
+    assert_eq!(
+        upload["requestBody"]["content"]["multipart/form-data"]["schema"]["$ref"],
+        "#/components/schemas/UploadAttachmentRequest"
+    );
+    for status in [
+        "200", "201", "400", "401", "403", "404", "409", "422", "500",
+    ] {
+        assert!(
+            upload["responses"][status].is_object(),
+            "附件上传缺少 {status} 响应"
+        );
+    }
+    let download = &value["paths"][format!("{path}/{{attachment_id}}").as_str()]["get"];
+    assert_eq!(
+        download["responses"]["200"]["content"]["image/webp"]["schema"]["$ref"],
+        "#/components/schemas/AttachmentBinary"
+    );
+    assert_eq!(
+        value["components"]["schemas"]["AttachmentBinary"]["format"],
+        "binary"
+    );
+    for header in [
+        "Cache-Control",
+        "Content-Type",
+        "Content-Disposition",
+        "X-Content-Type-Options",
+    ] {
+        assert_eq!(
+            download["responses"]["200"]["headers"][header]["schema"]["type"], "string",
+            "附件下载缺少 {header} 响应头"
+        );
+    }
+    let attachment = &value["components"]["schemas"]["ExpenseAttachmentData"]["properties"];
+    assert!(attachment["mimeType"].is_object());
+    assert!(attachment["byteSize"].is_object());
+    assert!(attachment["storageKey"].is_null());
+}
+
+#[test]
 fn join_approval_and_notification_contract_is_complete() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");

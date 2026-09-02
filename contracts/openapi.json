@@ -548,6 +548,246 @@
         }
       }
     },
+    "/api/activities/{activity_id}/expenses/{expense_id}/attachments": {
+      "post": {
+        "tags": [],
+        "operationId": "uploadExpenseAttachment",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expense_id",
+            "in": "path",
+            "description": "Expense UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadAttachmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "幂等重放",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentEnvelope"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "附件已上传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "multipart 字段无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权上传",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Expense 不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "附件数量已满",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "图片不符合安全策略",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "附件服务不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/expenses/{expense_id}/attachments/{attachment_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "downloadExpenseAttachment",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expense_id",
+            "in": "path",
+            "description": "Expense UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "附件 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "私有 WebP 附件",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              },
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "内联稳定文件名"
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "image/webp"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "nosniff"
+              }
+            },
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentBinary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "附件不存在或不可访问",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "附件存储不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/export.csv": {
       "get": {
         "tags": [],
@@ -2796,6 +3036,21 @@
           }
         }
       },
+      "AttachmentBinary": {
+        "type": "string",
+        "format": "binary"
+      },
+      "AttachmentEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExpenseAttachmentData"
+          }
+        }
+      },
       "BalanceData": {
         "type": "object",
         "required": [
@@ -3217,9 +3472,16 @@
         "required": [
           "expense",
           "payments",
-          "shares"
+          "shares",
+          "attachments"
         ],
         "properties": {
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseAttachmentData"
+            }
+          },
           "expense": {
             "$ref": "#/components/schemas/ExpenseData"
           },
@@ -3234,6 +3496,39 @@
             "items": {
               "$ref": "#/components/schemas/ExpenseFactData"
             }
+          }
+        }
+      },
+      "ExpenseAttachmentData": {
+        "type": "object",
+        "required": [
+          "id",
+          "mimeType",
+          "width",
+          "height",
+          "byteSize",
+          "createdAt"
+        ],
+        "properties": {
+          "byteSize": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -4351,6 +4646,22 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "UploadAttachmentRequest": {
+        "type": "object",
+        "required": [
+          "file",
+          "clientAttachmentId"
+        ],
+        "properties": {
+          "clientAttachmentId": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string",
+            "format": "binary"
           }
         }
       },

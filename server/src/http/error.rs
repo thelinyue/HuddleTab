@@ -231,6 +231,66 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_attachment(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ATTACHMENT",
+            "附件请求格式无效。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn attachment_too_large(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ATTACHMENT_TOO_LARGE",
+            "图片不能超过 10 MiB。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn attachment_type_not_allowed(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ATTACHMENT_TYPE_NOT_ALLOWED",
+            "仅支持 JPEG、PNG 或 WebP 图片。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn attachment_mime_mismatch(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ATTACHMENT_MIME_MISMATCH",
+            "图片类型与实际内容不一致。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn attachment_image_invalid(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ATTACHMENT_IMAGE_INVALID",
+            "图片内容损坏或尺寸超过安全限制。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn attachment_limit_reached(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "ATTACHMENT_LIMIT_REACHED",
+            "每笔账单最多上传三张图片。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn version_conflict(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

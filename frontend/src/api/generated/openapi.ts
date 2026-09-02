@@ -68,6 +68,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/expenses/{expense_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["uploadExpenseAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activities/{activity_id}/expenses/{expense_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["downloadExpenseAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/export.csv": {
         parameters: {
             query?: never;
@@ -606,6 +638,11 @@ export interface components {
         ActivityVersionRequest: {
             version: string;
         };
+        /** Format: binary */
+        AttachmentBinary: string;
+        AttachmentEnvelope: {
+            data: components["schemas"]["ExpenseAttachmentData"];
+        };
         BalanceData: {
             memberId: string;
             netMinor: string;
@@ -716,9 +753,20 @@ export interface components {
             error: components["schemas"]["ErrorBody"];
         };
         ExpenseAggregateData: {
+            attachments: components["schemas"]["ExpenseAttachmentData"][];
             expense: components["schemas"]["ExpenseData"];
             payments: components["schemas"]["ExpenseFactData"][];
             shares: components["schemas"]["ExpenseFactData"][];
+        };
+        ExpenseAttachmentData: {
+            byteSize: string;
+            createdAt: string;
+            /** Format: int32 */
+            height: number;
+            id: string;
+            mimeType: string;
+            /** Format: int32 */
+            width: number;
         };
         ExpenseData: {
             activityId: string;
@@ -993,6 +1041,11 @@ export interface components {
             payerMemberId: string;
             receiverMemberId: string;
             version: string;
+        };
+        UploadAttachmentRequest: {
+            clientAttachmentId: string;
+            /** Format: binary */
+            file: string;
         };
         VoidSettlementRequest: {
             version: string;
@@ -1416,6 +1469,172 @@ export interface operations {
             };
             /** @description 版本冲突 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    uploadExpenseAttachment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+                /** @description Expense UUID */
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UploadAttachmentRequest"];
+            };
+        };
+        responses: {
+            /** @description 幂等重放 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentEnvelope"];
+                };
+            };
+            /** @description 附件已上传 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentEnvelope"];
+                };
+            };
+            /** @description multipart 字段无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无权上传 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Expense 不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 附件数量已满 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 图片不符合安全策略 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 附件服务不可用 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    downloadExpenseAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+                /** @description Expense UUID */
+                expense_id: string;
+                /** @description 附件 UUID */
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 私有 WebP 附件 */
+            200: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    /** @description 内联稳定文件名 */
+                    "Content-Disposition"?: string;
+                    /** @description image/webp */
+                    "Content-Type"?: string;
+                    /** @description nosniff */
+                    "X-Content-Type-Options"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/webp": components["schemas"]["AttachmentBinary"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 附件不存在或不可访问 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 附件存储不可用 */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

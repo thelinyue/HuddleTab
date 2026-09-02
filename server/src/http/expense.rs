@@ -11,8 +11,9 @@ use uuid::Uuid;
 
 use crate::{
     application::expense::{
-        CreateExpenseInput, ExpenseAggregate, ExpenseDraftInput, ExpenseError, UpdateExpenseInput,
-        create_expense, delete_expense, get_expense, list_expenses, update_expense,
+        CreateExpenseInput, ExpenseAggregate, ExpenseAttachmentRecord, ExpenseDraftInput,
+        ExpenseError, UpdateExpenseInput, create_expense, delete_expense, get_expense,
+        list_expenses, update_expense,
     },
     domain::expense::{ExpenseSplitInput, PaymentInput, SplitEntryInput},
     infrastructure::{clock::SystemClock, expense_repository::PostgresExpenseRepository},
@@ -475,15 +476,19 @@ pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateDat
         attachments: aggregate
             .attachments
             .into_iter()
-            .map(|attachment| ExpenseAttachmentData {
-                id: attachment.id.to_string(),
-                mime_type: attachment.mime_type,
-                width: attachment.width,
-                height: attachment.height,
-                byte_size: attachment.byte_size.to_string(),
-                created_at: format_time(attachment.created_at),
-            })
+            .map(format_attachment)
             .collect(),
+    }
+}
+
+pub(crate) fn format_attachment(attachment: ExpenseAttachmentRecord) -> ExpenseAttachmentData {
+    ExpenseAttachmentData {
+        id: attachment.id.to_string(),
+        mime_type: attachment.mime_type,
+        width: attachment.width,
+        height: attachment.height,
+        byte_size: attachment.byte_size.to_string(),
+        created_at: format_time(attachment.created_at),
     }
 }
 
