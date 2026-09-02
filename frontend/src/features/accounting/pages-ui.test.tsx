@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +31,14 @@ const members = vi.hoisted(() => [
 ] as const);
 
 const expense = vi.hoisted(() => ({
+  attachments: [{
+    byteSize: "456",
+    createdAt: "2026-09-02T01:00:00Z",
+    height: 480,
+    id: "attachment-1",
+    mimeType: "image/webp",
+    width: 640,
+  }],
   expense: {
     activityId: "activity-1", baseAmountMinor: "1000", baseCurrency: "CNY", category: "FOOD", clientMutationId: "mutation-1", createdAt: "2026-09-01T08:00:00Z",
     exchangeRate: "1", exchangeRateKind: "IDENTITY", expenseId: "expense-1", note: "团队午餐",
@@ -48,6 +56,18 @@ const settlement = vi.hoisted(() => ({
 }));
 
 const mutation = vi.hoisted(() => () => ({ error: null, isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() }));
+const createMutation = vi.hoisted(() => ({
+  error: null,
+  isPending: false,
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+}));
+const deleteAttachmentMutation = vi.hoisted(() => ({
+  error: null,
+  isPending: false,
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+  variables: undefined as string | undefined,
+}));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 
 vi.mock("../activities/pages", () => ({
@@ -62,9 +82,10 @@ vi.mock("../activities/api", () => ({
 }));
 
 vi.mock("./api", () => ({
-  useCreateExpenseMutation: mutation,
+  useCreateExpenseMutation: () => createMutation,
   useCreateSettlementMutation: mutation,
   useDeleteExpenseMutation: mutation,
+  useDeleteAttachmentMutation: () => deleteAttachmentMutation,
   useExpenseQuery: () => ({ data: expense, isPending: false }),
   useExpensesQuery: () => ({ data: [expense], isPending: false }),
   useLedgerQuery: () => ({ data: { balances: [{ memberId: "member-1", netMinor: "-500" }, { memberId: "member-2", netMinor: "500" }] }, isPending: false }),
@@ -93,6 +114,118 @@ afterEach(() => {
   cleanup();
   activity.status = "ACTIVE";
   pendingMutations.records = [];
+  createMutation.mutateAsync.mockClear();
+  deleteAttachmentMutation.mutateAsync.mockClear();
+  vi.restoreAllMocks();
+});
+
+describe("Expense 附件选择与私有预览", () => {
+  it("新建模式限制为三张受支持图片，编辑模式不再选择附件", () => {
+    const create = renderPage(<NewExpensePage />);
+    const input = screen.getByLabelText("附件（最多三张）");
+    expect(input).toHaveAttribute(
+      "accept",
+      ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp",
+    );
+    create.unmount();
+
+    renderPage(<ExpenseDetailPage />);
+    expect(screen.queryByLabelText("附件（最多三张）")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      files: [0, 1, 2, 3].map((index) => new File(["x"], `${index}.png`, {
+        type: "image/png",
+      })),
+      message: "每笔账单最多添加三张附件。",
+    },
+    {
+      files: [new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.jpg", {
+        type: "image/jpeg",
+      })],
+      message: "单张附件不能超过 10 MiB。",
+    },
+    {
+      files: [new File(["<svg/>"], "unsafe.svg", {
+        type: "image/svg+xml",
+      })],
+      message: "仅支持 JPEG、PNG 或 WebP 图片。",
+    },
+  ])("无效附件保留已填表单并显示 $message", ({ files, message }) => {
+    renderPage(<NewExpensePage />);
+    const title = screen.getByLabelText("标题");
+    const amount = screen.getByPlaceholderText("0.00");
+    fireEvent.change(title, { target: { value: "保留的午餐" } });
+    fireEvent.change(amount, { target: { value: "12.34" } });
+
+    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+      target: { files },
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(message);
+    expect(title).toHaveValue("保留的午餐");
+    expect(amount).toHaveValue("12.34");
+  });
+
+  it("保存时把同一 File[] 与账单输入一起交给创建 mutation", async () => {
+    renderPage(<NewExpensePage />);
+    const file = new File(["receipt"], "receipt.png", {
+      type: "image/png",
+    });
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("标题"), {
+      target: { value: "午餐附件" },
+    });
+    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+      target: { files: [file] },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存账单" }));
+
+    await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalled());
+    expect(createMutation.mutateAsync).toHaveBeenCalledWith({
+      input: expect.objectContaining({ title: "午餐附件" }),
+      files: [file],
+    });
+  });
+
+  it.each(["ACTIVE", "ENDED", "ARCHIVED"])(
+    "%s 详情通过私有嵌套路由展示附件",
+    (status) => {
+      activity.status = status;
+      renderPage(<ExpenseDetailPage />);
+
+      const link = screen.getByRole("link", { name: "查看附件 1" });
+      expect(link).toHaveAttribute(
+        "href",
+        "/api/activities/activity-1/expenses/expense-1/attachments/attachment-1",
+      );
+      expect(link.querySelector("img")).toHaveAttribute("loading", "lazy");
+      expect(document.body.textContent).not.toContain("storageKey");
+      expect(document.body.innerHTML).not.toContain("blob:");
+      expect(document.body.innerHTML).not.toContain("uploads/");
+      if (status === "ACTIVE") {
+        expect(screen.getByRole("button", { name: "删除附件 1" }))
+          .toBeInTheDocument();
+      } else {
+        expect(screen.queryByRole("button", { name: "删除附件 1" }))
+          .not.toBeInTheDocument();
+      }
+    },
+  );
+
+  it("ACTIVE 编辑页确认后立即删除指定已有附件", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderPage(<ExpenseDetailPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
+
+    await waitFor(() => expect(deleteAttachmentMutation.mutateAsync)
+      .toHaveBeenCalledWith("attachment-1"));
+  });
 });
 
 describe("Expense pending 流水隔离", () => {
@@ -128,6 +261,46 @@ describe("Expense pending 流水隔离", () => {
     expect(screen.getByText(/1 笔消费/)).toBeInTheDocument();
     expect(screen.getByLabelText("消费摘要")).toHaveTextContent("¥10.00");
     expect(screen.getByLabelText("消费摘要")).not.toHaveTextContent("¥12.00");
+  });
+
+  it("已同步 Expense 的附件拒绝状态附着在权威流水且不重复分组", () => {
+    pendingMutations.records = [{
+      activityId: "activity-1",
+      attachments: [{
+        id: "local-attachment-1",
+        lastError: { code: "INVALID_ATTACHMENT", message: "附件被服务器拒绝。" },
+        status: "REJECTED",
+      }],
+      attemptCount: 1,
+      createdAt: 1,
+      id: "mutation-1",
+      kind: "CREATE_EXPENSE",
+      nextAttemptAt: 0,
+      payload: {
+        category: "FOOD",
+        clientMutationId: "mutation-1",
+        exchangeRate: "1",
+        exchangeRateKind: "IDENTITY",
+        note: "团队午餐",
+        occurredAt: "2026-09-01T08:00:00Z",
+        originalAmountMinor: "1000",
+        originalCurrency: "CNY",
+        payments: [{ amountMinor: "1000", memberId: "member-1" }],
+        split: { members: ["member-1", "member-2"], mode: "EQUAL" },
+        title: "午餐",
+      },
+      serverExpenseId: "expense-1",
+      status: "SYNCED",
+      updatedAt: 1,
+      userId: "user-1",
+    }];
+
+    renderPage(<ExpenseFeedPage />);
+
+    expect(screen.queryByRole("heading", { name: "待同步" }))
+      .not.toBeInTheDocument();
+    expect(screen.getAllByText("午餐")).toHaveLength(1);
+    expect(screen.getByText("附件被服务器拒绝。")).toBeInTheDocument();
   });
 });
 

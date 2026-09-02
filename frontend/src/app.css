@@ -434,6 +434,18 @@ button.settings-row:hover { background: var(--surface-muted); }
 .share-balance > span { flex: 0 1 auto; color: var(--muted-foreground); text-align: right; }
 @media (max-width: 520px) { .share-summary-page { padding: 16px; } .share-summary-card__cover { height: 140px; } .share-summary-card__content { gap: 16px; padding: 18px; } .share-summary-card h2 { font-size: 22px; } .share-transfer, .share-balance { align-items: flex-start; gap: 10px; } .share-transfer > span { flex-wrap: wrap; } }
 .update-prompt > span { display: grid; min-width: 0; flex: 1; }
+.attachment-input { height: auto; padding-block: 10px; }
+.attachment-selection { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.expense-attachments { display: grid; gap: 10px; }
+.expense-attachments h2 { margin: 0; font-size: 18px; }
+.expense-attachments__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.expense-attachments__item { display: grid; min-width: 0; gap: 6px; }
+.expense-attachments__grid a { display: block; aspect-ratio: 1; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted); }
+.expense-attachments__grid a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.expense-attachments__grid img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.expense-attachments__delete { justify-self: end; display: inline-grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--danger); cursor: pointer; }
+.expense-attachments__delete:hover { background: var(--surface-muted); }
+.expense-attachments__delete:disabled { cursor: wait; opacity: .55; }
 
 @media (max-width: 760px) {
   .auth-layout { grid-template-columns: 1fr; background: var(--surface); }
@@ -481,6 +493,7 @@ button.settings-row:hover { background: var(--surface-muted); }
   .deleted-activity-row { grid-template-columns: 1fr; }
   .deleted-activity-row .button { width: 100%; }
   .quick-expense-trigger { right: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px); }
+  .expense-attachments__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settlement-recommendation__party { grid-template-columns: 30px minmax(0, 1fr) 14px 30px minmax(0, 1fr); gap: 5px; }
 }
 

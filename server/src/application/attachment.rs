@@ -64,6 +64,14 @@ pub trait AttachmentRepository: Send + Sync {
         attachment_id: Uuid,
         actor_user_id: Uuid,
     ) -> Result<DownloadedAttachment, AttachmentRepositoryError>;
+
+    async fn delete(
+        &self,
+        activity_id: Uuid,
+        expense_id: Uuid,
+        attachment_id: Uuid,
+        actor_user_id: Uuid,
+    ) -> Result<(), AttachmentRepositoryError>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
@@ -136,6 +144,24 @@ pub async fn download_attachment(
 ) -> Result<DownloadedAttachment, AttachmentError> {
     repository
         .download(activity_id, expense_id, attachment_id, actor_user_id)
+        .await
+        .map_err(AttachmentError::from)
+}
+
+/// 删除入口要求 repository 同时维护私有文件、metadata、Audit 与 Activity revision。
+///
+/// # Errors
+///
+/// 活动不可写、附件不可见、文件缺失或存储不可用时返回稳定业务错误。
+pub async fn delete_attachment(
+    repository: &dyn AttachmentRepository,
+    activity_id: Uuid,
+    expense_id: Uuid,
+    attachment_id: Uuid,
+    actor_user_id: Uuid,
+) -> Result<(), AttachmentError> {
+    repository
+        .delete(activity_id, expense_id, attachment_id, actor_user_id)
         .await
         .map_err(AttachmentError::from)
 }

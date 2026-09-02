@@ -132,6 +132,22 @@ fn attachment_contract_publishes_multipart_and_private_binary_download() {
             "附件下载缺少 {header} 响应头"
         );
     }
+    let delete = &value["paths"][format!("{path}/{{attachment_id}}").as_str()]["delete"];
+    for status in ["204", "401", "403", "404", "500"] {
+        assert!(
+            delete["responses"][status].is_object(),
+            "附件删除缺少 {status} 响应"
+        );
+    }
+    assert_eq!(
+        delete["parameters"]
+            .as_array()
+            .expect("删除参数应为数组")
+            .iter()
+            .find(|parameter| parameter["name"] == "x-csrf-token")
+            .expect("附件删除应声明 CSRF")["in"],
+        "header"
+    );
     let attachment = &value["components"]["schemas"]["ExpenseAttachmentData"]["properties"];
     assert!(attachment["mimeType"].is_object());
     assert!(attachment["byteSize"].is_object());

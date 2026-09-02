@@ -13,6 +13,7 @@ import {
   type Settlement,
   useCreateExpenseMutation,
   useCreateSettlementMutation,
+  useDeleteAttachmentMutation,
   useDeleteExpenseMutation,
   useExpenseQuery,
   useExpensesQuery,
@@ -33,6 +34,86 @@ const categories = [
 const splitModes = [
   ["EQUAL", "均摊"], ["EXACT", "按金额"], ["PERCENTAGE", "按比例"], ["WEIGHT", "按权重"],
 ] as const;
+
+const attachmentAccept =
+  ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+const attachmentMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const maxAttachmentBytes = 10 * 1024 * 1024;
+
+function attachmentUrl(
+  activityId: string,
+  expenseId: string,
+  attachmentId: string,
+) {
+  return `/api/activities/${encodeURIComponent(activityId)}/expenses/${encodeURIComponent(expenseId)}/attachments/${encodeURIComponent(attachmentId)}`;
+}
+
+function validateAttachments(files: readonly File[]) {
+  if (files.length > 3) return "每笔账单最多添加三张附件。";
+  if (files.some((file) => !attachmentMimeTypes.has(file.type))) {
+    return "仅支持 JPEG、PNG 或 WebP 图片。";
+  }
+  if (files.some((file) => file.size > maxAttachmentBytes)) {
+    return "单张附件不能超过 10 MiB。";
+  }
+}
+
+/** 缩略图始终请求受权下载路由，不接触本地 Blob URL 或服务端存储路径。 */
+function ExpenseAttachments({
+  activityId,
+  expenseId,
+  attachments,
+  deletingAttachmentId,
+  onDelete,
+}: {
+  activityId: string;
+  expenseId: string;
+  attachments: ExpenseAggregate["attachments"];
+  deletingAttachmentId?: string;
+  onDelete?: (attachmentId: string) => void;
+}) {
+  if (attachments.length === 0) return null;
+  return (
+    <section className="expense-attachments" aria-labelledby="expense-attachments-heading">
+      <h2 id="expense-attachments-heading">附件</h2>
+      <div className="expense-attachments__grid">
+        {attachments.map((attachment, index) => {
+          const href = attachmentUrl(activityId, expenseId, attachment.id);
+          return (
+            <div className="expense-attachments__item" key={attachment.id}>
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`查看附件 ${index + 1}`}
+              >
+                <img
+                  src={href}
+                  alt={`附件 ${index + 1}`}
+                  loading="lazy"
+                  width={attachment.width}
+                  height={attachment.height}
+                />
+              </a>
+              {onDelete ? <button
+                type="button"
+                className="expense-attachments__delete"
+                aria-label={`删除附件 ${index + 1}`}
+                title={`删除附件 ${index + 1}`}
+                disabled={deletingAttachmentId === attachment.id}
+                onClick={() => onDelete(attachment.id)}
+              ><Trash2 aria-hidden="true" size={16} /></button> : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function localDateTime(iso?: string): string {
   const date = iso ? new Date(iso) : new Date();
@@ -107,7 +188,9 @@ export function ExpenseFeedPage() {
     (!query.trim() || `${expense.title} ${expense.note ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
     (!category || expense.category === category),
   );
-  const filteredPending = (pendingExpenses.data ?? []).filter(({ payload }) =>
+  const localRecords = pendingExpenses.data ?? [];
+  const filteredPending = localRecords.filter(({ status, payload }) =>
+    status !== "SYNCED" &&
     (!query.trim() || `${payload.title} ${payload.note ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
     (!category || payload.category === category),
   );
@@ -168,10 +251,19 @@ export function ExpenseFeedPage() {
               {group.expenses.map(({ expense, payments, shares }) => {
                 const categoryInfo = categories.find(([value]) => value === expense.category) ?? categories.at(-1)!;
                 const payerNames = payments.map((payment) => memberName(payment.memberId, members.data)).join("、");
+                const local = localRecords.find((record) =>
+                  record.status === "SYNCED" &&
+                  record.serverExpenseId === expense.expenseId,
+                );
+                const attachmentMessage = local?.attachments.find(
+                  (attachment) => attachment.status === "REJECTED",
+                )?.lastError?.message ?? (local?.attachments.some((attachment) =>
+                  ["PENDING", "SYNCING", "RETRYABLE"].includes(attachment.status)
+                ) ? "附件等待同步" : undefined);
                 return (
                   <Link key={expense.expenseId} to={`/activities/${activity.activityId}/expenses/${expense.expenseId}`} className="expense-row">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{expense.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shares.length}人</small></span>
+                    <span className="expense-row__content"><strong>{expense.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shares.length}人</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} /><small>{new Date(expense.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </Link>
                 );
@@ -199,6 +291,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
   const expenseId = initial?.expense.expenseId;
   const create = useCreateExpenseMutation(session.userId, activity.activityId);
   const update = useUpdateExpenseMutation(session.userId, activity.activityId, expenseId ?? "");
+  const deleteAttachment = useDeleteAttachmentMutation(session.userId, activity.activityId, expenseId ?? "");
   const [title, setTitle] = useState(initial?.expense.title ?? "");
   const [category, setCategory] = useState(initial?.expense.category ?? "FOOD");
   const [note, setNote] = useState(initial?.expense.note ?? "");
@@ -210,6 +303,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
   const [selectedMembers, setSelectedMembers] = useState<Record<string, boolean>>(() => Object.fromEntries((initial?.shares ?? []).map((share) => [share.memberId, true])));
   const [splitValues, setSplitValues] = useState<Record<string, string>>(() => Object.fromEntries((initial?.shares ?? []).map((share) => [share.memberId, minorToInput(share.originalAmountMinor, initial!.expense.originalCurrency)])));
   const [paymentValues, setPaymentValues] = useState<Record<string, string>>(() => Object.fromEntries((initial?.payments ?? []).map((payment) => [payment.memberId, minorToInput(payment.originalAmountMinor, initial!.expense.originalCurrency)])));
+  const [files, setFiles] = useState<readonly File[]>([]);
   const [localError, setLocalError] = useState<string>();
   const mutation = expenseId ? update : create;
 
@@ -218,6 +312,17 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
 
   function updateRecord(setter: React.Dispatch<React.SetStateAction<Record<string, string>>>, id: string, value: string) {
     setter((current) => ({ ...current, [id]: value }));
+  }
+
+  function selectAttachments(nextFiles: FileList | null) {
+    const selected = Array.from(nextFiles ?? []);
+    const error = validateAttachments(selected);
+    if (error) {
+      setLocalError(error);
+      return;
+    }
+    setLocalError(undefined);
+    setFiles(selected);
   }
 
   async function submit(event: FormEvent) {
@@ -254,7 +359,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
         split,
       };
       if (initial) await update.mutateAsync({ ...draft, version: initial.expense.version });
-      else await create.mutateAsync(draft);
+      else await create.mutateAsync({ input: draft, files });
       if (onSaved) onSaved();
       else navigate(`/activities/${activity.activityId}`);
     } catch (error) {
@@ -279,7 +384,11 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
           <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} required /></Field>
         </div>
         <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
+        {!initial ? <Field label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => selectAttachments(event.target.files)} />{files.length ? <small className="attachment-selection">已选择 {files.length} 张：{files.map((file) => file.name).join("、")}</small> : null}</Field> : null}
       </section>
+
+      {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={(attachmentId) => { if (window.confirm("确定删除这张附件吗？此操作会立即生效。")) void deleteAttachment.mutateAsync(attachmentId).catch(() => undefined); }} /> : null}
+      {deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}
 
       <section className={`${compact ? "" : "panel "}form-section`}>
         <header className="panel__header"><div><p className="eyebrow">付款事实</p><h2>谁先付了钱</h2><p>留空时默认由你支付全部金额；多人付款可分别填写。</p></div></header>
@@ -350,6 +459,7 @@ export function ExpenseDetailPage() {
             <div><dt>成员分摊</dt><dd>{aggregate.shares.map((share) => <span key={share.factId}>{memberName(share.memberId, members.data)}<Money value={formatMoney(aggregate.expense.originalCurrency, share.originalAmountMinor)} /></span>)}</dd></div>
           </dl>
           {aggregate.expense.note ? <p>{aggregate.expense.note}</p> : null}
+          <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments} />
         </section>
       </div>
     );

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import { queryKeys } from "../../api/query-keys";
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
+import { AttachmentRepository } from "../../pwa/indexed-db/attachment-repository";
 import {
   EXPENSE_QUEUE_CHANGED_EVENT,
   activateExpenseQueueUser,
@@ -67,9 +68,18 @@ export function usePendingExpenseMutations(
 ) {
   return useQuery({
     queryKey: queryKeys.pendingExpenses(userId, activityId),
-    queryFn: async () => (await new MutationRepository(userId)
-      .listByActivity(activityId))
-      .filter(({ status }) => status !== "SYNCED"),
+    queryFn: async () => {
+      const [mutations, attachments] = await Promise.all([
+        new MutationRepository(userId).listByActivity(activityId),
+        new AttachmentRepository(userId).listByActivity(activityId),
+      ]);
+      return mutations.map((mutation) => ({
+        ...mutation,
+        attachments: attachments.filter(
+          (attachment) => attachment.mutationId === mutation.id,
+        ),
+      }));
+    },
     enabled: userId.length > 0 && activityId.length > 0,
   });
 }

@@ -786,6 +786,93 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "deleteExpenseAttachment",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expense_id",
+            "in": "path",
+            "description": "Expense UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "description": "附件 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "附件已删除"
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权删除",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "附件不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "附件存储不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/activities/{activity_id}/export.csv": {

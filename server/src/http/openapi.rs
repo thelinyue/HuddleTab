@@ -15,8 +15,9 @@ use super::{
         ActivityVersionRequest, CreateActivityRequest, UpdateActivityRequest,
     },
     attachment::{
-        __path_download as __path_attachment_download, __path_upload as __path_attachment_upload,
-        AttachmentBinary, AttachmentEnvelope, UploadAttachmentRequest,
+        __path_delete as __path_attachment_delete, __path_download as __path_attachment_download,
+        __path_upload as __path_attachment_upload, AttachmentBinary, AttachmentEnvelope,
+        UploadAttachmentRequest,
     },
     auth::{
         __path_change_password, __path_csrf, __path_login, __path_logout, __path_register,
@@ -104,6 +105,7 @@ use super::{
         expense_delete,
         attachment_upload,
         attachment_download,
+        attachment_delete,
         ledger,
         recommendations,
         get_activity_snapshot,

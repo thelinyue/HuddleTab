@@ -2,7 +2,8 @@ use std::{fs, io::Cursor, path::Path};
 
 use huddletab_server::{
     application::attachment::{
-        AttachmentError, UploadAttachmentInput, download_attachment, upload_attachment,
+        AttachmentError, UploadAttachmentInput, delete_attachment, download_attachment,
+        upload_attachment,
     },
     infrastructure::{
         attachment_repository::PostgresAttachmentRepository,
@@ -336,6 +337,113 @@ async fn metadata_failure_removes_file_without_revision_or_audit() {
     assert_eq!(facts(&context).await, (0, 0, 1, 0));
 }
 
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn delete_removes_metadata_file_and_advances_revision_once() {
+    let context = seed_context().await;
+    let repository = context.repository();
+    let uploaded = upload_attachment(
+        &repository,
+        context.input(context.member_user_id, Uuid::new_v4()),
+    )
+    .await
+    .expect("应先上传附件");
+
+    delete_attachment(
+        &repository,
+        context.activity_id,
+        context.expense_id,
+        uploaded.attachment.id,
+        context.member_user_id,
+    )
+    .await
+    .expect("ACTIVE 成员应可删除附件");
+
+    assert_eq!(delete_facts(&context).await, (0, 1, 1, 3, 0));
+    assert_eq!(
+        delete_attachment(
+            &repository,
+            context.activity_id,
+            context.expense_id,
+            uploaded.attachment.id,
+            context.member_user_id,
+        )
+        .await
+        .unwrap_err(),
+        AttachmentError::NotFound
+    );
+    assert_eq!(delete_facts(&context).await, (0, 1, 1, 3, 0));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn delete_rechecks_authorization_and_keeps_database_when_file_is_missing() {
+    let context = seed_context().await;
+    let repository = context.repository();
+    let uploaded = upload_attachment(
+        &repository,
+        context.input(context.owner_user_id, Uuid::new_v4()),
+    )
+    .await
+    .expect("应先上传附件");
+
+    assert_eq!(
+        delete_attachment(
+            &repository,
+            context.activity_id,
+            context.expense_id,
+            uploaded.attachment.id,
+            context.outsider_user_id,
+        )
+        .await
+        .unwrap_err(),
+        AttachmentError::Forbidden
+    );
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应结束活动");
+    assert_eq!(
+        delete_attachment(
+            &repository,
+            context.activity_id,
+            context.expense_id,
+            uploaded.attachment.id,
+            context.owner_user_id,
+        )
+        .await
+        .unwrap_err(),
+        AttachmentError::Forbidden
+    );
+    sqlx::query("UPDATE activities SET status = 'ACTIVE' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("应恢复活动");
+    let storage_key: String =
+        sqlx::query_scalar("SELECT storage_key FROM expense_attachments WHERE id = $1")
+            .bind(uploaded.attachment.id)
+            .fetch_one(&context.pool)
+            .await
+            .expect("应读取测试存储键");
+    fs::remove_file(context.uploads.path().join(storage_key)).expect("应制造文件缺失");
+
+    assert_eq!(
+        delete_attachment(
+            &repository,
+            context.activity_id,
+            context.expense_id,
+            uploaded.attachment.id,
+            context.owner_user_id,
+        )
+        .await
+        .unwrap_err(),
+        AttachmentError::MissingFile
+    );
+    assert_eq!(delete_facts(&context).await, (1, 1, 0, 2, 0));
+}
+
 async fn facts(context: &Context) -> (i64, i64, i64, usize) {
     let attachments: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM expense_attachments")
         .fetch_one(&context.pool)
@@ -355,6 +463,37 @@ async fn facts(context: &Context) -> (i64, i64, i64, usize) {
     (
         attachments,
         audits,
+        revision,
+        count_files(context.uploads.path()),
+    )
+}
+
+async fn delete_facts(context: &Context) -> (i64, i64, i64, i64, usize) {
+    let attachments: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM expense_attachments")
+        .fetch_one(&context.pool)
+        .await
+        .expect("应统计附件");
+    let uploaded: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM activity_audit_logs WHERE action = 'ATTACHMENT_UPLOADED'",
+    )
+    .fetch_one(&context.pool)
+    .await
+    .expect("应统计上传 Audit");
+    let deleted: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM activity_audit_logs WHERE action = 'ATTACHMENT_DELETED'",
+    )
+    .fetch_one(&context.pool)
+    .await
+    .expect("应统计删除 Audit");
+    let revision: i64 = sqlx::query_scalar("SELECT revision FROM activities WHERE id = $1")
+        .bind(context.activity_id)
+        .fetch_one(&context.pool)
+        .await
+        .expect("应读取 revision");
+    (
+        attachments,
+        uploaded,
+        deleted,
         revision,
         count_files(context.uploads.path()),
     )

@@ -208,7 +208,9 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         )
         .route(
             "/activities/{activity_id}/expenses/{expense_id}/attachments/{attachment_id}",
-            get(attachment::download).fallback(api_method_not_allowed),
+            get(attachment::download)
+                .delete(attachment::delete)
+                .fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}/ledger",

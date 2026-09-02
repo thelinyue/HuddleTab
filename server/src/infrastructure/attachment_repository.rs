@@ -45,6 +45,11 @@ struct DownloadRow {
     storage_key: String,
 }
 
+#[derive(FromRow)]
+struct DeleteRow {
+    storage_key: String,
+}
+
 #[async_trait]
 impl AttachmentRepository for PostgresAttachmentRepository {
     async fn upload(
@@ -105,6 +110,58 @@ impl AttachmentRepository for PostgresAttachmentRepository {
             attachment_id: row.attachment_id,
             bytes,
         })
+    }
+
+    async fn delete(
+        &self,
+        activity_id: Uuid,
+        expense_id: Uuid,
+        attachment_id: Uuid,
+        actor_user_id: Uuid,
+    ) -> Result<(), AttachmentRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(log_database_error)?;
+        let actor_member_id = lock_activity(&mut transaction, activity_id, actor_user_id).await?;
+        lock_expense(&mut transaction, activity_id, expense_id).await?;
+        let row = sqlx::query_as::<_, DeleteRow>(
+            "SELECT storage_key FROM expense_attachments
+             WHERE id = $1 AND expense_id = $2 FOR UPDATE",
+        )
+        .bind(attachment_id)
+        .bind(expense_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_database_error)?
+        .ok_or(AttachmentRepositoryError::NotFound)?;
+        let original = self
+            .store
+            .read(&row.storage_key)
+            .await
+            .map_err(map_download_store_error)?;
+        self.store
+            .remove(&row.storage_key)
+            .await
+            .map_err(map_download_store_error)?;
+
+        let database_result = delete_metadata_and_audit(
+            &mut transaction,
+            activity_id,
+            expense_id,
+            attachment_id,
+            actor_user_id,
+            actor_member_id,
+        )
+        .await;
+        if let Err(error) = database_result {
+            restore_deleted_file(&self.store, &row.storage_key, &original).await;
+            return Err(error);
+        }
+        if let Err(error) = transaction.commit().await {
+            drop(error);
+            tracing::error!("附件删除事务提交失败");
+            restore_deleted_file(&self.store, &row.storage_key, &original).await;
+            return Err(AttachmentRepositoryError::Unavailable);
+        }
+        Ok(())
     }
 }
 
@@ -172,6 +229,7 @@ impl PostgresAttachmentRepository {
             input.actor_user_id,
             actor_member_id,
             attachment_id,
+            "ATTACHMENT_UPLOADED",
             created_at,
         )
         .await;
@@ -335,6 +393,7 @@ async fn revise_and_audit(
     actor_user_id: Uuid,
     actor_member_id: Uuid,
     attachment_id: Uuid,
+    action: &str,
     now: OffsetDateTime,
 ) -> Result<(), AttachmentRepositoryError> {
     let revision = sqlx::query_scalar::<_, i64>(
@@ -350,12 +409,13 @@ async fn revise_and_audit(
         "INSERT INTO activity_audit_logs (
             id, activity_id, actor_user_id, actor_member_id, action,
             resource_type, resource_id, activity_revision, created_at
-         ) VALUES ($1, $2, $3, $4, 'ATTACHMENT_UPLOADED', 'ATTACHMENT', $5, $6, $7)",
+         ) VALUES ($1, $2, $3, $4, $5, 'ATTACHMENT', $6, $7, $8)",
     )
     .bind(Uuid::new_v4())
     .bind(activity_id)
     .bind(actor_user_id)
     .bind(actor_member_id)
+    .bind(action)
     .bind(attachment_id)
     .bind(revision)
     .bind(now)
@@ -363,6 +423,35 @@ async fn revise_and_audit(
     .await
     .map_err(log_database_error)?;
     Ok(())
+}
+
+async fn delete_metadata_and_audit(
+    connection: &mut PgConnection,
+    activity_id: Uuid,
+    expense_id: Uuid,
+    attachment_id: Uuid,
+    actor_user_id: Uuid,
+    actor_member_id: Uuid,
+) -> Result<(), AttachmentRepositoryError> {
+    let deleted = sqlx::query("DELETE FROM expense_attachments WHERE id = $1 AND expense_id = $2")
+        .bind(attachment_id)
+        .bind(expense_id)
+        .execute(&mut *connection)
+        .await
+        .map_err(log_database_error)?;
+    if deleted.rows_affected() != 1 {
+        return Err(AttachmentRepositoryError::NotFound);
+    }
+    revise_and_audit(
+        connection,
+        activity_id,
+        actor_user_id,
+        actor_member_id,
+        attachment_id,
+        "ATTACHMENT_DELETED",
+        OffsetDateTime::now_utc(),
+    )
+    .await
 }
 
 fn attachment_from_row(row: AttachmentRow) -> ExpenseAttachmentRecord {
@@ -404,6 +493,12 @@ fn map_download_store_error(error: AttachmentStoreError) -> AttachmentRepository
 async fn compensate_file(store: &LocalAttachmentStore, storage_key: &str) {
     if store.remove(storage_key).await.is_err() {
         tracing::error!("附件事务失败后无法删除临时落盘文件，稍后将由孤立文件清理器处理");
+    }
+}
+
+async fn restore_deleted_file(store: &LocalAttachmentStore, storage_key: &str, bytes: &[u8]) {
+    if store.write(storage_key, bytes).await.is_err() {
+        tracing::error!("附件删除事务失败后无法恢复私有文件，需要部署者检查附件存储");
     }
 }
 

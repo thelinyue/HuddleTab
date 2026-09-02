@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import { ApiRequestError } from "../../api/error";
 import { databaseName } from "../../pwa/indexed-db/database";
+import { AttachmentRepository } from "../../pwa/indexed-db/attachment-repository";
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
 import { expensePayload } from "../../pwa/indexed-db/test-fixtures";
 import { ExpenseQueue } from "./expense-queue";
@@ -183,4 +184,109 @@ it("退避期间 Session 切换后不使用新用户身份重放旧队列", asyn
   expect(send).toHaveBeenCalledTimes(1);
   expect(await new MutationRepository("user-1").get("mutation-session-switch"))
     .toMatchObject({ status: "RETRYABLE", attemptCount: 1 });
+});
+
+it("Expense 先同步成功，附件网络失败只重试附件", async () => {
+  const send = vi.fn().mockResolvedValue({ expenseId: "expense-1" });
+  const sendAttachment = vi.fn().mockRejectedValue(
+    new TypeError("Failed to fetch"),
+  );
+  const queue = new ExpenseQueue("user-1", {
+    send,
+    sendAttachment,
+    sleep: vi.fn().mockResolvedValue(undefined),
+    now: () => 600,
+  });
+  const file = new File([new Uint8Array([1])], "receipt.png", {
+    type: "image/png",
+  });
+  await queue.enqueue("activity-1", {
+    ...expensePayload,
+    clientMutationId: "mutation-with-attachment",
+  }, [file]);
+
+  await queue.flush();
+
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(await new MutationRepository("user-1").get(
+    "mutation-with-attachment",
+  )).toMatchObject({ status: "SYNCED", serverExpenseId: "expense-1" });
+  expect((await new AttachmentRepository("user-1").listByMutation(
+    "mutation-with-attachment",
+  ))[0]).toMatchObject({ status: "RETRYABLE", attemptCount: 3 });
+
+  sendAttachment.mockResolvedValue({ id: "server-attachment-1" });
+  await queue.flush();
+
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(sendAttachment).toHaveBeenCalledTimes(4);
+  expect((await new AttachmentRepository("user-1").listByMutation(
+    "mutation-with-attachment",
+  ))[0]).toMatchObject({
+    status: "SYNCED",
+    serverAttachmentId: "server-attachment-1",
+  });
+});
+
+it("附件业务 4xx 保留 Blob 并显示明确拒绝状态", async () => {
+  const sendAttachment = vi.fn().mockRejectedValue(
+    new ApiRequestError(422),
+  );
+  const queue = new ExpenseQueue("user-1", {
+    send: vi.fn().mockResolvedValue({ expenseId: "expense-2" }),
+    sendAttachment,
+    now: () => 700,
+  });
+  await queue.enqueue("activity-1", {
+    ...expensePayload,
+    clientMutationId: "mutation-rejected-attachment",
+  }, [new File(["image"], "receipt.webp", { type: "image/webp" })]);
+
+  await queue.flush();
+
+  const [attachment] = await new AttachmentRepository("user-1")
+    .listByMutation("mutation-rejected-attachment");
+  expect(attachment).toMatchObject({
+    status: "REJECTED",
+    lastError: { message: "附件被服务器拒绝。" },
+  });
+  expect(attachment.blob).toBeDefined();
+  expect(sendAttachment).toHaveBeenCalledTimes(1);
+});
+
+it("两个附件按本地创建顺序串行上传", async () => {
+  const first = deferred<{ id: string }>();
+  const second = deferred<{ id: string }>();
+  const sendAttachment = vi.fn()
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const queue = new ExpenseQueue("user-1", {
+    send: vi.fn().mockResolvedValue({ expenseId: "expense-3" }),
+    sendAttachment,
+    now: () => 800,
+  });
+  await queue.enqueue("activity-1", {
+    ...expensePayload,
+    clientMutationId: "mutation-two-attachments",
+  }, [
+    new File(["a"], "a.png", { type: "image/png" }),
+    new File(["b"], "b.png", { type: "image/png" }),
+  ]);
+
+  const flushing = queue.flush();
+  await vi.waitFor(() => expect(sendAttachment).toHaveBeenCalledTimes(1));
+  first.resolve({ id: "server-a" });
+  await vi.waitFor(() => expect(sendAttachment).toHaveBeenCalledTimes(2));
+  second.resolve({ id: "server-b" });
+  await flushing;
+
+  const attachments = await new AttachmentRepository("user-1")
+    .listByMutation("mutation-two-attachments");
+  expect(attachments.map(({ status, serverAttachmentId }) => [
+    status,
+    serverAttachmentId,
+  ])).toEqual([
+    ["SYNCED", "server-a"],
+    ["SYNCED", "server-b"],
+  ]);
 });

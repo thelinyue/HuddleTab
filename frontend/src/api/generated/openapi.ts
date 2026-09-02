@@ -94,7 +94,7 @@ export interface paths {
         get: operations["downloadExpenseAttachment"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["deleteExpenseAttachment"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1625,6 +1625,70 @@ export interface operations {
                 };
             };
             /** @description 附件不存在或不可访问 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 附件存储不可用 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    deleteExpenseAttachment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+                /** @description Expense UUID */
+                expense_id: string;
+                /** @description 附件 UUID */
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 附件已删除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无权删除 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 附件不存在 */
             404: {
                 headers: {
                     [name: string]: unknown;

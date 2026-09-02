@@ -257,6 +257,70 @@ async fn csrf_precedes_body_parsing_and_multipart_errors_stay_json() {
     }
 }
 
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn delete_requires_csrf_and_removes_private_attachment() {
+    let context = seed_context().await;
+    let client_attachment_id = Uuid::new_v4();
+    let (content_type, body) =
+        multipart(Some(&client_attachment_id.to_string()), Some(png_1_by_1()));
+    let (status, _, bytes) = raw_response(
+        &context,
+        upload_request(&context, &content_type, body, true),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let created: Value = serde_json::from_slice(&bytes).expect("上传响应应为 JSON");
+    let attachment_id = created["data"]["id"].as_str().expect("应返回附件 ID");
+    let uri = format!(
+        "/api/activities/{}/expenses/{}/attachments/{attachment_id}",
+        context.activity_id, context.expense_id
+    );
+
+    let (status, _, body) = raw_response(
+        &context,
+        Request::builder()
+            .method("DELETE")
+            .uri(&uri)
+            .header(COOKIE, session_cookie(&context.session))
+            .header(ORIGIN, "http://localhost:5660")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::empty())
+            .expect("删除请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let error: Value = serde_json::from_slice(&body).expect("CSRF 错误应为 JSON");
+    assert_eq!(error["error"]["code"], "CSRF_INVALID");
+
+    let (status, _, body) = raw_response(
+        &context,
+        Request::builder()
+            .method("DELETE")
+            .uri(&uri)
+            .header(COOKIE, session_cookie(&context.session))
+            .header(ORIGIN, "http://localhost:5660")
+            .header("sec-fetch-site", "same-origin")
+            .header("x-csrf-token", context.csrf.expose_for_header())
+            .body(Body::empty())
+            .expect("删除请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(body.is_empty());
+
+    let (status, _, _) = raw_response(
+        &context,
+        Request::builder()
+            .uri(uri)
+            .header(COOKIE, session_cookie(&context.session))
+            .body(Body::empty())
+            .expect("下载请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
 fn upload_request(
     context: &Context,
     content_type: &str,

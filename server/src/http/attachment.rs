@@ -15,7 +15,8 @@ use uuid::Uuid;
 
 use crate::{
     application::attachment::{
-        AttachmentError, UploadAttachmentInput, download_attachment, upload_attachment,
+        AttachmentError, UploadAttachmentInput, delete_attachment, download_attachment,
+        upload_attachment,
     },
     infrastructure::{
         attachment_repository::PostgresAttachmentRepository, attachment_store::LocalAttachmentStore,
@@ -216,6 +217,50 @@ pub(crate) async fn download(
         HeaderValue::from_static("nosniff"),
     );
     Ok(response)
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/activities/{activity_id}/expenses/{expense_id}/attachments/{attachment_id}",
+    operation_id = "deleteExpenseAttachment",
+    params(
+        ("activity_id" = String, Path, description = "活动 UUID"),
+        ("expense_id" = String, Path, description = "Expense UUID"),
+        ("attachment_id" = String, Path, description = "附件 UUID"),
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    responses(
+        (status = 204, description = "附件已删除"),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无权删除", body = super::error::ErrorEnvelope),
+        (status = 404, description = "附件不存在", body = super::error::ErrorEnvelope),
+        (status = 500, description = "附件存储不可用", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn delete(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path((activity_id, expense_id, attachment_id)): Path<(String, String, String)>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    let activity_id = parse_uuid(&activity_id, request_id.clone())?;
+    let expense_id = parse_uuid(&expense_id, request_id.clone())?;
+    let attachment_id = parse_uuid(&attachment_id, request_id.clone())?;
+    let store = LocalAttachmentStore::new(&state.uploads_dir)
+        .map_err(|_| ApiError::internal(request_id.clone()))?;
+    let repository = PostgresAttachmentRepository::new(state.pool, store);
+    delete_attachment(
+        &repository,
+        activity_id,
+        expense_id,
+        attachment_id,
+        actor.user_id,
+    )
+    .await
+    .map_err(|error| map_error(error, request_id))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn parse_uuid(value: &str, request_id: RequestId) -> Result<Uuid, ApiError> {

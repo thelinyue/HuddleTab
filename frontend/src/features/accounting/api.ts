@@ -6,6 +6,7 @@ import { unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
 import { expenseQueueFor } from "./expense-queue";
+export { uploadExpenseAttachment } from "./expense-queue";
 
 export type ExpenseAggregate = components["schemas"]["ExpenseAggregateData"];
 export type ExpenseDraft = components["schemas"]["ExpenseDraftRequest"];
@@ -49,6 +50,28 @@ async function deleteExpense(activityId: string, expenseId: string, version: str
       headers: await mutationHeaders(),
     }),
   ).data;
+}
+
+export async function deleteExpenseAttachment(
+  activityId: string,
+  expenseId: string,
+  attachmentId: string,
+) {
+  const headers = await mutationHeaders();
+  const result = await apiClient.DELETE(
+    "/api/activities/{activity_id}/expenses/{expense_id}/attachments/{attachment_id}",
+    {
+      params: {
+        header: { "x-csrf-token": headers["X-CSRF-Token"] },
+        path: {
+          activity_id: activityId,
+          expense_id: expenseId,
+          attachment_id: attachmentId,
+        },
+      },
+    },
+  );
+  if (result.response.status !== 204) unwrap(result);
 }
 
 async function getLedger(activityId: string): Promise<Ledger> {
@@ -137,8 +160,13 @@ export function useExpenseQuery(userId: string, activityId: string, expenseId: s
 
 export function useCreateExpenseMutation(userId: string, activityId: string) {
   return useMutation({
-    mutationFn: (input: ExpenseDraft) =>
-      expenseQueueFor(userId).enqueue(activityId, input),
+    mutationFn: ({
+      input,
+      files = [],
+    }: {
+      input: ExpenseDraft;
+      files?: readonly File[];
+    }) => expenseQueueFor(userId).enqueue(activityId, input, files),
   });
 }
 
@@ -157,6 +185,32 @@ export function useUpdateExpenseMutation(userId: string, activityId: string, exp
 export function useDeleteExpenseMutation(userId: string, activityId: string, expenseId: string) {
   const invalidate = useAccountingInvalidation(userId, activityId);
   return useMutation({ mutationFn: (version: string) => deleteExpense(activityId, expenseId, version), onSuccess: invalidate });
+}
+
+export function useDeleteAttachmentMutation(
+  userId: string,
+  activityId: string,
+  expenseId: string,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (attachmentId: string) =>
+      deleteExpenseAttachment(activityId, expenseId, attachmentId),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.expense(userId, activityId, expenseId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.expenses(userId, activityId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.activitySnapshot(userId, activityId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.activityDetail(userId, activityId),
+      }),
+    ]),
+  });
 }
 
 export function useLedgerQuery(userId: string, activityId: string) {
