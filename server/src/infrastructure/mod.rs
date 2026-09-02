@@ -4,6 +4,7 @@ pub mod accounting_repository;
 pub mod activity_repository;
 pub mod app_secret;
 pub mod attachment_image;
+pub mod attachment_repository;
 pub mod attachment_store;
 pub mod auth_repository;
 pub mod clock;

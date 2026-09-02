@@ -2,6 +2,7 @@
 
 pub mod accounting;
 pub mod activity;
+pub mod attachment;
 pub mod auth;
 pub mod bootstrap_user;
 pub mod collaboration;
