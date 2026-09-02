@@ -73,6 +73,52 @@ describe("invitationRequest", () => {
   });
 });
 
+describe("Guest Binding invitation adapter", () => {
+  it("使用 generated contract 创建绑定邀请且只失效邀请列表", async () => {
+    client.POST.mockResolvedValue(successful({
+      activityId: "activity-1",
+      expiresAt: "2026-09-09T00:00:00Z",
+      guestMemberId: "guest-1",
+      invitationId: "invitation-1",
+      kind: "DIRECT",
+      maxUses: 1,
+      purpose: "GUEST_BINDING",
+      revision: "8",
+      targetUsername: "alice",
+      token: "one-time-token",
+      useCount: 0,
+      version: "1",
+    }));
+    const { queryClient, wrapper } = setupQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const hook = exportedHook("useCreateGuestBindingInvitationMutation") as (
+      userId: string,
+      activityId: string,
+    ) => {
+      mutateAsync: (input: { memberId: string; targetUsername: string }) => Promise<unknown>;
+    };
+    const { result } = renderHook(() => hook("user-1", "activity-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ memberId: "guest-1", targetUsername: "alice" });
+    });
+
+    expect(client.POST).toHaveBeenCalledWith(
+      "/api/activities/{activity_id}/members/{member_id}/binding-invitations",
+      {
+        body: { targetUsername: "alice" },
+        params: {
+          header: { "x-csrf-token": "csrf-token" },
+          path: { activity_id: "activity-1", member_id: "guest-1" },
+        },
+      },
+    );
+    expect(invalidate.mock.calls.map(([options]) => options)).toEqual([
+      { queryKey: queryKeys.invitations("user-1", "activity-1") },
+    ]);
+  });
+});
+
 describe("Activity 查询 adapter", () => {
   it("current、deleted 列表和详情使用互不混淆的查询 key 与精确请求", async () => {
     client.GET

@@ -113,6 +113,43 @@ describe("useLogoutMutation", () => {
 });
 
 describe("join approval applicant adapter", () => {
+  it.each(["BOUND", "ALREADY_BOUND"])(
+    "%s 绑定结果会刷新当前活动列表",
+    async (status) => {
+      client.POST.mockResolvedValue({
+        data: {
+          data: {
+            activityId: "activity-1",
+            memberId: "guest-1",
+            requestId: null,
+            revision: "4",
+            status,
+          },
+        },
+        response: new Response(null, { status: 200 }),
+      });
+      const queryClient = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+      const localWrapper = ({ children }: PropsWithChildren) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+      const { result } = renderHook(
+        () => useJoinInvitationMutation("user-1", "invite-token"),
+        { wrapper: localWrapper },
+      );
+
+      await act(async () => {
+        await expect(result.current.mutateAsync()).resolves.toMatchObject({ status });
+      });
+      expect(invalidate).toHaveBeenCalledOnce();
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: queryKeys.activitiesCurrent("user-1"),
+      });
+    },
+  );
+
   it("Pending join 返回申请结果且不刷新活动工作台", async () => {
     client.POST.mockResolvedValue({
       data: {

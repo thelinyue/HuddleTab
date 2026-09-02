@@ -134,6 +134,26 @@ async function createInvitation(
   ).data;
 }
 
+async function createGuestBindingInvitation(
+  activityId: string,
+  memberId: string,
+  targetUsername: string,
+): Promise<CreatedInvitation> {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.POST(
+      "/api/activities/{activity_id}/members/{member_id}/binding-invitations",
+      {
+        params: {
+          header: { "x-csrf-token": headers["X-CSRF-Token"] },
+          path: { activity_id: activityId, member_id: memberId },
+        },
+        body: { targetUsername },
+      },
+    ),
+  ).data;
+}
+
 async function revokeInvitation(activityId: string, invitationId: string) {
   return unwrap(
     await apiClient.DELETE(
@@ -281,6 +301,19 @@ export function useCreateInvitationMutation(userId: string, activityId: string) 
   return useMutation({
     mutationFn: (intent: InvitationIntent) =>
       createInvitation(activityId, invitationRequest(intent)),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
+  });
+}
+
+export function useCreateGuestBindingInvitationMutation(
+  userId: string,
+  activityId: string,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memberId, targetUsername }: { memberId: string; targetUsername: string }) =>
+      createGuestBindingInvitation(activityId, memberId, targetUsername),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
   });
