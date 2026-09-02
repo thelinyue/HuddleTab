@@ -261,6 +261,98 @@ async fn guest_binding_invites_enforce_activity_identity_and_shape() {
     transaction.rollback().await.expect("测试事务应可回滚");
 }
 
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn expense_attachments_enforce_idempotency_and_positive_metadata() {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .expect("运行 Schema 集成测试前必须设置 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试库应可 migration");
+    let mut transaction = pool.begin().await.expect("应可开始测试事务");
+
+    let user_id = Uuid::new_v4();
+    let activity_id = Uuid::new_v4();
+    let owner_member_id = Uuid::new_v4();
+    let expense_id = Uuid::new_v4();
+    let client_attachment_id = Uuid::new_v4();
+    insert_user(&mut transaction, user_id, "attachment-owner").await;
+    insert_activity_and_owner(&mut transaction, activity_id, owner_member_id, user_id).await;
+    sqlx::query(
+        "INSERT INTO expenses (
+            id, activity_id, created_by_user_id, client_mutation_id, title, category,
+            occurred_at, original_currency, original_amount_minor, base_currency,
+            base_amount_minor, exchange_rate_kind, exchange_rate, split_mode, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, '附件约束账单', 'OTHER', NOW(), 'CNY', 100, 'CNY',
+                   100, 'IDENTITY', 1, 'EXACT', NOW(), NOW())",
+    )
+    .bind(expense_id)
+    .bind(activity_id)
+    .bind(user_id)
+    .bind(Uuid::new_v4())
+    .execute(&mut *transaction)
+    .await
+    .expect("合法账单应可创建");
+
+    insert_attachment(
+        &mut transaction,
+        expense_id,
+        client_attachment_id,
+        "first.webp",
+        640,
+        480,
+        1234,
+    )
+    .await
+    .expect("合法附件元数据应可创建");
+
+    transaction
+        .execute("SAVEPOINT duplicate_attachment")
+        .await
+        .expect("应可建立 savepoint");
+    let duplicate = insert_attachment(
+        &mut transaction,
+        expense_id,
+        client_attachment_id,
+        "duplicate.webp",
+        640,
+        480,
+        1234,
+    )
+    .await
+    .expect_err("同一账单的客户端附件 ID 必须唯一");
+    assert_eq!(
+        constraint_name(&duplicate),
+        Some("expense_attachments_expense_client_uq")
+    );
+    transaction
+        .execute("ROLLBACK TO SAVEPOINT duplicate_attachment")
+        .await
+        .expect("应可恢复 savepoint");
+
+    transaction
+        .execute("SAVEPOINT zero_attachment_size")
+        .await
+        .expect("应可建立 savepoint");
+    let zero_size = insert_attachment(
+        &mut transaction,
+        expense_id,
+        Uuid::new_v4(),
+        "zero.webp",
+        640,
+        480,
+        0,
+    )
+    .await
+    .expect_err("附件尺寸与字节数必须为正数");
+    assert_eq!(
+        constraint_name(&zero_size),
+        Some("expense_attachments_positive_dimensions_and_size")
+    );
+
+    transaction.rollback().await.expect("测试事务应可回滚");
+}
+
 async fn assert_invite_mode_constraints(
     transaction: &mut Transaction<'_, Postgres>,
     activity_id: Uuid,
@@ -526,4 +618,31 @@ async fn insert_join_request(
     .execute(&mut **transaction)
     .await
     .expect("合法 Pending 申请应可创建");
+}
+
+async fn insert_attachment(
+    transaction: &mut Transaction<'_, Postgres>,
+    expense_id: Uuid,
+    client_attachment_id: Uuid,
+    storage_key: &str,
+    width: i32,
+    height: i32,
+    byte_size: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO expense_attachments (
+            id, expense_id, client_attachment_id, storage_key, mime_type,
+            width, height, byte_size, created_at
+         ) VALUES ($1, $2, $3, $4, 'image/webp', $5, $6, $7, NOW())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(expense_id)
+    .bind(client_attachment_id)
+    .bind(storage_key)
+    .bind(width)
+    .bind(height)
+    .bind(byte_size)
+    .execute(&mut **transaction)
+    .await
+    .map(|_| ())
 }

@@ -132,6 +132,20 @@ async fn seed_context() -> SnapshotContext {
     .await
     .expect("应插入分摊事实");
     sqlx::query(
+        "INSERT INTO expense_attachments (
+            id, expense_id, client_attachment_id, storage_key, mime_type,
+            width, height, byte_size, created_at
+         ) VALUES ($1, $2, $3, $4, 'image/webp', 640, 480, 1234, $5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(expense_id)
+    .bind(Uuid::new_v4())
+    .bind(format!("{activity_id}/{expense_id}/private.webp"))
+    .bind(now)
+    .execute(&mut *transaction)
+    .await
+    .expect("应插入附件元数据");
+    sqlx::query(
         "INSERT INTO settlements (id, activity_id, created_by_user_id, client_mutation_id, \
          payer_member_id, receiver_member_id, currency, amount_minor, created_at, updated_at) \
          VALUES ($1, $2, $3, $4, $5, $6, 'CNY', 200, $7, $7)",
@@ -282,6 +296,15 @@ async fn snapshot_returns_complete_authorized_data_and_weak_etag() {
     assert_eq!(
         snapshot["expenses"][0]["shares"].as_array().map(Vec::len),
         Some(1)
+    );
+    let attachment = &snapshot["expenses"][0]["attachments"][0];
+    assert_eq!(attachment["mimeType"], "image/webp");
+    assert_eq!(attachment["width"], 640);
+    assert_eq!(attachment["height"], 480);
+    assert_eq!(attachment["byteSize"], "1234");
+    assert!(
+        snapshot.to_string().find("storageKey").is_none(),
+        "Snapshot 不得暴露私有存储键"
     );
     assert_eq!(snapshot["settlements"].as_array().map(Vec::len), Some(1));
     assert_eq!(snapshot["ledger"]["revision"], "7");

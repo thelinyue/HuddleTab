@@ -55,11 +55,23 @@ pub struct ExpenseShare {
     pub base_amount_minor: i64,
 }
 
+/// Attachment 只暴露展示所需元数据；私有存储键不得离开 infrastructure 边界。
+#[derive(Clone, Debug)]
+pub struct ExpenseAttachmentRecord {
+    pub id: Uuid,
+    pub mime_type: String,
+    pub width: i32,
+    pub height: i32,
+    pub byte_size: i64,
+    pub created_at: OffsetDateTime,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExpenseAggregate {
     pub expense: ExpenseRecord,
     pub payments: Vec<ExpensePayment>,
     pub shares: Vec<ExpenseShare>,
+    pub attachments: Vec<ExpenseAttachmentRecord>,
 }
 
 #[derive(Clone, Debug)]

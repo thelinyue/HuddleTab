@@ -6,9 +6,9 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::application::expense::{
-    ActivityExpenseContext, CreatedExpense, ExpenseAggregate, ExpenseDelete, ExpensePayment,
-    ExpenseRecord, ExpenseRepository, ExpenseRepositoryError, ExpenseShare, ExpenseUpdate,
-    NewExpense,
+    ActivityExpenseContext, CreatedExpense, ExpenseAggregate, ExpenseAttachmentRecord,
+    ExpenseDelete, ExpensePayment, ExpenseRecord, ExpenseRepository, ExpenseRepositoryError,
+    ExpenseShare, ExpenseUpdate, NewExpense,
 };
 use crate::domain::expense::{ExpenseFactRow, PreparedExpense};
 
@@ -54,6 +54,16 @@ struct FactRow {
     member_id: Uuid,
     original_amount_minor: i64,
     base_amount_minor: i64,
+}
+
+#[derive(FromRow)]
+struct AttachmentRow {
+    id: Uuid,
+    mime_type: String,
+    width: i32,
+    height: i32,
+    byte_size: i64,
+    created_at: OffsetDateTime,
 }
 
 #[async_trait]
@@ -600,6 +610,24 @@ pub(crate) async fn load_aggregate(
         base_amount_minor: fact.base_amount_minor,
     })
     .collect();
+    let attachments = sqlx::query_as::<_, AttachmentRow>(
+        "SELECT id, mime_type, width, height, byte_size, created_at \
+         FROM expense_attachments WHERE expense_id = $1 ORDER BY created_at, id",
+    )
+    .bind(expense_id)
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(log_repository_error)?
+    .into_iter()
+    .map(|attachment| ExpenseAttachmentRecord {
+        id: attachment.id,
+        mime_type: attachment.mime_type,
+        width: attachment.width,
+        height: attachment.height,
+        byte_size: attachment.byte_size,
+        created_at: attachment.created_at,
+    })
+    .collect();
     Ok(ExpenseAggregate {
         expense: ExpenseRecord {
             id: row.id,
@@ -625,6 +653,7 @@ pub(crate) async fn load_aggregate(
         },
         payments,
         shares,
+        attachments,
     })
 }
 

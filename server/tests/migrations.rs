@@ -19,5 +19,5 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 5);
+    assert_eq!(applied_count, 6);
 }

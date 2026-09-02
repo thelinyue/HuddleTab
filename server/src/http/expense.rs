@@ -111,6 +111,18 @@ pub struct ExpenseAggregateData {
     pub expense: ExpenseData,
     pub payments: Vec<ExpenseFactData>,
     pub shares: Vec<ExpenseFactData>,
+    pub attachments: Vec<ExpenseAttachmentData>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpenseAttachmentData {
+    pub id: String,
+    pub mime_type: String,
+    pub width: i32,
+    pub height: i32,
+    pub byte_size: String,
+    pub created_at: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -458,6 +470,18 @@ pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateDat
                 member_id: fact.member_id.to_string(),
                 original_amount_minor: fact.original_amount_minor.to_string(),
                 base_amount_minor: fact.base_amount_minor.to_string(),
+            })
+            .collect(),
+        attachments: aggregate
+            .attachments
+            .into_iter()
+            .map(|attachment| ExpenseAttachmentData {
+                id: attachment.id.to_string(),
+                mime_type: attachment.mime_type,
+                width: attachment.width,
+                height: attachment.height,
+                byte_size: attachment.byte_size.to_string(),
+                created_at: format_time(attachment.created_at),
             })
             .collect(),
     }
