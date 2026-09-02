@@ -212,6 +212,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/members/{member_id}/binding-invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_guest_binding_invitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/recommendations": {
         parameters: {
             query?: never;
@@ -611,6 +627,9 @@ export interface components {
             name: string;
             startDate: string;
         };
+        CreateGuestBindingInvitationRequest: {
+            targetUsername: string;
+        };
         CreateGuestRequest: {
             displayName: string;
         };
@@ -639,10 +658,12 @@ export interface components {
         CreatedInvitationData: {
             activityId: string;
             expiresAt: string;
+            guestMemberId?: string | null;
             invitationId: string;
             kind: string;
             /** Format: int32 */
             maxUses?: number | null;
+            purpose: string;
             revision: string;
             targetUsername?: string | null;
             token: string;
@@ -779,10 +800,12 @@ export interface components {
         InvitationData: {
             activityId: string;
             expiresAt: string;
+            guestMemberId?: string | null;
             invitationId: string;
             kind: string;
             /** Format: int32 */
             maxUses?: number | null;
+            purpose: string;
             revision: string;
             revokedAt?: string | null;
             targetUsername?: string | null;
@@ -802,7 +825,10 @@ export interface components {
             activityId: string;
             activityName: string;
             expiresAt: string;
+            guestDisplayName?: string | null;
+            guestMemberId?: string | null;
             kind: string;
+            purpose: string;
         };
         InvitationPreviewEnvelope: {
             data: components["schemas"]["InvitationPreviewData"];
@@ -1891,6 +1917,85 @@ export interface operations {
             /** @description 无权限 */
             403: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_guest_binding_invitation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+                /** @description Guest 成员 UUID */
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGuestBindingInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Guest Binding 邀请已创建 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedInvitationEnvelope"];
+                };
+            };
+            /** @description 目标用户名无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无权限 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Guest 不存在或已绑定 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {

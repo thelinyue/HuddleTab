@@ -239,7 +239,8 @@ pub(crate) async fn create_guest(
     path = "/api/activities/{activity_id}/members/{member_id}/binding-invitations",
     params(
         ("activity_id" = String, Path, description = "活动 UUID"),
-        ("member_id" = String, Path, description = "Guest 成员 UUID")
+        ("member_id" = String, Path, description = "Guest 成员 UUID"),
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
     ),
     request_body = CreateGuestBindingInvitationRequest,
     responses(

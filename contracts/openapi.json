@@ -1189,6 +1189,123 @@
         }
       }
     },
+    "/api/activities/{activity_id}/members/{member_id}/binding-invitations": {
+      "post": {
+        "tags": [],
+        "operationId": "create_guest_binding_invitation",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "Guest 成员 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGuestBindingInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Guest Binding 邀请已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedInvitationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "目标用户名无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Guest 不存在或已绑定",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "请求频率过高",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "description": "等待秒数"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/recommendations": {
       "get": {
         "tags": [],
@@ -2762,6 +2879,17 @@
           }
         }
       },
+      "CreateGuestBindingInvitationRequest": {
+        "type": "object",
+        "required": [
+          "targetUsername"
+        ],
+        "properties": {
+          "targetUsername": {
+            "type": "string"
+          }
+        }
+      },
       "CreateGuestRequest": {
         "type": "object",
         "required": [
@@ -2870,6 +2998,7 @@
           "invitationId",
           "activityId",
           "kind",
+          "purpose",
           "token",
           "expiresAt",
           "useCount",
@@ -2883,6 +3012,12 @@
           "expiresAt": {
             "type": "string"
           },
+          "guestMemberId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "invitationId": {
             "type": "string"
           },
@@ -2895,6 +3030,9 @@
               "null"
             ],
             "format": "int32"
+          },
+          "purpose": {
+            "type": "string"
           },
           "revision": {
             "type": "string"
@@ -3423,6 +3561,7 @@
           "invitationId",
           "activityId",
           "kind",
+          "purpose",
           "expiresAt",
           "useCount",
           "version",
@@ -3434,6 +3573,12 @@
           },
           "expiresAt": {
             "type": "string"
+          },
+          "guestMemberId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "invitationId": {
             "type": "string"
@@ -3447,6 +3592,9 @@
               "null"
             ],
             "format": "int32"
+          },
+          "purpose": {
+            "type": "string"
           },
           "revision": {
             "type": "string"
@@ -3504,6 +3652,7 @@
           "activityName",
           "activeMemberCount",
           "kind",
+          "purpose",
           "expiresAt"
         ],
         "properties": {
@@ -3520,7 +3669,22 @@
           "expiresAt": {
             "type": "string"
           },
+          "guestDisplayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guestMemberId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "kind": {
+            "type": "string"
+          },
+          "purpose": {
             "type": "string"
           }
         }

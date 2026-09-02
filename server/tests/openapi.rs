@@ -169,6 +169,66 @@ fn join_approval_and_notification_contract_is_complete() {
 }
 
 #[test]
+fn guest_binding_contract_is_explicit() {
+    let document = huddletab_server::http::openapi::document();
+    let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
+    let operation = &value["paths"]
+        ["/api/activities/{activity_id}/members/{member_id}/binding-invitations"]["post"];
+
+    assert!(operation.is_object(), "contract 缺少 Guest Binding 创建路由");
+    assert_eq!(
+        operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/CreateGuestBindingInvitationRequest"
+    );
+    let csrf = operation["parameters"]
+        .as_array()
+        .and_then(|parameters| {
+            parameters
+                .iter()
+                .find(|parameter| parameter["name"] == "x-csrf-token")
+        })
+        .expect("Guest Binding 写操作应发布 CSRF header");
+    assert_eq!(csrf["in"], "header");
+    assert_eq!(csrf["required"], true);
+
+    for status in ["201", "400", "401", "403", "404", "429"] {
+        assert!(
+            operation["responses"][status].is_object(),
+            "Guest Binding 创建路由缺少 {status} 响应",
+        );
+    }
+    assert_eq!(
+        operation["responses"]["201"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/CreatedInvitationEnvelope"
+    );
+    assert_eq!(
+        operation["responses"]["429"]["headers"]["Retry-After"]["schema"]["type"],
+        "integer"
+    );
+
+    for schema in ["CreatedInvitationData", "InvitationData"] {
+        let properties = value["components"]["schemas"][schema]["properties"]
+            .as_object()
+            .expect("邀请 schema 应发布 properties");
+        assert!(properties.contains_key("purpose"), "{schema} 缺少 purpose");
+        assert!(
+            properties.contains_key("guestMemberId"),
+            "{schema} 缺少 guestMemberId"
+        );
+    }
+    let preview = value["components"]["schemas"]["InvitationPreviewData"]["properties"]
+        .as_object()
+        .expect("InvitationPreviewData 应发布 properties");
+    for field in ["purpose", "guestMemberId", "guestDisplayName"] {
+        assert!(preview.contains_key(field), "邀请预览缺少 {field}");
+    }
+    assert_eq!(
+        value["components"]["schemas"]["JoinInvitationData"]["properties"]["status"]["type"],
+        "string"
+    );
+}
+
+#[test]
 // 合同测试集中核对同一 OpenAPI 文档的路径、查询参数和 schema，保持断言上下文连续。
 #[allow(clippy::too_many_lines)]
 fn document_contains_phase1_auth_and_activity_routes() {
