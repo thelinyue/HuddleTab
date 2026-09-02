@@ -172,10 +172,13 @@ fn join_approval_and_notification_contract_is_complete() {
 fn guest_binding_contract_is_explicit() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
-    let operation = &value["paths"]
-        ["/api/activities/{activity_id}/members/{member_id}/binding-invitations"]["post"];
+    let operation = &value["paths"]["/api/activities/{activity_id}/members/{member_id}/binding-invitations"]
+        ["post"];
 
-    assert!(operation.is_object(), "contract 缺少 Guest Binding 创建路由");
+    assert!(
+        operation.is_object(),
+        "contract 缺少 Guest Binding 创建路由"
+    );
     assert_eq!(
         operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
         "#/components/schemas/CreateGuestBindingInvitationRequest"

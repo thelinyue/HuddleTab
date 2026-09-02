@@ -149,6 +149,8 @@ async fn join_requests_enforce_mode_pending_uniqueness_and_activity_identity() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 同一事务连续验证跨活动外键和三种绑定邀请形状，避免重复建库数据掩盖约束关系。
+#[allow(clippy::too_many_lines)]
 async fn guest_binding_invites_enforce_activity_identity_and_shape() {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .expect("运行 Schema 集成测试前必须设置 TEST_DATABASE_URL");

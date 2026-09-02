@@ -357,6 +357,8 @@ async fn invite_mode_revision_invalidates_snapshot_etag() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 单个场景连续验证绑定前后 ETag 和成员身份，避免拆分后重复数据库 fixture。
+#[allow(clippy::too_many_lines)]
 async fn guest_binding_updates_snapshot_without_changing_member_identity() {
     let _guard = DATABASE_TEST_LOCK.lock().await;
     let context = seed_context().await;

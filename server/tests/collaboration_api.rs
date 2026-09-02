@@ -332,6 +332,8 @@ async fn assert_pending_join_side_effects(
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 同一场景集中覆盖 Owner 权限、Activity 生命周期和 Guest 最终状态校验。
+#[allow(clippy::too_many_lines)]
 async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
     let pool = connect_and_migrate(&database_url)
@@ -534,6 +536,8 @@ async fn create_binding_token(
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 该端到端场景连续验证原地绑定、账务引用、审批绕过、审计、revision 与幂等回放。
+#[allow(clippy::too_many_lines)]
 async fn guest_binding_preserves_identity_bypasses_approval_and_replays_once() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
     let pool = connect_and_migrate(&database_url)

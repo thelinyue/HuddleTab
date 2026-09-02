@@ -26,6 +26,8 @@ impl PostgresCollaborationRepository {
 }
 
 #[async_trait]
+// 协作写入必须在同一事务实现中保持邀请、活动、成员的固定锁序和审计顺序。
+#[allow(clippy::too_many_lines)]
 impl CollaborationRepository for PostgresCollaborationRepository {
     async fn create_guest(
         &self,
