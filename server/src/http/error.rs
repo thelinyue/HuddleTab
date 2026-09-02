@@ -161,6 +161,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn guest_binding_conflict(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "GUEST_BINDING_CONFLICT",
+            "你已是该活动成员，无法绑定另一个临时成员。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn conflict(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

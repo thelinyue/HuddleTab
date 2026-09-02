@@ -204,6 +204,16 @@ async fn register_invited_actor(
     secret: &AppSecret,
     invitation_token: &str,
 ) -> TestActor {
+    register_named_invited_actor(app, secret, invitation_token, "bob", "Bob").await
+}
+
+async fn register_named_invited_actor(
+    app: &axum::Router,
+    secret: &AppSecret,
+    invitation_token: &str,
+    username: &'static str,
+    display_name: &'static str,
+) -> TestActor {
     let pre_auth = SessionToken::generate();
     let csrf = CsrfToken::mint(secret, CsrfContext::PreAuth(pre_auth.expose_for_cookie()));
     let response = app
@@ -221,7 +231,7 @@ async fn register_invited_actor(
                 .header("sec-fetch-site", "same-origin")
                 .header("x-csrf-token", csrf.expose_for_header())
                 .body(Body::from(format!(
-                    r#"{{"username":"bob","password":"correct horse battery staple","displayName":"Bob","invitationToken":"{invitation_token}"}}"#
+                    r#"{{"username":"{username}","password":"correct horse battery staple","displayName":"{display_name}","invitationToken":"{invitation_token}"}}"#
                 )))
                 .expect("注册请求应可构造"),
         )
@@ -243,9 +253,21 @@ async fn register_invited_actor(
         .expect("Session cookie 应包含 token");
     let session = SessionToken::parse(raw_session).expect("注册 Session token 应合法");
     let csrf = CsrfToken::mint(secret, CsrfContext::Session(&session.sha256_hash()));
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取注册响应")
+        .to_bytes();
+    let json: Value = serde_json::from_slice(&body).expect("注册响应应为 JSON");
     TestActor {
-        user_id: Uuid::nil(),
-        display_name: "Bob",
+        user_id: Uuid::parse_str(
+            json["data"]["userId"]
+                .as_str()
+                .expect("注册响应应包含 userId"),
+        )
+        .expect("注册 userId 应为 UUID"),
+        display_name,
         session,
         csrf,
     }
@@ -464,6 +486,400 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
     )
     .await;
     assert_eq!(ended_status, StatusCode::FORBIDDEN);
+}
+
+async fn create_binding_guest(app: &axum::Router, owner: &TestActor, activity_id: Uuid) -> Uuid {
+    let (status, guest) = json_response(
+        app,
+        authenticated_request(
+            owner,
+            "POST",
+            format!("/api/activities/{activity_id}/members/guests"),
+            r#"{"displayName":"原临时昵称"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    Uuid::parse_str(
+        guest["data"]["memberId"]
+            .as_str()
+            .expect("应返回 Guest member ID"),
+    )
+    .expect("Guest member ID 应为 UUID")
+}
+
+async fn create_binding_token(
+    app: &axum::Router,
+    owner: &TestActor,
+    activity_id: Uuid,
+    guest_member_id: Uuid,
+    request_body: &'static str,
+) -> String {
+    let (status, invitation) = json_response(
+        app,
+        authenticated_request(
+            owner,
+            "POST",
+            format!("/api/activities/{activity_id}/members/{guest_member_id}/binding-invitations"),
+            request_body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    invitation["data"]["token"]
+        .as_str()
+        .expect("创建绑定邀请应返回 token")
+        .to_owned()
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_binding_preserves_identity_bypasses_approval_and_replays_once() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let (activity_id, owner_member_id) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            secret.clone(),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+    let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
+    let now = OffsetDateTime::now_utc();
+    let expense_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO expenses (id, activity_id, created_by_user_id, client_mutation_id, title,
+         category, occurred_at, original_currency, original_amount_minor, base_currency,
+         base_amount_minor, exchange_rate_kind, exchange_rate, split_mode, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, '绑定前账单', 'OTHER', $5, 'JPY', 100, 'JPY', 100,
+                 'IDENTITY', 1, 'EXACT', $5, $5)",
+    )
+    .bind(expense_id)
+    .bind(activity_id)
+    .bind(owner.user_id)
+    .bind(Uuid::new_v4())
+    .bind(now)
+    .execute(&pool)
+    .await
+    .expect("应插入历史 Expense");
+    sqlx::query(
+        "INSERT INTO expense_payments (id, activity_id, expense_id, payer_member_id,
+         original_currency, original_amount_minor, base_currency, base_amount_minor)
+         VALUES ($1, $2, $3, $4, 'JPY', 100, 'JPY', 100)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(activity_id)
+    .bind(expense_id)
+    .bind(guest_member_id)
+    .execute(&pool)
+    .await
+    .expect("应插入 Guest 付款事实");
+    sqlx::query(
+        "INSERT INTO expense_shares (id, activity_id, expense_id, member_id,
+         original_currency, original_amount_minor, base_currency, base_amount_minor)
+         VALUES ($1, $2, $3, $4, 'JPY', 100, 'JPY', 100)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(activity_id)
+    .bind(expense_id)
+    .bind(guest_member_id)
+    .execute(&pool)
+    .await
+    .expect("应插入 Guest 分摊事实");
+    sqlx::query(
+        "INSERT INTO settlements (id, activity_id, created_by_user_id, client_mutation_id,
+         payer_member_id, receiver_member_id, currency, amount_minor, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'JPY', 20, $7, $7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(activity_id)
+    .bind(owner.user_id)
+    .bind(Uuid::new_v4())
+    .bind(guest_member_id)
+    .bind(owner_member_id)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .expect("应插入 Guest Settlement");
+
+    let token = create_binding_token(
+        &app,
+        &owner,
+        activity_id,
+        guest_member_id,
+        r#"{"targetUsername":"bob"}"#,
+    )
+    .await;
+    let (preview_status, preview) = json_response(
+        &app,
+        Request::builder()
+            .uri(format!("/api/invitations/{token}"))
+            .body(Body::empty())
+            .expect("预览请求应可构造"),
+    )
+    .await;
+    assert_eq!(preview_status, StatusCode::OK);
+    assert_eq!(preview["data"]["purpose"], "GUEST_BINDING");
+    assert_eq!(
+        preview["data"]["guestMemberId"],
+        guest_member_id.to_string()
+    );
+    assert_eq!(preview["data"]["guestDisplayName"], "原临时昵称");
+
+    let target = register_named_invited_actor(&app, &secret, &token, "bob", "Bob").await;
+    for expected_status in ["BOUND", "ALREADY_BOUND"] {
+        let (status, bound) = json_response(
+            &app,
+            authenticated_request(
+                &target,
+                "POST",
+                format!("/api/invitations/{token}/join"),
+                "{}",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(bound["data"]["status"], expected_status);
+        assert_eq!(bound["data"]["memberId"], guest_member_id.to_string());
+        assert_eq!(bound["data"]["revision"], "4");
+    }
+
+    let member = sqlx::query_as::<_, (Uuid, Option<Uuid>, String, i64)>(
+        "SELECT id, user_id, display_name, version FROM activity_members WHERE id = $1",
+    )
+    .bind(guest_member_id)
+    .fetch_one(&pool)
+    .await
+    .expect("原 Guest 应仍存在");
+    assert_eq!(
+        member,
+        (
+            guest_member_id,
+            Some(target.user_id),
+            "原临时昵称".to_owned(),
+            2,
+        )
+    );
+    let side_effects = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        "SELECT activity.revision,
+         (SELECT count(*) FROM activity_join_requests WHERE activity_id = activity.id),
+         (SELECT count(*) FROM activity_audit_logs
+          WHERE activity_id = activity.id AND action = 'MEMBER_GUEST_BOUND'),
+         (SELECT sum(use_count) FROM activity_invites WHERE activity_id = activity.id),
+         (SELECT count(*) FROM expense_payments WHERE payer_member_id = $2),
+         (SELECT count(*) FROM expense_shares WHERE member_id = $2)
+         FROM activities activity WHERE activity.id = $1",
+    )
+    .bind(activity_id)
+    .bind(guest_member_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取绑定副作用");
+    assert_eq!(side_effects, (4, 0, 1, 1, 1, 1));
+    let settlement_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM settlements WHERE payer_member_id = $1 OR receiver_member_id = $1",
+    )
+    .bind(guest_member_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取 Settlement 引用");
+    assert_eq!(settlement_count, 1);
+
+    let (activities_status, activities) = json_response(
+        &app,
+        authenticated_request(&target, "GET", "/api/activities".to_owned(), ""),
+    )
+    .await;
+    assert_eq!(activities_status, StatusCode::OK);
+    assert!(activities["data"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|activity| activity["activityId"] == activity_id.to_string())
+    }));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_binding_rejects_existing_member_and_wrong_target() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let existing = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let wrong_target = seed_actor(&pool, &secret, "carol", "Carol").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at)
+         VALUES ($1, $2, $3, 'Bob', 'MEMBER', NOW())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(activity_id)
+    .bind(existing.user_id)
+    .execute(&pool)
+    .await
+    .expect("应插入现有成员");
+    let app = router_with_state(
+        None,
+        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
+    );
+    let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
+    let token = create_binding_token(
+        &app,
+        &owner,
+        activity_id,
+        guest_member_id,
+        r#"{"targetUsername":"bob"}"#,
+    )
+    .await;
+
+    let (wrong_status, wrong) = json_response(
+        &app,
+        authenticated_request(
+            &wrong_target,
+            "POST",
+            format!("/api/invitations/{token}/join"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(wrong_status, StatusCode::NOT_FOUND);
+    assert_eq!(wrong["error"]["code"], "INVALID_INVITATION");
+
+    let (conflict_status, conflict) = json_response(
+        &app,
+        authenticated_request(
+            &existing,
+            "POST",
+            format!("/api/invitations/{token}/join"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+    assert_eq!(conflict["error"]["code"], "GUEST_BINDING_CONFLICT");
+    assert_eq!(
+        conflict["error"]["message"],
+        "你已是该活动成员，无法绑定另一个临时成员。"
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_binding_concurrent_confirmations_have_one_winner() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let first_target = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let second_target = seed_actor(&pool, &secret, "carol", "Carol").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
+    let first_token = create_binding_token(
+        &app,
+        &owner,
+        activity_id,
+        guest_member_id,
+        r#"{"targetUsername":"bob"}"#,
+    )
+    .await;
+    let second_token = create_binding_token(
+        &app,
+        &owner,
+        activity_id,
+        guest_member_id,
+        r#"{"targetUsername":"carol"}"#,
+    )
+    .await;
+    let first_request = authenticated_request(
+        &first_target,
+        "POST",
+        format!("/api/invitations/{first_token}/join"),
+        "{}",
+    );
+    let second_request = authenticated_request(
+        &second_target,
+        "POST",
+        format!("/api/invitations/{second_token}/join"),
+        "{}",
+    );
+
+    let (first, second) = tokio::join!(
+        json_response(&app, first_request),
+        json_response(&app, second_request)
+    );
+    let statuses = [first.0, second.0];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::NOT_FOUND)
+            .count(),
+        1
+    );
+    let winner = [&first, &second]
+        .into_iter()
+        .find(|response| response.0 == StatusCode::OK)
+        .expect("应有一个绑定成功");
+    assert_eq!(winner.1["data"]["status"], "BOUND");
+    assert_eq!(winner.1["data"]["memberId"], guest_member_id.to_string());
+    let loser = [&first, &second]
+        .into_iter()
+        .find(|response| response.0 == StatusCode::NOT_FOUND)
+        .expect("应有一个绑定失败");
+    assert_eq!(loser.1["error"]["code"], "INVALID_INVITATION");
+
+    let stored = sqlx::query_as::<_, (Option<Uuid>, i64, i64, i64)>(
+        "SELECT member.user_id, activity.revision,
+         (SELECT count(*) FROM activity_audit_logs
+          WHERE activity_id = activity.id AND action = 'MEMBER_GUEST_BOUND'),
+         (SELECT sum(use_count) FROM activity_invites WHERE activity_id = activity.id)
+         FROM activity_members member
+         JOIN activities activity ON activity.id = member.activity_id
+         WHERE member.id = $1",
+    )
+    .bind(guest_member_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取竞争结果");
+    assert!(stored.0 == Some(first_target.user_id) || stored.0 == Some(second_target.user_id));
+    assert_eq!((stored.1, stored.2, stored.3), (5, 1, 1));
 }
 
 async fn create_pending_join_request(

@@ -141,6 +141,8 @@ pub struct InvitationPreview {
     pub activity_name: String,
     pub active_member_count: i64,
     pub kind: InvitationKind,
+    pub guest_member_id: Option<Uuid>,
+    pub guest_display_name: Option<String>,
     pub expires_at: OffsetDateTime,
 }
 
@@ -158,6 +160,8 @@ pub enum JoinStatus {
     Joined,
     AlreadyMember,
     PendingApproval,
+    Bound,
+    AlreadyBound,
 }
 
 impl JoinStatus {
@@ -167,6 +171,8 @@ impl JoinStatus {
             Self::Joined => "JOINED",
             Self::AlreadyMember => "ALREADY_MEMBER",
             Self::PendingApproval => "PENDING_APPROVAL",
+            Self::Bound => "BOUND",
+            Self::AlreadyBound => "ALREADY_BOUND",
         }
     }
 }
@@ -200,6 +206,8 @@ pub enum CollaborationRepositoryError {
     NotFound,
     #[error("临时成员不存在或已绑定账号")]
     GuestNotFound,
+    #[error("目标用户已存在活动成员身份")]
+    GuestBindingConflict,
     #[error("协作资源状态冲突")]
     Conflict,
     #[error("加入申请已经处理")]
@@ -328,6 +336,8 @@ pub enum CollaborationError {
     NotFound,
     #[error("临时成员不存在或已绑定账号")]
     GuestNotFound,
+    #[error("目标用户已存在活动成员身份")]
+    GuestBindingConflict,
     #[error("协作资源状态冲突")]
     Conflict,
     #[error("加入申请已经处理")]
@@ -608,6 +618,9 @@ fn map_repository_error(error: CollaborationRepositoryError) -> CollaborationErr
         CollaborationRepositoryError::Forbidden => CollaborationError::Forbidden,
         CollaborationRepositoryError::NotFound => CollaborationError::NotFound,
         CollaborationRepositoryError::GuestNotFound => CollaborationError::GuestNotFound,
+        CollaborationRepositoryError::GuestBindingConflict => {
+            CollaborationError::GuestBindingConflict
+        }
         CollaborationRepositoryError::Conflict => CollaborationError::Conflict,
         CollaborationRepositoryError::JoinRequestClosed => CollaborationError::JoinRequestClosed,
         CollaborationRepositoryError::ActivityNotJoinable => {

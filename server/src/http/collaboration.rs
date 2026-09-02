@@ -136,6 +136,9 @@ pub struct InvitationPreviewData {
     pub activity_name: String,
     pub active_member_count: i64,
     pub kind: &'static str,
+    pub purpose: &'static str,
+    pub guest_member_id: Option<String>,
+    pub guest_display_name: Option<String>,
     pub expires_at: String,
 }
 
@@ -478,6 +481,13 @@ pub(crate) async fn preview_invitation(
             activity_name: preview.activity_name,
             active_member_count: preview.active_member_count,
             kind: preview.kind.as_str(),
+            purpose: if preview.guest_member_id.is_some() {
+                "GUEST_BINDING"
+            } else {
+                "JOIN"
+            },
+            guest_member_id: preview.guest_member_id.map(|value| value.to_string()),
+            guest_display_name: preview.guest_display_name,
             expires_at: preview.expires_at.to_string(),
         },
     }))
@@ -710,6 +720,7 @@ fn map_error(error: CollaborationError, request_id: RequestId) -> ApiError {
         CollaborationError::Forbidden => ApiError::operation_forbidden(request_id),
         CollaborationError::NotFound => ApiError::not_found(request_id),
         CollaborationError::GuestNotFound => ApiError::guest_not_found(request_id),
+        CollaborationError::GuestBindingConflict => ApiError::guest_binding_conflict(request_id),
         CollaborationError::Conflict => ApiError::conflict(request_id),
         CollaborationError::JoinRequestClosed => ApiError::join_request_closed(request_id),
         CollaborationError::ActivityNotJoinable => ApiError::activity_not_joinable(request_id),

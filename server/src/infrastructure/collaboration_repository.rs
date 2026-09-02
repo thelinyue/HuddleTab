@@ -263,13 +263,29 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         token_hash: &[u8; 32],
         now: OffsetDateTime,
     ) -> Result<Option<InvitationPreview>, CollaborationRepositoryError> {
-        let row = sqlx::query_as::<_, (Uuid, String, i64, String, OffsetDateTime)>(
+        let row = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                i64,
+                String,
+                Option<Uuid>,
+                Option<String>,
+                OffsetDateTime,
+            ),
+        >(
             "SELECT a.id, a.name, \
              (SELECT count(*) FROM activity_members m \
-              WHERE m.activity_id = a.id AND m.status = 'ACTIVE'), i.kind, i.expires_at \
+              WHERE m.activity_id = a.id AND m.status = 'ACTIVE'), i.kind, i.guest_member_id, \
+              guest.display_name, i.expires_at \
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
+             LEFT JOIN activity_members guest \
+               ON guest.activity_id = i.activity_id AND guest.id = i.guest_member_id \
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
                AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
+               AND (i.guest_member_id IS NULL \
+                    OR (guest.user_id IS NULL AND guest.status = 'ACTIVE')) \
                AND a.status = 'ACTIVE' AND a.deleted_at IS NULL",
         )
         .bind(token_hash.as_slice())
@@ -278,12 +294,22 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .await
         .map_err(log_repository_error)?;
         row.map(
-            |(activity_id, activity_name, active_member_count, kind, expires_at)| {
+            |(
+                activity_id,
+                activity_name,
+                active_member_count,
+                kind,
+                guest_member_id,
+                guest_display_name,
+                expires_at,
+            )| {
                 Ok(InvitationPreview {
                     activity_id,
                     activity_name,
                     active_member_count,
                     kind: parse_kind(&kind)?,
+                    guest_member_id,
+                    guest_display_name,
                     expires_at,
                 })
             },
@@ -296,11 +322,24 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         input: JoinInvitationInput,
     ) -> Result<JoinedInvitation, CollaborationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let invitation = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>, String)>(
-            "SELECT i.id, i.activity_id, i.kind, i.target_username, a.invite_mode \
+        let invitation = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                Uuid,
+                String,
+                Option<String>,
+                String,
+                Option<Uuid>,
+                i32,
+            ),
+        >(
+            "SELECT i.id, i.activity_id, i.kind, i.target_username, a.invite_mode, \
+                    i.guest_member_id, i.use_count \
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
-               AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
+               AND (i.guest_member_id IS NOT NULL \
+                    OR i.max_uses IS NULL OR i.use_count < i.max_uses) \
                AND a.status = 'ACTIVE' AND a.deleted_at IS NULL \
              FOR UPDATE OF i, a",
         )
@@ -315,6 +354,82 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             && invitation.3.as_deref() != Some(input.username.as_str())
         {
             return Err(CollaborationRepositoryError::Forbidden);
+        }
+        if let Some(guest_member_id) = invitation.5 {
+            let guest_user_id = sqlx::query_scalar::<_, Option<Uuid>>(
+                "SELECT user_id FROM activity_members \
+                 WHERE id = $1 AND activity_id = $2 AND status = 'ACTIVE' FOR UPDATE",
+            )
+            .bind(guest_member_id)
+            .bind(invitation.1)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?
+            .ok_or(CollaborationRepositoryError::InvalidInvitation)?;
+            if guest_user_id == Some(input.user_id) && invitation.6 == 1 {
+                let revision = sqlx::query_scalar("SELECT revision FROM activities WHERE id = $1")
+                    .bind(invitation.1)
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .map_err(log_repository_error)?;
+                transaction.commit().await.map_err(log_repository_error)?;
+                return Ok(JoinedInvitation {
+                    status: JoinStatus::AlreadyBound,
+                    activity_id: invitation.1,
+                    member_id: Some(guest_member_id),
+                    request_id: None,
+                    revision,
+                });
+            }
+            if guest_user_id.is_some() || invitation.6 != 0 {
+                return Err(CollaborationRepositoryError::InvalidInvitation);
+            }
+            let existing_member = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM activity_members WHERE activity_id = $1 AND user_id = $2 \
+                 FOR UPDATE",
+            )
+            .bind(invitation.1)
+            .bind(input.user_id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+            if existing_member.is_some() {
+                return Err(CollaborationRepositoryError::GuestBindingConflict);
+            }
+            sqlx::query(
+                "UPDATE activity_members SET user_id = $1, version = version + 1 WHERE id = $2",
+            )
+            .bind(input.user_id)
+            .bind(guest_member_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+            sqlx::query("UPDATE activity_invites SET use_count = use_count + 1 WHERE id = $1")
+                .bind(invitation.0)
+                .execute(&mut *transaction)
+                .await
+                .map_err(log_repository_error)?;
+            let revision = revise_and_audit(
+                &mut transaction,
+                AuditEntry {
+                    activity_id: invitation.1,
+                    actor_user_id: input.user_id,
+                    actor_member_id: Some(guest_member_id),
+                    action: "MEMBER_GUEST_BOUND",
+                    resource_type: "ACTIVITY_MEMBER",
+                    resource_id: guest_member_id,
+                    now: input.now,
+                },
+            )
+            .await?;
+            transaction.commit().await.map_err(log_repository_error)?;
+            return Ok(JoinedInvitation {
+                status: JoinStatus::Bound,
+                activity_id: invitation.1,
+                member_id: Some(guest_member_id),
+                request_id: None,
+                revision,
+            });
         }
         let existing_member = sqlx::query_as::<_, (Uuid, String)>(
             "SELECT id, status FROM activity_members WHERE activity_id = $1 AND user_id = $2 \

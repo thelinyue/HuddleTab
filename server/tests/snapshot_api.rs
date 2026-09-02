@@ -2,13 +2,18 @@ use axum::{
     body::Body,
     http::{
         HeaderMap, Request, StatusCode,
-        header::{CACHE_CONTROL, COOKIE, ETAG, IF_NONE_MATCH},
+        header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, ETAG, IF_NONE_MATCH, ORIGIN},
     },
 };
 use http_body_util::BodyExt as _;
 use huddletab_server::{
     http::router::{AppState, router_with_state},
-    infrastructure::{app_secret::AppSecret, database::connect_and_migrate, session::SessionToken},
+    infrastructure::{
+        app_secret::AppSecret,
+        csrf::{CsrfContext, CsrfToken},
+        database::connect_and_migrate,
+        session::SessionToken,
+    },
 };
 use serde_json::Value;
 use sqlx::PgPool;
@@ -348,6 +353,130 @@ async fn invite_mode_revision_invalidates_snapshot_etag() {
         modified["data"]["activity"]["inviteMode"],
         "REQUIRE_APPROVAL"
     );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_binding_updates_snapshot_without_changing_member_identity() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(context.activity_id)
+        .execute(&context.pool)
+        .await
+        .expect("测试活动应启用审批模式");
+    let target_user_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at)
+         VALUES ($1, 'binding-target', 'unused', '绑定用户', $2, $2)",
+    )
+    .bind(target_user_id)
+    .bind(now)
+    .execute(&context.pool)
+    .await
+    .expect("应插入绑定目标用户");
+    let target_session = insert_session(&context.pool, target_user_id, now).await;
+    let secret = AppSecret::from_bytes([31; 32]);
+    let owner_csrf = CsrfToken::mint(
+        &secret,
+        CsrfContext::Session(&context.owner_session.sha256_hash()),
+    );
+
+    let create_response = context
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/activities/{}/members/{}/binding-invitations",
+                    context.activity_id, context.guest_member_id
+                ))
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    COOKIE,
+                    format!(
+                        "huddletab_session={}",
+                        context.owner_session.expose_for_cookie()
+                    ),
+                )
+                .header(ORIGIN, "http://localhost:5660")
+                .header("sec-fetch-site", "same-origin")
+                .header("x-csrf-token", owner_csrf.expose_for_header())
+                .body(Body::from(r#"{"targetUsername":"binding-target"}"#))
+                .expect("创建绑定邀请请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let create_body = create_response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取绑定邀请响应")
+        .to_bytes();
+    let created: Value = serde_json::from_slice(&create_body).expect("响应应为 JSON");
+    let token = created["data"]["token"]
+        .as_str()
+        .expect("应返回一次性 token");
+
+    let (before_status, before_headers, _) = raw_response(
+        &context,
+        snapshot_request(&context, &context.owner_session, None),
+    )
+    .await;
+    assert_eq!(before_status, StatusCode::OK);
+    assert_eq!(before_headers[ETAG], "W/\"8\"");
+
+    let target_csrf = CsrfToken::mint(&secret, CsrfContext::Session(&target_session.sha256_hash()));
+    let join_response = context
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/invitations/{token}/join"))
+                .header(CONTENT_TYPE, "application/json")
+                .header(
+                    COOKIE,
+                    format!("huddletab_session={}", target_session.expose_for_cookie()),
+                )
+                .header(ORIGIN, "http://localhost:5660")
+                .header("sec-fetch-site", "same-origin")
+                .header("x-csrf-token", target_csrf.expose_for_header())
+                .body(Body::from("{}"))
+                .expect("确认绑定请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+    assert_eq!(join_response.status(), StatusCode::OK);
+    let join_body = join_response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取绑定响应")
+        .to_bytes();
+    let joined: Value = serde_json::from_slice(&join_body).expect("响应应为 JSON");
+    assert_eq!(joined["data"]["status"], "BOUND");
+
+    let (status, headers, bytes) = raw_response(
+        &context,
+        snapshot_request(&context, &target_session, Some("W/\"8\"")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[ETAG], "W/\"9\"");
+    let snapshot: Value = serde_json::from_slice(&bytes).expect("响应应为 JSON");
+    let bound_members = snapshot["data"]["members"]
+        .as_array()
+        .expect("Snapshot 应包含成员")
+        .iter()
+        .filter(|member| member["memberId"] == context.guest_member_id.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(bound_members.len(), 1);
+    assert_eq!(bound_members[0]["userId"], target_user_id.to_string());
+    assert_eq!(bound_members[0]["displayName"], "小林");
 }
 
 #[tokio::test]
