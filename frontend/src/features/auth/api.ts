@@ -51,9 +51,9 @@ async function loadSession(): Promise<Session | null> {
     return session;
   } catch (error) {
     // 只有网络错误允许使用当前标签页的最近身份；服务器明确拒绝不能回退，避免泄漏旧用户。
-    // openapi-fetch 会把浏览器离线请求包装成 status=0 的 ApiRequestError，
+    // openapi-fetch 会把浏览器离线请求包装成非正 status 的 ApiRequestError，
     // 它与 401/403 等服务端拒绝不同，仍可安全使用本标签页刚记住的 Session。
-    if (error instanceof ApiRequestError && error.status !== 0) throw error;
+    if (error instanceof ApiRequestError && error.status > 0) throw error;
     return rememberedOfflineSession();
   }
 }

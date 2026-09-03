@@ -23,11 +23,27 @@ async function registerAndJoin(browser: Browser, testInfo: TestInfo, token: stri
   const username = `${label}${suffix}`.slice(0, 30);
   const displayName = `${label}-${suffix.slice(0, 6)}`;
   const password = `${crypto.randomUUID()}Aa1!`;
-  await page.goto(`/register?invite=${encodeURIComponent(token)}`);
-  await page.getByLabel("用户名").fill(username);
-  await page.getByLabel("显示名称").fill(displayName);
-  await page.locator('input[autocomplete="new-password"]').fill(password);
-  await page.getByRole("button", { name: "注册并继续" }).click();
+  const registrationUrl = `/register?invite=${encodeURIComponent(token)}`;
+  const submitRegistration = async () => {
+    await page.goto(registrationUrl);
+    await page.getByLabel("用户名").fill(username);
+    await page.getByLabel("显示名称").fill(displayName);
+    await page.locator('input[autocomplete="new-password"]').fill(password);
+    const responsePromise = page.waitForResponse((response) =>
+      response.request().method() === "POST" && response.url().endsWith("/api/auth/register"),
+    );
+    await page.getByRole("button", { name: "注册并继续" }).click();
+    return responsePromise;
+  };
+  let response = await submitRegistration();
+  if (response.status() === 429) {
+    // 完整矩阵共用认证 IP 桶；等待服务端声明的窗口后重放同一注册表单，
+    // 不把临时凭据写入测试日志或命令行。
+    const retryAfter = Number.parseInt(response.headers()["retry-after"] ?? "60", 10);
+    await page.waitForTimeout((Number.isFinite(retryAfter) ? Math.max(1, retryAfter) : 60) * 1000 + 500);
+    response = await submitRegistration();
+  }
+  if (response.status() >= 400) throw new Error(`注册请求失败（HTTP ${response.status()}）。`);
   await expect(page.getByRole("button", { name: "加入活动" })).toBeVisible();
   await page.getByRole("button", { name: "加入活动" }).click();
   return { context, page, displayName };
