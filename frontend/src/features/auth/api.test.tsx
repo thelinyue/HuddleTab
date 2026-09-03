@@ -23,6 +23,7 @@ import { databaseName } from "../../pwa/indexed-db/database";
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
 import { pendingMutationFixture } from "../../pwa/indexed-db/test-fixtures";
 import { queryKeys } from "../../api/query-keys";
+import { ApiRequestError } from "../../api/error";
 import {
   useChangePasswordMutation,
   useJoinInvitationMutation,
@@ -55,6 +56,16 @@ describe("离线 Session 回退", () => {
 
     await waitFor(() => expect(result.current.data).toMatchObject({ userId: "user-1" }));
     expect(client.GET).toHaveBeenCalledWith("/api/auth/session");
+  });
+
+  it("openapi-fetch 将离线请求包装为 status=0 时仍回退当前标签页身份", async () => {
+    sessionStorage.setItem("huddletab:offline-session", JSON.stringify({
+      displayName: "测试用户", userId: "user-1", username: "tester",
+    }));
+    client.GET.mockRejectedValue(new ApiRequestError(0));
+    const { result } = renderHook(() => useSessionQuery(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toMatchObject({ userId: "user-1" }));
   });
 
   it("服务端 401 清除离线身份而不回退旧用户", async () => {

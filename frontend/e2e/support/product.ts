@@ -41,6 +41,9 @@ export async function assertCredentialFieldsVisuallyMasked(page: Page): Promise<
     { label: "密码", locator: page.locator('input[autocomplete="current-password"]'), value: password },
   ];
   for (const field of fields) {
+    // CSP 不允许测试注入 inline <style>；在截图前同步补上 CSS 标记，避免
+    // MutationObserver 尚未调度时把临时账号写入 Playwright artifact。
+    await field.locator.evaluate((element) => element.setAttribute("data-e2e-sensitive-mask", "true"));
     await field.locator.fill("x".repeat(field.value.length));
     const referencePixels = await field.locator.screenshot({ animations: "disabled", caret: "hide" });
     await field.locator.fill(field.value);
