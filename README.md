@@ -21,13 +21,9 @@ docker compose ps
 
 默认数据库密码是 `huddletab`，仅适合本机或受控网络。开放公网前，必须通过 `.env` 修改 `POSTGRES_PASSWORD`；仓库 Compose 会使用同一个变量构造 `DATABASE_URL`。公开访问地址通过 `APP_BASE_URL` 设置；HTTPS 和可信代理边界见[HTTPS 与反向代理](docs/deployment/https.md)。
 
-首次空数据库只允许通过 CLI 创建用户。命令会在终端中读取密码，不要把密码写入命令行、脚本或日志：
+首次空数据库打开网页会进入独立的管理员初始化页，按“管理员昵称、用户名、密码、确认密码”的顺序填写并点击“完成初始化”。成功后页面会自动登录并进入活动列表；失败时表单草稿会保留。初始化请求使用同源 CSRF/Origin 校验、认证限流和数据库事务锁，首个成功提交者成为系统管理员。
 
-```bash
-docker compose exec app huddletab bootstrap-user --username your-username
-```
-
-空数据库打开网页时只会显示上述 CLI 初始化指引；浏览器不收集管理员凭据，也没有 HTTP 初始化写接口。执行 CLI 后回到页面点击“重新检查初始化状态”，再登录使用。
+由于当前没有 Setup Token 或其他无界面初始化入口，首次初始化完成前必须限制实例的网络访问，不要把未初始化的地址暴露给不可信网络；部署者应在受控网络内立即完成初始化。已初始化的实例访问 `/setup` 会回到登录页。
 
 完成后打开 <http://localhost:5660>。初始化、迁移或数据库连接失败时查看中文日志：
 

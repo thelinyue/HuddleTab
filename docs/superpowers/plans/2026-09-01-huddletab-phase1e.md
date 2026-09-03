@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Follow RED -> GREEN -> regression and keep PostgreSQL/Docker work inside disposable WSL environments.
 
+> 历史记录说明：本计划早期 runner 使用 stdin bootstrap；2026-09-04 已由 `/setup` 网页管理员初始化取代，旧命令不能作为当前操作指引或验收证据。
+
 **Goal:** 完成单实例自托管定位下的安全、并发、浏览器和发布验收。
 
 **Architecture:** Rust 进程内 fixed-window limiter 只保护三个共享敏感操作类别；账务并发继续由 PostgreSQL 事务、幂等键和 version 控制。React/Vite 新栈使用独立 Playwright 配置和临时 WSL Compose 环境验收。

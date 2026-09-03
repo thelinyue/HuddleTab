@@ -4,9 +4,9 @@
 
 ## 1. 范围与基线
 
-本任务只完成 CLI 初始化引导、Sharing Summary 扩展和 CSV 安全收口，不进入 Task 31 或正式发布。编码前已对照本地 `v0.0.2` 运行环境 `http://127.0.0.1:5682` 及远程对应源码：新栈继续采用独立页面/紧凑卡片、现有 Sheet 与按钮层级；分享仍从结算上下文进入，不新增活动主导航。
+本任务只完成网页初始化、Sharing Summary 扩展和 CSV 安全收口，不进入 Task 31 或正式发布。编码前已对照本地 `v0.0.2` 运行环境 `http://127.0.0.1:5682` 及远程对应源码：新栈继续采用独立页面/紧凑卡片、现有 Sheet 与按钮层级；分享仍从结算上下文进入，不新增活动主导航。
 
-`v0.0.2` 的初始化页包含网页凭据表单；新栈明确不复刻这一安全边界。首位管理员只能在服务端执行 CLI，浏览器只显示静态指引，不接收用户名或密码，也不生成 Setup Token。
+`v0.0.2` 的初始化页包含网页凭据表单；本次修正恢复同样的字段顺序和自动登录交互。首位管理员通过同源网页 `/api/setup` 创建，不生成 Setup Token；初始化完成前必须限制网络访问。
 
 ## 2. 初始化状态与页面守卫
 
@@ -15,10 +15,10 @@
 React Router 的 `SetupGuard` 在产品树外层读取该状态：空库时除 `/setup` 外的登录、注册、邀请、活动和所有深链统一重定向 `/setup`；已初始化访问 `/setup` 重定向 `/login`；状态读取失败停在中文错误页并提供重试。`/setup` 只展示并可复制：
 
 ```text
-docker compose exec app huddletab bootstrap-user --username your-username
+打开实例的 `/setup` 页面填写管理员昵称、用户名、密码和确认密码。
 ```
 
-CLI 完成后用户点击重新检查，守卫放行到登录。页面没有凭据输入、HTTP 初始化写入或本地状态持久化。
+提交成功后页面自动登录并进入活动列表；服务端失败时保留表单草稿，初始化状态仍不写入 IndexedDB 或 Service Worker。
 
 ## 3. Sharing Summary 一致性
 
@@ -42,6 +42,6 @@ CLI 完成后用户点击重新检查，守卫放行到登录。页面没有凭�
 
 ## 5. 验收边界
 
-`Task30Only` 是现有 Phase 1E runner 的固定模式，只运行 Chromium Desktop `1440x1000` 与 Mobile `390x844` 的初始化/摘要/CSV 流程，并保留 fresh migration、stdin bootstrap、SPA 深链、非 root、运行镜像无 Node、重启持久性、中文冷启动错误、凭据脱敏和限定清理。它不接受任意 Playwright 或 Compose 参数。
+`Task30Only` 是现有 Phase 1E runner 的固定模式，只运行 Chromium Desktop `1440x1000` 与 Mobile `390x844` 的初始化/摘要/CSV 流程，并保留 fresh migration、网页表单初始化、SPA 深链、非 root、运行镜像无 Node、重启持久性、中文冷启动错误、凭据脱敏和限定清理。它不接受任意 Playwright 或 Compose 参数。
 
 本任务完成后结论严格为：“Phase 3 Task 30 完成，可以进入 Task 31。”Task 31、真机 iPhone Safari/Home Screen PWA、最终 Release Verification 和正式 `v0.0.3` 镜像发布仍未完成。

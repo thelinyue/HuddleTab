@@ -112,6 +112,7 @@ export default defineConfig({
     {
       name: "chromium-setup-mobile",
       testMatch: "setup.spec.ts",
+      dependencies: ["chromium-setup-desktop"],
       use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
     },
   ],

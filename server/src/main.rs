@@ -1,7 +1,6 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::{
-    io,
     net::SocketAddr,
     path::{Path, PathBuf},
 };
@@ -22,14 +21,6 @@ enum Command {
         #[arg(long, default_value = "frontend/dist")]
         static_dir: PathBuf,
     },
-    /// 在空数据库中创建首位用户。
-    BootstrapUser {
-        #[arg(long)]
-        username: String,
-        /// 从标准输入读取一行密码，供受保护的自动化部署使用。
-        #[arg(long)]
-        password_stdin: bool,
-    },
     /// 从 Rust route 与 DTO 导出 `OpenAPI` contract。
     Openapi {
         #[arg(long)]
@@ -48,55 +39,8 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().command {
         Command::Serve { bind, static_dir } => serve(bind, static_dir).await,
-        Command::BootstrapUser {
-            username,
-            password_stdin,
-        } => bootstrap_user(username, password_stdin).await,
         Command::Openapi { output } => write_openapi(&output),
     }
-}
-
-async fn bootstrap_user(username: String, password_stdin: bool) -> anyhow::Result<()> {
-    let password = if password_stdin {
-        read_password_line()?
-    } else {
-        let password =
-            rpassword::prompt_password("请输入首位用户密码：").context("无法从终端安全读取密码")?;
-        let confirmation =
-            rpassword::prompt_password("请再次输入密码：").context("无法从终端安全读取密码确认")?;
-        if password != confirmation {
-            bail!("两次输入的密码不一致，未创建用户");
-        }
-        password
-    };
-
-    let database_url =
-        std::env::var("DATABASE_URL").context("缺少 DATABASE_URL，无法连接 HuddleTab 数据库")?;
-    let pool =
-        huddletab_server::infrastructure::database::connect_and_migrate(&database_url).await?;
-    let created = huddletab_server::application::bootstrap_user::bootstrap_first_user(
-        &pool,
-        &huddletab_server::infrastructure::password::Argon2PasswordHasher,
-        &huddletab_server::infrastructure::clock::SystemClock,
-        huddletab_server::application::bootstrap_user::BootstrapUserInput { username, password },
-    )
-    .await?;
-    println!("已创建首位用户：{} ({})", created.username, created.id);
-    Ok(())
-}
-
-fn read_password_line() -> anyhow::Result<String> {
-    let mut password = String::new();
-    io::stdin()
-        .read_line(&mut password)
-        .context("无法从标准输入读取密码")?;
-    if password.ends_with('\n') {
-        password.pop();
-        if password.ends_with('\r') {
-            password.pop();
-        }
-    }
-    Ok(password)
 }
 
 async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {

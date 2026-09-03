@@ -1,5 +1,7 @@
 # HuddleTab Task 28 Phase 2 收口实施记录
 
+> 历史记录说明：本文件早期浏览器 runner 使用 stdin bootstrap；2026-09-04 已改为 `/setup` 网页管理员初始化，旧命令不能作为当前操作指引或验收证据。
+
 ## 已实现
 
 - 当前标签页 Session 网络错误回退与 401 清除边界。

@@ -11,7 +11,7 @@
 - `users.disabled_at` 实时阻止登录和 Session 读取；禁用事务同时撤销全部 Session。
 - `system_roles` 目前只允许 `SYSTEM_ADMIN`。管理员权限是平台权限，不授予任何 Activity 数据权限。
 - 禁用账号或撤销管理员角色前，在 PostgreSQL 事务 advisory lock 内确认仍至少有一个未禁用且拥有密码的系统管理员；否则返回 `409 LAST_ACTIVE_ADMIN`。
-- `bootstrap-user` 在首位用户事务中同时写入 `SYSTEM_ADMIN`。首位用户仍只能由 CLI 创建。
+- 网页 `/api/setup` 在首位用户事务中同时写入 `SYSTEM_ADMIN`。首位用户由首次成功提交的网页初始化请求创建；不保留 CLI 初始化入口。
 
 ## 注册策略
 

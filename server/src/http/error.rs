@@ -181,6 +181,26 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_setup_input(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SETUP_INPUT",
+            "管理员昵称、用户名或密码不符合要求。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn setup_completed(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "SETUP_COMPLETED",
+            "系统管理员已完成初始化。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn system_admin_required(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::FORBIDDEN,

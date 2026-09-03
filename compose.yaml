@@ -28,6 +28,7 @@ services:
       DATA_DIR: /data
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5660}
       APP_VERSION: ${APP_VERSION:-dev}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       RUST_LOG: ${RUST_LOG:-huddletab_server=info}
       TZ: ${TZ:-Asia/Shanghai}
     ports:

@@ -71,6 +71,7 @@ async fn bootstrap_creates_the_first_system_admin_and_admin_invariants_hold() {
         BootstrapUserInput {
             username: "admin-one".to_owned(),
             password: "correct horse battery staple".to_owned(),
+            display_name: "Admin One".to_owned(),
         },
     )
     .await

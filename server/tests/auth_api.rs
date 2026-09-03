@@ -207,6 +207,7 @@ async fn revoked_session_cookie_can_establish_pre_auth_and_log_in_again() {
         BootstrapUserInput {
             username: "alice".to_owned(),
             password: "correct horse battery staple".to_owned(),
+            display_name: "Alice".to_owned(),
         },
     )
     .await
@@ -331,6 +332,7 @@ async fn login_creates_a_hashed_database_session_and_cookie() {
         BootstrapUserInput {
             username: "alice".to_owned(),
             password: "correct horse battery staple".to_owned(),
+            display_name: "Alice".to_owned(),
         },
     )
     .await
@@ -592,6 +594,7 @@ async fn password_change_rotates_current_and_revokes_other_sessions() {
         BootstrapUserInput {
             username: "alice".to_owned(),
             password: "old password value".to_owned(),
+            display_name: "Alice".to_owned(),
         },
     )
     .await

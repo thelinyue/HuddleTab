@@ -35,6 +35,12 @@ APP_BASE_URL=https://huddletab.example.com
 
 HTTP 部署可以继续使用 `http://` 地址；HTTPS 不是应用启动前提。
 
+## 首次网页初始化
+
+空数据库首次访问会显示 `/setup` 网页初始化表单，首个成功提交者将成为系统管理员。当前不提供 Setup Token 或 CLI 初始化入口；初始化请求由同源 CSRF、Origin 校验和认证限流保护，但这不能替代网络隔离。
+
+首次初始化完成前，部署者必须将实例限制在本机或受控内网，不得暴露给不可信网络。完成初始化后再按需开放受控代理入口，并立即确认管理员账号和密码策略。
+
 ## 可信代理边界
 
 默认 `TRUST_PROXY=false`。此时 HuddleTab 不信任 `Forwarded`、`X-Forwarded-For`、`X-Real-IP` 或其他客户端可伪造的地址 Header。

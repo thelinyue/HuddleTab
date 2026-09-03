@@ -6,10 +6,6 @@ use huddletab_server::{
     domain::identity::Password,
     infrastructure::database::connect_and_migrate,
 };
-use std::{
-    io::Write,
-    process::{Command, Stdio},
-};
 use time::{OffsetDateTime, macros::datetime};
 use tokio::sync::Mutex;
 
@@ -61,6 +57,7 @@ async fn bootstrap_persists_one_normalized_user() {
         BootstrapUserInput {
             username: "  Alice  ".to_owned(),
             password: "correct horse battery staple".to_owned(),
+            display_name: "管理员 Alice".to_owned(),
         },
     )
     .await
@@ -77,7 +74,11 @@ async fn bootstrap_persists_one_normalized_user() {
     assert_eq!(created.username, "alice");
     assert_eq!(
         stored,
-        ("alice".into(), "alice".into(), "test-password-hash".into())
+        (
+            "alice".into(),
+            "管理员 Alice".into(),
+            "test-password-hash".into()
+        )
     );
 }
 
@@ -121,6 +122,7 @@ async fn concurrent_bootstrap_allows_exactly_one_success() {
         BootstrapUserInput {
             username: "alice".to_owned(),
             password: "correct horse battery staple".to_owned(),
+            display_name: "Alice".to_owned(),
         },
     );
     let second = bootstrap_first_user(
@@ -130,6 +132,7 @@ async fn concurrent_bootstrap_allows_exactly_one_success() {
         BootstrapUserInput {
             username: "bob".to_owned(),
             password: "correct horse battery staple".to_owned(),
+            display_name: "Bob".to_owned(),
         },
     );
     let (first, second) = tokio::join!(first, second);
@@ -153,49 +156,4 @@ async fn concurrent_bootstrap_allows_exactly_one_success() {
         .execute(&pool)
         .await
         .expect("应删除测试延迟函数");
-}
-
-#[tokio::test]
-#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-async fn cli_reads_password_from_stdin_without_echoing_it() {
-    let _guard = DATABASE_TEST_LOCK.lock().await;
-    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
-    let pool = connect_and_migrate(&database_url)
-        .await
-        .expect("测试数据库应可迁移");
-    sqlx::query("TRUNCATE users CASCADE")
-        .execute(&pool)
-        .await
-        .expect("应清空测试用户");
-
-    let password = "correct horse battery staple";
-    let mut child = Command::new(env!("CARGO_BIN_EXE_huddletab"))
-        .args([
-            "bootstrap-user",
-            "--username",
-            "cli-user",
-            "--password-stdin",
-        ])
-        .env("DATABASE_URL", &database_url)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("应能启动 bootstrap-user CLI");
-    writeln!(child.stdin.take().expect("应打开 stdin"), "{password}").expect("应写入测试密码");
-    let output = child.wait_with_output().expect("CLI 应正常退出");
-
-    assert!(
-        output.status.success(),
-        "CLI 失败：{}",
-        String::from_utf8_lossy(&output.stderr),
-    );
-    assert!(!String::from_utf8_lossy(&output.stdout).contains(password));
-    assert!(!String::from_utf8_lossy(&output.stderr).contains(password));
-
-    let username = sqlx::query_scalar::<_, String>("SELECT username FROM users")
-        .fetch_one(&pool)
-        .await
-        .expect("CLI 应创建用户");
-    assert_eq!(username, "cli-user");
 }

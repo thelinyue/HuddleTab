@@ -1,8 +1,10 @@
 # HuddleTab Phase 3 Task 29 实施记录
 
+> 当前初始化已由 2026-09-04 修正为网页 `/setup` 与 `POST /api/setup`；下文历史结果中出现的 CLI/stdin bootstrap 仅作追溯，不能作为当前操作指引或验收依据。
+
 ## 已完成
 
-1. 新增 `disabled_at`、`system_roles`、`system_settings` migration；首位 CLI 用户与 `SYSTEM_ADMIN` 在同一事务创建。
+1. 新增 `disabled_at`、`system_roles`、`system_settings` migration；首位用户与 `SYSTEM_ADMIN` 在同一事务创建（当前由网页初始化调用）。
 2. 登录/Session 实时排除禁用账号；禁用账号和管理员撤权撤销全部 Session；事务 advisory lock 保护最后管理员不变量。
 3. 新增六个系统管理 HTTP 合同、OpenAPI schema 和 TypeScript client；管理写操作接入现有敏感操作限流。
 4. 注册事务读取单例策略并重新校验邀请；支持 `OPEN` 无邀请注册及 `INVITE_ONLY` 的 `REGISTRATION_INVITE_REQUIRED`。

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 历史记录说明：本计划中的 runner credential stdin/bootstrap 描述已被 2026-09-04 `/setup` 网页初始化取代，仅用于追溯；当前验收必须使用网页表单。
+
 **Goal:** 在 Rust/Axum 与 React/Vite 新栈中实现安全、私有、可离线重试的 Expense 图片附件闭环。
 
 **Architecture:** PostgreSQL 保存附件元数据，`DATA_DIR/uploads` 保存服务端重编码后的 WebP；Application 定义附件用例与错误，PostgreSQL Repository 负责授权、行锁、幂等、文件补偿、Audit 和 revision。前端直接重定义尚未发布的 IndexedDB schema v1，通过现有 Expense 串行队列先确认 Expense，再独立重试附件。

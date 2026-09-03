@@ -61,6 +61,7 @@ async fn bootstrap_user(pool: &PgPool) -> Uuid {
         BootstrapUserInput {
             username: "alice".to_owned(),
             password: "correct horse battery staple".to_owned(),
+            display_name: "Alice".to_owned(),
         },
     )
     .await

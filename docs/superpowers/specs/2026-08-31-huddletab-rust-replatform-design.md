@@ -35,7 +35,7 @@ Phase 1 完成必须同时满足：
 - Activity、ActivityMember、Guest、Direct Invitation。
 - Expense CRUD、多人付款、四种分摊、手工汇率、幂等、审计与 Revision。
 - Ledger、Balance、Recommendation、Settlement create/update/void。
-- PostgreSQL migration、CLI bootstrap、OpenAPI 导出、静态托管和 Docker 发布。
+- PostgreSQL migration、网页管理员初始化、OpenAPI 导出、静态托管和 Docker 发布。
 
 ### 3.2 Phase 2
 
@@ -90,7 +90,7 @@ Rust 模块职责：
 
 - SQLx row、Domain entity、HTTP DTO 严格分离，禁止跨层复用结构体。
 - 仅在真实替换边界建立 trait；Domain 内部纯计算不抽象成 trait。
-- 一个二进制提供 `serve`、`bootstrap-user`、`openapi` 子命令。
+- 一个二进制提供 `serve`、`openapi` 子命令；首位管理员通过网页初始化接口创建。
 - `serve` 启动时执行兼容 migration，再监听 `0.0.0.0:5660`。
 - `/api/*` 永不回退 HTML；未知 API 和方法错误均返回统一 JSON。
 - 非 API GET/HEAD 路由在静态文件不存在时回退 `index.html`。
@@ -254,13 +254,13 @@ Cookie 默认属性：`HttpOnly`、`SameSite=Lax`、`Path=/`，生产 HTTPS 使�
 
 ### 8.3 Bootstrap 与注册
 
-首位用户只能通过：
+首位用户通过唯一的网页初始化入口创建：
 
 ```text
-huddletab bootstrap-user --username <name>
+打开实例的 `/setup` 页面填写管理员昵称、用户名、密码和确认密码。
 ```
 
-密码通过交互输入或明确的受保护输入机制提供，不写入日志。事务内锁定 bootstrap 条件并要求 `users=0`；并发执行只允许一个成功。不存在 HTTP bootstrap。
+密码只通过同源 HTTPS/受控网络网页提交，不写入日志。事务内锁定 bootstrap 条件并要求 `users=0`；并发提交只允许一个成功。没有 Setup Token；首次初始化完成前不得将实例暴露给不可信网络。
 
 Phase 1 注册必须携带有效邀请。注册时验证邀请只允许创建账号；加入活动时再次验证邀请的有效期、状态、目标和使用限制。
 

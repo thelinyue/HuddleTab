@@ -145,6 +145,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             get(setup::status).fallback(api_method_not_allowed),
         )
         .route(
+            "/setup",
+            axum::routing::post(setup::initialize).fallback(api_method_not_allowed),
+        )
+        .route(
             "/me/password",
             axum::routing::put(auth::change_password).fallback(api_method_not_allowed),
         )

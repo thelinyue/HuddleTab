@@ -41,6 +41,30 @@ fn setup_status_and_summary_publish_task30_contract() {
 }
 
 #[test]
+fn web_setup_contract_publishes_form_and_race_errors() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    let operation = &value["paths"]["/api/setup"]["post"];
+    assert!(operation.is_object());
+    assert_eq!(
+        operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/SetupRequest"
+    );
+    for status in ["201", "400", "403", "409", "429", "500"] {
+        assert!(operation["responses"][status].is_object(), "缺少 {status}");
+    }
+    assert_eq!(
+        operation["responses"]["201"]["headers"]["Cache-Control"]["schema"]["type"],
+        "string"
+    );
+    let request = &value["components"]["schemas"]["SetupRequest"];
+    assert_eq!(
+        request["required"],
+        json!(["displayName", "username", "password"])
+    );
+}
+
+#[test]
 fn protected_operations_publish_the_rate_limit_response() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");

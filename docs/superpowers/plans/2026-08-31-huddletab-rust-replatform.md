@@ -2,6 +2,8 @@
 
 > **For agentic workers:** 在 `codex/rust-replatform` 隔离工作树中顺序执行。每个行为变更遵循 RED -> GREEN -> regression；配置、生成文件和纯脚手架只执行相应 build/serve 验证。旧 Next 服务端只读，直到 Phase 1A 的新运行基础独立通过后才删除。
 
+> 当前初始化入口以 2026-09-04 网页管理员初始化修正为准：空库使用 `/setup` 表单和 `POST /api/setup`，不使用 CLI、stdin 或 Setup Token。本文件早期的 `bootstrap-user`/CLI 描述仅作历史实施记录，不是当前操作指引。
+
 **Goal:** 将 HuddleTab 切换为同源部署的 React/Vite PWA + Rust/Axum 模块化单体，同时保持现有产品与视觉交互成果。
 
 **Architecture:** 单 Rust crate 按 `domain/application/infrastructure/http` 分层；Axum 同源提供 JSON API 和 Vite SPA；PostgreSQL 保存全部权威事实；OpenAPI 是 Rust 到 TypeScript 的唯一 Contract 来源。
@@ -245,7 +247,7 @@ npm --prefix frontend test -- --run src/domain-preview
 - Create: `server/src/infrastructure/repositories/`
 - Create: `server/tests/schema_constraints.rs`
 
-### Task 9: Username、PasswordHasher 与 bootstrap-user
+### Task 9: Username、PasswordHasher 与首位用户初始化基础
 
 **RED tests:**
 
@@ -260,7 +262,7 @@ npm --prefix frontend test -- --run src/domain-preview
 - Create: `server/src/domain/identity.rs`
 - Create: `server/src/application/bootstrap_user.rs`
 - Create: `server/src/infrastructure/password.rs`
-- Extend CLI in `server/src/main.rs`
+- 首位用户事务基础由 `server/src/application/bootstrap_user.rs` 提供；当前网页入口由 `/api/setup` 调用，早期 CLI 扩展描述已被网页初始化修正取代。
 
 ### Task 10: Session、CSRF 与 Auth API
 
@@ -468,7 +470,7 @@ npm --prefix frontend test -- --run src/domain-preview
 
 ### Task 30: 初始化 UI、CSV 与 Sharing Summary
 
-CLI bootstrap 仍是首位用户唯一创建方式；初始化 UI 只引导部署者运行 CLI，不开放 HTTP bootstrap。CSV 和分享摘要先测试权限、转义、过期与隐私字段。
+早期计划曾把 CLI bootstrap 设为首位用户唯一创建方式；该前提已被 2026-09-04 网页初始化修正取代。当前 `/setup` 提供与 `v0.0.2` 对齐的管理员昵称、用户名、密码和确认密码表单，服务端通过 `POST /api/setup` 原子创建首位用户。CSV 和分享摘要先测试权限、转义、过期与隐私字段。
 
 ### Task 31: 设置与外围管理
 

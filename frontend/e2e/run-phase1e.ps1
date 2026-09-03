@@ -25,6 +25,7 @@ $script:composeFileWsl = $null
 $originalWslEnv = $env:WSLENV
 $originalAppVersion = $env:APP_VERSION
 $originalPostgresDb = $env:POSTGRES_DB
+$originalTrustProxy = $env:TRUST_PROXY
 $sensitiveNames = @(
   "HUDDLETAB_E2E_USERNAME",
   "HUDDLETAB_E2E_PASSWORD",
@@ -151,6 +152,7 @@ try {
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
   $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.3" } else { "dev" }
+  $env:TRUST_PROXY = "false"
   # Release Verification 的父进程会暂时使用另一个 PostgreSQL 测试库；E2E Compose 必须固定自己的库名。
   $env:POSTGRES_DB = "huddletab"
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
@@ -190,38 +192,25 @@ try {
     if ((@($services) -join ",") -ne "postgres,app") { throw "最终 Compose 服务必须严格为 postgres 与 app。" }
   }
 
-  Write-Host "[3/10] 验证空库初始化引导、fresh migration 并通过 stdin bootstrap"
-  if ($Task30Only -or $ReleaseVerification) {
-    Push-Location $frontendDir
-    try {
-      $setupArguments = @("run", "test:e2e", "--", "setup.spec.ts", "--project=chromium-setup-desktop", "--project=chromium-setup-mobile")
-      & npm @setupArguments
-      if ($LASTEXITCODE -ne 0) { throw "空数据库初始化引导浏览器检查失败。" }
-    } finally {
-      Pop-Location
-    }
+  Write-Host "[3/10] 验证空库网页初始化表单、fresh migration 与自动登录"
+  $setupExitCode = 0
+  Push-Location $frontendDir
+  try {
+    # setup mobile 依赖 desktop 项目，Playwright 会按固定依赖顺序先检查空库表单再提交初始化。
+    & npm run test:e2e -- setup.spec.ts --project=chromium-setup-mobile
+    $setupExitCode = $LASTEXITCODE
+  } finally {
+    Pop-Location
   }
+  # 初始化场景可能包含密码输入；无论测试成功还是失败，先脱敏再决定是否中止。
+  node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
+  $setupSanitizerExitCode = $LASTEXITCODE
+  if ($setupSanitizerExitCode -ne 0) { throw "初始化场景 artifact 脱敏或扫描失败。" }
+  if ($setupExitCode -ne 0) { throw "网页初始化表单浏览器检查失败，脱敏后的报告已留在 frontend/artifacts。" }
   $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
   if ($ReleaseVerification) {
     if ([int] $migration.Output.Trim() -ne 9) { throw "候选镜像 fresh migration 数量不是预期的 9 条。" }
   } elseif ([int] $migration.Output.Trim() -lt 3) { throw "fresh migration 未完整应用。" }
-  # 一次性脚本整体从 stdin 执行，临时值不会进入主机命令行；CLI 的用户名回显也被丢弃。
-  $bootstrapInput = @"
-set -eu
-username='$($env:HUDDLETAB_E2E_USERNAME)'
-password='$($env:HUDDLETAB_E2E_PASSWORD)'
-printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --password-stdin >/dev/null
-"@
-  $bootstrap = Invoke-Compose "exec -T app sh -s" -InputText $bootstrapInput -AllowFailure -Quiet
-  if ($bootstrap.ExitCode -ne 0) {
-    $safeBootstrapError = $bootstrap.Output
-    foreach ($secret in @($env:HUDDLETAB_E2E_USERNAME, $env:HUDDLETAB_E2E_PASSWORD, $env:POSTGRES_PASSWORD)) {
-      $safeBootstrapError = $safeBootstrapError.Replace($secret, "[REDACTED]")
-    }
-    throw "stdin bootstrap 失败：$safeBootstrapError"
-  }
-  $bootstrapInput = $null
-
   $matrixLabel = if ($Phase2Only) {
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
   } elseif ($IPhoneSimulationOnly) {
@@ -316,9 +305,10 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:TRUST_PROXY, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
   if ($null -ne $originalAppVersion) { $env:APP_VERSION = $originalAppVersion }
   if ($null -ne $originalPostgresDb) { $env:POSTGRES_DB = $originalPostgresDb } else { Remove-Item Env:POSTGRES_DB -ErrorAction SilentlyContinue }
+  if ($null -ne $originalTrustProxy) { $env:TRUST_PROXY = $originalTrustProxy }
   $env:WSLENV = $originalWslEnv
 }
 

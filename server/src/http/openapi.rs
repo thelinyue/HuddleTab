@@ -72,7 +72,11 @@ use super::{
         CreatedSettlementEnvelope, SettlementData, SettlementEnvelope, SettlementEnvelopeData,
         SettlementListEnvelope, UpdateSettlementRequest, VoidSettlementRequest,
     },
-    setup::{__path_status as __path_setup_status, SetupStatusData, SetupStatusEnvelope},
+    setup::{
+        __path_initialize as __path_setup_initialize, __path_status as __path_setup_status,
+        SetupInitializeData, SetupInitializeEnvelope, SetupRequest, SetupStatusData,
+        SetupStatusEnvelope,
+    },
     sharing::{
         __path_export_csv, __path_summary, ActivitySummaryData, ActivitySummaryEnvelope,
         SummaryBalanceData, SummaryCategoryTotalData, SummaryCurrencyTotalData,
@@ -89,6 +93,7 @@ use super::{
     paths(
         health,
         setup_status,
+        setup_initialize,
         csrf,
         login,
         register,
@@ -147,6 +152,9 @@ use super::{
     components(schemas(
         HealthData,
         HealthEnvelope,
+        SetupRequest,
+        SetupInitializeData,
+        SetupInitializeEnvelope,
         SetupStatusData,
         SetupStatusEnvelope,
         ErrorBody,

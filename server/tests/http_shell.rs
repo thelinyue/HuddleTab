@@ -165,6 +165,7 @@ async fn setup_status_is_read_only_and_has_a_json_route() {
         .expect("router 应返回响应");
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -180,6 +181,23 @@ async fn setup_status_is_read_only_and_has_a_json_route() {
         "METHOD_NOT_ALLOWED",
     )
     .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/setup")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"displayName":"管理员","username":"admin","password":"password123"}"#,
+                ))
+                .expect("测试请求应可构造"),
+        )
+        .await
+        .expect("router 应返回响应");
+    // 没有同源 pre-auth CSRF 上下文时，初始化必须在进入数据库前拒绝。
+    assert_json_error(response, StatusCode::FORBIDDEN, "CSRF_INVALID").await;
 }
 
 #[tokio::test]

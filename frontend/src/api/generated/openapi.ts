@@ -693,6 +693,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["initialize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup/status": {
         parameters: {
             query?: never;
@@ -1245,11 +1261,22 @@ export interface components {
         SettlementListEnvelope: {
             data: components["schemas"]["SettlementData"][];
         };
+        SetupInitializeData: {
+            initialized: boolean;
+        };
+        SetupInitializeEnvelope: {
+            data: components["schemas"]["SetupInitializeData"];
+        };
+        SetupRequest: {
+            displayName: string;
+            password: string;
+            username: string;
+        };
         /** @description 初始化状态是部署边界，前端不得将其持久化到 `IndexedDB` 或 Service Worker。 */
         SetupStatusData: {
             setupRequired: boolean;
         };
-        /** @description 公开初始化状态只暴露是否需要 CLI 引导，不返回用户数量或账号资料。 */
+        /** @description 公开初始化状态只暴露是否需要网页初始化，不返回用户数量或账号资料。 */
         SetupStatusEnvelope: {
             data: components["schemas"]["SetupStatusData"];
         };
@@ -4020,6 +4047,79 @@ export interface operations {
             };
             /** @description 通知不存在 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    initialize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupRequest"];
+            };
+        };
+        responses: {
+            /** @description 首位系统管理员创建成功 */
+            201: {
+                headers: {
+                    /** @description no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupInitializeEnvelope"];
+                };
+            };
+            /** @description 初始化输入无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 校验失败 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 系统已完成初始化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
+                    /** @description 等待秒数 */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 初始化服务内部错误 */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
