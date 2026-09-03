@@ -134,8 +134,11 @@ try {
   Start-DisposablePostgres
   Invoke-Checked "Rust PostgreSQL 全量测试（84 个 ignored，用例串行）" { cargo test --manifest-path $serverManifest --all-targets --all-features -- --ignored --test-threads=1 }
 
-  $temporaryContractDir = Join-Path ([System.IO.Path]::GetTempPath()) "huddletab-release-$([Guid]::NewGuid().ToString('N'))"
-  if ($temporaryContractDir -notmatch '\\huddletab-release-[a-f0-9]{32}$') { throw "临时合同目录未通过固定前缀校验。" }
+  # Node 的 OpenAPI resolver 在中文用户目录下会把临时路径编码成字面量 `%E...`；
+  # 固定使用 ASCII 临时根目录，避免生成合同时误判为文件不存在。
+  $temporaryContractDir = Join-Path "C:\Temp" "huddletab-release-$([Guid]::NewGuid().ToString('N'))"
+  if ($temporaryContractDir -notmatch '^C:\\Temp\\huddletab-release-[a-f0-9]{32}$') { throw "临时合同目录未通过固定前缀校验。" }
+  New-Item -ItemType Directory -Force -Path "C:\Temp" | Out-Null
   New-Item -ItemType Directory -Force -Path $temporaryContractDir | Out-Null
   $temporaryOpenapi = Join-Path $temporaryContractDir "openapi.json"
   $temporaryClient = Join-Path $temporaryContractDir "openapi.ts"
@@ -162,7 +165,7 @@ try {
 } finally {
   try { Stop-DisposablePostgres } catch { Write-Error $_ }
   if ($temporaryContractDir -and (Test-Path $temporaryContractDir)) {
-    if ($temporaryContractDir -notmatch '\\huddletab-release-[a-f0-9]{32}$') { throw "拒绝清理未通过前缀校验的合同临时目录。" }
+    if ($temporaryContractDir -notmatch '^C:\\Temp\\huddletab-release-[a-f0-9]{32}$') { throw "拒绝清理未通过前缀校验的合同临时目录。" }
     Remove-Item -LiteralPath $temporaryContractDir -Recurse -Force
   }
   foreach ($entry in $savedEnvironment.GetEnumerator()) {
