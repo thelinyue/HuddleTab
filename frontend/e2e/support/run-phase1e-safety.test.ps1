@@ -34,6 +34,9 @@ Assert-True (-not ($notificationPlaywright -match "--grep|--config|--headed")) "
 $phase2Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true
 Assert-True (($phase2Playwright -join " ") -eq "run test:e2e -- --project=chromium-phase2-desktop --project=chromium-phase2-mobile --project=chromium-attachment-desktop --project=chromium-attachment-mobile --project=chromium-notification-desktop --project=chromium-notification-mobile --project=webkit-smoke") "Phase2Only 没有固定到 Phase 2、附件、通知/所有权和 WebKit smoke 项目。"
 Assert-True (-not ($phase2Playwright -match "--grep|--config|--headed")) "Phase2Only 注入了未批准的 Playwright 参数。"
+$iPhonePlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -IPhoneSimulationOnly $true
+Assert-True (($iPhonePlaywright -join " ") -eq "run test:e2e -- --project=chromium-phase2-mobile --project=chromium-attachment-mobile --project=webkit-iphone-ui") "IPhoneSimulationOnly 没有固定到 PWA Mobile 与 WebKit iPhone 项目。"
+Assert-True (-not ($iPhonePlaywright -match "--grep|--config|--headed")) "IPhoneSimulationOnly 注入了未批准的 Playwright 参数。"
 $task29Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task29Only $true
 Assert-True (($task29Playwright -join " ") -eq "run test:e2e -- task29.spec.ts --project=chromium-task29-desktop --project=chromium-task29-mobile") "Task29Only 没有固定到管理员 Desktop/Mobile 项目。"
 Assert-True (-not ($task29Playwright -match "--grep|--config|--headed")) "Task29Only 注入了未批准的 Playwright 参数。"
@@ -44,12 +47,14 @@ $task31Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -Notif
 Assert-True (($task31Playwright -join " ") -eq "run test:e2e -- task31.spec.ts --project=chromium-task31-desktop --project=chromium-task31-mobile") "Task31Only 没有固定到系统信息 Desktop/Mobile 项目。"
 Assert-True (-not ($task31Playwright -match "--grep|--config|--headed")) "Task31Only 注入了未批准的 Playwright 参数。"
 $releasePlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -ReleaseVerification $true
-Assert-True (($releasePlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=chromium-phase2-desktop --project=chromium-phase2-mobile --project=chromium-attachment-desktop --project=chromium-attachment-mobile --project=chromium-notification-desktop --project=chromium-notification-mobile --project=chromium-task29-desktop --project=chromium-task29-mobile --project=chromium-task30-desktop --project=chromium-task30-mobile --project=chromium-task31-desktop --project=chromium-task31-mobile --project=webkit-smoke") "ReleaseVerification 没有固定到完整浏览器矩阵。"
+Assert-True (($releasePlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=chromium-phase2-desktop --project=chromium-phase2-mobile --project=chromium-attachment-desktop --project=chromium-attachment-mobile --project=chromium-notification-desktop --project=chromium-notification-mobile --project=chromium-task29-desktop --project=chromium-task29-mobile --project=chromium-task30-desktop --project=chromium-task30-mobile --project=chromium-task31-desktop --project=chromium-task31-mobile --project=webkit-iphone-ui --project=webkit-smoke") "ReleaseVerification 没有固定到完整浏览器矩阵。"
 Assert-True (-not ($releasePlaywright -match "--grep|--config|--headed")) "ReleaseVerification 注入了未批准的 Playwright 参数。"
 $exclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $true; $null } catch { $_ }
 Assert-True ($null -ne $exclusiveFailure) "两个专项模式同时启用时没有拒绝执行。"
 $phase2ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -ErrorAction Stop; New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $false -Phase2Only $true; $null } catch { $_ }
 Assert-True ($null -ne $phase2ExclusiveFailure) "Phase2Only 与专项模式同时启用时没有拒绝执行。"
+$iPhoneExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -IPhoneSimulationOnly $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -IPhoneSimulationOnly $true; $null } catch { $_ }
+Assert-True ($null -ne $iPhoneExclusiveFailure) "IPhoneSimulationOnly 与其他专项模式同时启用时没有拒绝执行。"
 $task29ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $false -Task29Only $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -Task29Only $true; $null } catch { $_ }
 Assert-True ($null -ne $task29ExclusiveFailure) "Task29Only 与其他专项模式同时启用时没有拒绝执行。"
 $task30ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task30Only $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task29Only $true -Task30Only $true; $null } catch { $_ }

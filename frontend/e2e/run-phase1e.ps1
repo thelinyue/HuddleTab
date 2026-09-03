@@ -3,6 +3,7 @@ param(
   [switch] $AttachmentOnly,
   [switch] $NotificationOwnershipOnly,
   [switch] $Phase2Only,
+  [switch] $IPhoneSimulationOnly,
   [switch] $Task29Only,
   [switch] $Task30Only,
   [switch] $Task31Only,
@@ -30,8 +31,8 @@ $sensitiveNames = @(
   "POSTGRES_PASSWORD"
 )
 
-if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
-  throw "附件、通知/所有权、Phase 2、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
+if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $IPhoneSimulationOnly, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
+  throw "附件、通知/所有权、Phase 2、iPhone 模拟、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
 }
 
 function Invoke-Wsl {
@@ -149,7 +150,7 @@ try {
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
-  $env:APP_VERSION = if ($ReleaseVerification) { "0.0.3" } else { "dev" }
+  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.3" } else { "dev" }
   # Release Verification 的父进程会暂时使用另一个 PostgreSQL 测试库；E2E Compose 必须固定自己的库名。
   $env:POSTGRES_DB = "huddletab"
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
@@ -223,6 +224,8 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
 
   $matrixLabel = if ($Phase2Only) {
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
+  } elseif ($IPhoneSimulationOnly) {
+    "iPhone WebKit UI 与 Chromium Mobile PWA 模拟矩阵"
   } elseif ($Task29Only) {
     "Task 29 Chromium Desktop/Mobile 管理矩阵"
   } elseif ($Task30Only) {
@@ -241,7 +244,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   Write-Host "[4/10] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent -Task31Only $Task31Only.IsPresent -ReleaseVerification $ReleaseVerification.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -IPhoneSimulationOnly $IPhoneSimulationOnly.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent -Task31Only $Task31Only.IsPresent -ReleaseVerification $ReleaseVerification.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir

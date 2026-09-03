@@ -39,6 +39,12 @@ export default defineConfig({
       use: { ...devices["Desktop Safari"], viewport: { width: 1440, height: 1000 } },
     },
     {
+      name: "webkit-iphone-ui",
+      testMatch: "iphone-simulation.spec.ts",
+      // WebKit 只用于验证 Mobile Safari 的布局和在线交互；PWA 离线能力仍由 Chromium 项目验证。
+      use: { ...devices["iPhone 13"] },
+    },
+    {
       name: "chromium-attachment-desktop",
       testMatch: "attachment.spec.ts",
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
