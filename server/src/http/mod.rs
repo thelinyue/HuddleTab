@@ -12,6 +12,7 @@ pub mod openapi;
 pub(crate) mod rate_limit;
 pub mod router;
 pub mod settlement;
+pub mod setup;
 pub mod sharing;
 pub mod snapshot;
 mod static_files;

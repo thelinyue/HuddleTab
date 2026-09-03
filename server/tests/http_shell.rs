@@ -102,6 +102,48 @@ async fn system_admin_routes_require_a_session() {
 }
 
 #[tokio::test]
+async fn setup_status_is_read_only_and_has_a_json_route() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
+        .expect("测试应创建 lazy pool");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool,
+            AppSecret::from_bytes([8; 32]),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/setup/status")
+                .body(Body::empty())
+                .expect("测试请求应可构造"),
+        )
+        .await
+        .expect("router 应返回响应");
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/setup/status")
+                .body(Body::empty())
+                .expect("测试请求应可构造"),
+        )
+        .await
+        .expect("router 应返回响应");
+    assert_json_error(
+        response,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "METHOD_NOT_ALLOWED",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn static_assets_and_spa_fallback_have_distinct_not_found_rules() {
     let static_dir = tempfile::tempdir().expect("应可创建临时静态目录");
     std::fs::create_dir(static_dir.path().join("assets")).expect("应可创建 assets 目录");

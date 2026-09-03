@@ -103,3 +103,14 @@ pub async fn bootstrap_first_user(
         username: username.as_str().to_owned(),
     })
 }
+
+/// 页面初始化守卫只需要知道数据库是否仍为空；不暴露用户数量或任何账号资料。
+///
+/// # Errors
+///
+/// 数据库查询失败时返回原始 `SQLx` 错误，由 HTTP 层转换为统一中文错误。
+pub async fn setup_required(pool: &PgPool) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>("SELECT NOT EXISTS (SELECT 1 FROM users)")
+        .fetch_one(pool)
+        .await
+}

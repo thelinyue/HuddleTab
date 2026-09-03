@@ -3,7 +3,8 @@ param(
   [switch] $AttachmentOnly,
   [switch] $NotificationOwnershipOnly,
   [switch] $Phase2Only,
-  [switch] $Task29Only
+  [switch] $Task29Only,
+  [switch] $Task30Only
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,8 +26,8 @@ $sensitiveNames = @(
   "POSTGRES_PASSWORD"
 )
 
-if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only).Where({ $_ }).Count -gt 1) {
-  throw "附件、通知/所有权、Phase 2 与 Task 29 专项模式不能同时运行。"
+if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only).Where({ $_ }).Count -gt 1) {
+  throw "附件、通知/所有权、Phase 2、Task 29 与 Task 30 专项模式不能同时运行。"
 }
 
 function Invoke-Wsl {
@@ -117,7 +118,7 @@ function Assert-TemporaryPath {
 }
 
 try {
-  Write-Host "[1/9] 准备前端依赖与 Playwright 浏览器"
+  Write-Host "[1/10] 准备前端依赖与 Playwright 浏览器"
   Push-Location $frontendDir
   try {
     npm ci
@@ -147,10 +148,11 @@ try {
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
   $env:HUDDLETAB_E2E_ATTACHMENT_MODE = if ($AttachmentOnly) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK29_MODE = if ($Task29Only) { "true" } else { "false" }
+  $env:HUDDLETAB_E2E_TASK30_MODE = if ($Task30Only) { "true" } else { "false" }
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
-  Write-Host "[2/9] 构建镜像、准备数据目录并启动独立生产 Compose（project=$composeProject, port=$appPort）"
+  Write-Host "[2/10] 构建镜像、准备数据目录并启动独立生产 Compose（project=$composeProject, port=$appPort）"
   $composeAttempted = $true
   Invoke-Compose "build app" | Out-Null
   $prepareDataScriptWsl = ConvertTo-WslPath (Join-Path $repoDir "scripts/prepare-data-dir.sh")
@@ -158,7 +160,17 @@ try {
   Invoke-Compose "up -d --wait" | Out-Null
   Wait-Health $baseUrl
 
-  Write-Host "[3/9] 验证 fresh migration 并通过 stdin bootstrap"
+  Write-Host "[3/10] 验证空库初始化引导、fresh migration 并通过 stdin bootstrap"
+  if ($Task30Only) {
+    Push-Location $frontendDir
+    try {
+      $setupArguments = @("run", "test:e2e", "--", "setup.spec.ts", "--project=chromium-setup-desktop", "--project=chromium-setup-mobile")
+      & npm @setupArguments
+      if ($LASTEXITCODE -ne 0) { throw "空数据库初始化引导浏览器检查失败。" }
+    } finally {
+      Pop-Location
+    }
+  }
   $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
   if ([int] $migration.Output.Trim() -lt 3) { throw "fresh migration 未完整应用。" }
   # 一次性脚本整体从 stdin 执行，临时值不会进入主机命令行；CLI 的用户名回显也被丢弃。
@@ -182,6 +194,8 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
   } elseif ($Task29Only) {
     "Task 29 Chromium Desktop/Mobile 管理矩阵"
+  } elseif ($Task30Only) {
+    "Task 30 Chromium Desktop/Mobile 初始化与分享矩阵"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {
@@ -189,10 +203,10 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   } else {
     "Chromium Desktop/Mobile 核心矩阵与 WebKit smoke"
   }
-  Write-Host "[4/9] 运行 $matrixLabel"
+  Write-Host "[4/10] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
@@ -206,13 +220,13 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
     Pop-Location
   }
 
-  Write-Host "[5/9] 检查 summary/CSV 产物之外的生产 SPA 深链"
+  Write-Host "[5/10] 检查 summary/CSV 产物之外的生产 SPA 深链"
   $deepLink = Invoke-WebRequest -Uri "$baseUrl/activities/deep-link-release-check" -UseBasicParsing
   if ($deepLink.StatusCode -ne 200 -or $deepLink.Content -notmatch '<div id="root">') {
     throw "生产镜像没有正确回退 React SPA 深链。"
   }
 
-  Write-Host "[6/9] 检查非 root UID 与运行镜像技术栈边界"
+  Write-Host "[6/10] 检查非 root UID 与运行镜像技术栈边界"
   $uid = (Invoke-Compose "exec -T app id -u" -Quiet).Output.Trim()
   if ($uid -ne "10001") { throw "运行容器 UID 不是预期的非 root 用户 10001。" }
   $runtimeCommands = Invoke-Compose "exec -T app sh -c '! command -v node >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1 && ! command -v npx >/dev/null 2>&1 && ! command -v next >/dev/null 2>&1'" -AllowFailure -Quiet
@@ -221,7 +235,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
     throw "运行镜像仍包含 Node/Next/Drizzle/Better Auth 运行时内容。"
   }
 
-  Write-Host "[7/9] 验证 app 与 PostgreSQL 重启后的数据持久性"
+  Write-Host "[7/10] 验证 app 与 PostgreSQL 重启后的数据持久性"
   Invoke-Compose "restart app" -Quiet | Out-Null
   Wait-Health $baseUrl
   node (Join-Path $PSScriptRoot "support/persistence-check.mjs")
@@ -231,7 +245,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   node (Join-Path $PSScriptRoot "support/persistence-check.mjs")
   if ($LASTEXITCODE -ne 0) { throw "PostgreSQL 重启持久性检查失败。" }
 
-  Write-Host "[8/9] 验证数据库不可用时的中文冷启动错误"
+  Write-Host "[8/10] 验证数据库不可用时的中文冷启动错误"
   Invoke-Compose "stop app postgres" -Quiet | Out-Null
   $coldStart = Invoke-Compose "run --no-deps --rm app" -AllowFailure -Quiet
   if ($coldStart.ExitCode -eq 0) { throw "数据库不可用时 app 冷启动意外成功。" }
@@ -239,7 +253,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
     throw "数据库不可用时未输出明确的中文冷启动错误。"
   }
 
-  Write-Host "[9/9] 全部验收通过，准备执行限定范围清理"
+  Write-Host "[9/10] 全部验收通过，准备执行限定范围清理"
 } catch {
   $primaryFailure = $_
 } finally {
@@ -264,7 +278,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE -ErrorAction SilentlyContinue
   $env:WSLENV = $originalWslEnv
 }
 

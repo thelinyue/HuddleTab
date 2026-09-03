@@ -11,6 +11,13 @@ export type SummaryState = "zero" | "settled" | "ready";
 
 export type ShareSummary = {
   activityName: string;
+  startDate: string;
+  endDate: string | null;
+  expenseCount: number;
+  participatingMemberCount: number;
+  averageExpenseMinor: string;
+  originalCurrencyTotals: Array<{ currency: string; amountMinor: string }>;
+  categoryTotals: Array<{ category: string; amountMinor: string }>;
   balances: Array<{ amountMinor: string; displayName: string; memberId: string; state: BalanceState }>;
   currency: string;
   currentUserBalanceMinor: string;
@@ -35,6 +42,13 @@ export function mapActivitySummary(data: ActivitySummaryData): ShareSummary {
   const totalExpense = BigInt(data.totalExpenseMinor);
   return {
     activityName: data.activityName,
+    startDate: data.startDate,
+    endDate: data.endDate ?? null,
+    expenseCount: data.expenseCount,
+    participatingMemberCount: data.participatingMemberCount,
+    averageExpenseMinor: data.averageExpenseMinor,
+    originalCurrencyTotals: data.originalCurrencyTotals.map((item) => ({ currency: item.currency, amountMinor: item.amountMinor })),
+    categoryTotals: data.categoryTotals.map((item) => ({ category: item.category, amountMinor: item.amountMinor })),
     balances,
     currency: data.currency,
     currentUserBalanceMinor: data.currentUserBalanceMinor,

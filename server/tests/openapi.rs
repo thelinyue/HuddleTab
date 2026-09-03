@@ -12,6 +12,35 @@ fn document_contains_health_and_shared_envelopes() {
 }
 
 #[test]
+fn setup_status_and_summary_publish_task30_contract() {
+    let document = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    let setup = &document["paths"]["/api/setup/status"]["get"];
+    assert!(setup.is_object());
+    assert_eq!(
+        setup["responses"]["200"]["headers"]["Cache-Control"]["schema"]["type"],
+        "string"
+    );
+    let summary = &document["components"]["schemas"]["ActivitySummaryData"]["properties"];
+    for property in [
+        "startDate",
+        "endDate",
+        "expenseCount",
+        "participatingMemberCount",
+        "averageExpenseMinor",
+        "originalCurrencyTotals",
+        "categoryTotals",
+    ] {
+        assert!(summary[property].is_object(), "摘要应包含 {property}");
+    }
+    let summary_operation = &document["paths"]["/api/activities/{activity_id}/summary"]["get"];
+    assert_eq!(
+        summary_operation["responses"]["200"]["headers"]["Cache-Control"]["schema"]["type"],
+        "string"
+    );
+}
+
+#[test]
 fn protected_operations_publish_the_rate_limit_response() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");

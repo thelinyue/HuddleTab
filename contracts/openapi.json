@@ -2292,6 +2292,14 @@
         "responses": {
           "200": {
             "description": "活动结算摘要",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -3361,6 +3369,50 @@
           }
         }
       }
+    },
+    "/api/setup/status": {
+      "get": {
+        "tags": [],
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "只读初始化状态",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatusEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "初始化状态暂时不可用",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3645,16 +3697,25 @@
         "type": "object",
         "required": [
           "activityName",
+          "startDate",
           "memberCount",
           "totalExpenseMinor",
+          "expenseCount",
+          "participatingMemberCount",
+          "averageExpenseMinor",
           "currency",
           "revision",
           "currentUserBalanceMinor",
+          "originalCurrencyTotals",
+          "categoryTotals",
           "balances",
           "recommendations"
         ],
         "properties": {
           "activityName": {
+            "type": "string"
+          },
+          "averageExpenseMinor": {
             "type": "string"
           },
           "balances": {
@@ -3663,15 +3724,41 @@
               "$ref": "#/components/schemas/SummaryBalanceData"
             }
           },
+          "categoryTotals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SummaryCategoryTotalData"
+            }
+          },
           "currency": {
             "type": "string"
           },
           "currentUserBalanceMinor": {
             "type": "string"
           },
+          "endDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expenseCount": {
+            "type": "integer",
+            "format": "int64"
+          },
           "memberCount": {
             "type": "integer",
             "minimum": 0
+          },
+          "originalCurrencyTotals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SummaryCurrencyTotalData"
+            }
+          },
+          "participatingMemberCount": {
+            "type": "integer",
+            "format": "int64"
           },
           "recommendations": {
             "type": "array",
@@ -3680,6 +3767,9 @@
             }
           },
           "revision": {
+            "type": "string"
+          },
+          "startDate": {
             "type": "string"
           },
           "totalExpenseMinor": {
@@ -5448,6 +5538,28 @@
           }
         }
       },
+      "SetupStatusData": {
+        "type": "object",
+        "required": [
+          "setupRequired"
+        ],
+        "properties": {
+          "setupRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetupStatusEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SetupStatusData"
+          }
+        }
+      },
       "SummaryBalanceData": {
         "type": "object",
         "required": [
@@ -5463,6 +5575,36 @@
             "type": "string"
           },
           "netMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "SummaryCategoryTotalData": {
+        "type": "object",
+        "required": [
+          "category",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      },
+      "SummaryCurrencyTotalData": {
+        "type": "object",
+        "required": [
+          "currency",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "currency": {
             "type": "string"
           }
         }

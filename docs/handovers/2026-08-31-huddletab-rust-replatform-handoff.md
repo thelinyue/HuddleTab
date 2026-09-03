@@ -6,7 +6,7 @@
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列，以及 Task 27 的加入审批、Guest Binding、图片附件、Rate Provider、站内通知与所有权转让已完成。Task 28 的离线工作台、REJECTED 修正、PWA 更新保护和完整浏览器验收已通过；Phase 3 Task 29 的系统管理员、用户管理、注册策略和管理员密码重置现已完成，当前只表示可以进入 Task 30。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 3 Task 30–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列，以及 Task 27 的加入审批、Guest Binding、图片附件、Rate Provider、站内通知与所有权转让已完成。Task 28 的离线工作台、REJECTED 修正、PWA 更新保护和完整浏览器验收已通过；Phase 3 Task 29 的系统管理员、用户管理、注册策略和管理员密码重置已完成，Task 30 的 CLI 初始化引导、Sharing Summary 扩展和 CSV 安全收口也已完成，当前只表示可以进入 Task 31。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 3 Task 31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -155,7 +155,8 @@ huddletab openapi
 | 图片附件 | 可用 | Task 27；JPEG/PNG/WebP，最多三张，私有 WebP、离线前台同步、缩略图/大图、ACTIVE 编辑即时删除 |
 | 汇率 Provider | 可用 | Task 27；Frankfurter 日参考汇率、PostgreSQL 七天缓存降级、显式获取与 Expense 精确来源快照 |
 | 活动所有权转让 | 可用 | Task 27；Owner 转给 ACTIVE 已绑定成员，旧 Owner 降为 MEMBER，事务原子更新 |
-| 系统管理、注册策略、管理员重置密码 | 可用 | Phase 3 Task 29；用户删除、初始化引导和外围管理仍未实现 |
+| 系统管理、注册策略、管理员重置密码 | 可用 | Phase 3 Task 29；用户删除和外围管理仍未实现 |
+| CLI 初始化引导 | 可用 | Phase 3 Task 30；空库页面只显示 CLI 指引，不开放网页初始化写入 |
 
 ## 7. 已验证的核心流程
 
@@ -494,9 +495,35 @@ pwsh -NoProfile -File frontend/e2e/support/run-phase1e-safety.test.ps1
 git diff --check
 ```
 
-Task 29 完成结论严格为：“Phase 3 Task 29 完成，可以进入 Task 30。”Task 30 的初始化引导、CSV/Sharing Summary 收口，Task 31 的 SMTP、存储、备份恢复、系统信息及外围管理，iPhone Safari/Home Screen PWA 人工验收、最终 Release Verification、后台清理 Job 和正式 `v0.0.3` tag/GHCR 镜像发布仍未完成；本轮不创建 tag、不发布镜像、不宣称达到发布状态。
+Task 29 完成时的结论严格为：“Phase 3 Task 29 完成，可以进入 Task 30。”随后 Task 30 已在第 7.12 节完成记录；Task 31 的 SMTP、存储、备份恢复、系统信息及外围管理，iPhone Safari/Home Screen PWA 人工验收、最终 Release Verification、后台清理 Job 和正式 `v0.0.3` tag/GHCR 镜像发布仍未完成。
 
 Task 29 实际验证：Rust 非数据库全量 `cargo test --all-targets -- --test-threads=1` 通过 53 个测试，数据库相关 84 个用例保持 ignored；OpenAPI 11、HTTP shell 5、敏感输入 5 通过，系统管理 PostgreSQL 集成用例 3 个已编译但需 `TEST_DATABASE_URL` 才执行。Frontend 全量 30 个文件、178 个测试通过，typecheck、production build、fmt、严格 Clippy 和 `git diff --check` 通过。固定 Task29Only Compose/Playwright 在 Chromium Desktop `1440x1000` 与 Mobile `390x844` 为 `2/2` 通过，并完成 fresh migration、stdin bootstrap、SPA 深链、非 root/无 Node runtime、双容器重启管理用户持久性、中文冷启动错误、artifact 脱敏和限定清理；报告保留在 `frontend/artifacts/playwright-report/index.html`。
+
+### 7.12 Phase 3 Task 30 初始化引导、Sharing Summary 与 CSV 收口
+
+编码前已再次对照本地运行的 `v0.0.2` 初始化页、结算分享页和远程对应源码。新栈保留其独立页面、紧凑卡片、结算上下文入口和现有 PNG 导出；浏览器不接收管理员凭据，也没有恢复旧版网页初始化写接口。后续所有 UI 功能仍必须先完成 `v0.0.2` 对照后再编码，并保持其视觉风格、信息层级与交互习惯统一。
+
+新增公开只读 `GET /api/setup/status`，严格以 `users` 是否为空作为 `setupRequired` 唯一依据，并返回 `Cache-Control: no-store`。React Router 外层 `SetupGuard` 保护登录、注册、邀请、活动和所有深链：空库统一进入 `/setup`，页面只展示并可复制 `docker compose exec app huddletab bootstrap-user --username your-username`；初始化状态读取失败停留在中文错误页并提供重试，已初始化直接访问 `/setup` 重定向 `/login`。CLI 结束后重新检查即可进入登录，初始化状态不写入 IndexedDB 或 Service Worker。
+
+Sharing Summary 在同一 `REPEATABLE READ READ ONLY` 授权事务内扩展 `startDate`、`endDate`、`expenseCount`、`participatingMemberCount`、整数最小单位四舍五入的 `averageExpenseMinor`、稳定排序的 `originalCurrencyTotals` 与 `categoryTotals`；所有金额继续十进制字符串，响应为 `private, no-store`。前端结算分享页新增活动概览、复制摘要、系统分享及不支持时的复制回退；取消系统分享不报错，真实失败保留页面并显示中文错误，PNG 文件名仍为 `huddletab-settlement-summary.png`。CSV 路径和固定安全合同保持不变。
+
+Task30Only runner 固定执行空库初始化引导与摘要/CSV 的 Chromium Desktop `1440x1000`、Mobile `390x844` 项目，不接受任意 Playwright 或 Compose 参数。实际验证命令：
+
+```powershell
+cargo fmt --manifest-path server/Cargo.toml --all -- --check
+cargo test --manifest-path server/Cargo.toml --test openapi --test http_shell --test sharing_api -- --test-threads=1
+cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
+npm --prefix frontend run test:unit -- --run
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+& ./frontend/e2e/support/run-phase1e-safety.test.ps1
+& ./frontend/e2e/run-phase1e.ps1 -Task30Only
+git diff --check
+```
+
+结果：Rust HTTP shell 6、OpenAPI 12、Sharing API 4 通过且 1 个 PostgreSQL 用例保持 ignored；前端 31 个文件、184 个测试通过；OpenAPI/client 连续生成无差异；格式、严格 Clippy、typecheck、production build 和 runner 安全测试通过。Task30Only 最终一次运行中 setup Chromium Desktop/Mobile `2/2`、摘要/复制/分享回退/PNG/CSV Chromium Desktop/Mobile `2/2`；fresh migration、stdin bootstrap、SPA 深链、非 root/无 Node runtime、app 与 PostgreSQL 重启持久性、中文冷启动错误、artifact 脱敏和 finally 清理均通过。报告保留在 `frontend/artifacts/playwright-report/index.html`，独立 Compose project 和 `/tmp/huddletab-phase1e-*` 已删除。
+
+Task 30 完成结论严格为：“Phase 3 Task 30 完成，可以进入 Task 31。”Task 31、真机 iPhone Safari/Home Screen PWA 人工验收、最终 Release Verification、后台清理 Job 和正式 `v0.0.3` tag/GHCR 镜像发布仍未完成；本轮没有创建 tag、发布镜像或宣称达到发布状态。
 
 ## 8. 当前本地运行现场
 
@@ -524,7 +551,7 @@ wsl.exe bash -lc 'cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && docker 
 
 `prepare-data-dir.sh` 固定校验仓库 `compose.yaml`，只接受可选的 `--project-name`，并在一次性 root 容器启动前解析和校验真实 `DATA_HOST_DIR/app`；随后仅把 app 挂载点设置为 `10001:10001`、`0750`。app 服务仍以 UID/GID `10001:10001` 运行。新建挂载目录或迁移到新宿主时不可跳过；已有目录且属主未变化时无需重复执行。
 
-首次空数据库需要交互式创建首位用户：
+首次空数据库需要在服务器终端交互式创建首位用户；浏览器空库只显示 CLI 指引，不收集凭据：
 
 ```powershell
 wsl.exe bash -lc 'cd /mnt/d/code/HuddleTab/.worktrees/rust-replatform && docker compose exec app huddletab bootstrap-user --username <用户名>'
@@ -586,6 +613,8 @@ Activity 管理合同：
 
 通知合同为 `GET /api/notifications`、`POST /api/notifications/{notification_id}/read`；加入审批仍使用 `GET /api/activities/{id}/join-requests`、`POST /api/activities/{id}/join-requests/{request_id}` 与申请人自己的 `GET /api/join-requests/{request_id}`。
 
+初始化状态合同为公开只读 `GET /api/setup/status`，返回 `{ data: { setupRequired } }` 并设置 `Cache-Control: no-store`；不提供浏览器初始化写接口。分享摘要新增日期、账单数、参与人数、人均金额、原币种汇总和分类汇总，响应设置 `Cache-Control: private, no-store`。
+
 ## 11. 按改动范围验证
 
 避免无目的地反复运行全套测试。建议按以下映射执行：
@@ -597,6 +626,7 @@ Activity 管理合同：
 | 成员与邀请前端 | `npm --prefix frontend test -- --run src/features/activities/api.test.ts src/features/activities/pages.test.tsx` |
 | Activity/Accounting 生命周期 UI | `npm --prefix frontend test -- --run src/features/activities/api.test.ts src/features/activities/pages.test.tsx src/features/accounting/api.test.tsx src/features/accounting/pages-ui.test.tsx` |
 | CSV/分享前端 | `npm --prefix frontend test -- --run src/features/sharing src/features/accounting/pages-ui.test.tsx src/features/activities/pages.test.tsx src/app/router.test.tsx` |
+| 初始化守卫与 CLI 指引 | `npm --prefix frontend test -- --run src/features/setup src/app/router.test.tsx`；服务端运行 `cargo test --manifest-path server/Cargo.toml --test http_shell setup_status_is_read_only_and_has_a_json_route` |
 | 一般前端类型改动 | `npm --prefix frontend run typecheck` |
 | 前端构建/PWA 配置 | `npm --prefix frontend run build` |
 | 账务 API | `cargo test --manifest-path server/Cargo.toml --test accounting_api` |
@@ -613,7 +643,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 进入 Phase 3 Task 30–31：实现初始化引导、其余账户设置和外围管理。Phase 3 Task 29 已完成；Task 28 已通过 Phase 2 exit gate。
+1. 进入 Phase 3 Task 31：实现 SMTP、存储、备份恢复、系统信息和外围管理。Task 30 已完成；Task 29 已完成；Task 28 已通过 Phase 2 exit gate。
 2. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
 3. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
 
@@ -641,5 +671,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-03-huddletab-task28-phase2-e2e.md`
 - `docs/superpowers/specs/2026-09-03-huddletab-task29-admin-design.md`
 - `docs/superpowers/plans/2026-09-03-huddletab-task29-admin.md`
+- `docs/superpowers/specs/2026-09-03-huddletab-task30-setup-sharing-design.md`
+- `docs/superpowers/plans/2026-09-03-huddletab-task30-setup-sharing.md`
 
-这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 29 已完成并可进入 Task 30，但不代表 Phase 3 或正式发布完成。
+这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 30 已完成并可进入 Task 31，但不代表 Phase 3 或正式发布完成。

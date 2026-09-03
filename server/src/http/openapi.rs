@@ -71,9 +71,11 @@ use super::{
         CreatedSettlementEnvelope, SettlementData, SettlementEnvelope, SettlementEnvelopeData,
         SettlementListEnvelope, UpdateSettlementRequest, VoidSettlementRequest,
     },
+    setup::{__path_status as __path_setup_status, SetupStatusData, SetupStatusEnvelope},
     sharing::{
         __path_export_csv, __path_summary, ActivitySummaryData, ActivitySummaryEnvelope,
-        SummaryBalanceData, SummaryRecommendationData,
+        SummaryBalanceData, SummaryCategoryTotalData, SummaryCurrencyTotalData,
+        SummaryRecommendationData,
     },
     snapshot::{
         __path_get as __path_get_activity_snapshot, ActivitySnapshotData, ActivitySnapshotEnvelope,
@@ -85,6 +87,7 @@ use super::{
     info(title = "HuddleTab API", version = "0.1.0"),
     paths(
         health,
+        setup_status,
         csrf,
         login,
         register,
@@ -141,6 +144,8 @@ use super::{
     components(schemas(
         HealthData,
         HealthEnvelope,
+        SetupStatusData,
+        SetupStatusEnvelope,
         ErrorBody,
         ErrorEnvelope,
         CsrfData,
@@ -234,6 +239,8 @@ use super::{
         ActivitySummaryData,
         ActivitySummaryEnvelope,
         SummaryBalanceData,
+        SummaryCurrencyTotalData,
+        SummaryCategoryTotalData,
         SummaryRecommendationData,
         CreateSettlementRequest,
         UpdateSettlementRequest,

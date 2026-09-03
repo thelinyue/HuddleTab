@@ -1,6 +1,6 @@
 # HuddleTab
 
-HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用。当前分支正在把运行栈迁移到 React/Vite 与 Rust/Axum；Phase 2 的离线队列、审批、通知、附件和汇率 Provider，以及 Phase 3 的系统管理能力尚未完成。
+HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用。当前分支正在把运行栈迁移到 React/Vite 与 Rust/Axum；Phase 2 与 Phase 3 Task 29–30 已完成，Task 31、最终 Release Verification 和真机 PWA 验收仍未完成。
 
 ## 当前源码运行
 
@@ -22,6 +22,8 @@ docker compose ps
 ```bash
 docker compose exec app huddletab bootstrap-user --username your-username
 ```
+
+空数据库打开网页时只会显示上述 CLI 初始化指引；浏览器不收集管理员凭据，也没有 HTTP 初始化写接口。执行 CLI 后回到页面点击“重新检查初始化状态”，再登录使用。
 
 完成后打开 <http://localhost:5660>。初始化、迁移或数据库连接失败时查看中文日志：
 

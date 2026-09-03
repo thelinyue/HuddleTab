@@ -661,6 +661,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/setup/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -732,12 +748,21 @@ export interface components {
         };
         ActivitySummaryData: {
             activityName: string;
+            averageExpenseMinor: string;
             balances: components["schemas"]["SummaryBalanceData"][];
+            categoryTotals: components["schemas"]["SummaryCategoryTotalData"][];
             currency: string;
             currentUserBalanceMinor: string;
+            endDate?: string | null;
+            /** Format: int64 */
+            expenseCount: number;
             memberCount: number;
+            originalCurrencyTotals: components["schemas"]["SummaryCurrencyTotalData"][];
+            /** Format: int64 */
+            participatingMemberCount: number;
             recommendations: components["schemas"]["SummaryRecommendationData"][];
             revision: string;
+            startDate: string;
             totalExpenseMinor: string;
         };
         ActivitySummaryEnvelope: {
@@ -1187,10 +1212,24 @@ export interface components {
         SettlementListEnvelope: {
             data: components["schemas"]["SettlementData"][];
         };
+        SetupStatusData: {
+            setupRequired: boolean;
+        };
+        SetupStatusEnvelope: {
+            data: components["schemas"]["SetupStatusData"];
+        };
         SummaryBalanceData: {
             displayName: string;
             memberId: string;
             netMinor: string;
+        };
+        SummaryCategoryTotalData: {
+            amountMinor: string;
+            category: string;
+        };
+        SummaryCurrencyTotalData: {
+            amountMinor: string;
+            currency: string;
         };
         SummaryRecommendationData: {
             amountMinor: string;
@@ -2956,6 +2995,8 @@ export interface operations {
             /** @description 活动结算摘要 */
             200: {
                 headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -3828,6 +3869,39 @@ export interface operations {
             /** @description 通知不存在 */
             404: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 只读初始化状态 */
+            200: {
+                headers: {
+                    /** @description no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupStatusEnvelope"];
+                };
+            };
+            /** @description 初始化状态暂时不可用 */
+            500: {
+                headers: {
+                    /** @description no-store */
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {

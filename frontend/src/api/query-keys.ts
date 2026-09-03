@@ -1,4 +1,5 @@
 export const queryKeys = {
+  setupStatus: ["setup-status"] as const,
   session: ["session"] as const,
   activitiesCurrent: (userId: string) =>
     ["users", userId, "activities", "current"] as const,

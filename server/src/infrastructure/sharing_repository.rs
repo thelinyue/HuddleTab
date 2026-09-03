@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     application::sharing::{
         CsvExpenseRow, CsvNamedAmount, SharingRepository, SharingRepositoryError, SharingSnapshot,
-        SnapshotLedgerEntry, SnapshotMember,
+        SnapshotLedgerEntry, SnapshotMember, SummaryCategoryTotal, SummaryCurrencyTotal,
     },
     domain::ledger::SettlementFact,
 };
@@ -61,8 +61,9 @@ impl SharingRepository for PostgresSharingRepository {
             .execute(&mut *transaction)
             .await
             .map_err(log_repository_error)?;
-        let activity = sqlx::query_as::<_, (String, String, i64, Uuid)>(
-            "SELECT a.name, a.base_currency, a.revision, m.id FROM activities a \
+        let activity = sqlx::query_as::<_, (String, String, String, Option<String>, i64, Uuid)>(
+            "SELECT a.name, a.base_currency, to_char(a.start_date, 'YYYY-MM-DD'), \
+             to_char(a.end_date, 'YYYY-MM-DD'), a.revision, m.id FROM activities a \
              JOIN activity_members m ON m.activity_id = a.id \
              WHERE a.id = $1 AND a.deleted_at IS NULL AND m.user_id = $2 AND m.status = 'ACTIVE'",
         )
@@ -93,6 +94,51 @@ impl SharingRepository for PostgresSharingRepository {
         .fetch_one(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
+        let expense_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::BIGINT FROM expenses WHERE activity_id = $1 AND deleted_at IS NULL",
+        )
+        .bind(activity_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        let participating_member_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT s.member_id)::BIGINT FROM expense_shares s \
+             JOIN expenses e ON e.id = s.expense_id WHERE e.activity_id = $1 AND e.deleted_at IS NULL",
+        )
+        .bind(activity_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        let original_currency_totals = sqlx::query_as::<_, (String, i64)>(
+            "SELECT original_currency, COALESCE(SUM(original_amount_minor), 0)::BIGINT \
+             FROM expenses WHERE activity_id = $1 AND deleted_at IS NULL \
+             GROUP BY original_currency ORDER BY original_currency",
+        )
+        .bind(activity_id)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .into_iter()
+        .map(|(currency, amount_minor)| SummaryCurrencyTotal {
+            currency: currency.trim().to_owned(),
+            amount_minor,
+        })
+        .collect();
+        let category_totals = sqlx::query_as::<_, (String, i64)>(
+            "SELECT category, COALESCE(SUM(base_amount_minor), 0)::BIGINT \
+             FROM expenses WHERE activity_id = $1 AND deleted_at IS NULL \
+             GROUP BY category ORDER BY category",
+        )
+        .bind(activity_id)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .into_iter()
+        .map(|(category, amount_minor)| SummaryCategoryTotal {
+            category,
+            amount_minor,
+        })
+        .collect();
         let payments = sqlx::query_as::<_, (Uuid, i64)>(
             "SELECT p.payer_member_id, p.base_amount_minor FROM expense_payments p \
              JOIN expenses e ON e.id = p.expense_id WHERE e.activity_id = $1 AND e.deleted_at IS NULL",
@@ -172,10 +218,16 @@ impl SharingRepository for PostgresSharingRepository {
         Ok(SharingSnapshot {
             activity_name: activity.0,
             base_currency: activity.1.trim().to_owned(),
-            revision: activity.2,
-            current_user_member_id: activity.3,
+            start_date: activity.2,
+            end_date: activity.3,
+            revision: activity.4,
+            current_user_member_id: activity.5,
             members,
             total_expense_minor,
+            expense_count,
+            participating_member_count,
+            original_currency_totals,
+            category_totals,
             payments,
             shares,
             settlements,

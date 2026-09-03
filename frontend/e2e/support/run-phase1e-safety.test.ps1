@@ -37,12 +37,17 @@ Assert-True (-not ($phase2Playwright -match "--grep|--config|--headed")) "Phase2
 $task29Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task29Only $true
 Assert-True (($task29Playwright -join " ") -eq "run test:e2e -- task29.spec.ts --project=chromium-task29-desktop --project=chromium-task29-mobile") "Task29Only 没有固定到管理员 Desktop/Mobile 项目。"
 Assert-True (-not ($task29Playwright -match "--grep|--config|--headed")) "Task29Only 注入了未批准的 Playwright 参数。"
+$task30Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task30Only $true
+Assert-True (($task30Playwright -join " ") -eq "run test:e2e -- task30.spec.ts --project=chromium-task30-desktop --project=chromium-task30-mobile") "Task30Only 没有固定到摘要/CSV Desktop/Mobile 项目。"
+Assert-True (-not ($task30Playwright -match "--grep|--config|--headed")) "Task30Only 注入了未批准的 Playwright 参数。"
 $exclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $true; $null } catch { $_ }
 Assert-True ($null -ne $exclusiveFailure) "两个专项模式同时启用时没有拒绝执行。"
 $phase2ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -ErrorAction Stop; New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $false -Phase2Only $true; $null } catch { $_ }
 Assert-True ($null -ne $phase2ExclusiveFailure) "Phase2Only 与专项模式同时启用时没有拒绝执行。"
 $task29ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $false -Task29Only $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -Task29Only $true; $null } catch { $_ }
 Assert-True ($null -ne $task29ExclusiveFailure) "Task29Only 与其他专项模式同时启用时没有拒绝执行。"
+$task30ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task30Only $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task29Only $true -Task30Only $true; $null } catch { $_ }
+Assert-True ($null -ne $task30ExclusiveFailure) "Task30Only 与其他专项模式同时启用时没有拒绝执行。"
 
 $primary = [System.Management.Automation.ErrorRecord]::new(
   [System.InvalidOperationException]::new("主流程失败标记"),

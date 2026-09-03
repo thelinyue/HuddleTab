@@ -5,6 +5,7 @@ import { ShareSummaryCard } from "./card";
 const readySummary = {
   activityName: "这是一个足够长、需要在手机上自动换行而不能挤出页面边界的活动名称", currency: "CNY",
   memberCount: 2, totalExpenseMinor: "6400", currentUserBalanceMinor: "-3200", state: "ready" as const,
+  startDate: "2026-08-30", endDate: null, expenseCount: 2, participatingMemberCount: 2, averageExpenseMinor: "3200", originalCurrencyTotals: [], categoryTotals: [],
   balances: [
     { amountMinor: "3200", displayName: "付款方名字特别长的成员", memberId: "member-b", state: "payable" as const },
     { amountMinor: "3200", displayName: "收款方名字特别长的成员", memberId: "member-a", state: "receivable" as const },

@@ -44,6 +44,8 @@ async fn summary_uses_authoritative_ledger_and_named_members() {
         snapshot: SharingSnapshot {
             activity_name: "东京行".to_owned(),
             base_currency: "CNY".to_owned(),
+            start_date: "2026-08-30".to_owned(),
+            end_date: None,
             revision: 8,
             current_user_member_id: owner,
             members: vec![
@@ -57,6 +59,10 @@ async fn summary_uses_authoritative_ledger_and_named_members() {
                 },
             ],
             total_expense_minor: 1200,
+            expense_count: 1,
+            participating_member_count: 1,
+            original_currency_totals: vec![],
+            category_totals: vec![],
             payments: vec![SnapshotLedgerEntry::new(owner, 1200)],
             shares: vec![SnapshotLedgerEntry::new(guest, 1200)],
             settlements: vec![],
@@ -72,6 +78,11 @@ async fn summary_uses_authoritative_ledger_and_named_members() {
     assert_eq!(summary.member_count, 2);
     assert_eq!(summary.total_expense_minor, 1200);
     assert_eq!(summary.current_user_balance_minor, 1200);
+    assert_eq!(summary.start_date, "2026-08-30");
+    assert_eq!(summary.end_date, None);
+    assert_eq!(summary.expense_count, 1);
+    assert_eq!(summary.participating_member_count, 1);
+    assert_eq!(summary.average_expense_minor, 1200);
     assert_eq!(
         summary
             .balances
@@ -94,6 +105,8 @@ async fn summary_rejects_balanced_facts_that_do_not_match_expense_total() {
         snapshot: SharingSnapshot {
             activity_name: "缺失事实活动".to_owned(),
             base_currency: "CNY".to_owned(),
+            start_date: "2026-08-30".to_owned(),
+            end_date: None,
             revision: 1,
             current_user_member_id: owner,
             members: vec![
@@ -107,6 +120,10 @@ async fn summary_rejects_balanced_facts_that_do_not_match_expense_total() {
                 },
             ],
             total_expense_minor: 1200,
+            expense_count: 1,
+            participating_member_count: 1,
+            original_currency_totals: vec![],
+            category_totals: vec![],
             payments: vec![SnapshotLedgerEntry::new(owner, 800)],
             shares: vec![SnapshotLedgerEntry::new(guest, 800)],
             settlements: vec![],
@@ -127,6 +144,8 @@ async fn summary_maps_fact_total_overflow_to_integrity_error() {
         snapshot: SharingSnapshot {
             activity_name: "溢出事实活动".to_owned(),
             base_currency: "CNY".to_owned(),
+            start_date: "2026-08-30".to_owned(),
+            end_date: None,
             revision: 1,
             current_user_member_id: owner,
             members: vec![
@@ -140,6 +159,10 @@ async fn summary_maps_fact_total_overflow_to_integrity_error() {
                 },
             ],
             total_expense_minor: i64::MAX,
+            expense_count: 1,
+            participating_member_count: 1,
+            original_currency_totals: vec![],
+            category_totals: vec![],
             payments: vec![
                 SnapshotLedgerEntry::new(owner, i64::MAX),
                 SnapshotLedgerEntry::new(owner, 1),
@@ -162,7 +185,7 @@ async fn summary_maps_fact_total_overflow_to_integrity_error() {
 fn csv_has_fixed_columns_crlf_bom_and_neutralizes_formulas() {
     let csv = serialize_expense_csv(&[CsvExpenseRow {
         occurred_at: "2026-08-30T12:00:00Z".to_owned(),
-        title: "=SUM(A1:A2)".to_owned(),
+        title: "  +SUM(A1:A2)".to_owned(),
         category: "FOOD".to_owned(),
         original_amount_minor: 1200,
         original_currency: "CNY".to_owned(),
@@ -185,7 +208,7 @@ fn csv_has_fixed_columns_crlf_bom_and_neutralizes_formulas() {
     assert!(csv.starts_with(
         "\u{feff}\"消费时间\",\"用途\",\"分类\",\"原始金额\",\"原始币种\",\"汇率\",\"主币种金额\",\"付款人\",\"参与成员\",\"分摊方式\",\"创建人\",\"创建时间\",\"备注\"\r\n"
     ));
-    assert!(csv.contains("\"'=SUM(A1:A2)\""));
+    assert!(csv.contains("\"'  +SUM(A1:A2)\""));
     assert!(csv.contains("\"晚餐, \"\"聚会\"\"\""));
     assert!(csv.ends_with("\r\n"));
 }
@@ -400,7 +423,7 @@ async fn summary_and_csv_use_one_private_authorized_snapshot() {
         .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
-    let (status, _, summary_bytes) = raw_response(
+    let (status, summary_headers, summary_bytes) = raw_response(
         &context,
         request(
             &context,
@@ -409,6 +432,12 @@ async fn summary_and_csv_use_one_private_authorized_snapshot() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        summary_headers
+            .get(CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("private, no-store")
+    );
     let summary: Value = serde_json::from_slice(&summary_bytes).expect("摘要应为 JSON");
     assert_eq!(summary["data"]["activityName"], "Tokyo Trip");
     assert_eq!(summary["data"]["memberCount"], 2);

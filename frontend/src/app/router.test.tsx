@@ -11,6 +11,7 @@ const authState = vi.hoisted((): {
 } => ({
   data: { userId: "user-1", username: "tester", displayName: "测试用户" },
 }));
+const setupState = vi.hoisted(() => ({ setupRequired: false, error: null as unknown }));
 
 vi.mock("../features/auth/api", () => ({
   useSessionQuery: () => ({ isPending: false, data: authState.data }),
@@ -21,6 +22,15 @@ vi.mock("../features/auth/pages", () => ({
   JoinPage: () => null,
   LoginPage: () => <p>登录页</p>,
   RegisterPage: () => null,
+}));
+
+vi.mock("../features/setup/api", () => ({
+  useSetupStatusQuery: () => ({ isPending: false, error: setupState.error, data: { setupRequired: setupState.setupRequired }, refetch: vi.fn() }),
+}));
+
+vi.mock("../features/setup/pages", () => ({
+  SetupPage: () => <p>初始化页</p>,
+  SetupStatusError: () => <p>初始化状态错误</p>,
 }));
 
 vi.mock("../features/activities/pages", async () => {
@@ -61,6 +71,8 @@ function renderRoute(path: string) {
 afterEach(() => {
   cleanup();
   authState.data = { userId: "user-1", username: "tester", displayName: "测试用户" };
+  setupState.setupRequired = false;
+  setupState.error = null;
 });
 
 describe("ApplicationRouter", () => {
@@ -103,5 +115,12 @@ describe("ApplicationRouter", () => {
 
     expect(await screen.findByText("登录页")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "结算分享摘要" })).not.toBeInTheDocument();
+  });
+
+  it("空数据库访问任意产品深链时先进入初始化引导", async () => {
+    setupState.setupRequired = true;
+    renderRoute("/activities");
+    expect(await screen.findByText("初始化页")).toBeInTheDocument();
+    expect(screen.queryByText("活动列表")).not.toBeInTheDocument();
   });
 });

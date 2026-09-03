@@ -16,6 +16,14 @@ import { AppProviders } from "./providers";
 import { ApplicationRouter } from "./router";
 
 vi.mock("./pwa-update", () => ({ PwaUpdatePrompt: () => null }));
+vi.mock("../features/setup/api", () => ({
+  useSetupStatusQuery: () => ({
+    isPending: false,
+    error: null,
+    data: { setupRequired: false },
+    refetch: vi.fn(),
+  }),
+}));
 vi.mock("../features/activities/pages", async () => {
   const { Outlet } = await import("react-router-dom");
   return {

@@ -10,11 +10,12 @@ function New-Phase1EPlaywrightArguments {
     [Parameter(Mandatory)] [bool] $AttachmentOnly,
     [Parameter(Mandatory)] [bool] $NotificationOwnershipOnly,
     [bool] $Phase2Only = $false,
-    [bool] $Task29Only = $false
+    [bool] $Task29Only = $false,
+    [bool] $Task30Only = $false
   )
 
-  if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only).Where({ $_ }).Count -gt 1) {
-    throw "附件、通知/所有权、Phase 2 与 Task 29 专项模式不能同时运行。"
+  if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only).Where({ $_ }).Count -gt 1) {
+    throw "附件、通知/所有权、Phase 2、Task 29 与 Task 30 专项模式不能同时运行。"
   }
 
   if ($AttachmentOnly) {
@@ -59,6 +60,16 @@ function New-Phase1EPlaywrightArguments {
       "task29.spec.ts",
       "--project=chromium-task29-desktop",
       "--project=chromium-task29-mobile"
+    )
+  }
+  if ($Task30Only) {
+    return @(
+      "run",
+      "test:e2e",
+      "--",
+      "task30.spec.ts",
+      "--project=chromium-task30-desktop",
+      "--project=chromium-task30-mobile"
     )
   }
   @(

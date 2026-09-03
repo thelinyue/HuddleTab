@@ -3,10 +3,13 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const queryState = vi.hoisted(() => ({
-  data: undefined as undefined | {
-    activityName: string; balances: Array<{ amountMinor: string; displayName: string; memberId: string; state: "settled" }>;
-    currency: string; currentUserBalanceMinor: string; memberCount: number; recommendations: []; state: "zero"; totalExpenseMinor: string;
-  },
+    data: undefined as undefined | {
+      activityName: string; balances: Array<{ amountMinor: string; displayName: string; memberId: string; state: "settled" }>;
+      currency: string; currentUserBalanceMinor: string; memberCount: number; recommendations: []; state: "zero"; totalExpenseMinor: string;
+      startDate: string; endDate: string | null; expenseCount: number; participatingMemberCount: number; averageExpenseMinor: string;
+      originalCurrencyTotals: Array<{ currency: string; amountMinor: string }>;
+      categoryTotals: Array<{ category: string; amountMinor: string }>;
+    },
   error: null as unknown,
   isPending: false,
   refetch: vi.fn(),
@@ -46,9 +49,33 @@ describe("ShareSummaryPage", () => {
   });
 
   it("零金额摘要仍显示可导出的摘要卡", () => {
-    queryState.data = { activityName: "零金额活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0" };
+    queryState.data = { activityName: "零金额活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
     renderPage();
     expect(screen.getAllByText("结算金额为零")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "下载 PNG" })).toBeEnabled();
+  });
+
+  it("支持复制摘要，并在浏览器没有系统分享时回退复制", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText }, share: undefined });
+    queryState.data = { activityName: "可分享活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "复制摘要" }));
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("status")).toHaveTextContent("摘要已复制");
+    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
+    expect(writeText).toHaveBeenCalledTimes(2);
+  });
+
+  it("系统分享取消不产生错误，真实失败保留页面并显示中文提示", async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn() }, share: vi.fn().mockRejectedValue(new DOMException("cancel", "AbortError")) });
+    queryState.data = { activityName: "可分享活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
+    await Promise.resolve();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    Object.assign(navigator, { share: vi.fn().mockRejectedValue(new Error("denied")) });
+    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("系统分享失败");
   });
 });

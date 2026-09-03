@@ -12,6 +12,8 @@ import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { ChangePasswordPage } from "../features/me/password-page";
 import { NotificationsPage } from "../features/notifications/pages";
 import { PwaUpdatePrompt } from "./pwa-update";
+import { SetupPage, SetupStatusError } from "../features/setup/pages";
+import { useSetupStatusQuery } from "../features/setup/api";
 
 const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));
 
@@ -19,6 +21,19 @@ function RootRedirect() {
   const session = useSessionQuery();
   if (session.isPending) return <LoadingState label="正在打开伙记…" />;
   return <Navigate to={session.data ? "/activities" : "/login"} replace />;
+}
+
+/** 初始化是全站部署前置条件；网络故障时宁可停在提示页，也不使用可能过期的产品缓存。 */
+function SetupGuard() {
+  const location = useLocation();
+  const status = useSetupStatusQuery();
+  if (status.isPending) return <LoadingState label="正在确认初始化状态…" />;
+  if (status.error || !status.data) return <SetupStatusError onRetry={() => void status.refetch()} />;
+  if (status.data.setupRequired) {
+    return location.pathname === "/setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
+  }
+  if (location.pathname === "/setup") return <Navigate to="/login" replace />;
+  return <Outlet />;
 }
 
 function ProtectedRoute() {
@@ -61,11 +76,13 @@ export function ApplicationRouter() {
   return (
     <>
       <Routes>
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/join/:token" element={<JoinPage />} />
-        <Route element={<ProtectedRoute />}>
+        <Route element={<SetupGuard />}>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/join/:token" element={<JoinPage />} />
+          <Route element={<ProtectedRoute />}>
           <Route path="/activities" element={<ActivitiesPage />} />
           <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
             <Route index element={<ActivityPrimaryPage />} />
@@ -80,9 +97,10 @@ export function ApplicationRouter() {
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/settings" element={<AdminSettingsPage />} />
           </Route>
-          <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
+            <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
-        <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <RoutePwaUpdatePrompt />
     </>

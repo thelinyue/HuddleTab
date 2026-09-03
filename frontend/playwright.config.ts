@@ -78,5 +78,25 @@ export default defineConfig({
       testMatch: "task29.spec.ts",
       use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
     },
+    {
+      name: "chromium-task30-desktop",
+      testMatch: "task30.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "chromium-task30-mobile",
+      testMatch: "task30.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
+    },
+    {
+      name: "chromium-setup-desktop",
+      testMatch: "setup.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "chromium-setup-mobile",
+      testMatch: "setup.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
+    },
   ],
 });

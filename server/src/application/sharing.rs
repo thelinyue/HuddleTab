@@ -53,15 +53,35 @@ pub struct CsvExpenseRow {
     pub note: Option<String>,
 }
 
+/// 按原币种聚合的未删除账单金额，保持最小货币单位整数避免浮点误差。
+#[derive(Clone, Debug)]
+pub struct SummaryCurrencyTotal {
+    pub currency: String,
+    pub amount_minor: i64,
+}
+
+/// 按账单分类聚合的活动支出，排序由仓储固定为分类值升序。
+#[derive(Clone, Debug)]
+pub struct SummaryCategoryTotal {
+    pub category: String,
+    pub amount_minor: i64,
+}
+
 /// 一个快照同时服务摘要与 CSV，确保同一请求内的金额、成员和行项目来自同一账务视图。
 #[derive(Clone, Debug)]
 pub struct SharingSnapshot {
     pub activity_name: String,
     pub base_currency: String,
+    pub start_date: String,
+    pub end_date: Option<String>,
     pub revision: i64,
     pub current_user_member_id: Uuid,
     pub members: Vec<SnapshotMember>,
     pub total_expense_minor: i64,
+    pub expense_count: i64,
+    pub participating_member_count: i64,
+    pub original_currency_totals: Vec<SummaryCurrencyTotal>,
+    pub category_totals: Vec<SummaryCategoryTotal>,
     pub payments: Vec<SnapshotLedgerEntry>,
     pub shares: Vec<SnapshotLedgerEntry>,
     pub settlements: Vec<SettlementFact>,
@@ -85,8 +105,15 @@ pub struct SummaryRecommendation {
 #[derive(Clone, Debug)]
 pub struct ActivitySummary {
     pub activity_name: String,
+    pub start_date: String,
+    pub end_date: Option<String>,
     pub member_count: usize,
     pub total_expense_minor: i64,
+    pub expense_count: i64,
+    pub participating_member_count: i64,
+    pub average_expense_minor: i64,
+    pub original_currency_totals: Vec<SummaryCurrencyTotal>,
+    pub category_totals: Vec<SummaryCategoryTotal>,
     pub currency: String,
     pub revision: i64,
     pub current_user_balance_minor: i64,
@@ -182,8 +209,23 @@ pub async fn load_summary(
 
     Ok(ActivitySummary {
         activity_name: snapshot.activity_name,
+        start_date: snapshot.start_date,
+        end_date: snapshot.end_date,
         member_count: snapshot.members.len(),
         total_expense_minor: snapshot.total_expense_minor,
+        expense_count: snapshot.expense_count,
+        participating_member_count: snapshot.participating_member_count,
+        average_expense_minor: if snapshot.participating_member_count == 0 {
+            0
+        } else {
+            snapshot
+                .total_expense_minor
+                .checked_add(snapshot.participating_member_count / 2)
+                .ok_or(SharingError::Integrity)?
+                / snapshot.participating_member_count
+        },
+        original_currency_totals: snapshot.original_currency_totals,
+        category_totals: snapshot.category_totals,
         currency: snapshot.base_currency,
         revision: snapshot.revision,
         current_user_balance_minor,
