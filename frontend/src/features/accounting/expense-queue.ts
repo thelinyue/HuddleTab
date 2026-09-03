@@ -6,6 +6,7 @@ import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
 import type {
   ExpenseCreateInput,
   PendingAttachment,
+  PendingAttachmentDraft,
   PendingExpenseMutation,
 } from "../../pwa/indexed-db/schema";
 
@@ -183,6 +184,27 @@ export class ExpenseQueue {
     );
     this.dispatch(saved.mutation.activityId, saved.mutation.status, "EXPENSE");
     return saved.mutation;
+  }
+
+  async reviseRejected(
+    mutationId: string,
+    payload: ExpenseCreateInput,
+    attachments: PendingAttachmentDraft[],
+  ) {
+    const saved = await this.repository.reviseRejected(
+      mutationId,
+      payload,
+      attachments,
+      this.now(),
+    );
+    this.dispatch(saved.mutation.activityId, saved.mutation.status, "EXPENSE");
+    return saved.mutation;
+  }
+
+  async discard(mutationId: string, activityId?: string) {
+    const current = await this.repository.get(mutationId);
+    await this.repository.discard(mutationId);
+    if (current) this.dispatch(activityId ?? current.activityId, current.status, "EXPENSE");
   }
 
   flush(): Promise<void> {

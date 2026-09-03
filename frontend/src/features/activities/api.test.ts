@@ -193,6 +193,7 @@ describe("Activity mutation adapter", () => {
     });
     const expectedInvalidations = [
       { queryKey: Reflect.get(queryKeys, "activityDetail")("user-1", "activity-1") },
+      { queryKey: Reflect.get(queryKeys, "activitySnapshot")("user-1", "activity-1") },
       { queryKey: Reflect.get(queryKeys, "activitiesCurrent")("user-1") },
       ...(invalidatesDeleted
         ? [{ queryKey: Reflect.get(queryKeys, "activitiesDeleted")("user-1") }]

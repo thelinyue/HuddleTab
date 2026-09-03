@@ -93,6 +93,11 @@ vi.mock("../notifications/api", () => ({
   useNotificationsQuery: () => ({ data: { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 } }),
 }));
 
+vi.mock("./offline-workspace", () => ({
+  useOnlineStatus: () => true,
+  useActivitySnapshotQuery: () => ({ data: undefined, error: null, isPending: false }),
+}));
+
 vi.mock("./api", async (importOriginal) => {
   const original = await importOriginal<typeof import("./api")>();
   return {

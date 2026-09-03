@@ -26,6 +26,11 @@ import {
   useVoidSettlementMutation,
 } from "./api";
 import { usePendingExpenseMutations } from "./expense-queue-sync";
+import type { PendingAttachment, PendingAttachmentDraft, PendingExpenseMutation } from "../../pwa/indexed-db/schema";
+import {
+  useDiscardPendingExpenseMutation,
+  useReviseRejectedExpenseMutation,
+} from "./api";
 
 const categories = [
   ["FOOD", "餐饮", "food"], ["TRANSPORT", "交通", "transport"], ["LODGING", "住宿", "lodging"],
@@ -246,22 +251,25 @@ function dateHeading(date: string): string {
 }
 
 export function ExpenseFeedPage() {
-  const { session, activity } = useWorkspace();
-  const expenses = useExpensesQuery(session.userId, activity.activityId);
+  const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
+  const expenses = useExpensesQuery(session.userId, activity.activityId, !offline);
   const pendingExpenses = usePendingExpenseMutations(
     session.userId,
     activity.activityId,
   );
-  const members = useMembersQuery(session.userId, activity.activityId);
+  const discardPending = useDiscardPendingExpenseMutation(session.userId);
+  const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const [entryOpen, setEntryOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
+  const [rejectedDraft, setRejectedDraft] = useState<PendingExpenseDraft>();
 
-  if (expenses.isPending || members.isPending) return <LoadingState label="正在读取流水…" />;
-  if (expenses.error || members.error) return <ErrorNotice error={expenses.error ?? members.error} />;
+  if ((!offline && expenses.isPending) || members.isPending && (cachedMembers?.length ?? 0) === 0) return <LoadingState label="正在读取流水…" />;
+  if ((!offline && expenses.error && !snapshot) || members.error && (cachedMembers?.length ?? 0) === 0) return <ErrorNotice error={expenses.error ?? members.error} />;
 
-  const allExpenses = expenses.data ?? [];
+  const allExpenses = expenses.data ?? snapshot?.snapshot.expenses ?? [];
+  const memberData = members.data ?? cachedMembers ?? [];
   const filteredExpenses = allExpenses.filter(({ expense }) =>
     (!query.trim() || `${expense.title} ${expense.note ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
     (!category || expense.category === category),
@@ -274,7 +282,7 @@ export function ExpenseFeedPage() {
   );
   const groups = groupExpensesByDate(filteredExpenses, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const total = allExpenses.reduce((sum, item) => sum + BigInt(item.expense.baseAmountMinor), 0n);
-  const activeMemberCount = members.data?.filter((member) => member.status === "ACTIVE").length ?? 0;
+  const activeMemberCount = memberData.filter((member) => member.status === "ACTIVE").length;
   const average = activeMemberCount ? (total + BigInt(activeMemberCount) / 2n) / BigInt(activeMemberCount) : 0n;
   const foreignTotals = new Map<string, bigint>();
   // 生命周期只约束本领域写面：结束后账单只读，但不会反推活动管理权限。
@@ -286,6 +294,7 @@ export function ExpenseFeedPage() {
 
   return (
     <div className="workspace-page expense-feed-page">
+      {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，以下流水使用最近一次同步的只读快照；新账单仍可先保存在本机。</span></div> : null}
       <section className="expense-summary" aria-label="消费摘要">
         <p>总消费</p>
         <Money value={formatMoney(activity.baseCurrency, total.toString())} />
@@ -302,7 +311,7 @@ export function ExpenseFeedPage() {
             <div className="expense-list">
               {filteredPending.map((record) => {
                 const categoryInfo = categories.find(([value]) => value === record.payload.category) ?? categories.at(-1)!;
-                const payerNames = record.payload.payments.map((payment) => memberName(payment.memberId, members.data)).join("、");
+                 const payerNames = record.payload.payments.map((payment) => memberName(payment.memberId, memberData)).join("、");
                 const shareCount = record.payload.split.members?.length ?? record.payload.split.entries?.length ?? 0;
                 const statusLabel = record.status === "SYNCING"
                   ? "正在同步"
@@ -314,7 +323,7 @@ export function ExpenseFeedPage() {
                 return (
                   <div key={record.id} className="expense-row expense-row--pending">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}</span>
+                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => setRejectedDraft(record)}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => { if (window.confirm("丢弃后无法恢复这条本地离线消费，确定继续吗？")) void discardPending.mutateAsync({ mutationId: record.id, activityId: record.activityId }); }}>丢弃本地记录</Button></span> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(record.payload.originalCurrency, record.payload.originalAmountMinor)} /><small>{new Date(record.payload.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </div>
                 );
@@ -328,7 +337,7 @@ export function ExpenseFeedPage() {
             <div className="expense-list">
               {group.expenses.map(({ expense, payments, shares }) => {
                 const categoryInfo = categories.find(([value]) => value === expense.category) ?? categories.at(-1)!;
-                const payerNames = payments.map((payment) => memberName(payment.memberId, members.data)).join("、");
+                const payerNames = payments.map((payment) => memberName(payment.memberId, memberData)).join("、");
                 const local = localRecords.find((record) =>
                   record.status === "SYNCED" &&
                   record.serverExpenseId === expense.expenseId,
@@ -353,6 +362,7 @@ export function ExpenseFeedPage() {
 
       {expenseWritable ? <button className="quick-expense-trigger" type="button" aria-label="快速记账" onClick={() => setEntryOpen(true)}><Plus aria-hidden="true" size={24} /></button> : null}
       <AccountingOverlay open={expenseWritable && entryOpen} title="记一笔消费" onClose={() => setEntryOpen(false)} className="quick-expense-overlay"><ExpenseEditor onSaved={() => setEntryOpen(false)} onCancel={() => setEntryOpen(false)} compact /></AccountingOverlay>
+      <AccountingOverlay open={Boolean(rejectedDraft)} title="修改被拒账单" onClose={() => setRejectedDraft(undefined)} className="quick-expense-overlay"><ExpenseEditor rejected={rejectedDraft} onSaved={() => setRejectedDraft(undefined)} onCancel={() => setRejectedDraft(undefined)} compact /></AccountingOverlay>
       <AccountingOverlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
         <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
       </AccountingOverlay>
@@ -361,36 +371,49 @@ export function ExpenseFeedPage() {
 }
 
 type SplitMode = "EQUAL" | "EXACT" | "PERCENTAGE" | "WEIGHT";
+type PendingExpenseDraft = PendingExpenseMutation & { attachments: PendingAttachment[] };
+type SelectedLocalAttachment = PendingAttachmentDraft & { file: File };
 
-export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: { initial?: ExpenseAggregate; onSaved?: () => void; onCancel?: () => void; compact?: boolean }) {
-  const { session, activity } = useWorkspace();
-  const members = useMembersQuery(session.userId, activity.activityId);
+export function ExpenseEditor({ initial, rejected, onSaved, onCancel, compact = false }: { initial?: ExpenseAggregate; rejected?: PendingExpenseDraft; onSaved?: () => void; onCancel?: () => void; compact?: boolean }) {
+  const { session, activity, members: cachedMembers, offline } = useWorkspace();
+  const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const navigate = useNavigate();
   const expenseId = initial?.expense.expenseId;
   const create = useCreateExpenseMutation(session.userId, activity.activityId);
+  const reviseRejected = useReviseRejectedExpenseMutation(session.userId);
   const update = useUpdateExpenseMutation(session.userId, activity.activityId, expenseId ?? "");
   const deleteAttachment = useDeleteAttachmentMutation(session.userId, activity.activityId, expenseId ?? "");
   const rateSuggestion = useExchangeRateSuggestionMutation(activity.activityId);
-  const [title, setTitle] = useState(initial?.expense.title ?? "");
-  const [category, setCategory] = useState(initial?.expense.category ?? "FOOD");
-  const [note, setNote] = useState(initial?.expense.note ?? "");
-  const [occurredAt, setOccurredAt] = useState(localDateTime(initial?.expense.occurredAt));
-  const [currency, setCurrency] = useState(initial?.expense.originalCurrency ?? activity.baseCurrency);
-  const [amount, setAmount] = useState(initial ? minorToInput(initial.expense.originalAmountMinor, initial.expense.originalCurrency) : "");
-  const [exchangeRate, setExchangeRate] = useState(initial?.expense.exchangeRate ?? "");
-  const [exchangeRateKind, setExchangeRateKind] = useState(initial?.expense.exchangeRateKind ?? (initial?.expense.originalCurrency === activity.baseCurrency ? "IDENTITY" : "MANUAL"));
-  const [exchangeRateReferenceDate, setExchangeRateReferenceDate] = useState(initial?.expense.exchangeRateReferenceDate ?? null);
-  const [exchangeRateProvider, setExchangeRateProvider] = useState(initial?.expense.exchangeRateProvider ?? null);
-  const [splitMode, setSplitMode] = useState<SplitMode>(initial ? "EXACT" : "EQUAL");
-  const [selectedMembers, setSelectedMembers] = useState<Record<string, boolean>>(() => Object.fromEntries((initial?.shares ?? []).map((share) => [share.memberId, true])));
-  const [splitValues, setSplitValues] = useState<Record<string, string>>(() => Object.fromEntries((initial?.shares ?? []).map((share) => [share.memberId, minorToInput(share.originalAmountMinor, initial!.expense.originalCurrency)])));
-  const [paymentValues, setPaymentValues] = useState<Record<string, string>>(() => Object.fromEntries((initial?.payments ?? []).map((payment) => [payment.memberId, minorToInput(payment.originalAmountMinor, initial!.expense.originalCurrency)])));
-  const [files, setFiles] = useState<readonly File[]>([]);
+  const pendingPayload = rejected?.payload;
+  const initialPayload = initial?.expense;
+  const [title, setTitle] = useState(initialPayload?.title ?? pendingPayload?.title ?? "");
+  const [category, setCategory] = useState(initialPayload?.category ?? pendingPayload?.category ?? "FOOD");
+  const [note, setNote] = useState(initialPayload?.note ?? pendingPayload?.note ?? "");
+  const [occurredAt, setOccurredAt] = useState(localDateTime(initialPayload?.occurredAt ?? pendingPayload?.occurredAt));
+  const [currency, setCurrency] = useState(initialPayload?.originalCurrency ?? pendingPayload?.originalCurrency ?? activity.baseCurrency);
+  const [amount, setAmount] = useState(initialPayload ? minorToInput(initialPayload.originalAmountMinor, initialPayload.originalCurrency) : pendingPayload ? minorToInput(pendingPayload.originalAmountMinor, pendingPayload.originalCurrency) : "");
+  const [exchangeRate, setExchangeRate] = useState(initialPayload?.exchangeRate ?? pendingPayload?.exchangeRate ?? "");
+  const [exchangeRateKind, setExchangeRateKind] = useState(initialPayload?.exchangeRateKind ?? pendingPayload?.exchangeRateKind ?? (currency === activity.baseCurrency ? "IDENTITY" : "MANUAL"));
+  const [exchangeRateReferenceDate, setExchangeRateReferenceDate] = useState(initialPayload?.exchangeRateReferenceDate ?? pendingPayload?.exchangeRateReferenceDate ?? null);
+  const [exchangeRateProvider, setExchangeRateProvider] = useState(initialPayload?.exchangeRateProvider ?? pendingPayload?.exchangeRateProvider ?? null);
+  const [splitMode, setSplitMode] = useState<SplitMode>(initial ? "EXACT" : (pendingPayload?.split.mode as SplitMode | undefined) ?? "EQUAL");
+  const [selectedMembers, setSelectedMembers] = useState<Record<string, boolean>>(() => Object.fromEntries(initial?.shares?.map((share) => [share.memberId, true]) ?? pendingPayload?.split.members?.map((memberId) => [memberId, true]) ?? pendingPayload?.split.entries?.map((entry) => [entry.memberId, true]) ?? []));
+  const [splitValues, setSplitValues] = useState<Record<string, string>>(() => Object.fromEntries(initial?.shares?.map((share) => [share.memberId, minorToInput(share.originalAmountMinor, initial.expense.originalCurrency)]) ?? pendingPayload?.split.entries?.map((entry) => [entry.memberId, entry.value]) ?? []));
+  const [paymentValues, setPaymentValues] = useState<Record<string, string>>(() => Object.fromEntries(initial?.payments?.map((payment) => [payment.memberId, minorToInput(payment.originalAmountMinor, initial.expense.originalCurrency)]) ?? pendingPayload?.payments.map((payment) => [payment.memberId, minorToInput(payment.amountMinor, pendingPayload.originalCurrency)]) ?? []));
+  const [selectedAttachments, setSelectedAttachments] = useState<SelectedLocalAttachment[]>(() => rejected?.attachments.map((attachment) => ({
+    id: attachment.id,
+    clientAttachmentId: attachment.clientAttachmentId,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    blob: attachment.blob,
+    file: new File([attachment.blob], attachment.fileName, { type: attachment.mimeType }),
+  })) ?? []);
   const [localError, setLocalError] = useState<string>();
-  const mutation = expenseId ? update : create;
+  const mutation = rejected ? reviseRejected : expenseId ? update : create;
 
-  const activeMembers = members.data?.filter((member) => member.status === "ACTIVE") ?? [];
-  const selectedIds = activeMembers.filter((member) => selectedMembers[member.memberId] ?? !initial).map((member) => member.memberId);
+  const memberData = members.data ?? cachedMembers ?? [];
+  const activeMembers = memberData.filter((member) => member.status === "ACTIVE");
+  const selectedIds = activeMembers.filter((member) => selectedMembers[member.memberId] ?? (!initial && !rejected)).map((member) => member.memberId);
 
   function updateRecord(setter: React.Dispatch<React.SetStateAction<Record<string, string>>>, id: string, value: string) {
     setter((current) => ({ ...current, [id]: value }));
@@ -398,13 +421,26 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
 
   function selectAttachments(nextFiles: FileList | null) {
     const selected = Array.from(nextFiles ?? []);
-    const error = validateAttachments(selected);
+    const error = validateAttachments([
+      ...selectedAttachments.map(({ file }) => file),
+      ...selected,
+    ]);
     if (error) {
       setLocalError(error);
       return;
     }
     setLocalError(undefined);
-    setFiles(selected);
+    setSelectedAttachments((current) => [
+      ...current,
+      ...selected.map((file) => ({
+        id: crypto.randomUUID(),
+        clientAttachmentId: crypto.randomUUID(),
+        fileName: file.name,
+        mimeType: file.type,
+        blob: file,
+        file,
+      })),
+    ]);
   }
 
   function clearAutomaticRate(keepValue: boolean) {
@@ -460,7 +496,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
         category,
         note: note.trim() || null,
         occurredAt: new Date(occurredAt).toISOString(),
-        clientMutationId: initial?.expense.clientMutationId ?? crypto.randomUUID(),
+        clientMutationId: initial?.expense.clientMutationId ?? pendingPayload?.clientMutationId ?? crypto.randomUUID(),
         originalCurrency: normalizedCurrency,
         originalAmountMinor: totalMinor,
         exchangeRateKind: normalizedCurrency === activity.baseCurrency ? "IDENTITY" : exchangeRateKind,
@@ -470,8 +506,20 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
         payments,
         split,
       };
-      if (initial) await update.mutateAsync({ ...draft, version: initial.expense.version });
-      else await create.mutateAsync({ input: draft, files });
+      if (initial) {
+        await update.mutateAsync({ ...draft, version: initial.expense.version });
+      } else if (rejected) {
+        await reviseRejected.mutateAsync({
+          mutationId: rejected.id,
+          payload: draft,
+          attachments: selectedAttachments.map(({ file, ...attachment }) => ({
+            ...attachment,
+            blob: file,
+          })),
+        });
+      } else {
+        await create.mutateAsync({ input: draft, files: selectedAttachments.map(({ file }) => file) });
+      }
       if (onSaved) onSaved();
       else navigate(`/activities/${activity.activityId}`);
     } catch (error) {
@@ -480,13 +528,13 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
     }
   }
 
-  if (members.isPending) return <LoadingState label="正在准备账单…" />;
-  if (members.error) return <ErrorNotice error={members.error} />;
+  if (members.isPending && memberData.length === 0) return <LoadingState label="正在准备账单…" />;
+  if (members.error && memberData.length === 0) return <ErrorNotice error={members.error} />;
 
   return (
     <form className={`expense-editor${compact ? " expense-editor--compact" : ""}`} onSubmit={submit}>
       <section className={`${compact ? "" : "panel "}form-section`}>
-        <header className="panel__header"><div><p className="eyebrow">基本信息</p><h2>{initial ? "修改账单" : "记一笔支出"}</h2></div></header>
+        <header className="panel__header"><div><p className="eyebrow">基本信息</p><h2>{initial ? "修改账单" : rejected ? "修改被拒账单" : "记一笔支出"}</h2></div></header>
         <div className="form-grid form-grid--two">
           <Field label="金额"><div className="amount-input"><span>{currency}</span><Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required autoFocus /></div></Field>
           <Field label="币种"><Input value={currency} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} maxLength={3} required /></Field>
@@ -496,7 +544,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
           <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); clearAutomaticRate(false); }} required /></Field>
         </div>
         <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
-        {!initial ? <Field label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => { selectAttachments(event.target.files); event.target.value = ""; }} />{files.length ? <small className="attachment-selection">已选择 {files.length} 张</small> : null}<SelectedAttachmentPreviews files={files} onRemove={(index) => setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field> : null}
+        {!initial ? <Field label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => { selectAttachments(event.target.files); event.target.value = ""; }} />{selectedAttachments.length ? <small className="attachment-selection">已选择 {selectedAttachments.length} 张</small> : null}<SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field> : null}
       </section>
 
       {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={(attachmentId) => { if (window.confirm("确定删除这张附件吗？此操作会立即生效。")) void deleteAttachment.mutateAsync(attachmentId).catch(() => undefined); }} /> : null}
@@ -514,7 +562,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
         <div className="segmented segmented--four" role="group" aria-label="分摊方式">{splitModes.map(([value, label]) => <button type="button" key={value} aria-pressed={splitMode === value} onClick={() => setSplitMode(value)}>{label}</button>)}</div>
         <div className="member-input-list">
           {activeMembers.map((member) => {
-            const selected = selectedMembers[member.memberId] ?? !initial;
+            const selected = selectedMembers[member.memberId] ?? (!initial && !rejected);
             return (
               <div className="split-row" key={member.memberId}>
                 <label className="member-check"><input type="checkbox" checked={selected} onChange={(event) => setSelectedMembers((current) => ({ ...current, [member.memberId]: event.target.checked }))} /><MemberAvatar memberId={member.memberId} displayName={member.displayName} size="sm" /><span>{member.displayName}</span></label>
@@ -528,7 +576,7 @@ export function ExpenseEditor({ initial, onSaved, onCancel, compact = false }: {
       {localError ? <div className="notice notice--error" role="alert">{localError}</div> : null}
       {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
       {mutation.error instanceof ApiRequestError && mutation.error.status === 409 ? <div className="notice">服务器版本已更新。当前表单仍保留，请返回查看最新账单后再决定。</div> : null}
-      <div className="sticky-actions">{onCancel ? <Button variant="secondary" type="button" onClick={onCancel}>取消</Button> : <Link className="button button--secondary" to={`/activities/${activity.activityId}`}>取消</Link>}<Button type="submit" busy={mutation.isPending}><Check aria-hidden="true" size={18} /> 保存账单</Button></div>
+      <div className="sticky-actions">{onCancel ? <Button variant="secondary" type="button" onClick={onCancel}>取消</Button> : <Link className="button button--secondary" to={`/activities/${activity.activityId}`}>取消</Link>}<Button type="submit" busy={mutation.isPending}><Check aria-hidden="true" size={18} /> {rejected ? "修改后重试" : "保存账单"}</Button></div>
     </form>
   );
 }
@@ -543,22 +591,23 @@ export function NewExpensePage() {
 
 export function ExpenseDetailPage() {
   const { expenseId = "" } = useParams();
-  const { session, activity } = useWorkspace();
-  const expense = useExpenseQuery(session.userId, activity.activityId, expenseId);
-  const members = useMembersQuery(session.userId, activity.activityId);
+  const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
+  const expense = useExpenseQuery(session.userId, activity.activityId, expenseId, !offline);
+  const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const remove = useDeleteExpenseMutation(session.userId, activity.activityId, expenseId);
   const navigate = useNavigate();
-  if (expense.isPending || members.isPending) return <LoadingState label="正在读取账单…" />;
-  if (expense.error || members.error) return <ErrorNotice error={expense.error ?? members.error} />;
-  if (!expense.data) return null;
-  if (activity.status !== "ACTIVE") {
-    const aggregate = expense.data;
+  const aggregate = expense.data ?? snapshot?.snapshot.expenses.find((item) => item.expense.expenseId === expenseId);
+  const memberData = members.data ?? cachedMembers ?? [];
+  if ((!offline && expense.isPending) || members.isPending && memberData.length === 0) return <LoadingState label="正在读取账单…" />;
+  if ((!offline && expense.error && !snapshot) || members.error && memberData.length === 0) return <ErrorNotice error={expense.error ?? members.error} />;
+  if (!aggregate) return null;
+  if (activity.status !== "ACTIVE" || offline) {
     const categoryLabel = categories.find(([value]) => value === aggregate.expense.category)?.[1] ?? "其他";
     const splitModeLabel = splitModes.find(([value]) => value === aggregate.expense.splitMode)?.[1] ?? aggregate.expense.splitMode;
     return (
       <div className="workspace-page">
         <Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link>
-        <div className="notice"><Info aria-hidden="true" size={18} /><span>活动已结束或归档，账单仅供查看。</span></div>
+           <div className="notice"><Info aria-hidden="true" size={18} /><span>{offline ? "当前离线，账单使用最近一次同步的只读快照。" : "活动已结束或归档，账单仅供查看。"}</span></div>
         <section className="expense-readonly" aria-label="账单详情">
           <header><h2>{aggregate.expense.title}</h2><small>{new Date(aggregate.expense.occurredAt).toLocaleString("zh-CN")}</small></header>
           <dl className="expense-readonly__facts">
@@ -566,9 +615,9 @@ export function ExpenseDetailPage() {
             <div><dt>原始金额</dt><dd><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></dd></div>
             <div><dt>折算金额</dt><dd><Money value={formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)} /></dd></div>
             <div><dt>汇率</dt><dd>{aggregate.expense.exchangeRate}{aggregate.expense.exchangeRateReferenceDate ? <small>{aggregate.expense.exchangeRateKind === "CACHE" ? "缓存参考汇率" : "Frankfurter 参考汇率"} · {aggregate.expense.exchangeRateReferenceDate}</small> : null}</dd></div>
-            <div><dt>付款事实</dt><dd>{aggregate.payments.map((payment) => <span key={payment.factId}>{memberName(payment.memberId, members.data)}<Money value={formatMoney(aggregate.expense.originalCurrency, payment.originalAmountMinor)} /></span>)}</dd></div>
+             <div><dt>付款事实</dt><dd>{aggregate.payments.map((payment) => <span key={payment.factId}>{memberName(payment.memberId, memberData)}<Money value={formatMoney(aggregate.expense.originalCurrency, payment.originalAmountMinor)} /></span>)}</dd></div>
             <div><dt>分摊方式</dt><dd>{splitModeLabel}</dd></div>
-            <div><dt>成员分摊</dt><dd>{aggregate.shares.map((share) => <span key={share.factId}>{memberName(share.memberId, members.data)}<Money value={formatMoney(aggregate.expense.originalCurrency, share.originalAmountMinor)} /></span>)}</dd></div>
+             <div><dt>成员分摊</dt><dd>{aggregate.shares.map((share) => <span key={share.factId}>{memberName(share.memberId, memberData)}<Money value={formatMoney(aggregate.expense.originalCurrency, share.originalAmountMinor)} /></span>)}</dd></div>
           </dl>
           {aggregate.expense.note ? <p>{aggregate.expense.note}</p> : null}
           <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments} />
@@ -580,7 +629,7 @@ export function ExpenseDetailPage() {
     <div className="workspace-page">
       <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => { if (window.confirm("确定删除这笔账单吗？账本会立即重新计算。")) void remove.mutateAsync(expense.data!.expense.version).then(() => navigate(`/activities/${activity.activityId}`)); }}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
       {remove.error ? <ErrorNotice error={remove.error} /> : null}
-      <ExpenseEditor initial={expense.data} />
+      <ExpenseEditor initial={aggregate} />
     </div>
   );
 }
@@ -606,11 +655,11 @@ function SettlementRow({ settlement, members, writable }: { settlement: Settleme
 }
 
 export function SettlementsPage() {
-  const { session, activity } = useWorkspace();
-  const members = useMembersQuery(session.userId, activity.activityId);
-  const ledger = useLedgerQuery(session.userId, activity.activityId);
-  const recommendations = useRecommendationsQuery(session.userId, activity.activityId);
-  const settlements = useSettlementsQuery(session.userId, activity.activityId);
+  const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
+  const members = useMembersQuery(session.userId, activity.activityId, !offline);
+  const ledger = useLedgerQuery(session.userId, activity.activityId, !offline);
+  const recommendations = useRecommendationsQuery(session.userId, activity.activityId, !offline);
+  const settlements = useSettlementsQuery(session.userId, activity.activityId, !offline);
   const create = useCreateSettlementMutation(session.userId, activity.activityId);
   const [formOpen, setFormOpen] = useState(false);
   const [balanceOpen, setBalanceOpen] = useState(false);
@@ -637,21 +686,26 @@ export function SettlementsPage() {
     }
   }
 
-  if (members.isPending || ledger.isPending || recommendations.isPending || settlements.isPending) return <LoadingState label="正在读取结算…" />;
-  if (members.error || ledger.error || recommendations.error || settlements.error) return <ErrorNotice error={members.error ?? ledger.error ?? recommendations.error ?? settlements.error} />;
-  const balances = ledger.data?.balances ?? [];
+  const memberData = members.data ?? cachedMembers ?? [];
+  const ledgerData = ledger.data ?? snapshot?.snapshot.ledger;
+  const recommendationsData = recommendations.data ?? snapshot?.snapshot.recommendations;
+  const settlementsData = settlements.data ?? snapshot?.snapshot.settlements;
+  if ((!offline && (members.isPending || ledger.isPending || recommendations.isPending || settlements.isPending)) || (offline && !ledgerData)) return <LoadingState label="正在读取结算…" />;
+  if (members.error && memberData.length === 0 || ledger.error && !ledgerData || recommendations.error && !recommendationsData || settlements.error && !settlementsData) return <ErrorNotice error={members.error ?? ledger.error ?? recommendations.error ?? settlements.error} />;
+  const balances = ledgerData?.balances ?? [];
   const currentBalance = balances.find((balance) => balance.memberId === activity.currentMemberId);
   const currentAmount = BigInt(currentBalance?.netMinor ?? "0");
   const otherBalances = balances.filter((balance) => balance.memberId !== activity.currentMemberId);
   const unsettledCount = otherBalances.filter((balance) => BigInt(balance.netMinor) !== 0n).length;
   const settledCount = otherBalances.length - unsettledCount;
-  const recommendationsList = recommendations.data?.recommendations ?? [];
+  const recommendationsList = recommendationsData?.recommendations ?? [];
   const fullySettled = balances.every((balance) => BigInt(balance.netMinor) === 0n);
   // ENDED 仍允许成员结清余额；只有 ARCHIVED 才关闭全部结算写入口。
-  const settlementWritable = activity.status !== "ARCHIVED";
+  const settlementWritable = activity.status !== "ARCHIVED" && !offline;
   return (
     <div className="workspace-page settlement-page">
-      <section className="settlement-summary" aria-label="我的结算">
+       {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，以下结算使用最近一次同步的只读快照。</span></div> : null}
+       <section className="settlement-summary" aria-label="我的结算">
         <p>我的结算</p>
         <div><strong>{currentAmount > 0n ? "应收" : currentAmount < 0n ? "应付" : "已结清"}</strong>{currentAmount !== 0n ? <Money value={formatMoney(activity.baseCurrency, (currentAmount < 0n ? -currentAmount : currentAmount).toString())} tone={currentAmount > 0n ? "positive" : "negative"} /> : null}</div>
         <small>{unsettledCount} 人未结清 · {settledCount} 人已结清</small>
@@ -659,7 +713,7 @@ export function SettlementsPage() {
 
       <section className="settlement-section" aria-labelledby="recommendations-heading">
         <h2 id="recommendations-heading">推荐转账</h2>
-        {recommendationsList.length ? <div className="settlement-recommendations">{recommendationsList.map((recommendation) => settlementWritable ? <button key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`} type="button" onClick={() => openForm(recommendation)}><span className="settlement-recommendation__party"><MemberAvatar memberId={recommendation.payerMemberId} displayName={memberName(recommendation.payerMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.payerMemberId, members.data)}</strong><ArrowRight aria-hidden="true" size={16} /><MemberAvatar memberId={recommendation.receiverMemberId} displayName={memberName(recommendation.receiverMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.receiverMemberId, members.data)}</strong></span><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} /><ChevronRight aria-hidden="true" size={16} /></button> : <div key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`} className="settlement-recommendation-readonly"><span className="settlement-recommendation__party"><MemberAvatar memberId={recommendation.payerMemberId} displayName={memberName(recommendation.payerMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.payerMemberId, members.data)}</strong><ArrowRight aria-hidden="true" size={16} /><MemberAvatar memberId={recommendation.receiverMemberId} displayName={memberName(recommendation.receiverMemberId, members.data)} size="sm" /><strong>{memberName(recommendation.receiverMemberId, members.data)}</strong></span><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} /></div>)}</div> : <p className="settlement-empty">{fullySettled ? "所有成员余额均已结清" : "当前暂无推荐转账"}</p>}
+        {recommendationsList.length ? <div className="settlement-recommendations">{recommendationsList.map((recommendation) => settlementWritable ? <button key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`} type="button" onClick={() => openForm(recommendation)}><span className="settlement-recommendation__party"><MemberAvatar memberId={recommendation.payerMemberId} displayName={memberName(recommendation.payerMemberId, memberData)} size="sm" /><strong>{memberName(recommendation.payerMemberId, memberData)}</strong><ArrowRight aria-hidden="true" size={16} /><MemberAvatar memberId={recommendation.receiverMemberId} displayName={memberName(recommendation.receiverMemberId, memberData)} size="sm" /><strong>{memberName(recommendation.receiverMemberId, memberData)}</strong></span><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} /><ChevronRight aria-hidden="true" size={16} /></button> : <div key={`${recommendation.payerMemberId}-${recommendation.receiverMemberId}`} className="settlement-recommendation-readonly"><span className="settlement-recommendation__party"><MemberAvatar memberId={recommendation.payerMemberId} displayName={memberName(recommendation.payerMemberId, memberData)} size="sm" /><strong>{memberName(recommendation.payerMemberId, memberData)}</strong><ArrowRight aria-hidden="true" size={16} /><MemberAvatar memberId={recommendation.receiverMemberId} displayName={memberName(recommendation.receiverMemberId, memberData)} size="sm" /><strong>{memberName(recommendation.receiverMemberId, memberData)}</strong></span><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} /></div>)}</div> : <p className="settlement-empty">{fullySettled ? "所有成员余额均已结清" : "当前暂无推荐转账"}</p>}
       </section>
 
       <Link className="button button--secondary settlement-share-entry" to={`/share-summary/${encodeURIComponent(activity.activityId)}`}><ImageDown aria-hidden="true" size={18} />生成分享摘要</Link>
@@ -668,16 +722,16 @@ export function SettlementsPage() {
 
       {settlementWritable && !fullySettled ? <Button className="settlement-primary-action" onClick={() => openForm()}>记录结算</Button> : fullySettled ? <div className="settlement-complete"><Check aria-hidden="true" size={19} /> 全部已结清</div> : null}
 
-      <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{settlementWritable && !fullySettled ? <Button variant="ghost" onClick={() => openForm()}>补记结算</Button> : null}</header>{settlements.data?.length ? <div className="settlement-list">{settlements.data.map((settlement) => <SettlementRow key={settlement.settlementId} settlement={settlement} members={members.data} writable={settlementWritable} />)}</div> : <EmptyState icon={<UsersRound size={26} />} title="还没有结算记录" description="账本产生应收应付后，可按建议记录成员间付款。" />}</section>
+       <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{settlementWritable && !fullySettled ? <Button variant="ghost" onClick={() => openForm()}>补记结算</Button> : null}</header>{settlementsData?.length ? <div className="settlement-list">{settlementsData.map((settlement) => <SettlementRow key={settlement.settlementId} settlement={settlement} members={memberData} writable={settlementWritable} />)}</div> : <EmptyState icon={<UsersRound size={26} />} title="还没有结算记录" description="账本产生应收应付后，可按建议记录成员间付款。" />}</section>
 
-      <AccountingOverlay open={balanceOpen} title="成员余额" onClose={() => setBalanceOpen(false)}>
-        <div className="settlement-balance-list">{balances.map((balance) => { const balanceMember = members.data?.find((member) => member.memberId === balance.memberId); const net = BigInt(balance.netMinor); return <div className="balance-row" key={balance.memberId}><MemberAvatar memberId={balance.memberId} displayName={balanceMember?.displayName ?? "未知成员"} /><span><strong>{balanceMember?.displayName ?? "未知成员"}</strong></span><span>{net > 0n ? "应收" : net < 0n ? "应付" : "已结清"}{net !== 0n ? <Money value={formatMoney(activity.baseCurrency, (net < 0n ? -net : net).toString())} tone={net > 0n ? "positive" : "negative"} /> : null}</span></div>; })}</div>
+       <AccountingOverlay open={balanceOpen} title="成员余额" onClose={() => setBalanceOpen(false)}>
+         <div className="settlement-balance-list">{balances.map((balance) => { const balanceMember = memberData.find((member) => member.memberId === balance.memberId); const net = BigInt(balance.netMinor); return <div className="balance-row" key={balance.memberId}><MemberAvatar memberId={balance.memberId} displayName={balanceMember?.displayName ?? "未知成员"} /><span><strong>{balanceMember?.displayName ?? "未知成员"}</strong></span><span>{net > 0n ? "应收" : net < 0n ? "应付" : "已结清"}{net !== 0n ? <Money value={formatMoney(activity.baseCurrency, (net < 0n ? -net : net).toString())} tone={net > 0n ? "positive" : "negative"} /> : null}</span></div>; })}</div>
       </AccountingOverlay>
 
       <AccountingOverlay open={settlementWritable && formOpen} title="记录结算" onClose={() => setFormOpen(false)} className="settlement-form-overlay">
         <form className="form-stack" onSubmit={submit}>
-          <Field label="付款人"><Select value={payerMemberId} onChange={(event) => setPayer(event.target.value)} required><option value="">请选择</option>{members.data?.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>
-          <Field label="收款人"><Select value={receiverMemberId} onChange={(event) => setReceiver(event.target.value)} required><option value="">请选择</option>{members.data?.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>
+          <Field label="付款人"><Select value={payerMemberId} onChange={(event) => setPayer(event.target.value)} required><option value="">请选择</option>{memberData.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>
+          <Field label="收款人"><Select value={receiverMemberId} onChange={(event) => setReceiver(event.target.value)} required><option value="">请选择</option>{memberData.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>
           <Field label={`金额（${activity.baseCurrency}）`}><Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required autoFocus /></Field>
           {localError ? <div className="notice notice--error" role="alert">{localError}</div> : null}{create.error ? <ErrorNotice error={create.error} /> : null}
           <Button type="submit" busy={create.isPending}>记录结算</Button>

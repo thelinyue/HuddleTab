@@ -227,11 +227,11 @@ export function useDeletedActivitiesQuery(userId: string, enabled = true) {
   });
 }
 
-export function useActivityQuery(userId: string, activityId: string) {
+export function useActivityQuery(userId: string, activityId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.activityDetail(userId, activityId),
     queryFn: () => getActivity(activityId),
-    enabled: userId.length > 0 && activityId.length > 0,
+    enabled: enabled && userId.length > 0 && activityId.length > 0,
   });
 }
 
@@ -249,6 +249,7 @@ function useActivityManagementInvalidation(userId: string, activityId: string, i
   const queryClient = useQueryClient();
   return () => Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
       ...(includeDeleted
         ? [queryClient.invalidateQueries({ queryKey: queryKeys.activitiesDeleted(userId) })]
@@ -303,11 +304,11 @@ export function useTransferOwnershipMutation(userId: string, activityId: string)
   });
 }
 
-export function useMembersQuery(userId: string, activityId: string) {
+export function useMembersQuery(userId: string, activityId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.members(userId, activityId),
     queryFn: () => listMembers(activityId),
-    enabled: userId.length > 0 && activityId.length > 0,
+    enabled: enabled && userId.length > 0 && activityId.length > 0,
   });
 }
 

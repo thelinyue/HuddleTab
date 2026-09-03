@@ -6,6 +6,7 @@ import { unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
 import { expenseQueueFor } from "./expense-queue";
+import type { PendingAttachmentDraft } from "../../pwa/indexed-db/schema";
 export { uploadExpenseAttachment } from "./expense-queue";
 
 export type ExpenseAggregate = components["schemas"]["ExpenseAggregateData"];
@@ -154,20 +155,23 @@ function useAccountingInvalidation(userId: string, activityId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.recommendations(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settlements(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
     ]);
 }
 
-export function useExpensesQuery(userId: string, activityId: string) {
+export function useExpensesQuery(userId: string, activityId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.expenses(userId, activityId),
     queryFn: () => listExpenses(activityId),
+    enabled: enabled && userId.length > 0 && activityId.length > 0,
   });
 }
 
-export function useExpenseQuery(userId: string, activityId: string, expenseId: string) {
+export function useExpenseQuery(userId: string, activityId: string, expenseId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.expense(userId, activityId, expenseId),
     queryFn: () => getExpense(activityId, expenseId),
+    enabled: enabled && userId.length > 0 && activityId.length > 0 && expenseId.length > 0,
   });
 }
 
@@ -182,6 +186,29 @@ export function useCreateExpenseMutation(userId: string, activityId: string) {
       input: ExpenseDraft;
       files?: readonly File[];
     }) => expenseQueueFor(userId).enqueue(activityId, input, files),
+  });
+}
+
+export function useReviseRejectedExpenseMutation(userId: string) {
+  return useMutation({
+    networkMode: "always",
+    mutationFn: ({
+      mutationId,
+      payload,
+      attachments,
+    }: {
+      mutationId: string;
+      payload: ExpenseDraft;
+      attachments: PendingAttachmentDraft[];
+    }) => expenseQueueFor(userId).reviseRejected(mutationId, payload, attachments),
+  });
+}
+
+export function useDiscardPendingExpenseMutation(userId: string) {
+  return useMutation({
+    networkMode: "always",
+    mutationFn: ({ mutationId, activityId }: { mutationId: string; activityId: string }) =>
+      expenseQueueFor(userId).discard(mutationId, activityId),
   });
 }
 
@@ -235,8 +262,8 @@ export function useDeleteAttachmentMutation(
   });
 }
 
-export function useLedgerQuery(userId: string, activityId: string) {
-  return useQuery({ queryKey: queryKeys.ledger(userId, activityId), queryFn: () => getLedger(activityId) });
+export function useLedgerQuery(userId: string, activityId: string, enabled = true) {
+  return useQuery({ queryKey: queryKeys.ledger(userId, activityId), queryFn: () => getLedger(activityId), enabled: enabled && userId.length > 0 && activityId.length > 0 });
 }
 
 /** 活动首页批量复用各活动 Ledger query；余额仍由 Rust 计算，首页只做跨活动同币种汇总。 */
@@ -250,12 +277,12 @@ export function useActivityLedgersQuery(userId: string, activities: readonly Act
   });
 }
 
-export function useRecommendationsQuery(userId: string, activityId: string) {
-  return useQuery({ queryKey: queryKeys.recommendations(userId, activityId), queryFn: () => getRecommendations(activityId) });
+export function useRecommendationsQuery(userId: string, activityId: string, enabled = true) {
+  return useQuery({ queryKey: queryKeys.recommendations(userId, activityId), queryFn: () => getRecommendations(activityId), enabled: enabled && userId.length > 0 && activityId.length > 0 });
 }
 
-export function useSettlementsQuery(userId: string, activityId: string) {
-  return useQuery({ queryKey: queryKeys.settlements(userId, activityId), queryFn: () => listSettlements(activityId) });
+export function useSettlementsQuery(userId: string, activityId: string, enabled = true) {
+  return useQuery({ queryKey: queryKeys.settlements(userId, activityId), queryFn: () => listSettlements(activityId), enabled: enabled && userId.length > 0 && activityId.length > 0 });
 }
 
 export function useCreateSettlementMutation(userId: string, activityId: string) {

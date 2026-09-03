@@ -58,5 +58,15 @@ export default defineConfig({
       testMatch: "notification-ownership.spec.ts",
       use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
     },
+    {
+      name: "chromium-phase2-desktop",
+      testMatch: "phase2.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "chromium-phase2-mobile",
+      testMatch: "phase2.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
+    },
   ],
 });

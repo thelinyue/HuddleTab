@@ -6,7 +6,7 @@
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列，以及 Task 27 的加入审批、Guest Binding、图片附件、Rate Provider、站内通知与所有权转让已完成。Task 27 Notification 与所有权转让完成，可以进入 Task 28 Phase 2 E2E。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 2 Task 28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列，以及 Task 27 的加入审批、Guest Binding、图片附件、Rate Provider、站内通知与所有权转让已完成。Task 28 的离线工作台、REJECTED 修正、PWA 更新保护和完整浏览器验收已通过，当前只表示 Phase 2 exit gate 通过，可以进入 Phase 3。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–27 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。当前没有进入 Task 28、对象存储或发布。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–28 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。当前已完成 Phase 2 Task 28，但尚未进入 Phase 3、对象存储或发布流程。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -143,7 +143,7 @@ huddletab openapi
 | 多付款人、四种分摊、汇率快照 | 可用 | IDENTITY/MANUAL/PROVIDER/CACHE；历史账务不重新取率 |
 | Ledger、成员余额、推荐转账 | 可用 | 全部由 Rust 权威计算 |
 | Settlement 创建、修改、作废 | 可用 | 删除语义为 VOID，不物理删除 |
-| PWA Shell | 可用 | 不缓存 API；Expense Create 使用前台同步队列，Service Worker 不执行业务写入 |
+| PWA Shell | 可用 | 不缓存 API；Expense Create 使用前台同步队列，Service Worker 不执行业务写入；Task 28 已完成离线 Snapshot 工作台和更新闸门 |
 | 加入审批 | 可用 | Task 27A；Activity 级 DIRECT_JOIN/REQUIRE_APPROVAL，Owner 查看并决定 Pending，申请人只能查看自己的结果 |
 | 通知页 | 可用 | Task 27；审批、加入、参与账单变化、收款结算、生命周期和所有权通知 |
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
@@ -444,7 +444,30 @@ Expense 合同和数据库支持 `IDENTITY/MANUAL/PROVIDER/CACHE`，并保存可
 
 真实浏览器首轮发现 `OffsetDateTime::to_string()` 不是浏览器稳定解析的 RFC 3339，Mobile 通知页出现 `Invalid time value`；已补 API 回归并统一格式化。随后 UI `2/2` 通过。runner 后半段又暴露 Windows Node 24 在 fetch 后立即 `process.exit(0)` 的 libuv 断言；改为自然结束后完整命令退出 `0`。HTML 报告保留在 `frontend/artifacts/playwright-report/index.html`。
 
-范围不包含 Task 28、WebSocket、Web Push、批量已读 API、邀请 token 站内投递、Phase 3、tag、镜像发布或 Release Verification。Task 27 Notification 与所有权转让完成，可以进入 Task 28 Phase 2 E2E。
+范围不包含 Task 28 之前的后续通知扩展、WebSocket、Web Push、批量已读 API、邀请 token 站内投递、Phase 3、tag、镜像发布或 Release Verification。Task 27 Notification 与所有权转让完成，可以进入 Task 28 Phase 2 E2E。
+
+### 7.10 Phase 2 Task 28 离线工作台、REJECTED 修正与 PWA 更新保护
+
+编码前已重新对照本地运行的 `v0.0.2` 和远程对应源码，沿用其当前标签页 Session、单一活动工作台、Sheet、表单密度、按钮层级和移动端交互；没有引入新的活动导航。在线打开 Activity 时，Snapshot 通过现有 weak ETag 条件读取并整体替换当前用户缓存；断网时只从 `huddletab:<user_id>` 的指定 Activity Snapshot 渲染 Activity、Member、Expense、Settlement、Ledger 和 Recommendation，并明确显示离线/缓存状态。Activity 列表、通知、邀请和管理数据没有扩展进 Snapshot。pending Expense 单独显示，不叠加到权威统计；断网仅保留 Expense Create 入队，更新/删除账单、Settlement、活动、成员、邀请、审批和所有权写入口均关闭，联网后由既有前台同步器恢复。
+
+REJECTED 本地账单可在现有记账 Sheet 中完整回填字段和待传图片，沿用原 `clientMutationId`，在一个 IndexedDB readwrite 事务中原子替换 payload 与附件集合并重置为 `PENDING`；保留图片沿用 `clientAttachmentId`，新增图片生成新 ID，错误、服务端 ID、尝试次数和自动汇率失效元数据清空。仅仍为 REJECTED 的记录可修正；丢弃操作二次确认后在同一事务删除 mutation 与附件 Blob，不影响任何服务端 Expense。
+
+PWA waiting worker 更新提示监听既有队列变化事件，当前用户 Mutation 或 Attachment 为 `PENDING`、`SYNCING`、`RETRYABLE` 或 `REJECTED` 时显示“有新版本可用，完成同步后更新”并禁用立即刷新；点击刷新前再次读取 IndexedDB，全部为空或 `SYNCED` 后才调用既有 Service Worker 激活入口。Service Worker 不执行业务写入。
+
+Task 28 新增固定 `Phase2Only` runner 和 Chromium Phase 2 Desktop/Mobile 项目，复用 Phase 1E 的安全 Compose 编排并同时执行附件、通知/所有权关键流程与 WebKit smoke。实际命令：
+
+```powershell
+npm --prefix frontend run test:unit
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+& ./frontend/e2e/support/run-phase1e-safety.test.ps1
+& ./frontend/e2e/run-phase1e.ps1 -Phase2Only
+git diff --check
+```
+
+Frontend 全量为 29 个测试文件、174 个测试通过；PWA 更新组件、策略、Session、Snapshot、队列和 REJECTED 专项均通过，typecheck、production build、runner 安全专项和 `git diff --check` 通过。最终 `Phase2Only` 单一 Compose 入口以单 worker、零重试通过 7 个浏览器测试：Chromium Phase 2 Desktop/Mobile（`1440x1000`、`390x844`）、Attachment Desktop/Mobile、Notification/Ownership Desktop/Mobile 和 WebKit smoke。覆盖在线 Snapshot 200/304、Service Worker 控制、断网刷新读取与恢复联网单笔同步、服务端提交后响应丢失重放、422 REJECTED 修正、附件/审批/所有权、无横向溢出和活动导航仅“流水 / 结算”，以及 fresh migration、stdin bootstrap、SPA 深链、非 root/无 Node runtime、双容器重启持久性、中文冷启动错误、artifact 脱敏和 finally 清理。临时 Compose project 与 `/tmp/huddletab-phase1e-*` 均已删除，HTML 报告保留在 `frontend/artifacts/playwright-report/index.html`。
+
+结论严格为：“Phase 2 Task 28 完成，可以进入 Phase 3。”Tasks 29–31、iPhone Safari/Home Screen PWA 真机人工验收、最终 Release Verification、后台清理 Job 和正式 `v0.0.3` Git tag/GHCR 镜像发布仍未完成；本轮没有创建 tag、推送 GHCR 或宣称达到发布状态。
 
 ## 8. 当前本地运行现场
 
@@ -561,10 +584,9 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 进入 Task 28 Phase 2 E2E，完成断网刷新、PWA 更新不丢 pending、REJECTED 修正和 Phase 2 完整浏览器验收。Task 27 已完成。
-2. Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。
-3. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
-4. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
+1. 进入 Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。Phase 2 Task 28 已完成并通过 exit gate。
+2. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
+3. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
 
 每完成一项，只运行对应测试；涉及 UI 或运行镜像时再运行对应真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
 
@@ -586,5 +608,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-02-huddletab-task27-rate-provider.md`
 - `docs/superpowers/specs/2026-09-03-huddletab-task27-notification-ownership-design.md`
 - `docs/superpowers/plans/2026-09-03-huddletab-task27-notification-ownership.md`
+- `docs/superpowers/specs/2026-09-03-huddletab-task28-phase2-e2e-design.md`
+- `docs/superpowers/plans/2026-09-03-huddletab-task28-phase2-e2e.md`
 
-这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。
+这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 28 已通过 Phase 2 exit gate，但不代表 Phase 3 或正式发布完成。

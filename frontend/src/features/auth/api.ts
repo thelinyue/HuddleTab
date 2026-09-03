@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../../api/client";
 import { clearCsrfToken, mutationHeaders } from "../../api/csrf";
-import { unwrap } from "../../api/error";
+import { ApiRequestError, unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
 
@@ -14,10 +14,46 @@ export type InvitationPreview = components["schemas"]["InvitationPreviewData"];
 export type JoinRequest = components["schemas"]["JoinRequestData"];
 export type JoinInvitationResult = components["schemas"]["JoinInvitationData"];
 
+const offlineSessionStorageKey = "huddletab:offline-session";
+
+function rememberOfflineSession(session: Session | null) {
+  if (typeof window === "undefined") return;
+  if (session) sessionStorage.setItem(offlineSessionStorageKey, JSON.stringify(session));
+  else sessionStorage.removeItem(offlineSessionStorageKey);
+}
+
+/** 全局认证失效时由 AppProviders 调用，避免下一次断网仍恢复已失效用户。 */
+export function clearRememberedOfflineSession() {
+  rememberOfflineSession(null);
+}
+
+function rememberedOfflineSession(): Session | null {
+  if (typeof window === "undefined") return null;
+  const raw = sessionStorage.getItem(offlineSessionStorageKey);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Session;
+  } catch {
+    sessionStorage.removeItem(offlineSessionStorageKey);
+    return null;
+  }
+}
+
 async function loadSession(): Promise<Session | null> {
-  const result = await apiClient.GET("/api/auth/session");
-  if (result.response.status === 401) return null;
-  return unwrap(result).data;
+  try {
+    const result = await apiClient.GET("/api/auth/session");
+    if (result.response.status === 401) {
+      clearRememberedOfflineSession();
+      return null;
+    }
+    const session = unwrap(result).data;
+    rememberOfflineSession(session);
+    return session;
+  } catch (error) {
+    // 只有网络错误允许使用当前标签页的最近身份；服务器明确拒绝不能回退，避免泄漏旧用户。
+    if (error instanceof ApiRequestError) throw error;
+    return rememberedOfflineSession();
+  }
 }
 
 async function login(input: LoginInput): Promise<Session> {
@@ -27,6 +63,7 @@ async function login(input: LoginInput): Promise<Session> {
   });
   const data = unwrap(result).data;
   clearCsrfToken();
+  rememberOfflineSession(data);
   return data;
 }
 
@@ -37,6 +74,7 @@ async function register(input: RegisterInput): Promise<Session> {
   });
   const data = unwrap(result).data;
   clearCsrfToken();
+  rememberOfflineSession(data);
   return data;
 }
 
@@ -46,6 +84,7 @@ async function logout(): Promise<void> {
   });
   unwrap(result);
   clearCsrfToken();
+  clearRememberedOfflineSession();
 }
 
 /** 改密会轮换 Session Cookie；成功后必须丢弃只与旧 Session 匹配的 CSRF token。 */

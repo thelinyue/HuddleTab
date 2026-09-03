@@ -28,6 +28,7 @@ import {
   useJoinInvitationMutation,
   useJoinRequestQuery,
   useLogoutMutation,
+  useSessionQuery,
 } from "./api";
 
 function wrapper({ children }: PropsWithChildren) {
@@ -39,8 +40,34 @@ function wrapper({ children }: PropsWithChildren) {
 
 afterEach(async () => {
   vi.clearAllMocks();
+  sessionStorage.clear();
   csrf.mutationHeaders.mockResolvedValue({ "X-CSRF-Token": "csrf-token" });
   await deleteDB(databaseName("user-1"));
+});
+
+describe("离线 Session 回退", () => {
+  it("网络错误时只回退当前标签页最近身份", async () => {
+    sessionStorage.setItem("huddletab:offline-session", JSON.stringify({
+      displayName: "测试用户", userId: "user-1", username: "tester",
+    }));
+    client.GET.mockRejectedValue(new TypeError("Failed to fetch"));
+    const { result } = renderHook(() => useSessionQuery(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toMatchObject({ userId: "user-1" }));
+    expect(client.GET).toHaveBeenCalledWith("/api/auth/session");
+  });
+
+  it("服务端 401 清除离线身份而不回退旧用户", async () => {
+    sessionStorage.setItem("huddletab:offline-session", JSON.stringify({
+      displayName: "测试用户", userId: "user-1", username: "tester",
+    }));
+    client.GET.mockResolvedValue({ response: new Response(null, { status: 401 }) });
+    const { result } = renderHook(() => useSessionQuery(), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
+    expect(sessionStorage.getItem("huddletab:offline-session")).toBeNull();
+  });
 });
 
 describe("useChangePasswordMutation", () => {

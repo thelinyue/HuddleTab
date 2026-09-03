@@ -4,6 +4,7 @@ import { AUTH_EXPIRED_EVENT } from "../api/client";
 import { clearCsrfToken } from "../api/csrf";
 import { ApiRequestError } from "../api/error";
 import { queryKeys } from "../api/query-keys";
+import { clearRememberedOfflineSession } from "../features/auth/api";
 
 export function AppProviders({ children }: PropsWithChildren) {
   // 每个已挂载应用只持有一个 QueryClient，避免 React 重渲染清空服务器状态。
@@ -25,6 +26,7 @@ export function AppProviders({ children }: PropsWithChildren) {
   useEffect(() => {
     const clearAuthenticatedState = async () => {
       clearCsrfToken();
+      clearRememberedOfflineSession();
       // 先取消精确的 Session 查询，避免旧请求在匿名状态发布后把已失效用户写回缓存。
       await queryClient.cancelQueries({ queryKey: queryKeys.session, exact: true });
       queryClient.setQueryData(queryKeys.session, null);

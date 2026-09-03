@@ -86,6 +86,7 @@ describe("AppProviders 全局 401", () => {
   it("全局 401 清理认证缓存但保留当前用户 pending queue", async () => {
     const repository = new MutationRepository("user-1");
     await repository.put(pendingMutationFixture("expired-pending"));
+    sessionStorage.setItem("huddletab:offline-session", JSON.stringify(session));
     render(
       <AppProviders>
         <QueryClientCapture />
@@ -98,6 +99,7 @@ describe("AppProviders 全局 401", () => {
     });
 
     expect(mountedQueryClient?.getQueryData(queryKeys.session)).toBeNull();
+    expect(sessionStorage.getItem("huddletab:offline-session")).toBeNull();
     expect(await repository.get("expired-pending")).toBeDefined();
   });
 

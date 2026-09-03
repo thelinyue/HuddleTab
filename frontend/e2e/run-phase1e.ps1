@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [switch] $AttachmentOnly,
-  [switch] $NotificationOwnershipOnly
+  [switch] $NotificationOwnershipOnly,
+  [switch] $Phase2Only
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,8 +24,10 @@ $sensitiveNames = @(
   "POSTGRES_PASSWORD"
 )
 
-if ($AttachmentOnly -and $NotificationOwnershipOnly) {
-  throw "附件专项与通知/所有权专项不能同时运行。"
+if (($AttachmentOnly -and $NotificationOwnershipOnly) -or
+    ($AttachmentOnly -and $Phase2Only) -or
+    ($NotificationOwnershipOnly -and $Phase2Only)) {
+  throw "附件、通知/所有权与 Phase 2 专项模式不能同时运行。"
 }
 
 function Invoke-Wsl {
@@ -175,7 +178,9 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
   $bootstrapInput = $null
 
-  $matrixLabel = if ($AttachmentOnly) {
+  $matrixLabel = if ($Phase2Only) {
+    "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
+  } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {
     "Chromium Desktop/Mobile 通知与所有权矩阵"
@@ -185,7 +190,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   Write-Host "[4/9] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir

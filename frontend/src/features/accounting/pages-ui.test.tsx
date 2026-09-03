@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -62,6 +62,18 @@ const createMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue(undefined),
 }));
+const reviseMutation = vi.hoisted(() => ({
+  error: null,
+  isPending: false,
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+}));
+const discardMutation = vi.hoisted(() => ({
+  error: null,
+  isPending: false,
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+}));
 const deleteAttachmentMutation = vi.hoisted(() => ({
   error: null,
   isPending: false,
@@ -90,6 +102,8 @@ vi.mock("../activities/api", () => ({
 
 vi.mock("./api", () => ({
   useCreateExpenseMutation: () => createMutation,
+  useReviseRejectedExpenseMutation: () => reviseMutation,
+  useDiscardPendingExpenseMutation: () => discardMutation,
   useCreateSettlementMutation: mutation,
   useDeleteExpenseMutation: mutation,
   useDeleteAttachmentMutation: () => deleteAttachmentMutation,
@@ -123,6 +137,8 @@ afterEach(() => {
   activity.status = "ACTIVE";
   pendingMutations.records = [];
   createMutation.mutateAsync.mockClear();
+  reviseMutation.mutateAsync.mockClear();
+  discardMutation.mutateAsync.mockClear();
   deleteAttachmentMutation.mutateAsync.mockClear();
   rateMutation.mutateAsync.mockClear();
   vi.restoreAllMocks();
@@ -428,6 +444,89 @@ describe("Expense pending 流水隔离", () => {
       .not.toBeInTheDocument();
     expect(screen.getAllByText("午餐")).toHaveLength(1);
     expect(screen.getByText("附件被服务器拒绝。")).toBeInTheDocument();
+  });
+
+  it("REJECTED 账单载入完整草稿并沿用原 mutation id 重试", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:rejected");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    pendingMutations.records = [{
+      activityId: "activity-1",
+      attachments: [],
+      attemptCount: 2,
+      createdAt: 1,
+      id: "rejected-1",
+      kind: "CREATE_EXPENSE",
+      lastError: { code: "INVALID_EXPENSE", message: "账单已被拒绝。" },
+      nextAttemptAt: 0,
+      payload: {
+        category: "FOOD",
+        clientMutationId: "rejected-1",
+        exchangeRate: "1",
+        exchangeRateKind: "IDENTITY",
+        note: "原始备注",
+        occurredAt: "2026-09-01T10:00:00Z",
+        originalAmountMinor: "200",
+        originalCurrency: "CNY",
+        payments: [{ amountMinor: "200", memberId: "member-1" }],
+        split: { members: ["member-1"], mode: "EQUAL" },
+        title: "被拒早餐",
+      },
+      status: "REJECTED",
+      updatedAt: 3,
+      userId: "user-1",
+    }];
+
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "修改后重试" }));
+    const dialog = screen.getByRole("dialog", { name: "修改被拒账单" });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("标题")).toHaveValue("被拒早餐");
+    expect(within(dialog).getByLabelText("备注")).toHaveValue("原始备注");
+
+    fireEvent.change(within(dialog).getByLabelText("标题"), { target: { value: "修正早餐" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "修改后重试" }));
+
+    await waitFor(() => expect(reviseMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      mutationId: "rejected-1",
+      payload: expect.objectContaining({ clientMutationId: "rejected-1", title: "修正早餐" }),
+      attachments: [],
+    })));
+  });
+
+  it("REJECTED 丢弃需要确认且只删除本地记录", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    pendingMutations.records = [{
+      activityId: "activity-1",
+      attachments: [],
+      attemptCount: 1,
+      createdAt: 1,
+      id: "rejected-discard",
+      kind: "CREATE_EXPENSE",
+      nextAttemptAt: 0,
+      payload: {
+        category: "FOOD",
+        clientMutationId: "rejected-discard",
+        exchangeRate: "1",
+        exchangeRateKind: "IDENTITY",
+        occurredAt: "2026-09-01T10:00:00Z",
+        originalAmountMinor: "100",
+        originalCurrency: "CNY",
+        payments: [{ amountMinor: "100", memberId: "member-1" }],
+        split: { members: ["member-1"], mode: "EQUAL" },
+        title: "丢弃早餐",
+      },
+      status: "REJECTED",
+      updatedAt: 2,
+      userId: "user-1",
+    }];
+
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "丢弃本地记录" }));
+    await waitFor(() => expect(discardMutation.mutateAsync).toHaveBeenCalledWith({
+      mutationId: "rejected-discard",
+      activityId: "activity-1",
+    }));
+    expect(window.confirm).toHaveBeenCalledOnce();
   });
 });
 

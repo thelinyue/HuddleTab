@@ -122,3 +122,81 @@ it("附件写入失败会回滚同事务中的 Expense mutation", async () => {
   expect(await mutations.get(mutation.id)).toBeUndefined();
   expect(await attachments.listByMutation(mutation.id)).toEqual([]);
 });
+
+it("REJECTED mutation 可在同一事务中替换完整输入并重置附件状态", async () => {
+  const mutations = new MutationRepository("user-1");
+  const attachments = new AttachmentRepository("user-1");
+  const mutation = pendingMutationFixture("rejected-edit", {
+    status: "REJECTED",
+    attemptCount: 3,
+    lastError: { code: "INVALID_EXPENSE", message: "付款金额不正确。" },
+    serverExpenseId: undefined,
+  });
+  await mutations.enqueueWithAttachments(mutation, [{
+    id: "old-attachment",
+    clientAttachmentId: "old-client",
+    fileName: "old.png",
+    mimeType: "image/png",
+    blob: new Blob(["old"], { type: "image/png" }),
+  }]);
+  await mutations.put({
+    ...mutation,
+    status: "REJECTED",
+    attemptCount: 3,
+    lastError: { code: "INVALID_EXPENSE", message: "付款金额不正确。" },
+  });
+
+  const payload = { ...mutation.payload, title: "修正后的午餐" };
+  const result = await mutations.reviseRejected("rejected-edit", payload, [{
+    id: "new-attachment",
+    clientAttachmentId: "new-client",
+    fileName: "new.webp",
+    mimeType: "image/webp",
+    blob: new Blob(["new"], { type: "image/webp" }),
+  }], 900);
+
+  expect(result.mutation).toMatchObject({
+    id: "rejected-edit",
+    payload,
+    status: "PENDING",
+    attemptCount: 0,
+    nextAttemptAt: 900,
+    lastError: undefined,
+    serverExpenseId: undefined,
+  });
+  expect(result.mutation.createdAt).toBe(mutation.createdAt);
+  expect(await mutations.get("rejected-edit")).toEqual(result.mutation);
+  expect(await attachments.listByMutation("rejected-edit")).toMatchObject([
+    { id: "new-attachment", clientAttachmentId: "new-client", status: "PENDING", attemptCount: 0 },
+  ]);
+});
+
+it("只有 REJECTED mutation 可以修正，且丢弃会原子删除附件", async () => {
+  const mutations = new MutationRepository("user-1");
+  const attachments = new AttachmentRepository("user-1");
+  await mutations.enqueueWithAttachments(
+    pendingMutationFixture("discard-me", { status: "REJECTED" }),
+    [{
+      id: "discard-attachment",
+      clientAttachmentId: "discard-client",
+      fileName: "discard.png",
+      mimeType: "image/png",
+      blob: new Blob(["discard"], { type: "image/png" }),
+    }],
+  );
+  await expect(mutations.reviseRejected(
+    "discard-me",
+    pendingMutationFixture("other").payload,
+    [],
+    1,
+  )).resolves.toBeDefined();
+  await expect(mutations.reviseRejected(
+    "discard-me",
+    pendingMutationFixture("other").payload,
+    [],
+    1,
+  )).rejects.toThrow("只有被服务器拒绝的本地账单可以修改。");
+  await mutations.discard("discard-me");
+  expect(await mutations.get("discard-me")).toBeUndefined();
+  expect(await attachments.listByMutation("discard-me")).toEqual([]);
+});

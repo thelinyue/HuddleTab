@@ -42,6 +42,7 @@ import { ProductBottomNavigation } from "../../components/product-bottom-navigat
 import { useActivityLedgersQuery } from "../accounting/api";
 import {
   type Activity,
+  type ActivityMember,
   type CreatedInvitation,
   type Invitation,
   type InvitationIntent,
@@ -65,8 +66,9 @@ import {
   useUpdateActivityMutation,
 } from "./api";
 import { type Session, useLogoutMutation, useSessionQuery } from "../auth/api";
+import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
 
-type WorkspaceValue = { session: Session; activity: Activity };
+type WorkspaceValue = { session: Session; activity: Activity; members: ActivityMember[]; offline: boolean; snapshot?: ReturnType<typeof useActivitySnapshotQuery>["data"] };
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
 
 export function useWorkspace(): WorkspaceValue {
@@ -165,34 +167,39 @@ function tabUrl(activityId: string, tab: "feed" | "settlement", panel?: "members
 export function ActivityWorkspace() {
   const { activityId = "" } = useParams();
   const session = useSessionQuery();
-  const activity = useActivityQuery(session.data?.userId ?? "", activityId);
-  const members = useMembersQuery(session.data?.userId ?? "", activityId);
+  const online = useOnlineStatus();
+  const snapshot = useActivitySnapshotQuery(session.data?.userId ?? "", activityId);
+  const activity = useActivityQuery(session.data?.userId ?? "", activityId, online);
+  const members = useMembersQuery(session.data?.userId ?? "", activityId, online);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  if (session.isPending || activity.isPending) return <LoadingState label="正在打开活动…" />;
-  if (session.error || activity.error) return <ErrorNotice error={session.error ?? activity.error} />;
-  if (!session.data || !activity.data) return null;
+  if (session.isPending || (online ? activity.isPending : snapshot.isPending)) return <LoadingState label="正在打开活动…" />;
+  if (session.error || (activity.error && !snapshot.data) || snapshot.error && !online) return <ErrorNotice error={session.error ?? activity.error ?? snapshot.error} />;
+  if (!session.data) return null;
+  const activityData = activity.data ?? snapshot.data?.snapshot.activity;
+  const membersData = members.data ?? snapshot.data?.snapshot.members ?? [];
+  if (!activityData) return null;
 
   const tab = searchParams.get("tab") === "settlement" ? "settlement" : "feed";
   const panel = searchParams.get("panel");
   const closePanel = () => navigate(tabUrl(activityId, tab), { replace: true });
 
   return (
-    <WorkspaceContext.Provider value={{ session: session.data, activity: activity.data }}>
+      <WorkspaceContext.Provider value={{ session: session.data, activity: activityData, members: membersData, offline: !online, snapshot: snapshot.data }}>
       <section className="workspace">
         <header className="workspace-header">
           <div className="workspace-header__actions">
             <Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft aria-hidden="true" size={20} /></Link>
             <span className="workspace-header__spacer" />
             <Link className="workspace-header__members" to={tabUrl(activityId, tab, "members")}>
-              <UsersRound aria-hidden="true" size={17} /> 成员 {members.data?.length ?? 0}
+              <UsersRound aria-hidden="true" size={17} /> 成员 {membersData.length}
             </Link>
             <Link className="icon-button" to={tabUrl(activityId, tab, "manage")} aria-label="活动管理" title="活动管理"><MoreHorizontal aria-hidden="true" size={21} /></Link>
           </div>
           <div className="workspace-header__identity">
-            <h1>{activity.data.name}</h1>
-            <p>{members.data?.length ?? 0}人 · {activityStatus(activity.data.status)} · {activity.data.baseCurrency}</p>
+            <h1>{activityData.name}</h1>
+            <p>{membersData.length}人 · {activityStatus(activityData.status)} · {activityData.baseCurrency}</p>
           </div>
           <nav className="workspace-nav" aria-label="活动导航">
             <Link className={tab === "feed" ? "active" : ""} aria-current={tab === "feed" ? "page" : undefined} to={tabUrl(activityId, "feed")}>流水</Link>
@@ -458,12 +465,13 @@ function activeInvitations(invitations: readonly Invitation[], now: number): Inv
 }
 
 export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invite"; onInvite?: () => void }) {
-  const { session, activity } = useWorkspace();
-  const members = useMembersQuery(session.userId, activity.activityId);
+  const { session, activity, members: cachedMembers, offline } = useWorkspace();
+  const members = useMembersQuery(session.userId, activity.activityId, !offline);
+  const memberData = members.data ?? cachedMembers;
   const isOwner = activity.currentMemberRole === "OWNER";
-  const canManage = activity.status === "ACTIVE" && isOwner;
+  const canManage = activity.status === "ACTIVE" && isOwner && !offline;
   const invitations = useInvitationsQuery(session.userId, activity.activityId, canManage);
-  const joinRequests = useJoinRequestsQuery(session.userId, activity.activityId, isOwner);
+  const joinRequests = useJoinRequestsQuery(session.userId, activity.activityId, isOwner && !offline);
   const decideJoinRequest = useDecideJoinRequestMutation(session.userId, activity.activityId);
   const createGuest = useCreateGuestMutation(session.userId, activity.activityId);
   const createGuestBinding = useCreateGuestBindingInvitationMutation(
@@ -501,8 +509,8 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
     }
   }
 
-  if (members.isPending) return <LoadingState label="正在读取成员…" />;
-  if (members.error) return <ErrorNotice error={members.error} />;
+  if (members.isPending && !memberData) return <LoadingState label="正在读取成员…" />;
+  if (members.error && !memberData) return <ErrorNotice error={members.error} />;
   if (view === "invite" && canManage) {
     return <MemberInvitationView userId={session.userId} activityId={activity.activityId} />;
   }
@@ -511,6 +519,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
     : [];
   return (
     <div className="member-center">
+      {offline ? <div className="notice" role="status">当前离线，成员列表使用最近一次同步的缓存；邀请、绑定和审批需要联网。</div> : null}
       {canManage ? <div className="member-actions">
         <Button onClick={onInvite}><UserPlus aria-hidden="true" size={18} /> 邀请成员</Button>
         <form onSubmit={(event) => { event.preventDefault(); void createGuest.mutateAsync(guestName).then(() => setGuestName("")); }}><Input aria-label="临时成员名称" value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="临时成员名称" required /><Button variant="secondary" type="submit" busy={createGuest.isPending}>添加</Button></form>
@@ -549,9 +558,9 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
       ) : null}
       {decisionError ? <ErrorNotice error={decisionError} /> : null}
       <section className="member-section">
-        <h2>活动成员 · {members.data?.length ?? 0}人</h2>
+        <h2>活动成员 · {memberData?.length ?? 0}人</h2>
         <div className="member-list">
-          {members.data?.map((member) => {
+          {memberData?.map((member) => {
             const canBind = canManage && member.status === "ACTIVE" && member.userId == null;
             const editorOpen = bindingMemberId === member.memberId;
             return (
@@ -611,7 +620,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
         </div>
       </section>
       {visibleInvitations.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{visibleInvitations.map((invite) => {
-        const guestName = members.data?.find((member) => member.memberId === invite.guestMemberId)?.displayName ?? "临时成员";
+        const guestName = memberData?.find((member) => member.memberId === invite.guestMemberId)?.displayName ?? "临时成员";
         const label = invite.purpose === "GUEST_BINDING"
           ? `绑定「${guestName}」给 @${invite.targetUsername ?? "目标用户"}`
           : invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入";
@@ -697,7 +706,7 @@ function ActivityInfoRow({ icon, label, value, helper, editable, onEdit }: { ico
 }
 
 export function MorePage({ onEdit, onDelete, onTransfer }: { onEdit?: (field: ActivityField) => void; onDelete?: () => void; onTransfer?: () => void }) {
-  const { session, activity } = useWorkspace();
+  const { session, activity, offline } = useWorkspace();
   const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
   const [error, setError] = useState<unknown>();
   const canOpenEditor = Boolean(onEdit);
@@ -713,31 +722,32 @@ export function MorePage({ onEdit, onDelete, onTransfer }: { onEdit?: (field: Ac
 
   return (
     <div className="activity-more">
+      {offline ? <div className="notice" role="status">当前离线，活动管理需要联网后使用。</div> : null}
       <section>
         <h2>活动资料</h2>
         <div className="settings-list">
-          <ActivityInfoRow icon={<Pencil aria-hidden="true" size={17} />} label="活动名称" value={activity.name} editable={canOpenEditor && activity.fieldPermissions.name} onEdit={() => onEdit?.("name")} />
-          <ActivityInfoRow icon={<MapPin aria-hidden="true" size={17} />} label="地点" value={activity.location || "未填写"} editable={canOpenEditor && activity.fieldPermissions.location} onEdit={() => onEdit?.("location")} />
-          <ActivityInfoRow icon={<CircleDollarSign aria-hidden="true" size={17} />} label="主币种" value={activity.baseCurrency} helper={activity.hasAccountingRecords ? "已有账务记录，不可修改" : undefined} editable={canOpenEditor && activity.fieldPermissions.baseCurrency} onEdit={() => onEdit?.("baseCurrency")} />
-          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="开始日期" value={activity.startDate} editable={canOpenEditor && activity.fieldPermissions.startDate} onEdit={() => onEdit?.("startDate")} />
-          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="结束日期" value={activity.endDate || "未填写"} editable={canOpenEditor && activity.fieldPermissions.endDate} onEdit={() => onEdit?.("endDate")} />
+          <ActivityInfoRow icon={<Pencil aria-hidden="true" size={17} />} label="活动名称" value={activity.name} editable={!offline && canOpenEditor && activity.fieldPermissions.name} onEdit={() => onEdit?.("name")} />
+          <ActivityInfoRow icon={<MapPin aria-hidden="true" size={17} />} label="地点" value={activity.location || "未填写"} editable={!offline && canOpenEditor && activity.fieldPermissions.location} onEdit={() => onEdit?.("location")} />
+          <ActivityInfoRow icon={<CircleDollarSign aria-hidden="true" size={17} />} label="主币种" value={activity.baseCurrency} helper={activity.hasAccountingRecords ? "已有账务记录，不可修改" : undefined} editable={!offline && canOpenEditor && activity.fieldPermissions.baseCurrency} onEdit={() => onEdit?.("baseCurrency")} />
+          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="开始日期" value={activity.startDate} editable={!offline && canOpenEditor && activity.fieldPermissions.startDate} onEdit={() => onEdit?.("startDate")} />
+          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="结束日期" value={activity.endDate || "未填写"} editable={!offline && canOpenEditor && activity.fieldPermissions.endDate} onEdit={() => onEdit?.("endDate")} />
           <ActivityInfoRow icon={<UsersRound aria-hidden="true" size={17} />} label="状态" value={activityStatus(activity.status)} editable={false} />
         </div>
       </section>
       <section>
         <h2>加入设置</h2>
         <div className="settings-list">
-          <ActivityInfoRow icon={<UserPlus aria-hidden="true" size={17} />} label="加入方式" value={activity.inviteMode === "DIRECT_JOIN" ? "直接加入" : "需要审批"} editable={canOpenEditor && activity.fieldPermissions.inviteMode} onEdit={() => onEdit?.("inviteMode")} />
+          <ActivityInfoRow icon={<UserPlus aria-hidden="true" size={17} />} label="加入方式" value={activity.inviteMode === "DIRECT_JOIN" ? "直接加入" : "需要审批"} editable={!offline && canOpenEditor && activity.fieldPermissions.inviteMode} onEdit={() => onEdit?.("inviteMode")} />
         </div>
       </section>
       <section>
         <h2>数据导出</h2>
         <a className="button button--secondary" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`}><Download aria-hidden="true" size={17} />导出 CSV</a>
       </section>
-      {activity.currentMemberRole === "OWNER" && onTransfer ? <section><h2>成员与权限</h2><div className="settings-list"><ActivityInfoRow icon={<UserRoundCheck aria-hidden="true" size={17} />} label="转让所有权" value="选择新所有者" editable onEdit={onTransfer} /></div></section> : null}
-      {activity.allowedLifecycleActions.length ? <section><h2>活动状态</h2><div className="management-actions">{activity.allowedLifecycleActions.flatMap((action) => lifecycleLabels[action] ? [<Button key={action} variant="secondary" busy={lifecycle.isPending} onClick={() => void transition(action)}>{lifecycleLabels[action]}</Button>] : [])}</div></section> : null}
+      {!offline && activity.currentMemberRole === "OWNER" && onTransfer ? <section><h2>成员与权限</h2><div className="settings-list"><ActivityInfoRow icon={<UserRoundCheck aria-hidden="true" size={17} />} label="转让所有权" value="选择新所有者" editable onEdit={onTransfer} /></div></section> : null}
+      {!offline && activity.allowedLifecycleActions.length ? <section><h2>活动状态</h2><div className="management-actions">{activity.allowedLifecycleActions.flatMap((action) => lifecycleLabels[action] ? [<Button key={action} variant="secondary" busy={lifecycle.isPending} onClick={() => void transition(action)}>{lifecycleLabels[action]}</Button>] : [])}</div></section> : null}
       {error ?? lifecycle.error ? <ErrorNotice error={error ?? lifecycle.error} /> : null}
-      {activity.canDelete && onDelete ? <section className="management-danger"><h2>危险操作</h2><Button variant="danger" onClick={onDelete}><Trash2 aria-hidden="true" size={17} />删除活动</Button></section> : null}
+      {!offline && activity.canDelete && onDelete ? <section className="management-danger"><h2>危险操作</h2><Button variant="danger" onClick={onDelete}><Trash2 aria-hidden="true" size={17} />删除活动</Button></section> : null}
     </div>
   );
 }

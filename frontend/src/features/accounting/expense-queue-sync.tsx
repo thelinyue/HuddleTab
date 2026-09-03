@@ -18,6 +18,7 @@ function authoritativeKeys(userId: string, activityId: string) {
     queryKeys.recommendations(userId, activityId),
     queryKeys.settlements(userId, activityId),
     queryKeys.activityDetail(userId, activityId),
+    queryKeys.activitySnapshot(userId, activityId),
   ];
 }
 
