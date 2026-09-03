@@ -21,7 +21,7 @@ Assert-True ($null -eq $earlyCleanup) "早期失败仍执行了 Compose cleanup�
 $attemptedCleanup = Invoke-Phase1EComposeCleanup -ComposeAttempted $true -Cleanup { "cleanup-called" }
 Assert-True ($attemptedCleanup -eq "cleanup-called") "up 已尝试后没有执行 Compose cleanup。"
 $forwarded = New-Phase1EForwardedWslEnv
-Assert-True ($forwarded -eq "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL") "WSLENV 转发集合不符合最小凭据边界。"
+Assert-True ($forwarded -eq "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION") "WSLENV 转发集合不符合最小构建配置边界。"
 
 $defaultPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false
 Assert-True (($defaultPlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=webkit-smoke") "默认模式不再是原 Phase 1E 浏览器矩阵。"
@@ -43,6 +43,9 @@ Assert-True (-not ($task30Playwright -match "--grep|--config|--headed")) "Task30
 $task31Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task31Only $true
 Assert-True (($task31Playwright -join " ") -eq "run test:e2e -- task31.spec.ts --project=chromium-task31-desktop --project=chromium-task31-mobile") "Task31Only 没有固定到系统信息 Desktop/Mobile 项目。"
 Assert-True (-not ($task31Playwright -match "--grep|--config|--headed")) "Task31Only 注入了未批准的 Playwright 参数。"
+$releasePlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -ReleaseVerification $true
+Assert-True (($releasePlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=chromium-phase2-desktop --project=chromium-phase2-mobile --project=chromium-attachment-desktop --project=chromium-attachment-mobile --project=chromium-notification-desktop --project=chromium-notification-mobile --project=chromium-task29-desktop --project=chromium-task29-mobile --project=chromium-task30-desktop --project=chromium-task30-mobile --project=chromium-task31-desktop --project=chromium-task31-mobile --project=webkit-smoke") "ReleaseVerification 没有固定到完整浏览器矩阵。"
+Assert-True (-not ($releasePlaywright -match "--grep|--config|--headed")) "ReleaseVerification 注入了未批准的 Playwright 参数。"
 $exclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $true; $null } catch { $_ }
 Assert-True ($null -ne $exclusiveFailure) "两个专项模式同时启用时没有拒绝执行。"
 $phase2ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -ErrorAction Stop; New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $false -Phase2Only $true; $null } catch { $_ }
@@ -53,6 +56,8 @@ $task30ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $
 Assert-True ($null -ne $task30ExclusiveFailure) "Task30Only 与其他专项模式同时启用时没有拒绝执行。"
 $task31ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task31Only $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task30Only $true -Task31Only $true; $null } catch { $_ }
 Assert-True ($null -ne $task31ExclusiveFailure) "Task31Only 与其他专项模式同时启用时没有拒绝执行。"
+$releaseExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -ReleaseVerification $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task31Only $true -ReleaseVerification $true; $null } catch { $_ }
+Assert-True ($null -ne $releaseExclusiveFailure) "ReleaseVerification 与其他专项模式同时启用时没有拒绝执行。"
 
 $primary = [System.Management.Automation.ErrorRecord]::new(
   [System.InvalidOperationException]::new("主流程失败标记"),

@@ -27,7 +27,18 @@ use super::{
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
+const CONTENT_SECURITY_POLICY_HEADER: HeaderName =
+    HeaderName::from_static("content-security-policy");
+const X_CONTENT_TYPE_OPTIONS_HEADER: HeaderName = HeaderName::from_static("x-content-type-options");
+const X_FRAME_OPTIONS_HEADER: HeaderName = HeaderName::from_static("x-frame-options");
+const REFERRER_POLICY_HEADER: HeaderName = HeaderName::from_static("referrer-policy");
+const PERMISSIONS_POLICY_HEADER: HeaderName = HeaderName::from_static("permissions-policy");
 const DEFAULT_TIME_ZONE: &str = "Asia/Shanghai";
+
+/// Rust 直接托管的 SPA、API 和 PWA 共用这组响应安全边界。
+/// CSP 只放行当前应用需要的自身脚本、静态样式、Blob/data 图片和 Service Worker，
+/// 不允许 iframe、对象嵌入或外部脚本；具体业务响应仍由各 handler 自己声明缓存策略。
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; manifest-src 'self'";
 
 #[derive(Serialize, ToSchema)]
 pub struct HealthEnvelope {
@@ -353,6 +364,24 @@ async fn attach_request_id(mut request: Request<axum::body::Body>, next: Next) -
     response.headers_mut().insert(
         REQUEST_ID_HEADER,
         HeaderValue::from_str(&request_id.0).expect("UUID 始终是合法 HeaderValue"),
+    );
+    let headers = response.headers_mut();
+    headers.insert(
+        CONTENT_SECURITY_POLICY_HEADER,
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+    );
+    headers.insert(
+        X_CONTENT_TYPE_OPTIONS_HEADER,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(X_FRAME_OPTIONS_HEADER, HeaderValue::from_static("DENY"));
+    headers.insert(
+        REFERRER_POLICY_HEADER,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        PERMISSIONS_POLICY_HEADER,
+        HeaderValue::from_static("geolocation=(), camera=(), microphone=()"),
     );
     response
 }

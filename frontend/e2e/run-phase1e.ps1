@@ -5,7 +5,8 @@ param(
   [switch] $Phase2Only,
   [switch] $Task29Only,
   [switch] $Task30Only,
-  [switch] $Task31Only
+  [switch] $Task31Only,
+  [switch] $ReleaseVerification
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,14 +22,15 @@ $composeAttempted = $false
 $primaryFailure = $null
 $script:composeFileWsl = $null
 $originalWslEnv = $env:WSLENV
+$originalAppVersion = $env:APP_VERSION
 $sensitiveNames = @(
   "HUDDLETAB_E2E_USERNAME",
   "HUDDLETAB_E2E_PASSWORD",
   "POSTGRES_PASSWORD"
 )
 
-if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only, $Task31Only).Where({ $_ }).Count -gt 1) {
-  throw "附件、通知/所有权、Phase 2、Task 29、Task 30 与 Task 31 专项模式不能同时运行。"
+if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
+  throw "附件、通知/所有权、Phase 2、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
 }
 
 function Invoke-Wsl {
@@ -146,11 +148,13 @@ try {
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
+  $env:APP_VERSION = if ($ReleaseVerification) { "0.0.3" } else { "dev" }
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
   $env:HUDDLETAB_E2E_ATTACHMENT_MODE = if ($AttachmentOnly) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK29_MODE = if ($Task29Only) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK30_MODE = if ($Task30Only) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK31_MODE = if ($Task31Only) { "true" } else { "false" }
+  $env:HUDDLETAB_E2E_RELEASE_MODE = if ($ReleaseVerification) { "true" } else { "false" }
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
@@ -161,9 +165,29 @@ try {
   Invoke-Wsl -ArgumentList @("sh", $prepareDataScriptWsl, "--project-name", $composeProject) -Quiet | Out-Null
   Invoke-Compose "up -d --wait" | Out-Null
   Wait-Health $baseUrl
+  if ($ReleaseVerification) {
+    $entryHeaders = (Invoke-WebRequest -Uri "$baseUrl/" -UseBasicParsing).Headers
+    $requiredHeaders = @{
+      "Content-Security-Policy" = "default-src 'self'"
+      "X-Content-Type-Options" = "nosniff"
+      "X-Frame-Options" = "DENY"
+      "Referrer-Policy" = "no-referrer"
+      "Permissions-Policy" = "geolocation=(), camera=(), microphone=()"
+    }
+    foreach ($header in $requiredHeaders.Keys) {
+      $actual = [string] $entryHeaders[$header]
+      if ($header -eq "Content-Security-Policy") {
+        if ($actual -notlike "*$($requiredHeaders[$header])*") { throw "生产入口缺少 CSP 安全头。" }
+      } elseif ($actual -ne $requiredHeaders[$header]) {
+        throw "生产入口安全头 $header 不符合预期。"
+      }
+    }
+    $services = (Invoke-Compose "config --services" -Quiet).Output -split "\r?\n" | Where-Object { $_ }
+    if ((@($services) -join ",") -ne "postgres,app") { throw "最终 Compose 服务必须严格为 postgres 与 app。" }
+  }
 
   Write-Host "[3/10] 验证空库初始化引导、fresh migration 并通过 stdin bootstrap"
-  if ($Task30Only) {
+  if ($Task30Only -or $ReleaseVerification) {
     Push-Location $frontendDir
     try {
       $setupArguments = @("run", "test:e2e", "--", "setup.spec.ts", "--project=chromium-setup-desktop", "--project=chromium-setup-mobile")
@@ -174,7 +198,9 @@ try {
     }
   }
   $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
-  if ([int] $migration.Output.Trim() -lt 3) { throw "fresh migration 未完整应用。" }
+  if ($ReleaseVerification) {
+    if ([int] $migration.Output.Trim() -ne 9) { throw "候选镜像 fresh migration 数量不是预期的 9 条。" }
+  } elseif ([int] $migration.Output.Trim() -lt 3) { throw "fresh migration 未完整应用。" }
   # 一次性脚本整体从 stdin 执行，临时值不会进入主机命令行；CLI 的用户名回显也被丢弃。
   $bootstrapInput = @"
 set -eu
@@ -200,6 +226,8 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
     "Task 30 Chromium Desktop/Mobile 初始化与分享矩阵"
   } elseif ($Task31Only) {
     "Task 31 Chromium Desktop/Mobile 系统信息矩阵"
+  } elseif ($ReleaseVerification) {
+    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.3）"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {
@@ -210,7 +238,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   Write-Host "[4/10] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent -Task31Only $Task31Only.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent -Task31Only $Task31Only.IsPresent -ReleaseVerification $ReleaseVerification.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
@@ -282,7 +310,8 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
+  if ($null -ne $originalAppVersion) { $env:APP_VERSION = $originalAppVersion }
   $env:WSLENV = $originalWslEnv
 }
 

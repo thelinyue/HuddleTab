@@ -2,7 +2,7 @@ Set-StrictMode -Version Latest
 
 function New-Phase1EForwardedWslEnv {
   # 只向 WSL 转发 Compose 构建与运行必需的环境变量，E2E 登录凭据保留在 Windows Playwright 进程。
-  "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL"
+  "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION"
 }
 
 function New-Phase1EPlaywrightArguments {
@@ -12,11 +12,12 @@ function New-Phase1EPlaywrightArguments {
     [bool] $Phase2Only = $false,
     [bool] $Task29Only = $false,
     [bool] $Task30Only = $false,
-    [bool] $Task31Only = $false
+    [bool] $Task31Only = $false,
+    [bool] $ReleaseVerification = $false
   )
 
-  if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only, $Task31Only).Where({ $_ }).Count -gt 1) {
-    throw "附件、通知/所有权、Phase 2、Task 29、Task 30 与 Task 31 专项模式不能同时运行。"
+  if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
+    throw "附件、通知/所有权、Phase 2、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
   }
 
   if ($AttachmentOnly) {
@@ -81,6 +82,28 @@ function New-Phase1EPlaywrightArguments {
       "task31.spec.ts",
       "--project=chromium-task31-desktop",
       "--project=chromium-task31-mobile"
+    )
+  }
+  if ($ReleaseVerification) {
+    return @(
+      "run",
+      "test:e2e",
+      "--",
+      "--project=chromium-desktop",
+      "--project=chromium-mobile",
+      "--project=chromium-phase2-desktop",
+      "--project=chromium-phase2-mobile",
+      "--project=chromium-attachment-desktop",
+      "--project=chromium-attachment-mobile",
+      "--project=chromium-notification-desktop",
+      "--project=chromium-notification-mobile",
+      "--project=chromium-task29-desktop",
+      "--project=chromium-task29-mobile",
+      "--project=chromium-task30-desktop",
+      "--project=chromium-task30-mobile",
+      "--project=chromium-task31-desktop",
+      "--project=chromium-task31-mobile",
+      "--project=webkit-smoke"
     )
   }
   @(

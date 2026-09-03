@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–29 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。当前已完成 Phase 3 Task 29，但尚未进入 Task 30–31、对象存储或发布流程。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–31 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。当前正在收口最终自动化 Release Verification；它只构建本地 `0.0.3` 候选，不创建 tag 或发布镜像。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -563,6 +563,22 @@ npm --prefix frontend run api:generate
 
 完成结论严格为：“Phase 3 Task 31 完成，Phase 3 exit gate 通过，可以进入最终 Release Verification。”真机 iPhone Safari/Home Screen PWA、后台清理 Job、最终 Release Verification 和正式 `v0.0.3` 发布仍未完成；本轮没有创建 tag、发布镜像或宣称正式镜像可用。
 
+### 7.14 最终 Release Verification 自动化收口（进行中）
+
+最终验证固定使用 `APP_VERSION=0.0.3` 的本地候选镜像，不接受任意 Compose 文件、测试路径或版本参数；不创建 `v0.0.3` tag、不登录 GHCR、不推送镜像。Dockerfile/Compose 将版本注入运行时，统一返回应用与 PWA 版本；Rust HTTP 入口增加 CSP、`nosniff`、`X-Frame-Options`、`Referrer-Policy` 和 Permissions Policy，同时保留各业务接口已有的 `Cache-Control`。
+
+新增单一入口：
+
+```powershell
+pwsh -NoProfile -File scripts/verify-release.ps1
+```
+
+入口要求干净 Git 工作区，依次运行 Rust fmt、严格 Clippy、非数据库测试、一次性 PostgreSQL 容器中的 84 个串行 ignored 测试、临时目录 OpenAPI/client 漂移检查、Frontend 单测/typecheck/build、目录安全测试和 `frontend/e2e/run-phase1e.ps1 -ReleaseVerification`。ReleaseVerification 浏览器矩阵固定包含 Setup Desktop/Mobile、Chromium 核心/Phase 2/附件/通知与所有权/Task 29/Task 30/Task 31 Desktop/Mobile，以及 WebKit smoke；完成 fresh migration 9 条、SPA 深链、JSON 404/405、安全头、PWA 控制、版本 0.0.3、非 root/无 Node runtime、双容器重启持久性、中文冷启动错误、artifact 脱敏和限定清理。
+
+GHCR workflow 已收紧为仅语义版本 Git tag 触发，发布前执行 Rust/PostgreSQL/Frontend/合同检查，并从 tag 注入 `APP_VERSION`；正式发布时生成固定版本标签和 `latest`。本轮不会触发该 workflow。
+
+最终自动化通过后仍需按 [最终 Release Verification](../deployment/release-verification.md) 完成真实 iPhone Safari/Home Screen PWA；在获得真机证据前，不得把 Release Verification 标记为完成。超过恢复窗口的 Activity 物理清理 Job 不阻塞 `0.0.3`，列为发布后的独立任务。
+
 ## 8. 当前本地运行现场
 
 交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
@@ -683,9 +699,9 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 进入最终 Release Verification：Task 31 已完成存储与系统信息；SMTP 和应用级备份/还原已取消。Task 30、Task 29 已完成，Task 28 已通过 Phase 2 exit gate。
-2. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
-3. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
+1. 在干净工作区执行 `pwsh -NoProfile -File scripts/verify-release.ps1`，完成 Rust/PostgreSQL/Frontend/Compose/Playwright 自动化门禁。
+2. 按 `docs/deployment/release-verification.md` 在真实 iPhone Safari/Home Screen PWA 完成人工验收；在此之前不能创建 `v0.0.3` tag 或发布镜像。
+3. `0.0.3` 发布后另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
 
 每完成一项，只运行对应测试；涉及 UI 或运行镜像时再运行对应真实浏览器核心流程。视觉修改至少检查 `1440 x 1000` 与 `390 x 844`，并确认活动主导航仍只有“流水 / 结算”。
 
@@ -715,5 +731,6 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-03-huddletab-task30-setup-sharing.md`
 - `docs/superpowers/specs/2026-09-03-huddletab-task31-system-information-design.md`
 - `docs/superpowers/plans/2026-09-03-huddletab-task31-system-information.md`
+- `docs/deployment/release-verification.md`
 
 这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 31 已完成并通过 Phase 3 exit gate，但不代表最终 Release Verification、真机验收或正式发布完成。

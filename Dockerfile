@@ -15,6 +15,8 @@ RUN cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
 
+ARG APP_VERSION=dev
+
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates curl tzdata \
   && rm -rf /var/lib/apt/lists/* \
@@ -25,7 +27,7 @@ RUN apt-get update \
 COPY --from=server-build /build/server/target/release/huddletab /usr/local/bin/huddletab
 COPY --from=frontend-build --chown=huddletab:huddletab /build/frontend/dist/ /app/frontend/dist/
 
-ENV RUST_LOG=huddletab_server=info TZ=Asia/Shanghai
+ENV APP_VERSION=$APP_VERSION RUST_LOG=huddletab_server=info TZ=Asia/Shanghai
 WORKDIR /app
 USER 10001:10001
 EXPOSE 5660

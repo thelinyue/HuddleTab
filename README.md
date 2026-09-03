@@ -35,6 +35,8 @@ docker compose exec app huddletab bootstrap-user --username your-username
 docker compose logs -f app
 ```
 
+最终 `0.0.3` 候选的自动化门禁和真实 iPhone Safari/Home Screen 验收流程见[最终 Release Verification](docs/deployment/release-verification.md)。门禁入口固定使用隔离环境，不会创建 tag 或推送镜像。
+
 `prepare-data-dir.sh` 只接受仓库固定 Compose 文件，可选参数仅为 `--project-name`。它会先解析和校验真实的 `DATA_HOST_DIR/app`，再由一次性 root 容器把挂载点本身设置为 `10001:10001`、`0750`；不会递归改写已有文件。实际 `app` 服务仍以 UID/GID `10001:10001` 运行。
 
 应用数据保存在 Compose 文件所在目录的相对路径中：

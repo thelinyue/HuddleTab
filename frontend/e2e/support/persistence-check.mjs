@@ -5,6 +5,7 @@ const attachmentMode = process.env.HUDDLETAB_E2E_ATTACHMENT_MODE === "true";
 const task29Mode = process.env.HUDDLETAB_E2E_TASK29_MODE === "true";
 const task30Mode = process.env.HUDDLETAB_E2E_TASK30_MODE === "true";
 const task31Mode = process.env.HUDDLETAB_E2E_TASK31_MODE === "true";
+const releaseMode = process.env.HUDDLETAB_E2E_RELEASE_MODE === "true";
 
 if (!baseUrl || !username || !password) {
   throw new Error("缺少持久性检查所需的临时环境，请通过 Phase 1E PowerShell 入口运行。");
@@ -43,7 +44,17 @@ const activitiesResponse = await fetch(`${baseUrl}/api/activities?view=current`,
 });
 if (!activitiesResponse.ok) throw new Error("重启后无法读取测试活动。");
 const activities = (await activitiesResponse.json()).data;
-if (task29Mode) {
+if (releaseMode) {
+  const systemResponse = await fetch(`${baseUrl}/api/admin/system-information`, {
+    headers: { cookie: sessionCookie },
+  });
+  if (!systemResponse.ok) throw new Error("重启后无法读取候选镜像系统信息。");
+  const system = (await systemResponse.json()).data;
+  if (system.appVersion !== "0.0.3" || system.pwaVersion !== "0.0.3") {
+    throw new Error("候选镜像重启后应用与 PWA 版本不是 0.0.3。");
+  }
+  console.log("重启持久性检查通过：候选版本 0.0.3 与测试数据仍可读取。");
+} else if (task29Mode) {
   const usersResponse = await fetch(`${baseUrl}/api/admin/users`, {
     headers: { cookie: sessionCookie },
   });
