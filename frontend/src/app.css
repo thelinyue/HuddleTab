@@ -106,6 +106,8 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 
 .input { width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; background: var(--surface); font-size: 16px; line-height: 1.4; }
 .input:focus { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 22%, transparent); outline-offset: 0; }
+/* E2E artifact 脱敏使用 DOM 标记配合同源 CSS；生产 CSP 禁止测试脚本注入 inline style。 */
+[data-e2e-sensitive-mask="true"] { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; }
 .textarea { min-height: 92px; resize: vertical; }
 .field { display: grid; min-width: 0; gap: 6px; }
 .field__label { font-size: 13px; font-weight: 650; }

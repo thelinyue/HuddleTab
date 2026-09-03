@@ -7,6 +7,7 @@ import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } f
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
 import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "../features/admin/pages";
 import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
+import { useOnlineStatus } from "../features/activities/offline-workspace";
 import { useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { ChangePasswordPage } from "../features/me/password-page";
@@ -27,8 +28,15 @@ function RootRedirect() {
 function SetupGuard() {
   const location = useLocation();
   const status = useSetupStatusQuery();
+  const session = useSessionQuery();
+  const online = useOnlineStatus();
   if (status.isPending) return <LoadingState label="正在确认初始化状态…" />;
-  if (status.error || !status.data) return <SetupStatusError onRetry={() => void status.refetch()} />;
+  // 离线工作台已经由当前标签页 Session 和 Snapshot 保护；只在网络错误时放行，
+  // 认证失效仍会由 ProtectedRoute 清理身份，不能借缓存绕过服务端授权。
+  if (status.error || !status.data) {
+    if (!online && session.data) return <Outlet />;
+    return <SetupStatusError onRetry={() => void status.refetch()} />;
+  }
   if (status.data.setupRequired) {
     return location.pathname === "/setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
   }

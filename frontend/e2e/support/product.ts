@@ -3,25 +3,23 @@ import { expect, type BrowserContext, type Locator, type Page, type TestInfo } f
 export async function installArtifactVisualRedaction(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
     const apply = () => {
-      if (document.querySelector("style[data-e2e-sensitive-mask]")) return;
-      const style = document.createElement("style");
-      style.dataset.e2eSensitiveMask = "true";
       // 失败截图仍可用于定位布局，但账号字段和成员显示名不以可读文本进入图片。
-      style.textContent = `
-        input[autocomplete="username"],
-        input[autocomplete="current-password"],
-        input[autocomplete="new-password"],
-        .profile-panel strong,
-        .profile-panel small,
-        .member-input-list span {
-          color: transparent !important;
-          text-shadow: 0 0 8px currentColor !important;
-        }
-      `;
-      document.documentElement.append(style);
+      const selectors = [
+        'input[autocomplete="username"]',
+        'input[autocomplete="current-password"]',
+        'input[autocomplete="new-password"]',
+        ".profile-panel strong",
+        ".profile-panel small",
+        ".member-input-list span",
+      ];
+      document.querySelectorAll(selectors.join(",")).forEach((element) => {
+        element.setAttribute("data-e2e-sensitive-mask", "true");
+      });
     };
-    if (document.documentElement) apply();
-    else document.addEventListener("DOMContentLoaded", apply, { once: true });
+    if (document.documentElement) {
+      apply();
+      new MutationObserver(apply).observe(document.documentElement, { childList: true, subtree: true });
+    } else document.addEventListener("DOMContentLoaded", apply, { once: true });
   });
 }
 
@@ -57,7 +55,19 @@ export async function login(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("用户名").fill(username);
   await page.locator('input[autocomplete="current-password"]').fill(password);
+  const loginResponse = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/api/auth/login"));
   await page.getByRole("button", { name: "登录" }).click();
+  const response = await loginResponse;
+  if (response.status() === 429) {
+    // 完整发布矩阵共用一个生产限流桶；遇到窗口限制时按 Retry-After 等待后重试，
+    // 不修改服务端限流规则，也不把临时凭据写入日志或命令行。
+    const retryAfter = Number.parseInt(response.headers()["retry-after"] ?? "60", 10);
+    await page.waitForTimeout((Number.isFinite(retryAfter) ? Math.max(1, retryAfter) : 60) * 1000 + 500);
+    await page.goto("/login");
+    await page.getByLabel("用户名").fill(username);
+    await page.locator('input[autocomplete="current-password"]').fill(password);
+    await page.getByRole("button", { name: "登录" }).click();
+  }
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
 }
 
