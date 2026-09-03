@@ -35,6 +35,7 @@ const activityApiState = vi.hoisted(() => ({
   lifecycle: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   remove: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   restore: { error: null as unknown, isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() },
+  transfer: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   invitationQueryEnabled: [] as boolean[],
   members: [
     {
@@ -88,6 +89,10 @@ vi.mock("../auth/api", () => ({
   }),
 }));
 
+vi.mock("../notifications/api", () => ({
+  useNotificationsQuery: () => ({ data: { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 } }),
+}));
+
 vi.mock("./api", async (importOriginal) => {
   const original = await importOriginal<typeof import("./api")>();
   return {
@@ -107,6 +112,7 @@ vi.mock("./api", async (importOriginal) => {
     useActivityLifecycleMutation: () => activityApiState.lifecycle,
     useDeleteActivityMutation: () => activityApiState.remove,
     useRestoreActivityMutation: () => activityApiState.restore,
+    useTransferOwnershipMutation: () => activityApiState.transfer,
     useMembersQuery: () => ({ data: activityApiState.members, isPending: false }),
     useInvitationsQuery: (_userId: string, _activityId: string, enabled: boolean) => {
       activityApiState.invitationQueryEnabled.push(enabled);
@@ -155,7 +161,7 @@ afterEach(() => {
   activityApiState.deletedQueryEnabled.length = 0;
   activityApiState.deletedQueryError = null;
   activityApiState.deletedQueryPending = false;
-  for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.restore]) {
+  for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.restore, activityApiState.transfer]) {
     mutation.error = null;
     mutation.isPending = false;
     mutation.mutateAsync.mockReset();
@@ -572,6 +578,22 @@ describe("活动管理 Overlay", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
     fireEvent.click(screen.getByRole("button", { name: "结束活动" }));
     await waitFor(() => expect(activityApiState.lifecycle.mutateAsync).toHaveBeenCalledWith({ action: "END", version: "7" }));
+  });
+
+  it("所有权转让只列出 ACTIVE 账号成员，失败时保留选择和 Overlay", async () => {
+    activityApiState.members[1] = { ...activityApiState.members[1], displayName: "Bob", userId: "user-2" };
+    activityApiState.transfer.mutateAsync.mockRejectedValue(new Error("活动版本已变化"));
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: "编辑转让所有权" }));
+
+    expect(screen.getByText("转让后，新成员将成为活动所有者，你会变为普通成员。")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "新所有者" }), { target: { value: "guest-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认转让" }));
+
+    await waitFor(() => expect(activityApiState.transfer.mutateAsync).toHaveBeenCalledWith({ newOwnerMemberId: "guest-1", version: "7" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("活动版本已变化");
+    expect(screen.getByRole("combobox", { name: "新所有者" })).toHaveValue("guest-1");
+    expect(screen.getByRole("dialog", { name: "转让所有权" })).toBeInTheDocument();
   });
 
   it("删除必须在 Overlay 内二次确认，成功后返回活动列表", async () => {

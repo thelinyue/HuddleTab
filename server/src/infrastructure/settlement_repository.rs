@@ -133,6 +133,7 @@ impl SettlementRepository for PostgresSettlementRepository {
             },
         )
         .await?;
+        notify_settlement_receiver(&mut transaction, &settlement).await?;
         let record = load(&mut transaction, settlement.id).await?;
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(CreatedSettlement {
@@ -300,6 +301,43 @@ impl SettlementRepository for PostgresSettlementRepository {
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(record)
     }
+}
+
+async fn notify_settlement_receiver(
+    connection: &mut PgConnection,
+    settlement: &NewSettlement,
+) -> Result<(), SettlementRepositoryError> {
+    if settlement.payer_member_id == settlement.receiver_member_id {
+        return Ok(());
+    }
+    let recipient = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM activity_members
+         WHERE id = $1 AND activity_id = $2 AND status = 'ACTIVE' AND user_id IS NOT NULL",
+    )
+    .bind(settlement.receiver_member_id)
+    .bind(settlement.activity_id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(log_repository_error)?;
+    if let Some(recipient) = recipient {
+        sqlx::query(
+            "INSERT INTO notifications (
+                id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
+             ) VALUES ($1, $2, 'SETTLEMENT_RECEIVED', 'SETTLEMENT', $3, $4,
+                jsonb_build_object('amountMinor', $5::text, 'currency', $6::text), $7)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(recipient)
+        .bind(settlement.id)
+        .bind(settlement.activity_id)
+        .bind(settlement.amount_minor.to_string())
+        .bind(&settlement.currency)
+        .bind(settlement.now)
+        .execute(&mut *connection)
+        .await
+        .map_err(log_repository_error)?;
+    }
+    Ok(())
 }
 
 fn context_from_row(row: &(String, Uuid, String)) -> ActivitySettlementContext {

@@ -23,11 +23,16 @@ Assert-True ($attemptedCleanup -eq "cleanup-called") "up 已尝试后没有执�
 $forwarded = New-Phase1EForwardedWslEnv
 Assert-True ($forwarded -eq "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL") "WSLENV 转发集合不符合最小凭据边界。"
 
-$defaultPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false
+$defaultPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false
 Assert-True (($defaultPlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=webkit-smoke") "默认模式不再是原 Phase 1E 浏览器矩阵。"
-$attachmentPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $true
+$attachmentPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $false
 Assert-True (($attachmentPlaywright -join " ") -eq "run test:e2e -- attachment.spec.ts --project=chromium-attachment-desktop --project=chromium-attachment-mobile") "AttachmentOnly 没有固定到两个附件项目。"
 Assert-True (-not ($attachmentPlaywright -match "--grep|--config|--headed")) "AttachmentOnly 注入了未批准的 Playwright 参数。"
+$notificationPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $true
+Assert-True (($notificationPlaywright -join " ") -eq "run test:e2e -- notification-ownership.spec.ts --project=chromium-notification-desktop --project=chromium-notification-mobile") "NotificationOwnershipOnly 没有固定到两个通知项目。"
+Assert-True (-not ($notificationPlaywright -match "--grep|--config|--headed")) "NotificationOwnershipOnly 注入了未批准的 Playwright 参数。"
+$exclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $true -NotificationOwnershipOnly $true; $null } catch { $_ }
+Assert-True ($null -ne $exclusiveFailure) "两个专项模式同时启用时没有拒绝执行。"
 
 $primary = [System.Management.Automation.ErrorRecord]::new(
   [System.InvalidOperationException]::new("主流程失败标记"),

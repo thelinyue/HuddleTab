@@ -45,6 +45,7 @@ export function useMarkNotificationReadMutation(userId: string) {
             (item) => item.notificationId === notification.notificationId,
           );
           return {
+            ...current,
             items: current.items.map((item) =>
               item.notificationId === notification.notificationId ? notification : item,
             ),
@@ -56,5 +57,44 @@ export function useMarkNotificationReadMutation(userId: string) {
         },
       );
     },
+  });
+}
+
+async function decideJoinRequest(
+  activityId: string,
+  requestId: string,
+  decision: "APPROVE" | "REJECT",
+) {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.POST(
+      "/api/activities/{activity_id}/join-requests/{join_request_id}",
+      {
+        params: {
+          path: { activity_id: activityId, join_request_id: requestId },
+          header: { "x-csrf-token": headers["X-CSRF-Token"] },
+        },
+        body: { decision },
+      },
+    ),
+  ).data;
+}
+
+/** 通知页审批成功后刷新所有受影响的活动读模型；失败时 mutation 不改缓存。 */
+export function useDecideNotificationJoinRequestMutation(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ activityId, requestId, decision }: {
+      activityId: string;
+      requestId: string;
+      decision: "APPROVE" | "REJECT";
+    }) => decideJoinRequest(activityId, requestId, decision),
+    onSuccess: (_result, variables) => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.members(userId, variables.activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, variables.activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, variables.activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.joinRequests(userId, variables.activityId) }),
+    ]),
   });
 }

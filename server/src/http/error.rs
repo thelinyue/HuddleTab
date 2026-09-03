@@ -121,6 +121,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_ownership_target(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_OWNERSHIP_TARGET",
+            "请选择同一活动内已绑定账号的有效成员。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn invalid_collaboration_input(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,

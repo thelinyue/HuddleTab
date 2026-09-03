@@ -154,6 +154,11 @@ pub trait ActivityRepository: Send + Sync {
         &self,
         restoration: ActivityRestoration,
     ) -> Result<ActivityView, ActivityRepositoryError>;
+
+    async fn transfer_ownership(
+        &self,
+        transfer: ActivityOwnershipTransfer,
+    ) -> Result<ActivityView, ActivityRepositoryError>;
 }
 
 #[derive(Clone, Debug)]
@@ -213,6 +218,23 @@ pub struct ActivityRestoration {
     pub actor_user_id: Uuid,
     pub expected_version: i64,
     pub now: OffsetDateTime,
+}
+
+#[derive(Clone, Debug)]
+pub struct ActivityOwnershipTransfer {
+    pub activity_id: Uuid,
+    pub actor_user_id: Uuid,
+    pub new_owner_member_id: Uuid,
+    pub expected_version: i64,
+    pub now: OffsetDateTime,
+}
+
+#[derive(Clone, Debug)]
+pub struct TransferActivityOwnershipInput {
+    pub activity_id: Uuid,
+    pub actor_user_id: Uuid,
+    pub new_owner_member_id: String,
+    pub version: String,
 }
 
 #[derive(Clone, Debug)]
@@ -511,6 +533,30 @@ pub async fn restore_activity(
         .restore(ActivityRestoration {
             activity_id: input.activity_id,
             actor_user_id: input.actor_user_id,
+            expected_version: parse_version(&input.version)?,
+            now: clock.now(),
+        })
+        .await
+        .map_err(map_update_error)
+}
+
+/// 将唯一 OWNER 身份原子转交给同活动内的已绑定 ACTIVE 成员。
+///
+/// # Errors
+///
+/// 目标成员、权限、版本或活动状态不符合约束时返回稳定业务错误。
+pub async fn transfer_activity_ownership(
+    repository: &dyn ActivityRepository,
+    clock: &dyn Clock,
+    input: TransferActivityOwnershipInput,
+) -> Result<ActivityView, UpdateActivityError> {
+    let new_owner_member_id = Uuid::parse_str(&input.new_owner_member_id)
+        .map_err(|_| UpdateActivityError::InvalidInput)?;
+    repository
+        .transfer_ownership(ActivityOwnershipTransfer {
+            activity_id: input.activity_id,
+            actor_user_id: input.actor_user_id,
+            new_owner_member_id,
             expected_version: parse_version(&input.version)?,
             now: clock.now(),
         })

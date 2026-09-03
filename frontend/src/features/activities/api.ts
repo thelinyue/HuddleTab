@@ -11,6 +11,7 @@ export type CreateActivityInput = components["schemas"]["CreateActivityRequest"]
 export type UpdateActivityInput = components["schemas"]["UpdateActivityRequest"];
 export type ActivityUpdateEnvelope = components["schemas"]["ActivityUpdateEnvelope"];
 export type ActivityLifecycleInput = components["schemas"]["ActivityLifecycleRequest"];
+export type TransferOwnershipInput = components["schemas"]["TransferOwnershipRequest"];
 export type Invitation = components["schemas"]["InvitationData"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationData"];
 export type CreateInvitationInput = components["schemas"]["CreateInvitationRequest"];
@@ -91,6 +92,22 @@ async function restoreActivity(activityId: string, version: string): Promise<Act
       params: { path: { activity_id: activityId } },
       body: { version },
       headers: await mutationHeaders(),
+    }),
+  ).data;
+}
+
+async function transferOwnership(
+  activityId: string,
+  input: TransferOwnershipInput,
+): Promise<Activity> {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.POST("/api/activities/{activity_id}/ownership", {
+      params: {
+        header: { "x-csrf-token": headers["X-CSRF-Token"] },
+        path: { activity_id: activityId },
+      },
+      body: input,
     }),
   ).data;
 }
@@ -268,6 +285,21 @@ export function useRestoreActivityMutation(userId: string, activityId: string) {
   return useMutation({
     mutationFn: (version: string) => restoreActivity(activityId, version),
     onSuccess: invalidate,
+  });
+}
+
+export function useTransferOwnershipMutation(userId: string, activityId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TransferOwnershipInput) => transferOwnership(activityId, input),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.members(userId, activityId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
+      ]),
   });
 }
 

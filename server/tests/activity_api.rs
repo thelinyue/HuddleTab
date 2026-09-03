@@ -357,12 +357,230 @@ async fn invite_mode_update_advances_once_and_noop_has_no_side_effects() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn ownership_transfer_atomically_updates_roles_activity_audit_and_notification() {
+    let (pool, app, session, csrf, owner_user_id) = seed_authenticated_actor().await;
+    let created = create_activity(app.clone(), &session, &csrf).await;
+    let activity_id = Uuid::parse_str(created["activityId"].as_str().expect("应返回 activityId"))
+        .expect("activityId 应为 UUID");
+    let old_owner_member_id = Uuid::parse_str(
+        created["ownerMemberId"]
+            .as_str()
+            .expect("应返回 ownerMemberId"),
+    )
+    .expect("ownerMemberId 应为 UUID");
+    let new_owner_user_id = Uuid::new_v4();
+    let new_owner_member_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    sqlx::query("INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) VALUES ($1, 'bob', 'unused', 'Bob', $2, $2)")
+        .bind(new_owner_user_id).bind(now).execute(&pool).await.expect("应插入新 Owner 用户");
+    sqlx::query("INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) VALUES ($1, $2, $3, 'Bob', 'MEMBER', $4)")
+        .bind(new_owner_member_id).bind(activity_id).bind(new_owner_user_id).bind(now).execute(&pool).await.expect("应插入新 Owner 成员");
+
+    let (status, body) = json_response(
+        app,
+        authenticated_request(
+            &session,
+            &csrf,
+            "POST",
+            &format!("/api/activities/{activity_id}/ownership"),
+            &format!(r#"{{"newOwnerMemberId":"{new_owner_member_id}","version":"1"}}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["data"]["ownerMemberId"],
+        new_owner_member_id.to_string()
+    );
+    assert_eq!(body["data"]["currentMemberRole"], "MEMBER");
+    assert_eq!(body["data"]["version"], "2");
+    assert_eq!(body["data"]["revision"], "2");
+
+    let activity = sqlx::query_as::<_, (Uuid, i64, i64)>(
+        "SELECT owner_member_id, version, revision FROM activities WHERE id = $1",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取活动所有权");
+    assert_eq!(activity, (new_owner_member_id, 2, 2));
+    let roles = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, role FROM activity_members WHERE id = ANY($1) ORDER BY id",
+    )
+    .bind([old_owner_member_id, new_owner_member_id])
+    .fetch_all(&pool)
+    .await
+    .expect("应读取双方角色");
+    assert!(roles.contains(&(old_owner_member_id, "MEMBER".to_owned())));
+    assert!(roles.contains(&(new_owner_member_id, "OWNER".to_owned())));
+    let audit = sqlx::query_as::<_, (String, Uuid, i64)>(
+        "SELECT action, actor_user_id, activity_revision FROM activity_audit_logs
+         WHERE activity_id = $1 AND action = 'OWNER_TRANSFERRED'",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("转让应写入一次 Audit");
+    assert_eq!(audit, ("OWNER_TRANSFERRED".to_owned(), owner_user_id, 2));
+    let notification = sqlx::query_as::<_, (Uuid, String, String, Uuid)>(
+        "SELECT recipient_user_id, type, target_type, target_id FROM notifications
+         WHERE activity_id = $1 AND type = 'OWNERSHIP_CHANGED'",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("新 Owner 应收到通知");
+    assert_eq!(
+        notification,
+        (
+            new_owner_user_id,
+            "OWNERSHIP_CHANGED".to_owned(),
+            "ACTIVITY".to_owned(),
+            activity_id,
+        )
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn concurrent_ownership_transfers_have_one_winner_and_one_version_conflict() {
+    let (pool, app, session, csrf, _) = seed_authenticated_actor().await;
+    let created = create_activity(app.clone(), &session, &csrf).await;
+    let activity_id = Uuid::parse_str(created["activityId"].as_str().expect("应返回 activityId"))
+        .expect("activityId 应为 UUID");
+    let now = OffsetDateTime::now_utc();
+    let mut targets = Vec::new();
+    for (username, display_name) in [("bob", "Bob"), ("carol", "Carol")] {
+        let user_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) VALUES ($1, $2, 'unused', $3, $4, $4)")
+            .bind(user_id).bind(username).bind(display_name).bind(now).execute(&pool).await.expect("应插入候选 Owner 用户");
+        sqlx::query("INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) VALUES ($1, $2, $3, $4, 'MEMBER', $5)")
+            .bind(member_id).bind(activity_id).bind(user_id).bind(display_name).bind(now).execute(&pool).await.expect("应插入候选 Owner 成员");
+        targets.push(member_id);
+    }
+    let first = authenticated_request(
+        &session,
+        &csrf,
+        "POST",
+        &format!("/api/activities/{activity_id}/ownership"),
+        &format!(r#"{{"newOwnerMemberId":"{}","version":"1"}}"#, targets[0]),
+    );
+    let second = authenticated_request(
+        &session,
+        &csrf,
+        "POST",
+        &format!("/api/activities/{activity_id}/ownership"),
+        &format!(r#"{{"newOwnerMemberId":"{}","version":"1"}}"#, targets[1]),
+    );
+    let (first, second) = tokio::join!(
+        json_response(app.clone(), first),
+        json_response(app.clone(), second)
+    );
+    let statuses = [first.0, second.0];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    let conflict = [&first, &second]
+        .into_iter()
+        .find(|response| response.0 == StatusCode::CONFLICT)
+        .expect("应有一个版本冲突");
+    assert_eq!(conflict.1["error"]["code"], "VERSION_CONFLICT");
+    let state = sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT version,
+         (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1 AND action = 'OWNER_TRANSFERRED'),
+         (SELECT count(*) FROM notifications WHERE activity_id = $1 AND type = 'OWNERSHIP_CHANGED')
+         FROM activities WHERE id = $1",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取并发转让副作用");
+    assert_eq!(state, (2, 1, 1));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn ownership_transfer_rejects_self_guest_left_and_cross_activity_members() {
+    let (pool, app, session, csrf, _) = seed_authenticated_actor().await;
+    let created = create_activity(app.clone(), &session, &csrf).await;
+    let activity_id = Uuid::parse_str(created["activityId"].as_str().expect("应返回 activityId"))
+        .expect("activityId 应为 UUID");
+    let owner_member_id = Uuid::parse_str(
+        created["ownerMemberId"]
+            .as_str()
+            .expect("应返回 ownerMemberId"),
+    )
+    .expect("ownerMemberId 应为 UUID");
+    let now = OffsetDateTime::now_utc();
+    let guest_id = Uuid::new_v4();
+    let left_id = Uuid::new_v4();
+    let left_user_id = Uuid::new_v4();
+    let cross_activity = create_activity(app.clone(), &session, &csrf).await;
+    let cross_id = Uuid::parse_str(
+        cross_activity["ownerMemberId"]
+            .as_str()
+            .expect("应返回跨活动 Owner memberId"),
+    )
+    .expect("跨活动 Owner memberId 应为 UUID");
+    sqlx::query("INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) VALUES ($1, 'bob', 'unused', 'Bob', $2, $2)")
+        .bind(left_user_id).bind(now).execute(&pool).await.expect("应插入 LEFT 用户");
+    sqlx::query("INSERT INTO activity_members (id, activity_id, user_id, display_name, role, status, joined_at, left_at) VALUES ($1, $2, NULL, 'Guest', 'MEMBER', 'ACTIVE', $4, NULL), ($3, $2, $5, 'Bob', 'MEMBER', 'LEFT', $4, $4)")
+        .bind(guest_id).bind(activity_id).bind(left_id).bind(now).bind(left_user_id).execute(&pool).await.expect("应插入非法目标成员");
+    for target in [owner_member_id, guest_id, left_id, cross_id] {
+        let (status, body) = json_response(
+            app.clone(),
+            authenticated_request(
+                &session,
+                &csrf,
+                "POST",
+                &format!("/api/activities/{activity_id}/ownership"),
+                &format!(r#"{{"newOwnerMemberId":"{target}","version":"1"}}"#),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["error"]["code"], "INVALID_OWNERSHIP_TARGET");
+    }
+    let state = sqlx::query_as::<_, (Uuid, i64, i64)>(
+        "SELECT owner_member_id,
+         (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1 AND action = 'OWNER_TRANSFERRED'),
+         (SELECT count(*) FROM notifications WHERE activity_id = $1 AND type = 'OWNERSHIP_CHANGED')
+         FROM activities WHERE id = $1",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("拒绝请求不应产生副作用");
+    assert_eq!(state, (owner_member_id, 0, 0));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 // 生命周期、删除与恢复共享同一活动版本链，单场景才能验证状态和乐观锁连续性。
 #[allow(clippy::too_many_lines)]
 async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
     let (pool, app, session, csrf, _) = seed_authenticated_actor().await;
     let created = create_activity(app.clone(), &session, &csrf).await;
     let activity_id = created["activityId"].as_str().expect("应返回 activityId");
+    let activity_uuid = Uuid::parse_str(activity_id).expect("activityId 应为 UUID");
+    let member_user_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    sqlx::query("INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) VALUES ($1, 'bob', 'unused', 'Bob', $2, $2)")
+        .bind(member_user_id).bind(now).execute(&pool).await.expect("应插入通知成员用户");
+    sqlx::query("INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) VALUES ($1, $2, $3, 'Bob', 'MEMBER', $4)")
+        .bind(Uuid::new_v4()).bind(activity_uuid).bind(member_user_id).bind(now).execute(&pool).await.expect("应插入通知成员");
 
     let actions = [
         ("END", "1", "ENDED", "2"),
@@ -488,6 +706,25 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
             "ACTIVITY_REOPENED",
         ]
     );
+    let notifications = sqlx::query_as::<_, (String, Value)>(
+        "SELECT type, payload FROM notifications
+         WHERE activity_id = $1 AND recipient_user_id = $2 ORDER BY created_at, id",
+    )
+    .bind(activity_uuid)
+    .bind(member_user_id)
+    .fetch_all(&pool)
+    .await
+    .expect("应读取生命周期通知");
+    assert_eq!(notifications.len(), 6);
+    assert!(
+        notifications
+            .iter()
+            .all(|item| item.0 == "ACTIVITY_STATUS_CHANGED")
+    );
+    assert_eq!(notifications[0].1["status"], "ENDED");
+    assert_eq!(notifications[1].1["status"], "ARCHIVED");
+    assert_eq!(notifications[2].1["status"], "DELETED");
+    assert_eq!(notifications[3].1["status"], "RESTORED");
 }
 
 #[tokio::test]

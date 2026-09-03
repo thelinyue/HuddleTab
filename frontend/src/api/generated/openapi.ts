@@ -276,6 +276,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["transferActivityOwnership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/recommendations": {
         parameters: {
             query?: never;
@@ -967,25 +983,30 @@ export interface components {
         NotificationData: {
             activityId: string;
             createdAt: string;
-            kind: string;
+            kind: components["schemas"]["NotificationKindData"];
             notificationId: string;
             payload: {
                 [key: string]: string;
             };
             readAt?: string | null;
             targetId: string;
-            targetType: string;
+            targetType: components["schemas"]["NotificationTargetTypeData"];
         };
         NotificationEnvelope: {
             data: components["schemas"]["NotificationData"];
         };
+        /** @enum {string} */
+        NotificationKindData: "JOIN_APPROVAL_REQUESTED" | "JOIN_APPROVAL_RESOLVED" | "MEMBER_JOINED" | "PARTICIPATING_EXPENSE_CHANGED" | "PARTICIPATING_EXPENSE_DELETED" | "SETTLEMENT_RECEIVED" | "ACTIVITY_STATUS_CHANGED" | "OWNERSHIP_CHANGED";
         NotificationListData: {
             items: components["schemas"]["NotificationData"][];
+            timeZone: string;
             unreadCount: number;
         };
         NotificationListEnvelope: {
             data: components["schemas"]["NotificationListData"];
         };
+        /** @enum {string} */
+        NotificationTargetTypeData: "ACTIVITY" | "EXPENSE" | "SETTLEMENT";
         RecommendationData: {
             baseCurrency: string;
             recommendations: components["schemas"]["RecommendationItemData"][];
@@ -1054,6 +1075,10 @@ export interface components {
             amountMinor: string;
             payerMemberId: string;
             receiverMemberId: string;
+        };
+        TransferOwnershipRequest: {
+            newOwnerMemberId: string;
+            version: string;
         };
         UpdateActivityRequest: {
             baseCurrency?: string | null;
@@ -2374,6 +2399,90 @@ export interface operations {
                 headers: {
                     /** @description 等待秒数 */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    transferActivityOwnership: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferOwnershipRequest"];
+            };
+        };
+        responses: {
+            /** @description 活动所有权已转让 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无活动管理权限或 CSRF 校验失败 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 活动不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 活动版本或状态冲突 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 目标成员不符合转让条件 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求过于频繁 */
+            429: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

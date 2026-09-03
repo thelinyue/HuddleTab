@@ -37,16 +37,40 @@ CREATE TABLE notifications (
     id UUID PRIMARY KEY,
     recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     type TEXT NOT NULL CHECK (
-        type IN ('JOIN_APPROVAL_REQUESTED', 'JOIN_APPROVAL_RESOLVED')
+        type IN (
+            'JOIN_APPROVAL_REQUESTED',
+            'JOIN_APPROVAL_RESOLVED',
+            'MEMBER_JOINED',
+            'PARTICIPATING_EXPENSE_CHANGED',
+            'PARTICIPATING_EXPENSE_DELETED',
+            'SETTLEMENT_RECEIVED',
+            'ACTIVITY_STATUS_CHANGED',
+            'OWNERSHIP_CHANGED'
+        )
     ),
-    target_type TEXT NOT NULL CHECK (target_type = 'ACTIVITY'),
-    target_id UUID NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    target_type TEXT NOT NULL CHECK (target_type IN ('ACTIVITY', 'EXPENSE', 'SETTLEMENT')),
+    target_id UUID NOT NULL,
     activity_id UUID NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
     payload JSONB NOT NULL DEFAULT '{}'::JSONB
         CHECK (jsonb_typeof(payload) = 'object'),
     read_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
-    CONSTRAINT notifications_activity_target CHECK (target_id = activity_id)
+    CONSTRAINT notifications_kind_target CHECK (
+        (type IN (
+            'JOIN_APPROVAL_REQUESTED',
+            'JOIN_APPROVAL_RESOLVED',
+            'MEMBER_JOINED',
+            'ACTIVITY_STATUS_CHANGED',
+            'OWNERSHIP_CHANGED'
+        ) AND target_type = 'ACTIVITY' AND target_id = activity_id)
+        OR
+        (type IN (
+            'PARTICIPATING_EXPENSE_CHANGED',
+            'PARTICIPATING_EXPENSE_DELETED'
+        ) AND target_type = 'EXPENSE')
+        OR
+        (type = 'SETTLEMENT_RECEIVED' AND target_type = 'SETTLEMENT')
+    )
 );
 
 CREATE INDEX notifications_recipient_created_idx

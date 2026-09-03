@@ -11,10 +11,11 @@ use crate::{
     application::{
         activity::{
             ActivityLifecycleInput, ActivityMemberView, ActivityVersionInput, ActivityView,
-            CreateActivityError, CreateActivityInput, ReadActivityError, UpdateActivityError,
-            UpdateActivityInput, create_activity, delete_activity, get_activity, list_activities,
-            list_activity_members, list_deleted_activities, restore_activity, transition_activity,
-            update_activity,
+            CreateActivityError, CreateActivityInput, ReadActivityError,
+            TransferActivityOwnershipInput, UpdateActivityError, UpdateActivityInput,
+            create_activity, delete_activity, get_activity, list_activities, list_activity_members,
+            list_deleted_activities, restore_activity, transfer_activity_ownership,
+            transition_activity, update_activity,
         },
         auth::{CurrentSessionError, current_session},
     },
@@ -29,6 +30,7 @@ use super::{
     auth::validate_session_csrf,
     collaboration::authenticate,
     error::{ApiError, RequestId},
+    rate_limit::RateLimitCategory,
     router::AppState,
 };
 
@@ -65,6 +67,13 @@ pub struct ActivityLifecycleRequest {
 
 #[derive(Deserialize, ToSchema)]
 pub struct ActivityVersionRequest {
+    pub version: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferOwnershipRequest {
+    pub new_owner_member_id: String,
     pub version: String,
 }
 
@@ -464,6 +473,60 @@ pub(crate) async fn restore(
 }
 
 #[utoipa::path(
+    post,
+    path = "/api/activities/{activity_id}/ownership",
+    operation_id = "transferActivityOwnership",
+    params(
+        ("activity_id" = String, Path, description = "活动 UUID"),
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    request_body = TransferOwnershipRequest,
+    responses(
+        (status = 200, description = "活动所有权已转让", body = ActivityEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无活动管理权限或 CSRF 校验失败", body = super::error::ErrorEnvelope),
+        (status = 404, description = "活动不存在", body = super::error::ErrorEnvelope),
+        (status = 409, description = "活动版本或状态冲突", body = super::error::ErrorEnvelope),
+        (status = 422, description = "目标成员不符合转让条件", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求过于频繁", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn transfer_ownership(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<TransferOwnershipRequest>,
+) -> Result<Json<ActivityEnvelope>, ApiError> {
+    let actor =
+        super::collaboration::authenticate_mutation(&state, &jar, &headers, request_id.clone())
+            .await?;
+    state
+        .rate_limiter
+        .check(
+            RateLimitCategory::SensitiveAuthenticated,
+            actor.user_id.to_string(),
+        )
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
+    let activity = transfer_activity_ownership(
+        &PostgresActivityRepository::new(state.pool),
+        &SystemClock,
+        TransferActivityOwnershipInput {
+            activity_id: parse_activity_id(&activity_id, request_id.clone())?,
+            actor_user_id: actor.user_id,
+            new_owner_member_id: request.new_owner_member_id,
+            version: request.version,
+        },
+    )
+    .await
+    .map_err(|error| map_ownership_error(error, request_id))?;
+    Ok(Json(ActivityEnvelope {
+        data: activity_data(activity),
+    }))
+}
+
+#[utoipa::path(
     get,
     path = "/api/activities/{activity_id}/members",
     operation_id = "listActivityMembers",
@@ -573,6 +636,15 @@ fn map_update_error(error: UpdateActivityError, request_id: RequestId) -> ApiErr
         UpdateActivityError::InvalidTransition => ApiError::invalid_activity_transition(request_id),
         UpdateActivityError::RestoreExpired => ApiError::restore_window_expired(request_id),
         UpdateActivityError::Unavailable => ApiError::internal(request_id),
+    }
+}
+
+fn map_ownership_error(error: UpdateActivityError, request_id: RequestId) -> ApiError {
+    match error {
+        UpdateActivityError::InvalidInput | UpdateActivityError::FieldLocked => {
+            ApiError::invalid_ownership_target(request_id)
+        }
+        other => map_update_error(other, request_id),
     }
 }
 

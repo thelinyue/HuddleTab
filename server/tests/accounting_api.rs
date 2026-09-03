@@ -477,6 +477,117 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn expense_and_settlement_notifications_follow_the_transaction_event_matrix() {
+    let context = seed_context().await;
+    let recipient_user_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    sqlx::query("INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) VALUES ($1, 'bob', 'unused', 'Bob', $2, $2)")
+        .bind(recipient_user_id).bind(now).execute(&context.pool).await.expect("应插入通知接收人");
+    sqlx::query("UPDATE activity_members SET user_id = $1 WHERE id = $2")
+        .bind(recipient_user_id)
+        .bind(context.guest_member_id)
+        .execute(&context.pool)
+        .await
+        .expect("应绑定账务参与成员");
+
+    let expense_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let mutation_id = Uuid::new_v4();
+    let create = expense_payload(&context, mutation_id, "通知账单");
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", expense_uri.clone(), create),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let expense_id = created["data"]["expense"]["expenseId"]
+        .as_str()
+        .expect("应返回 expenseId");
+    assert_eq!(notification_count(&context, recipient_user_id).await, 0);
+
+    let item_uri = format!("{expense_uri}/{expense_id}");
+    let mut update = expense_payload(&context, mutation_id, "修改后的账单");
+    update["version"] = json!("1");
+    let (status, _) = response(&context, request(&context, "PUT", item_uri.clone(), update)).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = response(
+        &context,
+        request(&context, "DELETE", item_uri, json!({"version":"2"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let settlement_uri = format!("/api/activities/{}/settlements", context.activity_id);
+    let settlement = settlement_payload(&context, Uuid::new_v4(), "20");
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", settlement_uri.clone(), settlement.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let settlement_id = created["data"]["settlement"]["settlementId"]
+        .as_str()
+        .expect("应返回 settlementId");
+    let (status, replay) = response(
+        &context,
+        request(&context, "POST", settlement_uri, settlement),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(replay["data"]["idempotentReplay"], true);
+    let settlement_item = format!(
+        "/api/activities/{}/settlements/{settlement_id}",
+        context.activity_id
+    );
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "PUT",
+            settlement_item.clone(),
+            json!({
+                "version":"1",
+                "payerMemberId":context.owner_member_id,
+                "receiverMemberId":context.guest_member_id,
+                "amountMinor":"21"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = response(
+        &context,
+        request(&context, "DELETE", settlement_item, json!({"version":"2"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let kinds = sqlx::query_scalar::<_, String>(
+        "SELECT type FROM notifications WHERE recipient_user_id = $1 ORDER BY created_at, id",
+    )
+    .bind(recipient_user_id)
+    .fetch_all(&context.pool)
+    .await
+    .expect("应读取账务通知");
+    assert_eq!(
+        kinds,
+        vec![
+            "PARTICIPATING_EXPENSE_CHANGED",
+            "PARTICIPATING_EXPENSE_DELETED",
+            "SETTLEMENT_RECEIVED",
+        ]
+    );
+}
+
+async fn notification_count(context: &AccountingContext, recipient_user_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM notifications WHERE recipient_user_id = $1")
+        .bind(recipient_user_id)
+        .fetch_one(&context.pool)
+        .await
+        .expect("应读取通知数量")
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn expense_noop_ignores_zero_base_fact_input_order() {
     let context = seed_context().await;
     let mut members = [context.owner_member_id, context.guest_member_id];

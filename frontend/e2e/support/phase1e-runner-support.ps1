@@ -6,7 +6,14 @@ function New-Phase1EForwardedWslEnv {
 }
 
 function New-Phase1EPlaywrightArguments {
-  param([Parameter(Mandatory)] [bool] $AttachmentOnly)
+  param(
+    [Parameter(Mandatory)] [bool] $AttachmentOnly,
+    [Parameter(Mandatory)] [bool] $NotificationOwnershipOnly
+  )
+
+  if ($AttachmentOnly -and $NotificationOwnershipOnly) {
+    throw "附件专项与通知/所有权专项不能同时运行。"
+  }
 
   if ($AttachmentOnly) {
     return @(
@@ -16,6 +23,16 @@ function New-Phase1EPlaywrightArguments {
       "attachment.spec.ts",
       "--project=chromium-attachment-desktop",
       "--project=chromium-attachment-mobile"
+    )
+  }
+  if ($NotificationOwnershipOnly) {
+    return @(
+      "run",
+      "test:e2e",
+      "--",
+      "notification-ownership.spec.ts",
+      "--project=chromium-notification-desktop",
+      "--project=chromium-notification-mobile"
     )
   }
   @(

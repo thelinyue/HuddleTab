@@ -17,7 +17,7 @@ use huddletab_server::{
 };
 use serde_json::Value;
 use sqlx::PgPool;
-use time::{Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
@@ -268,4 +268,59 @@ async fn notification_read_is_recipient_scoped_and_idempotent() {
     .await
     .expect("应读取通知已读状态");
     assert_eq!(stored, (1, 1));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn notification_list_caps_items_but_counts_all_unread_and_returns_time_zone() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([31; 32]);
+    let alice = seed_actor(&pool, &secret, "alice").await;
+    let activity_id = seed_activity(&pool, &alice).await;
+    for index in 0..55 {
+        sqlx::query(
+            "INSERT INTO notifications (
+                id, recipient_user_id, type, target_type, target_id, activity_id,
+                payload, created_at
+             ) VALUES ($1, $2, 'ACTIVITY_STATUS_CHANGED', 'ACTIVITY', $3, $3, $4, $5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(alice.user_id)
+        .bind(activity_id)
+        .bind(serde_json::json!({"status": "ENDED"}))
+        .bind(OffsetDateTime::now_utc() + Duration::seconds(index))
+        .execute(&pool)
+        .await
+        .expect("应插入测试通知");
+    }
+    let app = router_with_state(
+        None,
+        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
+    );
+
+    let (status, body) = json_response(
+        &app,
+        request(&alice, "GET", "/api/notifications".to_owned()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["data"]["items"].as_array().expect("应返回数组").len(),
+        50
+    );
+    assert_eq!(body["data"]["unreadCount"], 55);
+    assert_eq!(body["data"]["timeZone"], "Asia/Shanghai");
+    let first = &body["data"]["items"][0];
+    OffsetDateTime::parse(
+        first["createdAt"].as_str().expect("通知应返回创建时间"),
+        &Rfc3339,
+    )
+    .expect("通知创建时间必须是浏览器可解析的 RFC 3339");
 }

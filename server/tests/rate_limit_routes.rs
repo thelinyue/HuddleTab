@@ -578,6 +578,21 @@ async fn sensitive_writes_require_session_and_csrf_before_sharing_user_limit() {
         .expect("router 应响应");
     assert_rate_limited(response).await;
 
+    let ownership_response = app
+        .clone()
+        .oneshot(mutation_request(
+            "POST",
+            &format!("/api/activities/{activity_id}/ownership"),
+            Body::from(format!(
+                r#"{{"newOwnerMemberId":"{}","version":"1"}}"#,
+                Uuid::new_v4()
+            )),
+            &first_context,
+        ))
+        .await
+        .expect("router 应响应");
+    assert_rate_limited(ownership_response).await;
+
     let response = app
         .oneshot(mutation_request(
             "PUT",

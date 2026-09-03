@@ -147,6 +147,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             axum::routing::post(activity::transition).fallback(api_method_not_allowed),
         )
         .route(
+            "/activities/{activity_id}/ownership",
+            axum::routing::post(activity::transfer_ownership).fallback(api_method_not_allowed),
+        )
+        .route(
             "/activities/{activity_id}/restore",
             axum::routing::post(activity::restore).fallback(api_method_not_allowed),
         )

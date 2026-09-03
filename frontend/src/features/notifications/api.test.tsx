@@ -12,7 +12,7 @@ vi.mock("../../api/client", () => ({ apiClient: client }));
 vi.mock("../../api/csrf", () => csrf);
 
 import { queryKeys } from "../../api/query-keys";
-import { useMarkNotificationReadMutation, useNotificationsQuery } from "./api";
+import { useDecideNotificationJoinRequestMutation, useMarkNotificationReadMutation, useNotificationsQuery } from "./api";
 
 const unread = {
   activityId: "activity-1",
@@ -43,7 +43,7 @@ afterEach(() => {
 describe("notification adapter", () => {
   it("列表使用当前用户 key 与 generated GET", async () => {
     client.GET.mockResolvedValue({
-      data: { data: { items: [unread], unreadCount: 1 } },
+      data: { data: { items: [unread], timeZone: "Asia/Shanghai", unreadCount: 1 } },
       response: new Response(null, { status: 200 }),
     });
     const { queryClient, wrapper } = setup();
@@ -51,7 +51,7 @@ describe("notification adapter", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(queryClient.getQueryData(Reflect.get(queryKeys, "notifications")("user-1")))
-      .toEqual({ items: [unread], unreadCount: 1 });
+      .toEqual({ items: [unread], timeZone: "Asia/Shanghai", unreadCount: 1 });
     expect(client.GET).toHaveBeenCalledWith("/api/notifications");
   });
 
@@ -62,7 +62,7 @@ describe("notification adapter", () => {
       response: new Response(null, { status: 200 }),
     });
     const { queryClient, wrapper } = setup();
-    const other = { items: [unread], unreadCount: 1 };
+    const other = { items: [unread], timeZone: "Asia/Shanghai", unreadCount: 1 };
     queryClient.setQueryData(Reflect.get(queryKeys, "notifications")("user-1"), other);
     queryClient.setQueryData(Reflect.get(queryKeys, "notifications")("user-2"), other);
     const { result } = renderHook(() => useMarkNotificationReadMutation("user-1"), {
@@ -83,8 +83,40 @@ describe("notification adapter", () => {
       },
     );
     expect(queryClient.getQueryData(Reflect.get(queryKeys, "notifications")("user-1")))
-      .toEqual({ items: [read], unreadCount: 0 });
+      .toEqual({ items: [read], timeZone: "Asia/Shanghai", unreadCount: 0 });
     expect(queryClient.getQueryData(Reflect.get(queryKeys, "notifications")("user-2")))
       .toEqual(other);
+  });
+
+  it("内联审批提交受控路径并刷新通知和活动读模型", async () => {
+    client.POST.mockResolvedValue({
+      data: { data: { requestId: "request-1", status: "APPROVED" } },
+      response: new Response(null, { status: 200 }),
+    });
+    const { queryClient, wrapper } = setup();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useDecideNotificationJoinRequestMutation("user-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ activityId: "activity-1", requestId: "request-1", decision: "APPROVE" });
+    });
+
+    expect(client.POST).toHaveBeenCalledWith(
+      "/api/activities/{activity_id}/join-requests/{join_request_id}",
+      {
+        body: { decision: "APPROVE" },
+        params: {
+          header: { "x-csrf-token": "csrf-token" },
+          path: { activity_id: "activity-1", join_request_id: "request-1" },
+        },
+      },
+    );
+    expect(invalidate.mock.calls.map(([options]) => options?.queryKey)).toEqual([
+      queryKeys.notifications("user-1"),
+      queryKeys.members("user-1", "activity-1"),
+      queryKeys.activityDetail("user-1", "activity-1"),
+      queryKeys.activitySnapshot("user-1", "activity-1"),
+      queryKeys.joinRequests("user-1", "activity-1"),
+    ]);
   });
 });

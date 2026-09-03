@@ -38,7 +38,7 @@ pub trait NotificationRepository: Send + Sync {
     async fn list(
         &self,
         recipient_user_id: Uuid,
-    ) -> Result<Vec<NotificationView>, NotificationRepositoryError>;
+    ) -> Result<(Vec<NotificationView>, usize), NotificationRepositoryError>;
 
     async fn mark_read(
         &self,
@@ -67,11 +67,10 @@ pub async fn list_notifications(
     repository: &dyn NotificationRepository,
     recipient_user_id: Uuid,
 ) -> Result<NotificationList, NotificationError> {
-    let items = repository
+    let (items, unread_count) = repository
         .list(recipient_user_id)
         .await
         .map_err(map_repository_error)?;
-    let unread_count = items.iter().filter(|item| item.read_at.is_none()).count();
     Ok(NotificationList {
         items,
         unread_count,

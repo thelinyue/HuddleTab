@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([switch] $AttachmentOnly)
+param(
+  [switch] $AttachmentOnly,
+  [switch] $NotificationOwnershipOnly
+)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -19,6 +22,10 @@ $sensitiveNames = @(
   "HUDDLETAB_E2E_PASSWORD",
   "POSTGRES_PASSWORD"
 )
+
+if ($AttachmentOnly -and $NotificationOwnershipOnly) {
+  throw "附件专项与通知/所有权专项不能同时运行。"
+}
 
 function Invoke-Wsl {
   param(
@@ -168,11 +175,17 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
   $bootstrapInput = $null
 
-  $matrixLabel = if ($AttachmentOnly) { "Chromium Desktop/Mobile 附件矩阵" } else { "Chromium Desktop/Mobile 核心矩阵与 WebKit smoke" }
+  $matrixLabel = if ($AttachmentOnly) {
+    "Chromium Desktop/Mobile 附件矩阵"
+  } elseif ($NotificationOwnershipOnly) {
+    "Chromium Desktop/Mobile 通知与所有权矩阵"
+  } else {
+    "Chromium Desktop/Mobile 核心矩阵与 WebKit smoke"
+  }
   Write-Host "[4/9] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir

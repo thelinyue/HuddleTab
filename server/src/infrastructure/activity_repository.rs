@@ -5,9 +5,9 @@ use uuid::Uuid;
 
 use crate::{
     application::activity::{
-        ActivityDeletion, ActivityMemberView, ActivityMutationResult, ActivityRepository,
-        ActivityRepositoryError, ActivityRestoration, ActivityTransition, ActivityUpdate,
-        ActivityView, CreatedActivity, NewActivity,
+        ActivityDeletion, ActivityMemberView, ActivityMutationResult, ActivityOwnershipTransfer,
+        ActivityRepository, ActivityRepositoryError, ActivityRestoration, ActivityTransition,
+        ActivityUpdate, ActivityView, CreatedActivity, NewActivity,
     },
     domain::activity::{ActivityCapabilities, ActivityPeriod, ActivityStatus},
 };
@@ -401,6 +401,14 @@ impl ActivityRepository for PostgresActivityRepository {
             transition.now,
         )
         .await?;
+        notify_activity_members(
+            &mut transaction,
+            &current,
+            transition.actor_user_id,
+            next.as_str(),
+            transition.now,
+        )
+        .await?;
         next.as_str().clone_into(&mut current.status);
         current.version += 1;
         current.revision = revision;
@@ -439,6 +447,14 @@ impl ActivityRepository for PostgresActivityRepository {
             deletion.actor_user_id,
             "ACTIVITY_DELETED",
             revision,
+            deletion.deleted_at,
+        )
+        .await?;
+        notify_activity_members(
+            &mut transaction,
+            &current,
+            deletion.actor_user_id,
+            "DELETED",
             deletion.deleted_at,
         )
         .await?;
@@ -488,8 +504,118 @@ impl ActivityRepository for PostgresActivityRepository {
             restoration.now,
         )
         .await?;
+        notify_activity_members(
+            &mut transaction,
+            &current,
+            restoration.actor_user_id,
+            "RESTORED",
+            restoration.now,
+        )
+        .await?;
         current.deleted_at = None;
         current.purge_after = None;
+        current.version += 1;
+        current.revision = revision;
+        transaction.commit().await.map_err(log_repository_error)?;
+        Ok(current)
+    }
+
+    async fn transfer_ownership(
+        &self,
+        transfer: ActivityOwnershipTransfer,
+    ) -> Result<ActivityView, ActivityRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        let mut current = lock_activity(
+            &mut transaction,
+            transfer.activity_id,
+            transfer.actor_user_id,
+        )
+        .await?;
+        // 转让竞争中旧 Owner 会被降级；先比较版本，确保并发败方稳定返回 VERSION_CONFLICT。
+        if current.version != transfer.expected_version {
+            return Err(ActivityRepositoryError::VersionConflict);
+        }
+        if current.current_member_role != "OWNER" {
+            return Err(ActivityRepositoryError::Forbidden);
+        }
+        if current.deleted_at.is_some() {
+            return Err(ActivityRepositoryError::InvalidTransition);
+        }
+        if transfer.new_owner_member_id == current.owner_member_id {
+            return Err(ActivityRepositoryError::FieldLocked);
+        }
+
+        // Activity 行先锁定，再按 member UUID 排序锁定双方，避免并发转让产生循环等待。
+        let mut member_ids = [current.owner_member_id, transfer.new_owner_member_id];
+        member_ids.sort_unstable();
+        sqlx::query("SELECT id FROM activity_members WHERE id = ANY($1) ORDER BY id FOR UPDATE")
+            .bind(member_ids.as_slice())
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+        let new_owner = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT user_id, display_name FROM activity_members
+             WHERE id = $1 AND activity_id = $2 AND status = 'ACTIVE'
+               AND user_id IS NOT NULL AND role = 'MEMBER'",
+        )
+        .bind(transfer.new_owner_member_id)
+        .bind(transfer.activity_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .ok_or(ActivityRepositoryError::FieldLocked)?;
+
+        sqlx::query(
+            "UPDATE activity_members SET role = 'MEMBER', version = version + 1 WHERE id = $1",
+        )
+        .bind(current.owner_member_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        sqlx::query(
+            "UPDATE activity_members SET role = 'OWNER', version = version + 1 WHERE id = $1",
+        )
+        .bind(transfer.new_owner_member_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        let revision = sqlx::query_scalar::<_, i64>(
+            "UPDATE activities SET owner_member_id = $1, version = version + 1,
+             revision = revision + 1, updated_at = $2 WHERE id = $3 RETURNING revision",
+        )
+        .bind(transfer.new_owner_member_id)
+        .bind(transfer.now)
+        .bind(transfer.activity_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        insert_activity_audit(
+            &mut transaction,
+            &current,
+            transfer.actor_user_id,
+            "OWNER_TRANSFERRED",
+            revision,
+            transfer.now,
+        )
+        .await?;
+        sqlx::query(
+            "INSERT INTO notifications (
+                id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
+             ) VALUES ($1, $2, 'OWNERSHIP_CHANGED', 'ACTIVITY', $3, $3,
+                jsonb_build_object('activityName', $4::text, 'displayName', $5::text), $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(new_owner.0)
+        .bind(transfer.activity_id)
+        .bind(&current.name)
+        .bind(&new_owner.1)
+        .bind(transfer.now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+
+        current.owner_member_id = transfer.new_owner_member_id;
+        "MEMBER".clone_into(&mut current.current_member_role);
         current.version += 1;
         current.revision = revision;
         transaction.commit().await.map_err(log_repository_error)?;
@@ -533,6 +659,42 @@ async fn insert_activity_audit(
     .execute(&mut **transaction)
     .await
     .map_err(log_repository_error)?;
+    Ok(())
+}
+
+async fn notify_activity_members(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    activity: &ActivityView,
+    actor_user_id: Uuid,
+    status: &str,
+    now: OffsetDateTime,
+) -> Result<(), ActivityRepositoryError> {
+    let recipients = sqlx::query_scalar::<_, Uuid>(
+        "SELECT DISTINCT user_id FROM activity_members
+         WHERE activity_id = $1 AND status = 'ACTIVE' AND user_id IS NOT NULL AND user_id <> $2",
+    )
+    .bind(activity.activity_id)
+    .bind(actor_user_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    for recipient in recipients {
+        sqlx::query(
+            "INSERT INTO notifications (
+                id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
+             ) VALUES ($1, $2, 'ACTIVITY_STATUS_CHANGED', 'ACTIVITY', $3, $3,
+                jsonb_build_object('activityName', $4::text, 'status', $5::text), $6)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(recipient)
+        .bind(activity.activity_id)
+        .bind(&activity.name)
+        .bind(status)
+        .bind(now)
+        .execute(&mut **transaction)
+        .await
+        .map_err(log_repository_error)?;
+    }
     Ok(())
 }
 

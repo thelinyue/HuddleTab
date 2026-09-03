@@ -68,6 +68,7 @@ struct AttachmentRow {
     created_at: OffsetDateTime,
 }
 
+#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl ExpenseRepository for PostgresExpenseRepository {
     async fn activity_context(
@@ -255,6 +256,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
             transaction.commit().await.map_err(log_repository_error)?;
             return Ok(current);
         }
+        let participant_ids = participant_member_ids(&current);
         sqlx::query(
             "UPDATE expenses SET title = $1, category = $2, note = $3, occurred_at = $4, \
              original_currency = $5, original_amount_minor = $6, base_currency = $7, \
@@ -310,6 +312,19 @@ impl ExpenseRepository for PostgresExpenseRepository {
             },
         )
         .await?;
+        notify_expense_participants(
+            &mut transaction,
+            expense.activity_id,
+            expense.expense_id,
+            expense.actor_user_id,
+            &participant_ids,
+            "PARTICIPATING_EXPENSE_CHANGED",
+            &expense.title,
+            expense.prepared.original_amount_minor,
+            &expense.prepared.original_currency,
+            expense.now,
+        )
+        .await?;
         let aggregate = load_aggregate(&mut transaction, expense.expense_id, true).await?;
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(aggregate)
@@ -342,6 +357,8 @@ impl ExpenseRepository for PostgresExpenseRepository {
         if owner.1 != expense.expected_version {
             return Err(ExpenseRepositoryError::VersionConflict);
         }
+        let current = load_aggregate(&mut transaction, expense.expense_id, true).await?;
+        let participant_ids = participant_member_ids(&current);
         let version = sqlx::query_scalar::<_, i64>(
             "UPDATE expenses SET deleted_at = $1, version = version + 1, updated_at = $1 \
              WHERE id = $2 RETURNING version",
@@ -363,9 +380,80 @@ impl ExpenseRepository for PostgresExpenseRepository {
             },
         )
         .await?;
+        notify_expense_participants(
+            &mut transaction,
+            expense.activity_id,
+            expense.expense_id,
+            expense.actor_user_id,
+            &participant_ids,
+            "PARTICIPATING_EXPENSE_DELETED",
+            &current.expense.title,
+            current.expense.original_amount_minor,
+            &current.expense.original_currency,
+            expense.now,
+        )
+        .await?;
         transaction.commit().await.map_err(log_repository_error)?;
         Ok((version, revision))
     }
+}
+
+fn participant_member_ids(expense: &ExpenseAggregate) -> Vec<Uuid> {
+    expense
+        .payments
+        .iter()
+        .map(|payment| payment.member_id)
+        .chain(expense.shares.iter().map(|share| share.member_id))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn notify_expense_participants(
+    connection: &mut PgConnection,
+    activity_id: Uuid,
+    expense_id: Uuid,
+    actor_user_id: Uuid,
+    participant_ids: &[Uuid],
+    kind: &'static str,
+    title: &str,
+    amount_minor: i64,
+    currency: &str,
+    now: OffsetDateTime,
+) -> Result<(), ExpenseRepositoryError> {
+    let recipients = sqlx::query_scalar::<_, Uuid>(
+        "SELECT DISTINCT user_id FROM activity_members
+         WHERE activity_id = $1 AND id = ANY($2) AND status = 'ACTIVE'
+           AND user_id IS NOT NULL AND user_id <> $3",
+    )
+    .bind(activity_id)
+    .bind(participant_ids)
+    .bind(actor_user_id)
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(log_repository_error)?;
+    for recipient in recipients {
+        sqlx::query(
+            "INSERT INTO notifications (
+                id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
+             ) VALUES ($1, $2, $3, 'EXPENSE', $4, $5,
+                jsonb_build_object('title', $6::text, 'amountMinor', $7::text, 'currency', $8::text), $9)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(recipient)
+        .bind(kind)
+        .bind(expense_id)
+        .bind(activity_id)
+        .bind(title)
+        .bind(amount_minor.to_string())
+        .bind(currency)
+        .bind(now)
+        .execute(&mut *connection)
+        .await
+        .map_err(log_repository_error)?;
+    }
+    Ok(())
 }
 
 fn aggregate_matches_update(current: &ExpenseAggregate, update: &ExpenseUpdate) -> bool {

@@ -637,6 +637,20 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .await
         .map_err(log_repository_error)?;
         sqlx::query(
+            "UPDATE notifications SET read_at = COALESCE(read_at, $1),
+             payload = payload || jsonb_build_object('status', $2::text)
+             WHERE recipient_user_id = $3 AND activity_id = $4
+               AND type = 'JOIN_APPROVAL_REQUESTED' AND payload->>'requestId' = $5::text",
+        )
+        .bind(now)
+        .bind(target_status.as_str())
+        .bind(actor_user_id)
+        .bind(activity_id)
+        .bind(request_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        sqlx::query(
             "INSERT INTO notifications (
                 id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
              ) VALUES (
@@ -994,6 +1008,29 @@ async fn finish_join(
         .execute(&mut **transaction)
         .await
         .map_err(log_repository_error)?;
+    let owner_user_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT owner.user_id FROM activities activity
+         JOIN activity_members owner ON owner.id = activity.owner_member_id
+         WHERE activity.id = $1 AND owner.status = 'ACTIVE' AND owner.user_id IS NOT NULL",
+    )
+    .bind(activity_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    sqlx::query(
+        "INSERT INTO notifications (
+            id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
+         ) VALUES ($1, $2, 'MEMBER_JOINED', 'ACTIVITY', $3, $3,
+            jsonb_build_object('displayName', $4::text), $5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(owner_user_id)
+    .bind(activity_id)
+    .bind(&input.display_name)
+    .bind(input.now)
+    .execute(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
     let revision = revise_and_audit(
         transaction,
         AuditEntry {

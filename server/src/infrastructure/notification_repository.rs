@@ -38,18 +38,29 @@ impl NotificationRepository for PostgresNotificationRepository {
     async fn list(
         &self,
         recipient_user_id: Uuid,
-    ) -> Result<Vec<NotificationView>, NotificationRepositoryError> {
-        sqlx::query_as::<_, NotificationRow>(
+    ) -> Result<(Vec<NotificationView>, usize), NotificationRepositoryError> {
+        let rows = sqlx::query_as::<_, NotificationRow>(
             "SELECT id, recipient_user_id, type AS kind, target_type, target_id, activity_id,
                     payload, read_at, created_at
              FROM notifications WHERE recipient_user_id = $1
-             ORDER BY (read_at IS NOT NULL), created_at DESC, id",
+             ORDER BY (read_at IS NOT NULL), created_at DESC, id
+             LIMIT 50",
         )
         .bind(recipient_user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(log_repository_error)
-        .map(|rows| rows.into_iter().map(notification_from_row).collect())
+        .map_err(log_repository_error)?;
+        let unread_count = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND read_at IS NULL",
+        )
+        .bind(recipient_user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(log_repository_error)?;
+        Ok((
+            rows.into_iter().map(notification_from_row).collect(),
+            usize::try_from(unread_count).map_err(|_| NotificationRepositoryError::Unavailable)?,
+        ))
     }
 
     async fn mark_read(

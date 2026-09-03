@@ -45,36 +45,39 @@ if (!attachmentMode) {
     throw new Error("重启后未找到 Chromium 核心流程创建的持久数据。");
   }
   console.log("重启持久性检查通过：测试活动仍可读取。");
-  process.exit(0);
-}
-
-const attachmentActivities = activities.filter((activity) =>
-  activity.name.startsWith("Attachment ")
-);
-for (const activity of attachmentActivities) {
-  const expensesResponse = await fetch(
-    `${baseUrl}/api/activities/${encodeURIComponent(activity.activityId)}/expenses`,
-    { headers: { cookie: sessionCookie } },
+} else {
+  const attachmentActivities = activities.filter((activity) =>
+    activity.name.startsWith("Attachment ")
   );
-  if (!expensesResponse.ok) throw new Error("重启后无法读取附件测试账单。");
-  const expenses = (await expensesResponse.json()).data;
-  const aggregate = expenses.find((item) =>
-    item.expense.title.startsWith("附件餐费 ") && item.attachments.length > 0
-  );
-  if (!aggregate) continue;
-  const attachment = aggregate.attachments[0];
-  const download = await fetch(
-    `${baseUrl}/api/activities/${encodeURIComponent(activity.activityId)}/expenses/${encodeURIComponent(aggregate.expense.expenseId)}/attachments/${encodeURIComponent(attachment.id)}`,
-    { headers: { cookie: sessionCookie } },
-  );
-  if (!download.ok || download.headers.get("content-type") !== "image/webp") {
-    throw new Error("重启后附件私有下载合同不完整。");
+  let attachmentFound = false;
+  for (const activity of attachmentActivities) {
+    const expensesResponse = await fetch(
+      `${baseUrl}/api/activities/${encodeURIComponent(activity.activityId)}/expenses`,
+      { headers: { cookie: sessionCookie } },
+    );
+    if (!expensesResponse.ok) throw new Error("重启后无法读取附件测试账单。");
+    const expenses = (await expensesResponse.json()).data;
+    const aggregate = expenses.find((item) =>
+      item.expense.title.startsWith("附件餐费 ") && item.attachments.length > 0
+    );
+    if (!aggregate) continue;
+    const attachment = aggregate.attachments[0];
+    const download = await fetch(
+      `${baseUrl}/api/activities/${encodeURIComponent(activity.activityId)}/expenses/${encodeURIComponent(aggregate.expense.expenseId)}/attachments/${encodeURIComponent(attachment.id)}`,
+      { headers: { cookie: sessionCookie } },
+    );
+    if (!download.ok || download.headers.get("content-type") !== "image/webp") {
+      throw new Error("重启后附件私有下载合同不完整。");
+    }
+    const bytes = Buffer.from(await download.arrayBuffer());
+    if (bytes.length === 0 || bytes.subarray(0, 4).toString("ascii") !== "RIFF") {
+      throw new Error("重启后附件内容不是有效 WebP。");
+    }
+    attachmentFound = true;
+    break;
   }
-  const bytes = Buffer.from(await download.arrayBuffer());
-  if (bytes.length === 0 || bytes.subarray(0, 4).toString("ascii") !== "RIFF") {
-    throw new Error("重启后附件内容不是有效 WebP。");
+  if (!attachmentFound) {
+    throw new Error("重启后未找到 Chromium 附件流程创建的持久数据。");
   }
   console.log("重启持久性检查通过：测试账单及剩余附件仍可受权读取。");
-  process.exit(0);
 }
-throw new Error("重启后未找到 Chromium 附件流程创建的持久数据。");

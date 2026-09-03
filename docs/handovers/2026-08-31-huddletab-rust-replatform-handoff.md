@@ -1,12 +1,12 @@
 # HuddleTab React/Vite + Rust/Axum 迁移交接
 
-更新时间：2026-09-02
+更新时间：2026-09-03
 
 ## 1. 当前结论
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列、Task 27A 的加入审批与最小通知、Task 27B Guest Binding、Task 27 Attachment 与 Task 27 Rate Provider 已完成。Task 27 Rate Provider 完成，可以继续其余通知事件。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Task 27 的其余通知事件、Phase 2 Task 28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列，以及 Task 27 的加入审批、Guest Binding、图片附件、Rate Provider、站内通知与所有权转让已完成。Task 27 Notification 与所有权转让完成，可以进入 Task 28 Phase 2 E2E。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 2 Task 28、Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–26、Task 27A、Task 27B、Task 27 Attachment、Task 27 Rate Provider 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；Service Worker 仍不执行业务写入。当前没有进入其余通知事件、Task 28、对象存储或发布。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–27 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。当前没有进入 Task 28、对象存储或发布。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -140,12 +140,12 @@ huddletab openapi
 | 成员列表、临时成员 | 可用 | 成员是唯一账务身份 |
 | 链接与定向邀请创建、列表、撤销 | 可用 | 定向邀请按用户名绑定且固定单次使用；明文口令只保留在当前组件内存 |
 | Expense CRUD | 可用 | 支持幂等、版本冲突、软删除和双金额事实 |
-| 多付款人、四种分摊、手工汇率 | 可用 | IDENTITY/MANUAL；Provider 属于 Phase 2 |
+| 多付款人、四种分摊、汇率快照 | 可用 | IDENTITY/MANUAL/PROVIDER/CACHE；历史账务不重新取率 |
 | Ledger、成员余额、推荐转账 | 可用 | 全部由 Rust 权威计算 |
 | Settlement 创建、修改、作废 | 可用 | 删除语义为 VOID，不物理删除 |
 | PWA Shell | 可用 | 不缓存 API；Expense Create 使用前台同步队列，Service Worker 不执行业务写入 |
 | 加入审批 | 可用 | Task 27A；Activity 级 DIRECT_JOIN/REQUIRE_APPROVAL，Owner 查看并决定 Pending，申请人只能查看自己的结果 |
-| 通知页 | 部分可用 | Task 27A；仅 JOIN_APPROVAL_REQUESTED 与 JOIN_APPROVAL_RESOLVED 两类站内通知 |
+| 通知页 | 可用 | Task 27；审批、加入、参与账单变化、收款结算、生命周期和所有权通知 |
 | “我的”页 | 部分可用 | 用户信息、修改密码和退出登录可用 |
 | CSV、结算分享 | 可用 | 有效 ActivityMember 可下载 CSV，并从结算页生成受保护摘要和 1600px PNG |
 | Activity Revision Snapshot / weak ETag | 可用 | Task 24；Task 25 已接入按用户隔离的完整 Snapshot 本地存储 |
@@ -154,6 +154,7 @@ huddletab openapi
 | Guest Binding | 可用 | Task 27B；Owner 为 ACTIVE Guest 创建定向单次邀请，目标用户确认后原地绑定账号 |
 | 图片附件 | 可用 | Task 27；JPEG/PNG/WebP，最多三张，私有 WebP、离线前台同步、缩略图/大图、ACTIVE 编辑即时删除 |
 | 汇率 Provider | 可用 | Task 27；Frankfurter 日参考汇率、PostgreSQL 七天缓存降级、显式获取与 Expense 精确来源快照 |
+| 活动所有权转让 | 可用 | Task 27；Owner 转给 ACTIVE 已绑定成员，旧 Owner 降为 MEMBER，事务原子更新 |
 | 系统管理、注册策略、管理员重置密码 | 未实现 | 属于 Phase 3 |
 
 ## 7. 已验证的核心流程
@@ -429,6 +430,22 @@ Expense 合同和数据库支持 `IDENTITY/MANUAL/PROVIDER/CACHE`，并保存可
 
 范围仍不包含其余通知事件、Task 28、IndexedDB v2、Provider 配置后台、tag、镜像发布或 Release Verification。Task 27 Rate Provider 完成，可以继续其余通知事件。
 
+### 7.9 Phase 2 Task 27 Notification 与所有权转让
+
+通知类型现为 `JOIN_APPROVAL_REQUESTED/RESOLVED`、`MEMBER_JOINED`、`PARTICIPATING_EXPENSE_CHANGED/DELETED`、`SETTLEMENT_RECEIVED`、`ACTIVITY_STATUS_CHANGED` 和 `OWNERSHIP_CHANGED`。直接加入只通知 Owner；审批通过不重复生产成员加入通知；Expense 更新/删除只通知修改前付款或分摊中的其他 ACTIVE 已绑定账号；Settlement 首次创建只通知非 Guest、非自己的收款账号；生命周期变化通知其他 ACTIVE 已绑定成员。失败、无变化、冲突、replay、Settlement 更新/VOID 均不产生额外通知。通知与事实、Audit、revision 在同一事务提交。
+
+新增 `POST /api/activities/{activity_id}/ownership`，只允许 Owner 将 ACTIVE、已绑定账号的同活动普通成员设为新 Owner。旧 Owner 降为 `MEMBER`；活动 owner 指针、两个角色、version/revision、一次 `OWNER_TRANSFERRED` Audit 和新 Owner 通知原子更新，并发转让恰好一个成功。自身、Guest、LEFT 和跨活动目标均拒绝，不恢复 `ADMIN` 或复杂角色。
+
+`GET /api/notifications` 最多返回 50 条，未读优先、组内时间倒序；`unreadCount` 是当前用户全部未读数，并返回部署 `timeZone`。时间字段固定输出 RFC 3339。前端对齐 `v0.0.2` 的“全部 / 未读 / 邀请 / 结算 / 系统”筛选、“未读 / 今天 / 昨天 / 更早”分组、图标、逐条/全部已读及加入审批内联操作；底部通知入口复用用户隔离 query 显示未读圆点。受控深链不会读取 payload URL。所有权转让使用既有活动管理 Sheet 子视图，失败保留选择，成功刷新 Activity detail、成员、列表、Snapshot 和通知。
+
+编码前已启动 `http://127.0.0.1:5682` 的 `huddletab-v002-reference`，并审查远程 `v0.0.2` 的通知页、Activity More、服务与测试源码；实现沿用其页面密度、筛选、时间分组、图标、按钮层级和移动端习惯。Chromium Desktop `1440x1000` 与 Mobile `390x844` 真实 Compose 场景 `2/2` 通过，覆盖直接加入通知、未读角标、五类筛选、审批申请与内联通过、申请人结果、全部已读、所有权转让、活动导航仅“流水 / 结算”和无横向溢出。
+
+最终验证：受影响 PostgreSQL 测试 55 passed（Accounting 14、Activity 13、Collaboration 15、Notification API 3、Notification schema 1、Rate limit 5、Snapshot 4）；OpenAPI 10 passed；Rust lib 6 passed；Frontend 26 个文件、159 passed。Rust fmt、严格 Clippy、typecheck、production build、OpenAPI/client 二次生成一致、runner 安全测试和 `git diff --check` 均通过。专项 runner 还通过 fresh migration、stdin bootstrap、SPA 深链、非 root/无 Node runtime、app/PostgreSQL 两轮重启持久性、中文冷启动错误、artifact 脱敏和 finally 清理，复查无本次 Compose project 或 `/tmp/huddletab-phase1e-*` 残留。
+
+真实浏览器首轮发现 `OffsetDateTime::to_string()` 不是浏览器稳定解析的 RFC 3339，Mobile 通知页出现 `Invalid time value`；已补 API 回归并统一格式化。随后 UI `2/2` 通过。runner 后半段又暴露 Windows Node 24 在 fetch 后立即 `process.exit(0)` 的 libuv 断言；改为自然结束后完整命令退出 `0`。HTML 报告保留在 `frontend/artifacts/playwright-report/index.html`。
+
+范围不包含 Task 28、WebSocket、Web Push、批量已读 API、邀请 token 站内投递、Phase 3、tag、镜像发布或 Release Verification。Task 27 Notification 与所有权转让完成，可以进入 Task 28 Phase 2 E2E。
+
 ## 8. 当前本地运行现场
 
 交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
@@ -438,8 +455,8 @@ Expense 合同和数据库支持 `IDENTITY/MANUAL/PROVIDER/CACHE`，并保存可
 | Rust API | 未启动 |
 | Vite 前端 | 未启动 |
 | `v0.0.2` UI 对照环境 | `http://127.0.0.1:5682`；Compose project `huddletab-v002-reference`，仅用于 UI 对照 |
-| WSL PostgreSQL 容器 | `huddletab-rust-dev-postgres-6831` |
-| PostgreSQL 主机端口 | `127.0.0.1:55432` |
+| WSL PostgreSQL 容器 | `huddletab-postgres` |
+| PostgreSQL 主机端口 | `127.0.0.1:5432` |
 
 端口和容器名属于当前开发现场，不是产品固定配置。该 PostgreSQL 实例是会被集成测试清表的可丢弃数据库，不能存放开发或生产数据；标准 Compose 对外端口默认是 `5660`。浏览器验收账号只用于专用可丢弃数据库，临时密码未写入代码、文档或提交。
 
@@ -512,7 +529,10 @@ Activity 管理合同：
 | `GET /api/activities/{id}/summary` | 当前成员的实时结算摘要；`private, no-store` |
 | `GET /api/activities/{id}/snapshot` | 授权后的完整 Activity Snapshot；weak ETag 条件读取；`private, no-store` |
 | `GET /api/activities/{id}/exchange-rate?from=JPY&date=YYYY-MM-DD` | ACTIVE 成员显式获取日参考汇率；Provider/七天缓存来源可追溯 |
+| `POST /api/activities/{id}/ownership` | Owner 以 version 乐观锁转让所有权；接入敏感操作限流 |
 | `GET /api/activities/{id}/export.csv` | UTF-8 BOM CSV；固定下载名 `activity-export.csv` |
+
+通知合同为 `GET /api/notifications`、`POST /api/notifications/{notification_id}/read`；加入审批仍使用 `GET /api/activities/{id}/join-requests`、`POST /api/activities/{id}/join-requests/{request_id}` 与申请人自己的 `GET /api/join-requests/{request_id}`。
 
 ## 11. 按改动范围验证
 
@@ -530,6 +550,7 @@ Activity 管理合同：
 | 账务 API | `cargo test --manifest-path server/Cargo.toml --test accounting_api` |
 | 活动管理 API | `cargo test --manifest-path server/Cargo.toml --test activity_api` |
 | 成员与邀请 API | `cargo test --manifest-path server/Cargo.toml --test collaboration_api` |
+| 通知与所有权 | 设置可丢弃 `TEST_DATABASE_URL` 后运行 `cargo test --manifest-path server/Cargo.toml --test activity_api --test collaboration_api --test accounting_api --test notification_api --test notification_schema --test rate_limit_routes --test snapshot_api -- --ignored --test-threads=1`；前端运行通知、活动和底部导航专项 |
 | CSV/分享 API | `cargo test --manifest-path server/Cargo.toml --test sharing_api`；数据库用例设置 `TEST_DATABASE_URL` 后运行 `cargo test --manifest-path server/Cargo.toml --test sharing_api summary_and_csv_use_one_private_authorized_snapshot -- --ignored --exact --test-threads=1` |
 | Activity Revision Snapshot | 设置可丢弃 `TEST_DATABASE_URL` 后运行 `cargo test --manifest-path server/Cargo.toml --test snapshot_api -- --ignored --test-threads=1` |
 | Rust 格式 | `cargo fmt --manifest-path server/Cargo.toml --check` |
@@ -540,7 +561,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 继续 Phase 2 Task 27 其余通知事件，随后完成 Task 28 Phase 2 E2E。Task 27A、Task 27B、Attachment 与 Rate Provider 已经完成。
+1. 进入 Task 28 Phase 2 E2E，完成断网刷新、PWA 更新不丢 pending、REJECTED 修正和 Phase 2 完整浏览器验收。Task 27 已完成。
 2. Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。
 3. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
 4. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
@@ -563,5 +584,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-02-huddletab-task27-attachment.md`
 - `docs/superpowers/specs/2026-09-02-huddletab-task27-rate-provider-design.md`
 - `docs/superpowers/plans/2026-09-02-huddletab-task27-rate-provider.md`
+- `docs/superpowers/specs/2026-09-03-huddletab-task27-notification-ownership-design.md`
+- `docs/superpowers/plans/2026-09-03-huddletab-task27-notification-ownership.md`
 
-这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-02 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。
+这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。

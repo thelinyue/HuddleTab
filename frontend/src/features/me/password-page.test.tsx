@@ -9,6 +9,11 @@ const mutation = vi.hoisted(() => ({
 
 vi.mock("../auth/api", () => ({
   useChangePasswordMutation: () => mutation,
+  useSessionQuery: () => ({ data: { userId: "user-1" }, isPending: false }),
+}));
+
+vi.mock("../notifications/api", () => ({
+  useNotificationsQuery: () => ({ data: { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 } }),
 }));
 
 import { ChangePasswordPage } from "./password-page";

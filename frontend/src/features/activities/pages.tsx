@@ -61,6 +61,7 @@ import {
   useDecideJoinRequestMutation,
   useRevokeInvitationMutation,
   useRestoreActivityMutation,
+  useTransferOwnershipMutation,
   useUpdateActivityMutation,
 } from "./api";
 import { type Session, useLogoutMutation, useSessionQuery } from "../auth/api";
@@ -695,7 +696,7 @@ function ActivityInfoRow({ icon, label, value, helper, editable, onEdit }: { ico
     : <div className="settings-row">{content}</div>;
 }
 
-export function MorePage({ onEdit, onDelete }: { onEdit?: (field: ActivityField) => void; onDelete?: () => void }) {
+export function MorePage({ onEdit, onDelete, onTransfer }: { onEdit?: (field: ActivityField) => void; onDelete?: () => void; onTransfer?: () => void }) {
   const { session, activity } = useWorkspace();
   const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
   const [error, setError] = useState<unknown>();
@@ -733,10 +734,53 @@ export function MorePage({ onEdit, onDelete }: { onEdit?: (field: ActivityField)
         <h2>数据导出</h2>
         <a className="button button--secondary" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`}><Download aria-hidden="true" size={17} />导出 CSV</a>
       </section>
+      {activity.currentMemberRole === "OWNER" && onTransfer ? <section><h2>成员与权限</h2><div className="settings-list"><ActivityInfoRow icon={<UserRoundCheck aria-hidden="true" size={17} />} label="转让所有权" value="选择新所有者" editable onEdit={onTransfer} /></div></section> : null}
       {activity.allowedLifecycleActions.length ? <section><h2>活动状态</h2><div className="management-actions">{activity.allowedLifecycleActions.flatMap((action) => lifecycleLabels[action] ? [<Button key={action} variant="secondary" busy={lifecycle.isPending} onClick={() => void transition(action)}>{lifecycleLabels[action]}</Button>] : [])}</div></section> : null}
       {error ?? lifecycle.error ? <ErrorNotice error={error ?? lifecycle.error} /> : null}
       {activity.canDelete && onDelete ? <section className="management-danger"><h2>危险操作</h2><Button variant="danger" onClick={onDelete}><Trash2 aria-hidden="true" size={17} />删除活动</Button></section> : null}
     </div>
+  );
+}
+
+function OwnershipTransferEditor({ onTransferred }: { onTransferred: () => void }) {
+  const { session, activity } = useWorkspace();
+  const members = useMembersQuery(session.userId, activity.activityId);
+  const transfer = useTransferOwnershipMutation(session.userId, activity.activityId);
+  const [memberId, setMemberId] = useState("");
+  const [error, setError] = useState<unknown>();
+  const candidates = members.data?.filter(
+    (member) =>
+      member.status === "ACTIVE" &&
+      member.userId !== null &&
+      member.memberId !== activity.ownerMemberId,
+  ) ?? [];
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(undefined);
+    try {
+      await transfer.mutateAsync({ newOwnerMemberId: memberId, version: activity.version });
+      onTransferred();
+    } catch (reason) {
+      setError(reason);
+    }
+  }
+
+  if (members.isPending) return <LoadingState label="正在读取可转让成员…" />;
+  if (members.error) return <ErrorNotice error={members.error} />;
+  return (
+    <form className="form-stack" onSubmit={submit}>
+      <p className="form-hint">转让后，新成员将成为活动所有者，你会变为普通成员。</p>
+      <Field label="新所有者">
+        <Select value={memberId} onChange={(event) => setMemberId(event.target.value)} required autoFocus>
+          <option value="">请选择成员</option>
+          {candidates.map((member) => <option key={member.memberId} value={member.memberId}>{member.displayName}</option>)}
+        </Select>
+      </Field>
+      {!candidates.length ? <p className="empty-copy">暂无可转让的已绑定账号成员。</p> : null}
+      {error ?? transfer.error ? <ErrorNotice error={error ?? transfer.error} /> : null}
+      <Button type="submit" busy={transfer.isPending} disabled={!memberId}>确认转让</Button>
+    </form>
   );
 }
 
@@ -745,7 +789,7 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
   const { session, activity } = useWorkspace();
   const remove = useDeleteActivityMutation(session.userId, activity.activityId);
   const navigate = useNavigate();
-  const [view, setView] = useState<"root" | "delete" | ActivityField>("root");
+  const [view, setView] = useState<"root" | "delete" | "ownership" | ActivityField>("root");
   const [deleteError, setDeleteError] = useState<unknown>();
   const [warnings, setWarnings] = useState<string[]>([]);
 
@@ -759,7 +803,7 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const title = view === "root" ? "活动管理" : view === "delete" ? "确认删除活动" : activityFieldLabels[view];
+  const title = view === "root" ? "活动管理" : view === "delete" ? "确认删除活动" : view === "ownership" ? "转让所有权" : activityFieldLabels[view];
   return (
     <Overlay open title={title} backLabel="返回活动管理" onBack={view === "root" ? undefined : () => setView("root")} onClose={onClose} focusKey={view}>
       {view === "root" ? warnings.map((warning) => (
@@ -769,8 +813,9 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
             : warning}
         </div>
       )) : null}
-      {view === "root" ? <MorePage onEdit={setView} onDelete={() => setView("delete")} /> : null}
-      {view !== "root" && view !== "delete" ? <ActivityFieldEditor field={view} onSaved={(nextWarnings) => { setWarnings(nextWarnings); setView("root"); }} /> : null}
+      {view === "root" ? <MorePage onEdit={setView} onDelete={() => setView("delete")} onTransfer={() => setView("ownership")} /> : null}
+      {view !== "root" && view !== "delete" && view !== "ownership" ? <ActivityFieldEditor field={view} onSaved={(nextWarnings) => { setWarnings(nextWarnings); setView("root"); }} /> : null}
+      {view === "ownership" ? <OwnershipTransferEditor onTransferred={onClose} /> : null}
       {view === "delete" ? <div className="delete-confirmation"><p>删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。</p>{deleteError ?? remove.error ? <ErrorNotice error={deleteError ?? remove.error} /> : null}<Button data-overlay-initial-focus variant="danger" busy={remove.isPending} onClick={() => void confirmDelete()}><Trash2 aria-hidden="true" size={17} />确认删除活动</Button></div> : null}
     </Overlay>
   );

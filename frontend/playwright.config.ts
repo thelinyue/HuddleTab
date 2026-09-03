@@ -48,5 +48,15 @@ export default defineConfig({
       testMatch: "attachment.spec.ts",
       use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
     },
+    {
+      name: "chromium-notification-desktop",
+      testMatch: "notification-ownership.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "chromium-notification-mobile",
+      testMatch: "notification-ownership.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
+    },
   ],
 });

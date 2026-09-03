@@ -222,6 +222,8 @@ small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .product-bottom-nav ul { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; padding: 0; list-style: none; }
 .product-bottom-nav a { display: flex; min-height: 58px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-bottom: 2px solid transparent; color: var(--muted-foreground); font-size: 11px; font-weight: 650; }
 .product-bottom-nav a.active { color: var(--primary); border-bottom-color: var(--primary); }
+.product-bottom-nav__icon { position: relative; display: grid; place-items: center; }
+.product-bottom-nav__badge { position: absolute; top: -2px; right: -5px; width: 8px; height: 8px; border: 2px solid var(--surface); border-radius: 999px; background: var(--danger); }
 
 .expense-summary, .settlement-summary { border-radius: 4px; padding: 16px; background: var(--summary); }
 .expense-summary > p:first-child, .settlement-summary > p:first-child { color: var(--muted-foreground); font-size: 12px; font-weight: 650; }
@@ -320,13 +322,21 @@ button.settings-row:hover { background: var(--surface-muted); }
 .password-form > .button { width: 100%; }
 
 .notification-count { color: var(--muted-foreground); font-size: 13px; font-weight: 650; }
+.notification-filters { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 14px; scrollbar-width: none; }
+.notification-filters button { min-height: 34px; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 999px; padding: 0 14px; color: var(--muted-foreground); background: var(--surface); font-weight: 650; }
+.notification-filters button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); background: var(--secondary); }
+.notification-group { margin-top: 16px; }
+.notification-group > h2 { margin: 0 8px 6px; color: var(--muted-foreground); font-size: 13px; }
 .notification-list { border-top: 1px solid var(--border); }
-.notification-row { display: grid; min-height: 72px; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; border-bottom: 1px solid var(--border); }
+.notification-row { display: grid; min-height: 72px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-bottom: 1px solid var(--border); }
 .notification-row[data-unread="true"] { background: var(--surface-muted); }
 .notification-row__link { display: grid; min-width: 0; min-height: 72px; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 8px; }
 .notification-row__icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 8px; color: var(--primary); background: var(--secondary); }
 .notification-row__content { display: grid; min-width: 0; gap: 2px; }
 .notification-row__content strong { overflow-wrap: anywhere; }
+.notification-row__content > span { color: var(--muted-foreground); font-size: 13px; overflow-wrap: anywhere; }
+.notification-row__actions { display: flex; align-items: center; gap: 4px; padding-right: 4px; }
+.notification-row__actions .button { min-height: 34px; padding-inline: 10px; }
 .notification-read-button { width: 44px; padding-inline: 0; }
 
 .expense-list { padding: 0; overflow: hidden; }

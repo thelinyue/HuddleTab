@@ -1720,6 +1720,114 @@
         }
       }
     },
+    "/api/activities/{activity_id}/ownership": {
+      "post": {
+        "tags": [],
+        "operationId": "transferActivityOwnership",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferOwnershipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "活动所有权已转让",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无活动管理权限或 CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "活动不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "活动版本或状态冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "目标成员不符合转让条件",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "请求过于频繁",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/recommendations": {
       "get": {
         "tags": [],
@@ -4462,7 +4570,7 @@
             "type": "string"
           },
           "kind": {
-            "type": "string"
+            "$ref": "#/components/schemas/NotificationKindData"
           },
           "notificationId": {
             "type": "string"
@@ -4486,7 +4594,7 @@
             "type": "string"
           },
           "targetType": {
-            "type": "string"
+            "$ref": "#/components/schemas/NotificationTargetTypeData"
           }
         }
       },
@@ -4501,11 +4609,25 @@
           }
         }
       },
+      "NotificationKindData": {
+        "type": "string",
+        "enum": [
+          "JOIN_APPROVAL_REQUESTED",
+          "JOIN_APPROVAL_RESOLVED",
+          "MEMBER_JOINED",
+          "PARTICIPATING_EXPENSE_CHANGED",
+          "PARTICIPATING_EXPENSE_DELETED",
+          "SETTLEMENT_RECEIVED",
+          "ACTIVITY_STATUS_CHANGED",
+          "OWNERSHIP_CHANGED"
+        ]
+      },
       "NotificationListData": {
         "type": "object",
         "required": [
           "items",
-          "unreadCount"
+          "unreadCount",
+          "timeZone"
         ],
         "properties": {
           "items": {
@@ -4513,6 +4635,9 @@
             "items": {
               "$ref": "#/components/schemas/NotificationData"
             }
+          },
+          "timeZone": {
+            "type": "string"
           },
           "unreadCount": {
             "type": "integer",
@@ -4530,6 +4655,14 @@
             "$ref": "#/components/schemas/NotificationListData"
           }
         }
+      },
+      "NotificationTargetTypeData": {
+        "type": "string",
+        "enum": [
+          "ACTIVITY",
+          "EXPENSE",
+          "SETTLEMENT"
+        ]
       },
       "RecommendationData": {
         "type": "object",
@@ -4797,6 +4930,21 @@
             "type": "string"
           },
           "receiverMemberId": {
+            "type": "string"
+          }
+        }
+      },
+      "TransferOwnershipRequest": {
+        "type": "object",
+        "required": [
+          "newOwnerMemberId",
+          "version"
+        ],
+        "properties": {
+          "newOwnerMemberId": {
+            "type": "string"
+          },
+          "version": {
             "type": "string"
           }
         }

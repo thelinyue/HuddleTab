@@ -1062,7 +1062,7 @@ async fn join_decision_approve_is_idempotent_and_opposite_decision_conflicts() {
         assert_eq!(decided["data"]["revision"], "4");
     }
 
-    let state = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+    let state = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, i64, i64)>(
         "SELECT a.revision,
          (SELECT count(*) FROM activity_members m
           WHERE m.activity_id = a.id AND m.user_id = $2 AND m.status = 'ACTIVE'),
@@ -1072,7 +1072,12 @@ async fn join_decision_approve_is_idempotent_and_opposite_decision_conflicts() {
          (SELECT count(*) FROM activity_audit_logs
           WHERE activity_id = a.id AND action = 'JOIN_REQUEST_APPROVED'),
          (SELECT count(*) FROM activity_join_requests
-          WHERE activity_id = a.id AND status = 'APPROVED')
+          WHERE activity_id = a.id AND status = 'APPROVED'),
+         (SELECT count(*) FROM notifications
+          WHERE activity_id = a.id AND type = 'JOIN_APPROVAL_REQUESTED'
+            AND read_at IS NOT NULL AND payload->>'status' = 'APPROVED'),
+         (SELECT count(*) FROM notifications
+          WHERE activity_id = a.id AND type = 'MEMBER_JOINED')
          FROM activities a WHERE a.id = $1",
     )
     .bind(activity_id)
@@ -1080,7 +1085,7 @@ async fn join_decision_approve_is_idempotent_and_opposite_decision_conflicts() {
     .fetch_one(&pool)
     .await
     .expect("应读取批准副作用");
-    assert_eq!(state, (4, 1, 1, 1, 1, 1));
+    assert_eq!(state, (4, 1, 1, 1, 1, 1, 1, 0));
 
     let (conflict_status, conflict) = json_response(
         &app,
@@ -1569,6 +1574,15 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     assert_eq!(joined["data"]["status"], "JOINED");
     assert_eq!(joined["data"]["activityId"], activity_id.to_string());
     assert_eq!(joined["data"]["revision"], "4");
+    let joined_notification = sqlx::query_as::<_, (Uuid, i64)>(
+        "SELECT recipient_user_id, count(*) OVER () FROM notifications
+         WHERE activity_id = $1 AND type = 'MEMBER_JOINED'",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("直接加入应通知 Owner 一次");
+    assert_eq!(joined_notification, (owner.user_id, 1));
 
     let (status, activities) = json_response(
         &app,

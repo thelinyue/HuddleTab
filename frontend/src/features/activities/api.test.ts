@@ -302,3 +302,37 @@ describe("Join approval adapter", () => {
     expect(keys).toEqual(expectedKeys.map((key) => Reflect.get(allKeys, key)));
   });
 });
+
+describe("Ownership adapter", () => {
+  it("提交 generated ownership contract 并失效全部受影响的私有读模型", async () => {
+    client.POST.mockResolvedValue(successful({ ...activity, ownerMemberId: "member-2", version: "8" }));
+    const { queryClient, wrapper } = setupQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(
+      () => activityApi.useTransferOwnershipMutation("user-1", "activity-1"),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync({ newOwnerMemberId: "member-2", version: "7" });
+    });
+
+    expect(client.POST).toHaveBeenCalledWith(
+      "/api/activities/{activity_id}/ownership",
+      {
+        body: { newOwnerMemberId: "member-2", version: "7" },
+        params: {
+          header: { "x-csrf-token": "csrf-token" },
+          path: { activity_id: "activity-1" },
+        },
+      },
+    );
+    expect(invalidate.mock.calls.map(([options]) => options?.queryKey)).toEqual([
+      queryKeys.activityDetail("user-1", "activity-1"),
+      queryKeys.members("user-1", "activity-1"),
+      queryKeys.activitiesCurrent("user-1"),
+      queryKeys.activitySnapshot("user-1", "activity-1"),
+      queryKeys.notifications("user-1"),
+    ]);
+  });
+});

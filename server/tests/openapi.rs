@@ -256,6 +256,32 @@ fn join_approval_and_notification_contract_is_complete() {
 }
 
 #[test]
+fn ownership_transfer_contract_is_explicit() {
+    let document = huddletab_server::http::openapi::document();
+    let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
+    let operation = &value["paths"]["/api/activities/{activity_id}/ownership"]["post"];
+    assert!(operation.is_object());
+    let csrf = operation["parameters"]
+        .as_array()
+        .and_then(|parameters| {
+            parameters
+                .iter()
+                .find(|parameter| parameter["name"] == "x-csrf-token")
+        })
+        .expect("所有权转让应发布 CSRF header");
+    assert_eq!(csrf["in"], "header");
+    assert_eq!(csrf["required"], true);
+    for status in ["200", "401", "403", "404", "409", "422", "429"] {
+        assert!(
+            operation["responses"][status].is_object(),
+            "缺少 ownership {status}"
+        );
+    }
+    let request = &value["components"]["schemas"]["TransferOwnershipRequest"];
+    assert!(request.is_object());
+}
+
+#[test]
 fn guest_binding_contract_is_explicit() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
