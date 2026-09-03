@@ -80,11 +80,24 @@ test("系统管理员入口、账号管理和注册策略保持 v0.0.2 交互密
     await installArtifactVisualRedaction(rejectedContext);
     const rejected = await rejectedContext.newPage();
     try {
-      await rejected.goto("/register");
-      await rejected.getByLabel("用户名").fill(`blocked${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`.slice(0, 32));
-      await rejected.getByLabel("显示名称").fill("Blocked");
-      await rejected.locator('input[autocomplete="new-password"]').fill(`${crypto.randomUUID()}Cc3!`);
-      await rejected.getByRole("button", { name: "注册并继续" }).click();
+      const rejectedUsername = `blocked${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`.slice(0, 32);
+      const rejectedPassword = `${crypto.randomUUID()}Cc3!`;
+      const submitRejectedRegistration = async () => {
+        await rejected.goto("/register");
+        await rejected.getByLabel("用户名").fill(rejectedUsername);
+        await rejected.getByLabel("显示名称").fill("Blocked");
+        await rejected.locator('input[autocomplete="new-password"]').fill(rejectedPassword);
+        const responsePromise = rejected.waitForResponse((response) => response.url().includes("/api/auth/register") && response.request().method() === "POST");
+        await rejected.getByRole("button", { name: "注册并继续" }).click();
+        return responsePromise;
+      };
+      let rejectedResponse = await submitRejectedRegistration();
+      if (rejectedResponse.status() === 429) {
+        const retryAfter = Number(rejectedResponse.headers()["retry-after"] ?? "1");
+        await rejected.waitForTimeout(Math.max(1, Math.min(retryAfter, 90)) * 1_000 + 250);
+        rejectedResponse = await submitRejectedRegistration();
+      }
+      expect(rejectedResponse.status()).toBe(403);
       await expect(rejected.getByRole("alert")).toContainText("仅允许受邀用户注册");
     } finally {
       await rejectedContext.close();

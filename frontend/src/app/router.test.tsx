@@ -15,6 +15,7 @@ const setupState = vi.hoisted(() => ({ setupRequired: false, error: null as unkn
 
 vi.mock("../features/auth/api", () => ({
   useSessionQuery: () => ({ isPending: false, data: authState.data }),
+  hasRememberedOfflineSession: () => false,
   useChangePasswordMutation: () => ({ isPending: false, mutateAsync: vi.fn() }),
 }));
 

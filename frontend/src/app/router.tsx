@@ -8,7 +8,7 @@ import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
 import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "../features/admin/pages";
 import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
 import { useOnlineStatus } from "../features/activities/offline-workspace";
-import { useSessionQuery } from "../features/auth/api";
+import { hasRememberedOfflineSession, useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { ChangePasswordPage } from "../features/me/password-page";
 import { NotificationsPage } from "../features/notifications/pages";
@@ -34,7 +34,9 @@ function SetupGuard() {
   // 离线工作台已经由当前标签页 Session 和 Snapshot 保护；只在网络错误时放行，
   // 认证失效仍会由 ProtectedRoute 清理身份，不能借缓存绕过服务端授权。
   if (status.error || !status.data) {
-    if (!online && session.data) return <Outlet />;
+    // 只有已缓存的活动深链允许在断网时跳过初始化状态探针；列表、管理等页面仍需在线确认。
+    const cachedActivityDeepLink = location.pathname.startsWith("/activities/");
+    if (!online && cachedActivityDeepLink && (session.data || hasRememberedOfflineSession())) return <Outlet />;
     return <SetupStatusError onRetry={() => void status.refetch()} />;
   }
   if (status.data.setupRequired) {

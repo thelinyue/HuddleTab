@@ -39,6 +39,11 @@ function rememberedOfflineSession(): Session | null {
   }
 }
 
+/** 仅用于离线活动深链的路由前置判断；身份仍会由 Session query 读取并交给受保护路由校验。 */
+export function hasRememberedOfflineSession(): boolean {
+  return rememberedOfflineSession() !== null;
+}
+
 async function loadSession(): Promise<Session | null> {
   try {
     const result = await apiClient.GET("/api/auth/session");
