@@ -1,5 +1,5 @@
 import { FileQuestion } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
@@ -30,10 +30,17 @@ function SetupGuard() {
   const status = useSetupStatusQuery();
   const session = useSessionQuery();
   const online = useOnlineStatus();
+  const previousOnline = useRef(online);
+  useEffect(() => {
+    const becameOnline = online && !previousOnline.current;
+    previousOnline.current = online;
+    if (becameOnline && status.error) void status.refetch();
+  }, [online, status.error, status.refetch]);
   if (status.isPending) return <LoadingState label="正在确认初始化状态…" />;
   // 离线工作台已经由当前标签页 Session 和 Snapshot 保护；只在网络错误时放行，
   // 认证失效仍会由 ProtectedRoute 清理身份，不能借缓存绕过服务端授权。
   if (status.error || !status.data) {
+    if (online && status.error) return <LoadingState label="正在重新确认初始化状态…" />;
     // 只有已缓存的活动深链允许在断网时跳过初始化状态探针；列表、管理等页面仍需在线确认。
     const cachedActivityDeepLink = location.pathname.startsWith("/activities/");
     if (!online && cachedActivityDeepLink && (session.data || hasRememberedOfflineSession())) return <Outlet />;
