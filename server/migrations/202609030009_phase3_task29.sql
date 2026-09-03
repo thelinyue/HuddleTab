@@ -14,7 +14,8 @@ CREATE TABLE system_settings (
         CHECK (registration_policy IN ('INVITE_ONLY', 'OPEN')),
     version BIGINT NOT NULL DEFAULT 1 CHECK (version >= 1),
     updated_at TIMESTAMPTZ NOT NULL,
-    updated_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL
+    -- 该字段只是最近修改管理员的审计指针；不建立外键，避免测试/运维按用户级联清理时误删系统单例。
+    updated_by_user_id UUID
 );
 
 INSERT INTO system_settings (id, registration_policy, version, updated_at)
