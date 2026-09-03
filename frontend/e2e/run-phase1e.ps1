@@ -23,6 +23,7 @@ $primaryFailure = $null
 $script:composeFileWsl = $null
 $originalWslEnv = $env:WSLENV
 $originalAppVersion = $env:APP_VERSION
+$originalPostgresDb = $env:POSTGRES_DB
 $sensitiveNames = @(
   "HUDDLETAB_E2E_USERNAME",
   "HUDDLETAB_E2E_PASSWORD",
@@ -149,6 +150,8 @@ try {
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
   $env:APP_VERSION = if ($ReleaseVerification) { "0.0.3" } else { "dev" }
+  # Release Verification 的父进程会暂时使用另一个 PostgreSQL 测试库；E2E Compose 必须固定自己的库名。
+  $env:POSTGRES_DB = "huddletab"
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
   $env:HUDDLETAB_E2E_ATTACHMENT_MODE = if ($AttachmentOnly) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK29_MODE = if ($Task29Only) { "true" } else { "false" }
@@ -312,6 +315,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
   Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
   if ($null -ne $originalAppVersion) { $env:APP_VERSION = $originalAppVersion }
+  if ($null -ne $originalPostgresDb) { $env:POSTGRES_DB = $originalPostgresDb } else { Remove-Item Env:POSTGRES_DB -ErrorAction SilentlyContinue }
   $env:WSLENV = $originalWslEnv
 }
 
