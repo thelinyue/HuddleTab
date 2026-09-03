@@ -419,7 +419,7 @@ Rust 必须执行全部权威案例；TypeScript 执行其保留的格式化、�
 - Rust build stage 编译单一 release binary。
 - runtime stage 只复制 binary、静态产物、必要 CA/时区数据和空 `/data` 目录。
 - runtime 使用固定非 root UID/GID。
-- `/data/app-secret`、上传和后续备份位于 app bind mount；PostgreSQL 位于独立 bind mount。
+- `/data/app-secret` 与上传位于 app bind mount；PostgreSQL 位于独立 bind mount。宿主/NAS 快照由部署者负责，应用不提供备份 API。
 - healthcheck 使用 Rust binary 或可用的轻量 HTTP 工具，不依赖 Node。
 
 升级流程先备份、拉取镜像、运行向前兼容 migration、启动应用、验证 health。Phase 1 不提供自动 downgrade migration。

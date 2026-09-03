@@ -28,4 +28,4 @@ git diff --check
 
 ## 状态边界
 
-完成结论严格为：“Phase 3 Task 29 完成，可以进入 Task 30。”Task 30 初始化引导、CSV/Sharing Summary 收口，Task 31 SMTP/存储/备份恢复/系统信息、iPhone Safari/Home Screen PWA 人工验收、最终 Release Verification 和正式 `v0.0.3` 发布仍未完成。
+完成结论严格为：“Phase 3 Task 29 完成，可以进入 Task 30。”Task 30 已完成；Task 31 已收口为存储与系统信息，SMTP 和应用级备份/还原已移出产品范围。iPhone Safari/Home Screen PWA 人工验收、最终 Release Verification 和正式 `v0.0.3` 发布仍未完成。

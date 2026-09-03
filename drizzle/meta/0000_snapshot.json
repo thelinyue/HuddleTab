@@ -1974,44 +1974,6 @@
           "notNull": true,
           "default": "'INVITE_ONLY'"
         },
-        "smtp_enabled": {
-          "name": "smtp_enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "smtp_host": {
-          "name": "smtp_host",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smtp_port": {
-          "name": "smtp_port",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smtp_secure": {
-          "name": "smtp_secure",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "smtp_username": {
-          "name": "smtp_username",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smtp_password_encrypted": {
-          "name": "smtp_password_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",

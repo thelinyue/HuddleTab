@@ -12,11 +12,13 @@ use crate::{
             RegistrationPolicy, SystemAdminError, get_registration_policy, list_users,
             reset_password, set_registration_policy, set_system_admin, set_user_disabled,
         },
+        system_information::{read_database_version, read_storage},
     },
     infrastructure::{
         auth_repository::PostgresAuthRepository, clock::SystemClock,
         password::Argon2PasswordHasher, session::SessionToken,
         system_admin_repository::PostgresSystemAdminRepository,
+        system_information::PostgresSystemInformationProbe,
     },
 };
 
@@ -82,6 +84,33 @@ pub struct RegistrationPolicyData {
 #[derive(Serialize, ToSchema)]
 pub struct RegistrationPolicyEnvelope {
     pub data: RegistrationPolicyData,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageData {
+    pub database_bytes: String,
+    pub uploads_bytes: String,
+    pub total_bytes: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct StorageEnvelope {
+    pub data: StorageData,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemInformationData {
+    pub app_version: String,
+    pub pwa_version: String,
+    pub database_version: String,
+    pub data_directory: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct SystemInformationEnvelope {
+    pub data: SystemInformationData,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -359,4 +388,85 @@ pub(crate) async fn update_registration_policy(
             version: view.version,
         },
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/admin/storage",
+    responses(
+        (status = 200, description = "数据库与附件存储占用", headers(("Cache-Control" = String, description = "private, no-store")), body = StorageEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "需要系统管理员", body = super::error::ErrorEnvelope),
+        (status = 500, description = "存储统计暂时不可用", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn storage(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<StorageEnvelope>), ApiError> {
+    require_admin(&state, &jar, &headers, request_id.clone(), false).await?;
+    let probe = PostgresSystemInformationProbe::new(state.pool, state.uploads_dir);
+    let usage = read_storage(&probe).await.map_err(|_| {
+        // 探针错误可能包含数据库或宿主路径信息，只记录固定中文结论。
+        tracing::error!("读取存储统计失败，请检查 PostgreSQL 和数据目录状态");
+        ApiError::internal(request_id.clone())
+    })?;
+    Ok((
+        private_no_store_headers(),
+        Json(StorageEnvelope {
+            data: StorageData {
+                database_bytes: usage.database_bytes.to_string(),
+                uploads_bytes: usage.uploads_bytes.to_string(),
+                total_bytes: usage.total_bytes.to_string(),
+            },
+        }),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/admin/system-information",
+    responses(
+        (status = 200, description = "应用与数据库运行信息", headers(("Cache-Control" = String, description = "private, no-store")), body = SystemInformationEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "需要系统管理员", body = super::error::ErrorEnvelope),
+        (status = 500, description = "系统信息暂时不可用", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn system_information(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<SystemInformationEnvelope>), ApiError> {
+    require_admin(&state, &jar, &headers, request_id.clone(), false).await?;
+    let probe = PostgresSystemInformationProbe::new(state.pool, state.uploads_dir);
+    let database_version = read_database_version(&probe).await.map_err(|_| {
+        // 不把底层连接错误写入日志，避免泄露连接串或部署路径。
+        tracing::error!("读取系统信息失败，请检查 PostgreSQL 状态");
+        ApiError::internal(request_id.clone())
+    })?;
+    let app_version = std::env::var("APP_VERSION").unwrap_or_else(|_| "dev".to_owned());
+    Ok((
+        private_no_store_headers(),
+        Json(SystemInformationEnvelope {
+            data: SystemInformationData {
+                app_version: app_version.clone(),
+                pwa_version: app_version,
+                database_version,
+                data_directory: state.data_dir.display().to_string(),
+            },
+        }),
+    ))
+}
+
+fn private_no_store_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-store"),
+    );
+    headers
 }

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 本文是旧 Next.js 基础阶段的历史记录，不是当前部署方案。文中的 `/data/backups`、Node 健康检查和旧运行时不再适用；当前 Rust Compose 与宿主/NAS 数据保护以仓库根目录 `compose.yaml`、`docs/deployment/data-protection.md` 和 Rust 迁移交接文档为准。
+
 **Goal:** Produce a runnable, tested Next.js modular-monolith skeleton with the confirmed design tokens, PostgreSQL migration flow, and two-service Docker Compose deployment on port 5660.
 
 **Architecture:** Manually scaffold the project in the existing non-empty repository, use npm and Node.js 24 LTS, place application code under `src/`, and establish test and database infrastructure before business modules.
@@ -599,7 +601,7 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/src/server/db ./src/server/db
-RUN mkdir -p /data/uploads /data/backups
+RUN mkdir -p /data/uploads
 EXPOSE 5660
 CMD ["sh", "-c", "npm run db:migrate && npm run start"]
 ```
@@ -653,7 +655,6 @@ services:
       - "5660:5660"
     volumes:
       - app-uploads:/data/uploads
-      - app-backups:/data/backups
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5660/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
@@ -663,7 +664,6 @@ services:
 volumes:
   postgres-data:
   app-uploads:
-  app-backups:
 ```
 
 - [ ] **Step 4: Verify production startup**

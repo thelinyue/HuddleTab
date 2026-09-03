@@ -404,6 +404,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["storage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/system-information": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["system_information"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users": {
         parameters: {
             query?: never;
@@ -746,6 +778,7 @@ export interface components {
         ActivitySnapshotEnvelope: {
             data: components["schemas"]["ActivitySnapshotData"];
         };
+        /** @description 活动结算摘要只包含授权成员可见的账务统计，不包含账号或内部字段。 */
         ActivitySummaryData: {
             activityName: string;
             averageExpenseMinor: string;
@@ -1212,21 +1245,33 @@ export interface components {
         SettlementListEnvelope: {
             data: components["schemas"]["SettlementData"][];
         };
+        /** @description 初始化状态是部署边界，前端不得将其持久化到 `IndexedDB` 或 Service Worker。 */
         SetupStatusData: {
             setupRequired: boolean;
         };
+        /** @description 公开初始化状态只暴露是否需要 CLI 引导，不返回用户数量或账号资料。 */
         SetupStatusEnvelope: {
             data: components["schemas"]["SetupStatusData"];
+        };
+        StorageData: {
+            databaseBytes: string;
+            totalBytes: string;
+            uploadsBytes: string;
+        };
+        StorageEnvelope: {
+            data: components["schemas"]["StorageData"];
         };
         SummaryBalanceData: {
             displayName: string;
             memberId: string;
             netMinor: string;
         };
+        /** @description 按固定分类值排序的主币种最小单位汇总。 */
         SummaryCategoryTotalData: {
             amountMinor: string;
             category: string;
         };
+        /** @description 按原币种返回未删除账单的原始最小单位汇总。 */
         SummaryCurrencyTotalData: {
             amountMinor: string;
             currency: string;
@@ -1235,6 +1280,15 @@ export interface components {
             amountMinor: string;
             payerMemberId: string;
             receiverMemberId: string;
+        };
+        SystemInformationData: {
+            appVersion: string;
+            dataDirectory: string;
+            databaseVersion: string;
+            pwaVersion: string;
+        };
+        SystemInformationEnvelope: {
+            data: components["schemas"]["SystemInformationData"];
         };
         TransferOwnershipRequest: {
             newOwnerMemberId: string;
@@ -3112,6 +3166,104 @@ export interface operations {
                 };
             };
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    storage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 数据库与附件存储占用 */
+            200: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 需要系统管理员 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 存储统计暂时不可用 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    system_information: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 应用与数据库运行信息 */
+            200: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemInformationEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 需要系统管理员 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 系统信息暂时不可用 */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -24,3 +24,4 @@ pub mod settlement_repository;
 pub mod sharing_repository;
 pub mod snapshot_repository;
 pub mod system_admin_repository;
+pub mod system_information;

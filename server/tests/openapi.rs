@@ -96,6 +96,38 @@ fn system_admin_contract_publishes_management_routes() {
 }
 
 #[test]
+fn system_information_contract_publishes_private_read_only_routes() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    for (path, schema) in [
+        ("/api/admin/storage", "StorageEnvelope"),
+        ("/api/admin/system-information", "SystemInformationEnvelope"),
+    ] {
+        let operation = &value["paths"][path]["get"];
+        assert!(operation.is_object(), "缺少 {path}");
+        assert_eq!(
+            operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            format!("#/components/schemas/{schema}")
+        );
+        assert_eq!(
+            operation["responses"]["200"]["headers"]["Cache-Control"]["schema"]["type"],
+            "string"
+        );
+        for status in ["401", "403", "500"] {
+            assert!(operation["responses"][status].is_object());
+        }
+    }
+    for schema in [
+        "StorageData",
+        "StorageEnvelope",
+        "SystemInformationData",
+        "SystemInformationEnvelope",
+    ] {
+        assert!(value["components"]["schemas"][schema].is_object());
+    }
+}
+
+#[test]
 fn activity_snapshot_publishes_conditional_get_contract() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");

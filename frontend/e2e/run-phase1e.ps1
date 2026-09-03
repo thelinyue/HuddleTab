@@ -4,7 +4,8 @@ param(
   [switch] $NotificationOwnershipOnly,
   [switch] $Phase2Only,
   [switch] $Task29Only,
-  [switch] $Task30Only
+  [switch] $Task30Only,
+  [switch] $Task31Only
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,8 +27,8 @@ $sensitiveNames = @(
   "POSTGRES_PASSWORD"
 )
 
-if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only).Where({ $_ }).Count -gt 1) {
-  throw "附件、通知/所有权、Phase 2、Task 29 与 Task 30 专项模式不能同时运行。"
+if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only, $Task30Only, $Task31Only).Where({ $_ }).Count -gt 1) {
+  throw "附件、通知/所有权、Phase 2、Task 29、Task 30 与 Task 31 专项模式不能同时运行。"
 }
 
 function Invoke-Wsl {
@@ -149,6 +150,7 @@ try {
   $env:HUDDLETAB_E2E_ATTACHMENT_MODE = if ($AttachmentOnly) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK29_MODE = if ($Task29Only) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK30_MODE = if ($Task30Only) { "true" } else { "false" }
+  $env:HUDDLETAB_E2E_TASK31_MODE = if ($Task31Only) { "true" } else { "false" }
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
@@ -196,6 +198,8 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
     "Task 29 Chromium Desktop/Mobile 管理矩阵"
   } elseif ($Task30Only) {
     "Task 30 Chromium Desktop/Mobile 初始化与分享矩阵"
+  } elseif ($Task31Only) {
+    "Task 31 Chromium Desktop/Mobile 系统信息矩阵"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {
@@ -206,7 +210,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   Write-Host "[4/10] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent -Task31Only $Task31Only.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
@@ -278,7 +282,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE -ErrorAction SilentlyContinue
   $env:WSLENV = $originalWslEnv
 }
 

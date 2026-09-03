@@ -330,4 +330,4 @@ git commit -m "feat: complete secure attachment flow"
 - 每笔最多 3 张，原图最多 10MB，拒绝 SVG，核对 Magic Bytes，重编码并限制最长边 2048px。
 - 文件只在 `/data/uploads`，不进入 `public/`；LEFT 仅历史读取。
 - `(expense_id, client_attachment_id)` 保证重试幂等；附件失败不回滚 Expense。
-- Phase 9 完整备份必须包含 Uploads，Restore 期间暂停上传和清理。
+- 宿主/NAS 数据保护必须覆盖 Uploads；应用不提供备份/还原或 Restore 维护模式。

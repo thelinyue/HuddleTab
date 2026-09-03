@@ -85,6 +85,8 @@ async fn system_admin_routes_require_a_session() {
     for request in [
         ("GET", "/api/admin/users"),
         ("GET", "/api/admin/registration-policy"),
+        ("GET", "/api/admin/storage"),
+        ("GET", "/api/admin/system-information"),
     ] {
         let response = app
             .clone()

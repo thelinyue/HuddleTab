@@ -20,7 +20,7 @@ const adminEntries = [
   {
     href: "/admin/settings",
     label: "系统设置",
-    description: "注册策略与服务运行设置",
+    description: "设置账号注册策略",
     Icon: SlidersHorizontalIcon,
   },
   {
@@ -37,8 +37,8 @@ const adminEntries = [
 }[];
 
 /**
- * 系统管理首页仅映射已经实现并受服务端守卫保护的四个页面。
- * SMTP 等能力归属系统设置，避免首页展示不存在的独立入口。
+ * 系统管理首页仅映射已经实现并受服务端守卫保护的三个页面。
+ * 系统管理首页只展示当前仍存在的管理入口。
  */
 export default function AdminPage() {
   return (

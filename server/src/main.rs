@@ -118,6 +118,7 @@ async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {
         uploads_dir.clone(),
     );
     let state = huddletab_server::http::router::AppState::new(database, app_secret, base_origin)
+        .with_data_dir(data_dir.clone())
         .with_uploads_dir(uploads_dir);
     let listener = tokio::net::TcpListener::bind(bind)
         .await

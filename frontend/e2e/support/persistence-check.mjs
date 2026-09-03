@@ -4,6 +4,7 @@ const password = process.env.HUDDLETAB_E2E_PASSWORD;
 const attachmentMode = process.env.HUDDLETAB_E2E_ATTACHMENT_MODE === "true";
 const task29Mode = process.env.HUDDLETAB_E2E_TASK29_MODE === "true";
 const task30Mode = process.env.HUDDLETAB_E2E_TASK30_MODE === "true";
+const task31Mode = process.env.HUDDLETAB_E2E_TASK31_MODE === "true";
 
 if (!baseUrl || !username || !password) {
   throw new Error("缺少持久性检查所需的临时环境，请通过 Phase 1E PowerShell 入口运行。");
@@ -52,6 +53,16 @@ if (task29Mode) {
     throw new Error("重启后未找到 Task 29 管理测试数据。");
   }
   console.log("重启持久性检查通过：系统管理用户与账号状态仍可读取。");
+} else if (task31Mode) {
+  const systemResponse = await fetch(`${baseUrl}/api/admin/system-information`, {
+    headers: { cookie: sessionCookie },
+  });
+  if (!systemResponse.ok) throw new Error("重启后无法读取 Task 31 系统信息。");
+  const system = (await systemResponse.json()).data;
+  if (!system.appVersion || !system.pwaVersion || !system.databaseVersion || !system.dataDirectory) {
+    throw new Error("重启后系统信息字段不完整。");
+  }
+  console.log("重启持久性检查通过：Task 31 系统信息仍可读取。");
 } else if (task30Mode) {
   if (!activities.some((activity) => activity.name.startsWith("Task30 "))) {
     throw new Error("重启后未找到 Task 30 管理与分享测试活动。");

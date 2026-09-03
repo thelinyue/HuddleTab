@@ -14,3 +14,4 @@ pub mod settlement;
 pub mod sharing;
 pub mod snapshot;
 pub mod system_admin;
+pub mod system_information;

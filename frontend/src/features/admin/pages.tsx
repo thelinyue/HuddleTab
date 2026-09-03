@@ -1,4 +1,4 @@
-import { ArrowLeft, KeyRound, Settings2, ShieldCheck, UserCog, UsersRound } from "lucide-react";
+import { ArrowLeft, Database, HardDrive, KeyRound, Settings2, ShieldCheck, UserCog, UsersRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../../api/error";
@@ -9,9 +9,11 @@ import { useOnlineStatus } from "../activities/offline-workspace";
 import { useSessionQuery } from "../auth/api";
 import {
   type AdminUser,
+  useAdminStorageQuery,
   useAdminUsersQuery,
   useRegistrationPolicyQuery,
   useResetAdminPasswordMutation,
+  useSystemInformationQuery,
   useUpdateAdminRoleMutation,
   useUpdateAdminUserStatusMutation,
   useUpdateRegistrationPolicyMutation,
@@ -44,6 +46,10 @@ export function AdminHomePage() {
         <Link className="settings-link" to="/admin/settings" aria-label="注册策略">
           <Settings2 aria-hidden="true" size={18} />
           <span><strong>注册策略</strong><small>设置是否需要邀请才能创建账号</small></span><span aria-hidden="true">›</span>
+        </Link>
+        <Link className="settings-link" to="/admin/system" aria-label="系统信息">
+          <HardDrive aria-hidden="true" size={18} />
+          <span><strong>系统信息</strong><small>查看存储占用与运行版本</small></span><span aria-hidden="true">›</span>
         </Link>
       </div>
     </AdminFrame>
@@ -157,4 +163,65 @@ export function AdminSettingsPage() {
       </section> : null}
     </AdminFrame>
   );
+}
+
+function formatBytes(value: string): string {
+  try {
+    let bytes = BigInt(value);
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let unit = 0;
+    while (bytes >= 1024n && unit < units.length - 1) {
+      bytes /= 1024n;
+      unit += 1;
+    }
+    return `${new Intl.NumberFormat("zh-CN").format(bytes)} ${units[unit]}`;
+  } catch {
+    return "—";
+  }
+}
+
+export function AdminSystemInformationPage() {
+  const session = useSessionQuery();
+  const online = useOnlineStatus();
+  const userId = session.data?.userId ?? "";
+  const storage = useAdminStorageQuery(userId, online);
+  const information = useSystemInformationQuery(userId, online);
+
+  if (!online) {
+    return <AdminFrame title="系统信息"><div className="notice" role="status">当前离线，系统信息需要联网后使用。</div></AdminFrame>;
+  }
+  if (storage.isPending || information.isPending) {
+    return <AdminFrame title="系统信息"><LoadingState label="正在读取系统信息…" /></AdminFrame>;
+  }
+  const error = storage.error ?? information.error;
+  if (error) {
+    return <AdminFrame title="系统信息"><ErrorNotice error={error} /></AdminFrame>;
+  }
+  if (!storage.data || !information.data) return null;
+
+  return (
+    <AdminFrame title="系统信息">
+      <section className="admin-settings-card" aria-labelledby="storage-heading">
+        <div className="admin-settings-card__heading"><HardDrive aria-hidden="true" size={20} /><div><h2 id="storage-heading">存储使用</h2><p>仅统计数据库和私有图片附件。</p></div></div>
+        <dl className="admin-system-metrics">
+          <Metric icon={<Database aria-hidden="true" size={16} />} label="数据库" value={formatBytes(storage.data.databaseBytes)} />
+          <Metric label="上传文件" value={formatBytes(storage.data.uploadsBytes)} />
+          <Metric label="合计" value={formatBytes(storage.data.totalBytes)} strong />
+        </dl>
+      </section>
+      <section className="admin-settings-card" aria-labelledby="runtime-heading">
+        <div className="admin-settings-card__heading"><ShieldCheck aria-hidden="true" size={20} /><div><h2 id="runtime-heading">运行信息</h2><p>当前服务实例的版本与数据目录。</p></div></div>
+        <dl className="admin-system-metrics">
+          <Metric label="应用版本" value={information.data.appVersion} />
+          <Metric label="PWA 版本" value={information.data.pwaVersion} />
+          <Metric label="数据库版本" value={information.data.databaseVersion} />
+          <Metric label="数据目录" value={information.data.dataDirectory} />
+        </dl>
+      </section>
+    </AdminFrame>
+  );
+}
+
+function Metric({ icon, label, value, strong = false }: { readonly icon?: React.ReactNode; readonly label: string; readonly value: string; readonly strong?: boolean }) {
+  return <div className="admin-system-metric"><dt>{icon ? <span aria-hidden="true">{icon}</span> : null}{label}</dt><dd className={strong ? "strong" : undefined}>{value}</dd></div>;
 }

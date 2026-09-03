@@ -8,6 +8,8 @@ import { queryKeys } from "../../api/query-keys";
 
 export type AdminUser = components["schemas"]["AdminUserData"];
 export type RegistrationPolicy = components["schemas"]["RegistrationPolicyData"];
+export type StorageUsage = components["schemas"]["StorageData"];
+export type SystemInformation = components["schemas"]["SystemInformationData"];
 
 async function getUsers(): Promise<AdminUser[]> {
   return unwrap(await apiClient.GET("/api/admin/users")).data;
@@ -15,6 +17,14 @@ async function getUsers(): Promise<AdminUser[]> {
 
 async function getPolicy(): Promise<RegistrationPolicy> {
   return unwrap(await apiClient.GET("/api/admin/registration-policy")).data;
+}
+
+async function getStorage(): Promise<StorageUsage> {
+  return unwrap(await apiClient.GET("/api/admin/storage")).data;
+}
+
+async function getSystemInformation(): Promise<SystemInformation> {
+  return unwrap(await apiClient.GET("/api/admin/system-information")).data;
 }
 
 export function useAdminUsersQuery(userId: string, enabled = true) {
@@ -30,6 +40,24 @@ export function useRegistrationPolicyQuery(userId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.adminRegistrationPolicy(userId),
     queryFn: getPolicy,
+    enabled: userId.length > 0 && enabled,
+    retry: false,
+  });
+}
+
+export function useAdminStorageQuery(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminStorage(userId),
+    queryFn: getStorage,
+    enabled: userId.length > 0 && enabled,
+    retry: false,
+  });
+}
+
+export function useSystemInformationQuery(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminSystemInformation(userId),
+    queryFn: getSystemInformation,
     enabled: userId.length > 0 && enabled,
     retry: false,
   });

@@ -19,6 +19,8 @@ vi.mock("../activities/pages", () => ({ Overlay: ({ children, title }: { childre
 vi.mock("../../components/product-bottom-navigation", () => ({ ProductBottomNavigation: () => null }));
 vi.mock("./api", () => ({
   useAdminUsersQuery: () => ({ data: state.users, isPending: false, error: null }),
+  useAdminStorageQuery: () => ({ data: { databaseBytes: "1024", uploadsBytes: "2048", totalBytes: "3072" }, isPending: false, error: null }),
+  useSystemInformationQuery: () => ({ data: { appVersion: "dev", pwaVersion: "dev", databaseVersion: "PostgreSQL 18.6", dataDirectory: "/data" }, isPending: false, error: null }),
   useUpdateAdminUserStatusMutation: () => state.status,
   useUpdateAdminRoleMutation: () => state.role,
   useResetAdminPasswordMutation: () => state.reset,
@@ -26,7 +28,7 @@ vi.mock("./api", () => ({
   useUpdateRegistrationPolicyMutation: () => state.policyUpdate,
 }));
 
-import { AdminSettingsPage, AdminUsersPage } from "./pages";
+import { AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "./pages";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; });
 
@@ -62,5 +64,18 @@ describe("系统管理页面", () => {
     render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
     fireEvent.click(screen.getByLabelText("开放注册"));
     await waitFor(() => expect(state.policyUpdate.mutateAsync).toHaveBeenCalledWith({ policy: "OPEN", version: 1 }));
+  });
+
+  it("系统信息页面显示存储与运行信息", () => {
+    render(<MemoryRouter><AdminSystemInformationPage /></MemoryRouter>);
+    expect(screen.getByRole("heading", { name: "存储使用" })).toBeInTheDocument();
+    expect(screen.getByText("1 KB")).toBeInTheDocument();
+    expect(screen.getByText("PostgreSQL 18.6")).toBeInTheDocument();
+  });
+
+  it("系统信息离线时不读取旧数据", () => {
+    state.online = false;
+    render(<MemoryRouter><AdminSystemInformationPage /></MemoryRouter>);
+    expect(screen.getByRole("status")).toHaveTextContent("系统信息需要联网");
   });
 });

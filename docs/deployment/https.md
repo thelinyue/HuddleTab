@@ -30,7 +30,6 @@ services:
 然后设置公开 HTTPS 地址，并让 Cookie 在 HTTPS 部署中使用 Secure 属性：
 
 ```env
-BETTER_AUTH_URL=https://huddletab.example.com
 APP_BASE_URL=https://huddletab.example.com
 ```
 

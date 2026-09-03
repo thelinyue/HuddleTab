@@ -5,7 +5,7 @@ import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
 import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "../features/accounting/pages";
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
-import { AdminHomePage, AdminSettingsPage, AdminUsersPage } from "../features/admin/pages";
+import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "../features/admin/pages";
 import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
 import { useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
@@ -96,6 +96,7 @@ export function ApplicationRouter() {
             <Route path="/admin" element={<AdminHomePage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/admin/settings" element={<AdminSettingsPage />} />
+            <Route path="/admin/system" element={<AdminSystemInformationPage />} />
           </Route>
             <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
           </Route>

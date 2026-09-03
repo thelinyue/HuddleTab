@@ -8,6 +8,8 @@
 >
 > **Architecture:** Next.js 模块化单体；`app + postgres` 两容器
 
+> **当前迁移决策：** 本文早期设想的 SMTP、应用级备份/还原和 `/data/backups` 已移出产品范围。以 Rust 新栈 Task 31 记录为准；宿主/NAS 数据保护与 Activity 软删除恢复分别保留。
+
 ## 1. 文档目的
 
 本文将产品基线转化为可以评审和实施的系统设计，冻结以下内容：
@@ -68,7 +70,7 @@ V1 必须让普通用户完成：
 - 离线新增在响应丢失、重试和刷新后仍只在服务器创建一笔 Expense。
 - 所有活动 API 在服务器重新验证 Session、成员身份、活动状态、角色和资源所有权。
 - 并发更新不存在静默覆盖；冲突返回 `409 VERSION_CONFLICT`。
-- Docker 升级不会丢失 PostgreSQL、Uploads 或 Backups。
+- Docker 升级不会丢失 PostgreSQL 或 Uploads；快照与恢复由宿主/NAS 数据保护流程负责。
 - 亮暗主题均满足核心文字对比、焦点可见和状态可辨识要求。
 - 关键错误和用户可见日志使用清楚的中文说明，同时保留稳定错误代码供排查。
 
@@ -83,7 +85,7 @@ V1 必须让普通用户完成：
 - Ledger、结算推荐和实际 Settlement。
 - 应用内通知、CSV、结算摘要分享。
 - PWA 安装、离线查看、离线新增、Snapshot 和幂等同步。
-- System Admin、备份、恢复、存储、SMTP 和系统信息。
+- System Admin、存储和系统信息；SMTP 与应用级备份/还原不属于当前产品范围。
 - Docker Compose 生产部署和 Migration。
 
 ### 4.2 明确非目标
@@ -102,9 +104,8 @@ graph TD
     SVC --> DOM[纯 TypeScript Domain]
     SVC --> REP[Repositories / Drizzle]
     REP --> PG[(PostgreSQL)]
-    APP --> FILES[/data/uploads + /data/backups]
+    APP --> FILES[/data/uploads]
     SVC --> RATE[ExchangeRateProvider]
-    SVC --> SMTP[可选 SMTP]
     APP --> JOBS[同进程后台清理任务]
 ```
 
@@ -305,12 +306,7 @@ erDiagram
 - `theme_preference`: `SYSTEM | LIGHT | DARK`。
 - `created_at`, `updated_at`。
 
-Compatibility Layer 规则：
-
-- 无真实邮箱时生成 `u_<random-id>@local.invalid`。
-- Synthetic Email 不展示、不发信、不视为已绑定邮箱。
-- 绑定真实邮箱时通过兼容层迁移 Better Auth 用户邮箱并更新 `email_kind`。
-- SMTP 缺失不阻塞用户名注册和密码登录。
+账号规则：当前 Rust 新栈使用本地用户名与密码模型，不提供 SMTP、邮件发送或旧 Better Auth 兼容层。
 
 #### `system_roles`
 
@@ -327,11 +323,8 @@ Compatibility Layer 规则：
 单例设置至少包含：
 
 - `registration_policy`: `INVITE_ONLY | OPEN`，默认 `INVITE_ONLY`。
-- `maintenance_mode`。
-- SMTP 配置状态与非敏感元数据。
+- `maintenance_mode`（仅历史设计字段；当前 Rust Schema 不提供应用维护模式）。
 - `updated_at`, `updated_by_user_id`。
-
-SMTP 密码等秘密不以明文普通字段暴露给 UI 或日志。
 
 #### `system_bootstrap`
 
@@ -489,12 +482,10 @@ Owner 约束：
 
 不为每笔普通新增消费发送通知。
 
-### 8.6 汇率、备份和系统支撑
+### 8.6 汇率和系统支撑
 
 - `exchange_rate_cache` 保存币种对、日期/时间、Provider、精确 Rate 字符串和获取时间。
-- `backup_records` 只保存备份文件元数据、状态、大小、创建者和校验结果；实际归档位于 `/data/backups`。
-- 完整备份必须包含 PostgreSQL Dump、Uploads 和 Manifest。
-- 恢复前进入 Maintenance Mode，恢复后执行 Migration/兼容性检查和 Smoke Test。
+- 管理员系统信息只读取 PostgreSQL 大小、Uploads 大小、运行版本和数据目录；不提供应用级备份 API。
 
 ## 9. 核心事务边界
 
@@ -604,7 +595,7 @@ Owner 约束：
 | `/api/activities/:id/export.csv` | CSV 导出 |
 | `/api/notifications` | 列表、未读数和已读状态 |
 | `/api/me/*` | 资料、邮箱绑定、密码、Session、主题偏好 |
-| `/api/admin/*` | 用户、注册策略、SMTP、存储、备份、恢复、系统信息 |
+| `/api/admin/*` | 用户、注册策略、存储、系统信息 |
 
 ### 10.3 HTTP 状态
 
@@ -662,7 +653,7 @@ Session
 
 System Admin 只能访问平台管理 API。其身份不自动赋予任何私人活动读取或写入权限。
 
-备份是平台级高风险运维操作，归档本身包含私有数据；管理 UI 必须明确警告并执行二次确认，但不得因此提供普通活动浏览 API。
+宿主/NAS 快照是部署者的数据保护责任；应用管理页不提供备份归档操作，也不因此扩展普通活动浏览权限。
 
 ## 12. 活动生命周期
 
@@ -892,9 +883,9 @@ V1 不依赖浏览器 Background Sync API。网络、超时和 `5xx` 使用有�
 
 ### 16.1 System Admin
 
-与普通 PWA 使用同一套信息架构。模块包括：用户、注册策略、存储、备份、SMTP 和系统信息。
+与普通 PWA 使用同一套信息架构。模块包括：用户、注册策略、存储和系统信息。
 
-用户禁用必须撤销其活动 Session；System Admin 身份变更和备份/恢复等高风险操作需要二次确认和明确中文提示。
+用户禁用必须撤销其活动 Session；System Admin 身份变更等高风险操作需要二次确认和明确中文提示。
 
 ### 16.2 Migration
 
@@ -908,18 +899,9 @@ Drizzle Schema
 
 生产不使用 `drizzle-kit push`。容器启动必须等待数据库并执行 Migration；失败时 App 不启动。
 
-### 16.3 备份与恢复
+### 16.3 宿主数据保护
 
-备份包：
-
-```text
-backup_xxx.tar.gz
-├── manifest.json
-├── database.dump
-└── uploads/
-```
-
-恢复进入 Maintenance Mode，阻止业务写入；完成后执行一致性验证、Migration 兼容检查和 Smoke Test。
+应用不提供备份、下载、上传或数据库还原 API。部署者应按 `docs/deployment/data-protection.md` 对 PostgreSQL、`/data`、Compose 文件、密钥和环境变量执行宿主/NAS 快照，并在升级前后演练恢复。
 
 ### 16.4 HTTPS 与代理
 
@@ -950,11 +932,11 @@ HuddleTab 默认直接提供 HTTP 服务，核心 Compose 不内置 Caddy、Ngin
 - 所有活动 API 的服务器权限复验。
 - 首次初始化不记录密码、Session 或用户名等敏感输入，也不输出 Setup Token。
 
-认证、权限、不可逆清理、备份恢复和生产 Migration 属于高风险边界，不能因简化原则删除已有安全措施。
+认证、权限、不可逆清理和生产 Migration 属于高风险边界，不能因简化原则删除已有安全措施。
 
 ## 18. 注释与日志规范
 
-- Money、DecimalRate、Splitting、Ledger、Recommendation、权限判定、离线同步和备份恢复等关键类/模块必须有完整中文设计注释。
+- Money、DecimalRate、Splitting、Ledger、Recommendation、权限判定和离线同步等关键类/模块必须有完整中文设计注释。
 - 注释说明不变量、选择原因、边界和失败语义，不重复翻译显而易见的代码。
 - 用户可见错误和部署日志优先输出可理解的中文说明，同时携带稳定错误代码。
 - 日志禁止输出密码、Session、邀请 Token、附件内容和 Synthetic Email。
@@ -1000,7 +982,7 @@ Domain Tests
 - Expense 成功而附件失败的独立重试。
 - Pending 数据存在时 PWA 更新不强制刷新。
 - 超额 Settlement 二次确认。
-- Backup + Restore + Smoke Test。
+- 宿主/NAS 快照与升级恢复演练（不属于应用 API）。
 - 亮暗主题、键盘导航、焦点与移动端触控检查。
 
 ## 20. 关键风险登记
@@ -1011,11 +993,9 @@ Domain Tests
 | P0 | 权限越界 | 固定服务器判断顺序、平台/活动角色隔离 | 权限矩阵 API 测试 |
 | P0 | 重复离线账单 | 幂等唯一键、重复请求返回原资源 | 响应丢失 E2E |
 | P0 | Setup 并发重复创建 | 事务锁、初始化后永久关闭、限流 | 安全集成测试 |
-| P0 | 备份恢复破坏数据 | DB + Uploads 同包、Maintenance Mode | 恢复演练 |
 | P1 | 并发静默覆盖 | Version 条件更新、409、不自动合并 | 并发集成测试 |
 | P1 | 汇率服务故障阻塞记账 | Provider 隔离、缓存、手工输入 | Provider 故障测试 |
 | P1 | PWA 更新丢失离线数据 | Pending 时禁止强制 Reload | 离线升级 E2E |
-| P1 | Better Auth 邮箱兼容泄漏 | Compatibility Layer、email_kind | 认证流程测试 |
 | P1 | 暗色主题状态不可辨识 | 语义 Token 和双主题状态矩阵 | 对比度与交互检查 |
 | P2 | 附件孤立或重复 | client_attachment_id、清理任务 | 附件集成测试 |
 
@@ -1059,7 +1039,7 @@ IndexedDB、Snapshot、Revision、Mutation Queue、幂等、附件和同步状�
 
 ### Phase 9：Admin
 
-用户、注册策略、SMTP、Storage、Backup、Restore、System Information。
+用户、注册策略、Storage、System Information；SMTP 与应用级 Backup/Restore 已取消。
 
 ### Phase 10：PWA + Release
 

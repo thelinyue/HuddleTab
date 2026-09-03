@@ -49,6 +49,7 @@ pub struct AppState {
     pub(crate) time_zone: String,
     pub(crate) trust_proxy: bool,
     pub(crate) rate_limiter: RateLimiter,
+    pub(crate) data_dir: PathBuf,
     pub(crate) uploads_dir: PathBuf,
     pub(crate) exchange_rate_provider: Arc<dyn ExchangeRateProvider>,
 }
@@ -70,6 +71,7 @@ impl AppState {
             time_zone,
             trust_proxy,
             rate_limiter: RateLimiter::new(),
+            data_dir: PathBuf::from("/data"),
             uploads_dir: PathBuf::from("/data/uploads"),
             exchange_rate_provider: Arc::new(FrankfurterExchangeRateProvider::new()),
         }
@@ -78,6 +80,12 @@ impl AppState {
     #[must_use]
     pub fn with_uploads_dir(mut self, uploads_dir: PathBuf) -> Self {
         self.uploads_dir = uploads_dir;
+        self
+    }
+
+    #[must_use]
+    pub fn with_data_dir(mut self, data_dir: PathBuf) -> Self {
+        self.data_dir = data_dir;
         self
     }
 
@@ -150,6 +158,14 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             get(admin::registration_policy)
                 .put(admin::update_registration_policy)
                 .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/admin/storage",
+            get(admin::storage).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/admin/system-information",
+            get(admin::system_information).fallback(api_method_not_allowed),
         )
         .route(
             "/activities",

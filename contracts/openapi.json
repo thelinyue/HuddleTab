@@ -2445,6 +2445,118 @@
         }
       }
     },
+    "/api/admin/storage": {
+      "get": {
+        "tags": [],
+        "operationId": "storage",
+        "responses": {
+          "200": {
+            "description": "数据库与附件存储占用",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "需要系统管理员",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "存储统计暂时不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/system-information": {
+      "get": {
+        "tags": [],
+        "operationId": "system_information",
+        "responses": {
+          "200": {
+            "description": "应用与数据库运行信息",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInformationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "需要系统管理员",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "系统信息暂时不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/users": {
       "get": {
         "tags": [],
@@ -3695,6 +3807,7 @@
       },
       "ActivitySummaryData": {
         "type": "object",
+        "description": "活动结算摘要只包含授权成员可见的账务统计，不包含账号或内部字段。",
         "required": [
           "activityName",
           "startDate",
@@ -5540,6 +5653,7 @@
       },
       "SetupStatusData": {
         "type": "object",
+        "description": "初始化状态是部署边界，前端不得将其持久化到 `IndexedDB` 或 Service Worker。",
         "required": [
           "setupRequired"
         ],
@@ -5551,12 +5665,43 @@
       },
       "SetupStatusEnvelope": {
         "type": "object",
+        "description": "公开初始化状态只暴露是否需要 CLI 引导，不返回用户数量或账号资料。",
         "required": [
           "data"
         ],
         "properties": {
           "data": {
             "$ref": "#/components/schemas/SetupStatusData"
+          }
+        }
+      },
+      "StorageData": {
+        "type": "object",
+        "required": [
+          "databaseBytes",
+          "uploadsBytes",
+          "totalBytes"
+        ],
+        "properties": {
+          "databaseBytes": {
+            "type": "string"
+          },
+          "totalBytes": {
+            "type": "string"
+          },
+          "uploadsBytes": {
+            "type": "string"
+          }
+        }
+      },
+      "StorageEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StorageData"
           }
         }
       },
@@ -5581,6 +5726,7 @@
       },
       "SummaryCategoryTotalData": {
         "type": "object",
+        "description": "按固定分类值排序的主币种最小单位汇总。",
         "required": [
           "category",
           "amountMinor"
@@ -5596,6 +5742,7 @@
       },
       "SummaryCurrencyTotalData": {
         "type": "object",
+        "description": "按原币种返回未删除账单的原始最小单位汇总。",
         "required": [
           "currency",
           "amountMinor"
@@ -5625,6 +5772,40 @@
           },
           "receiverMemberId": {
             "type": "string"
+          }
+        }
+      },
+      "SystemInformationData": {
+        "type": "object",
+        "required": [
+          "appVersion",
+          "pwaVersion",
+          "databaseVersion",
+          "dataDirectory"
+        ],
+        "properties": {
+          "appVersion": {
+            "type": "string"
+          },
+          "dataDirectory": {
+            "type": "string"
+          },
+          "databaseVersion": {
+            "type": "string"
+          },
+          "pwaVersion": {
+            "type": "string"
+          }
+        }
+      },
+      "SystemInformationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SystemInformationData"
           }
         }
       },
