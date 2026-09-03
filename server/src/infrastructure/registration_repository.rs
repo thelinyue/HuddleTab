@@ -24,22 +24,39 @@ impl RegistrationRepository for PostgresRegistrationRepository {
         registration: NewRegistration,
     ) -> Result<(), RegistrationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let invitation_valid = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT i.id FROM activity_invites i \
-             JOIN activities a ON a.id = i.activity_id \
-             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
-               AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE' \
-               AND a.deleted_at IS NULL AND (i.kind = 'LINK' OR i.target_username = $3) \
-               FOR SHARE OF i, a",
+        let policy = sqlx::query_scalar::<_, String>(
+            "SELECT registration_policy FROM system_settings WHERE id = 'singleton' FOR SHARE",
         )
-        .bind(registration.invitation_hash.as_slice())
-        .bind(registration.created_at)
-        .bind(&registration.username)
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(log_repository_error)?;
-        if invitation_valid.is_none() {
-            return Err(RegistrationRepositoryError::InvalidInvitation);
+        .map_err(log_repository_error)?
+        .ok_or_else(|| {
+            log_repository_error(sqlx::Error::Protocol(
+                "缺少 system_settings 单例".to_owned(),
+            ))
+        })?;
+        if policy == "INVITE_ONLY" {
+            let invitation_hash = registration
+                .invitation_hash
+                .as_ref()
+                .ok_or(RegistrationRepositoryError::InvalidInvitation)?;
+            let invitation_valid = sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT i.id FROM activity_invites i \
+                 JOIN activities a ON a.id = i.activity_id \
+                 WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
+                   AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE' \
+                   AND a.deleted_at IS NULL AND (i.kind = 'LINK' OR i.target_username = $3) \
+                   FOR SHARE OF i, a",
+            )
+            .bind(invitation_hash.as_slice())
+            .bind(registration.created_at)
+            .bind(&registration.username)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+            if invitation_valid.is_none() {
+                return Err(RegistrationRepositoryError::InvalidInvitation);
+            }
         }
         sqlx::query(
             "INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) \

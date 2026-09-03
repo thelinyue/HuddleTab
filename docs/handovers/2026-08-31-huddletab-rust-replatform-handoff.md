@@ -6,7 +6,7 @@
 
 迁移分支已经具备 Phase 1 的核心业务闭环：认证、修改密码、活动资料与生命周期、30 天删除恢复、成员、邀请、记账、账本、推荐转账、结算、CSV 导出和受权结算摘要分享均可由 React/Vite 前端调用 Rust/Axum API 完成，同一 Rust 进程可托管 API 与 Vite 构建产物。Phase 1E 的安全、并发、真实浏览器和候选运行镜像结构验收已于 2026-09-01 通过；这只表示 Phase 1 exit gate 通过，可以进入 Phase 2，不表示完整迁移或正式发布已经完成。
 
-Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列，以及 Task 27 的加入审批、Guest Binding、图片附件、Rate Provider、站内通知与所有权转让已完成。Task 28 的离线工作台、REJECTED 修正、PWA 更新保护和完整浏览器验收已通过，当前只表示 Phase 2 exit gate 通过，可以进入 Phase 3。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 3 Task 29–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
+Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB 隔离、Task 26 的 Expense Create 前台同步队列，以及 Task 27 的加入审批、Guest Binding、图片附件、Rate Provider、站内通知与所有权转让已完成。Task 28 的离线工作台、REJECTED 修正、PWA 更新保护和完整浏览器验收已通过；Phase 3 Task 29 的系统管理员、用户管理、注册策略和管理员密码重置现已完成，当前只表示可以进入 Task 30。当前状态仍不能描述为“完整迁移完成”或“达到正式发布状态”；Phase 3 Task 30–31、最终 Release Verification 和真机 iPhone Safari/Home Screen PWA 人工验收仍未完成。活动过期删除记录暂不物理清理，后台清理 Job 另立后续任务。正式镜像版本预留为 `0.0.3`、对应 tag 为 `v0.0.3`，当前不得创建 tag、发布镜像或宣称远程镜像可用。
 
 ## 2. 代码位置与 Git 状态
 
@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–28 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。当前已完成 Phase 2 Task 28，但尚未进入 Phase 3、对象存储或发布流程。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–29 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。当前已完成 Phase 3 Task 29，但尚未进入 Task 30–31、对象存储或发布流程。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -155,7 +155,7 @@ huddletab openapi
 | 图片附件 | 可用 | Task 27；JPEG/PNG/WebP，最多三张，私有 WebP、离线前台同步、缩略图/大图、ACTIVE 编辑即时删除 |
 | 汇率 Provider | 可用 | Task 27；Frankfurter 日参考汇率、PostgreSQL 七天缓存降级、显式获取与 Expense 精确来源快照 |
 | 活动所有权转让 | 可用 | Task 27；Owner 转给 ACTIVE 已绑定成员，旧 Owner 降为 MEMBER，事务原子更新 |
-| 系统管理、注册策略、管理员重置密码 | 未实现 | 属于 Phase 3 |
+| 系统管理、注册策略、管理员重置密码 | 可用 | Phase 3 Task 29；用户删除、初始化引导和外围管理仍未实现 |
 
 ## 7. 已验证的核心流程
 
@@ -469,6 +469,35 @@ Frontend 全量为 29 个测试文件、174 个测试通过；PWA 更新组件�
 
 结论严格为：“Phase 2 Task 28 完成，可以进入 Phase 3。”Tasks 29–31、iPhone Safari/Home Screen PWA 真机人工验收、最终 Release Verification、后台清理 Job 和正式 `v0.0.3` Git tag/GHCR 镜像发布仍未完成；本轮没有创建 tag、推送 GHCR 或宣称达到发布状态。
 
+### 7.11 Phase 3 Task 29 系统管理、用户管理与注册策略
+
+编码前已启动本地 `v0.0.2` 对照环境 `http://127.0.0.1:5682`，并审查远程对应 tag 的“我的”、系统管理、用户管理和系统设置源码。新栈保留紧凑移动优先列表、按钮层级、Sheet/返回行为和注册表单密度；后续任何 UI 功能仍必须先完成同样的 `v0.0.2` 对照。
+
+Task 29 新增 `users.disabled_at`、仅含 `SYSTEM_ADMIN` 的 `system_roles` 和单例 `system_settings`。首位用户由 `bootstrap-user` 在同一事务中创建并授予系统管理员；登录与 Session 实时拒绝禁用账号，禁用或撤销管理员角色会撤销全部 Session。禁用/撤权操作在 PostgreSQL 事务 advisory lock 内重新检查至少一个未禁用且拥有有效密码的系统管理员，最后管理员操作返回 `409 LAST_ACTIVE_ADMIN`。系统管理员只拥有平台管理权限，不获得任何 Activity 权限；本轮没有用户删除。
+
+注册策略默认 `INVITE_ONLY`，支持 `OPEN`，以递增 `version` 做乐观锁。注册事务锁定读取策略并重新校验邀请；开放策略允许无邀请创建账号，带邀请仍进入原 join 流程；仅邀请策略缺失或无效口令返回 `403 REGISTRATION_INVITE_REQUIRED`。管理员密码重置直接设置 8–128 字符新密码，使用现有 Argon2id，原子撤销目标全部 Session；自重置同样清理当前认证状态并返回登录页，明文密码不进入 Debug 或日志。
+
+新增管理合同：`GET /api/admin/users`、`PATCH /api/admin/users/{user_id}/status`、`PATCH /api/admin/users/{user_id}/system-admin`、`PUT /api/admin/users/{user_id}/password`、`GET/PUT /api/admin/registration-policy`。所有写接口要求 Session、CSRF、`SensitiveAuthenticated` 限流；Session DTO 增加 `isSystemAdmin` 仅用于前端入口隔离。前端新增系统管理首页、用户管理、注册策略页和密码重置 Overlay；离线时不读取或提交管理数据。
+
+增加固定 `frontend/e2e/run-phase1e.ps1 -Task29Only`，仅运行 Chromium Desktop `1440x1000` 与 Mobile `390x844` 管理矩阵，禁止注入任意 Playwright 参数。专项覆盖管理员入口、普通用户越权回退、OPEN/INVITE_ONLY 注册、密码重置撤销旧 Session、最后管理员保护和无横向溢出。实际命令：
+
+```powershell
+cargo fmt --manifest-path server/Cargo.toml --check
+cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --manifest-path server/Cargo.toml --all-targets --no-run
+cargo test --manifest-path server/Cargo.toml --test openapi --test http_shell --test sensitive_input_debug
+npm --prefix frontend run test:unit
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+pwsh -NoProfile -File frontend/e2e/support/run-phase1e-safety.test.ps1
+& ./frontend/e2e/run-phase1e.ps1 -Task29Only
+git diff --check
+```
+
+Task 29 完成结论严格为：“Phase 3 Task 29 完成，可以进入 Task 30。”Task 30 的初始化引导、CSV/Sharing Summary 收口，Task 31 的 SMTP、存储、备份恢复、系统信息及外围管理，iPhone Safari/Home Screen PWA 人工验收、最终 Release Verification、后台清理 Job 和正式 `v0.0.3` tag/GHCR 镜像发布仍未完成；本轮不创建 tag、不发布镜像、不宣称达到发布状态。
+
+Task 29 实际验证：Rust 非数据库全量 `cargo test --all-targets -- --test-threads=1` 通过 53 个测试，数据库相关 84 个用例保持 ignored；OpenAPI 11、HTTP shell 5、敏感输入 5 通过，系统管理 PostgreSQL 集成用例 3 个已编译但需 `TEST_DATABASE_URL` 才执行。Frontend 全量 30 个文件、178 个测试通过，typecheck、production build、fmt、严格 Clippy 和 `git diff --check` 通过。固定 Task29Only Compose/Playwright 在 Chromium Desktop `1440x1000` 与 Mobile `390x844` 为 `2/2` 通过，并完成 fresh migration、stdin bootstrap、SPA 深链、非 root/无 Node runtime、双容器重启管理用户持久性、中文冷启动错误、artifact 脱敏和限定清理；报告保留在 `frontend/artifacts/playwright-report/index.html`。
+
 ## 8. 当前本地运行现场
 
 交接时没有启动 Rust API 或 Vite 开发服务器，不应直接宣称 `5660` 或 `5173` 可访问。以下 WSL PostgreSQL 测试现场仍在运行：
@@ -584,7 +613,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 
 ## 12. 下一步优先级
 
-1. 进入 Phase 3 Task 29–31：实现 System Admin、Registration Policy、初始化引导、其余账户设置和外围管理。Phase 2 Task 28 已完成并通过 exit gate。
+1. 进入 Phase 3 Task 30–31：实现初始化引导、其余账户设置和外围管理。Phase 3 Task 29 已完成；Task 28 已通过 Phase 2 exit gate。
 2. 完成最终 Release Verification 与真机 iPhone Safari/Home Screen PWA 人工验收后，才可创建 `v0.0.3` 并发布 `ghcr.io/thelinyue/huddletab:0.0.3`；本轮不执行这些操作。
 3. 另立后台清理 Job 处理超过恢复窗口的 Activity 物理清理；当前只隐藏并禁止恢复，不会物理删除记录。
 
@@ -610,5 +639,7 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-03-huddletab-task27-notification-ownership.md`
 - `docs/superpowers/specs/2026-09-03-huddletab-task28-phase2-e2e-design.md`
 - `docs/superpowers/plans/2026-09-03-huddletab-task28-phase2-e2e.md`
+- `docs/superpowers/specs/2026-09-03-huddletab-task29-admin-design.md`
+- `docs/superpowers/plans/2026-09-03-huddletab-task29-admin.md`
 
-这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 28 已通过 Phase 2 exit gate，但不代表 Phase 3 或正式发布完成。
+这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 29 已完成并可进入 Task 30，但不代表 Phase 3 或正式发布完成。

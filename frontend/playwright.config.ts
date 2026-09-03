@@ -68,5 +68,15 @@ export default defineConfig({
       testMatch: "phase2.spec.ts",
       use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
     },
+    {
+      name: "chromium-task29-desktop",
+      testMatch: "task29.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "chromium-task29-mobile",
+      testMatch: "task29.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
+    },
   ],
 });

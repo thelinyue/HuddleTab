@@ -63,6 +63,7 @@ pub struct LoginData {
     pub user_id: String,
     pub username: String,
     pub display_name: String,
+    pub is_system_admin: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -71,7 +72,7 @@ pub struct RegisterRequest {
     pub username: String,
     pub password: String,
     pub display_name: String,
-    pub invitation_token: String,
+    pub invitation_token: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -85,6 +86,7 @@ pub struct RegisterData {
     pub user_id: String,
     pub username: String,
     pub display_name: String,
+    pub is_system_admin: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -98,6 +100,7 @@ pub struct SessionData {
     pub user_id: String,
     pub username: String,
     pub display_name: String,
+    pub is_system_admin: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -265,6 +268,7 @@ pub(crate) async fn login(
                 user_id: result.user_id.to_string(),
                 username: result.username,
                 display_name: result.display_name,
+                is_system_admin: result.is_system_admin,
             },
         }),
     ))
@@ -275,10 +279,9 @@ pub(crate) async fn login(
     path = "/api/auth/register",
     request_body = RegisterRequest,
     responses(
-        (status = 201, description = "邀请注册成功", body = RegisterEnvelope),
+        (status = 201, description = "创建账号成功", body = RegisterEnvelope),
         (status = 400, description = "注册信息无效", body = super::error::ErrorEnvelope),
-        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope),
-        (status = 404, description = "邀请无效", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 校验失败或当前策略需要有效邀请", body = super::error::ErrorEnvelope),
         (status = 409, description = "用户名已存在", body = super::error::ErrorEnvelope),
         (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
@@ -306,13 +309,15 @@ pub(crate) async fn register(
             username: request.username,
             password: request.password,
             display_name: request.display_name,
-            invitation_token: request.invitation_token,
+            invitation_token: request.invitation_token.unwrap_or_default(),
         },
     )
     .await
     .map_err(|error| match error {
         RegisterError::InvalidInput => ApiError::invalid_collaboration_input(request_id.clone()),
-        RegisterError::InvalidInvitation => ApiError::invalid_invitation(request_id.clone()),
+        RegisterError::InvalidInvitation => {
+            ApiError::registration_invite_required(request_id.clone())
+        }
         RegisterError::UsernameTaken => ApiError::username_taken(request_id.clone()),
         RegisterError::Unavailable => ApiError::internal(request_id.clone()),
     })?;
@@ -341,6 +346,7 @@ pub(crate) async fn register(
                 user_id: result.user_id.to_string(),
                 username: result.username,
                 display_name: result.display_name,
+                is_system_admin: false,
             },
         }),
     ))
@@ -377,6 +383,7 @@ pub(crate) async fn session(
             user_id: current.user_id.to_string(),
             username: current.username,
             display_name: current.display_name,
+            is_system_admin: current.is_system_admin,
         },
     }))
 }

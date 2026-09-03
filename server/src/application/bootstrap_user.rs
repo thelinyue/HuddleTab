@@ -89,6 +89,13 @@ pub async fn bootstrap_first_user(
     .bind(now)
     .execute(&mut *transaction)
     .await?;
+    sqlx::query(
+        "INSERT INTO system_roles (user_id, role, granted_at) VALUES ($1, 'SYSTEM_ADMIN', $2)",
+    )
+    .bind(user_id)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
 
     Ok(BootstrappedUser {

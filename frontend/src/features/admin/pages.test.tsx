@@ -1,0 +1,66 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const state = vi.hoisted(() => ({
+  online: true,
+  session: { userId: "admin-1", username: "admin", displayName: "管理员", isSystemAdmin: true },
+  users: [{ id: "admin-1", username: "admin", displayName: "管理员", disabled: false, isSystemAdmin: true }, { id: "user-1", username: "alice", displayName: "Alice", disabled: false, isSystemAdmin: false }],
+  status: { isPending: false, mutateAsync: vi.fn() },
+  role: { isPending: false, mutateAsync: vi.fn() },
+  reset: { isPending: false, mutateAsync: vi.fn(), variables: undefined },
+  policy: { policy: "INVITE_ONLY", version: 1 },
+  policyUpdate: { isPending: false, mutateAsync: vi.fn() },
+}));
+
+vi.mock("../auth/api", () => ({ useSessionQuery: () => ({ data: state.session, isPending: false }) }));
+vi.mock("../activities/offline-workspace", () => ({ useOnlineStatus: () => state.online }));
+vi.mock("../activities/pages", () => ({ Overlay: ({ children, title }: { children: React.ReactNode; title: string }) => <section role="dialog" aria-label={title}>{children}</section> }));
+vi.mock("../../components/product-bottom-navigation", () => ({ ProductBottomNavigation: () => null }));
+vi.mock("./api", () => ({
+  useAdminUsersQuery: () => ({ data: state.users, isPending: false, error: null }),
+  useUpdateAdminUserStatusMutation: () => state.status,
+  useUpdateAdminRoleMutation: () => state.role,
+  useResetAdminPasswordMutation: () => state.reset,
+  useRegistrationPolicyQuery: () => ({ data: state.policy, isPending: false, error: null }),
+  useUpdateRegistrationPolicyMutation: () => state.policyUpdate,
+}));
+
+import { AdminSettingsPage, AdminUsersPage } from "./pages";
+
+afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; });
+
+describe("系统管理页面", () => {
+  it("用户管理提供启用、管理员和重置密码操作", () => {
+    render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "设为管理员" })).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "重置密码" })[1]);
+    expect(screen.getByRole("dialog", { name: "重置密码" })).toBeInTheDocument();
+  });
+
+  it("重置密码失败保留草稿", async () => {
+    state.reset.mutateAsync.mockRejectedValue(new Error("重置失败"));
+    render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
+    fireEvent.click(screen.getAllByRole("button", { name: "重置密码" })[1]);
+    const password = screen.getByLabelText("新密码");
+    const confirmation = screen.getByLabelText("确认新密码");
+    fireEvent.change(password, { target: { value: "new password value" } });
+    fireEvent.change(confirmation, { target: { value: "new password value" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认重置" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("重置失败");
+    expect(password).toHaveValue("new password value");
+  });
+
+  it("离线时不读取或执行管理写入", () => {
+    state.online = false;
+    render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
+    expect(screen.getByRole("status")).toHaveTextContent("需要联网");
+  });
+
+  it("注册策略使用当前 version 提交", async () => {
+    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    fireEvent.click(screen.getByLabelText("开放注册"));
+    await waitFor(() => expect(state.policyUpdate.mutateAsync).toHaveBeenCalledWith({ policy: "OPEN", version: 1 }));
+  });
+});

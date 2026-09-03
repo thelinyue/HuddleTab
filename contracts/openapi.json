@@ -2323,6 +2323,425 @@
         }
       }
     },
+    "/api/admin/registration-policy": {
+      "get": {
+        "tags": [],
+        "operationId": "registration_policy",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationPolicyEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "update_registration_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationPolicyEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": [],
+        "operationId": "users",
+        "responses": {
+          "200": {
+            "description": "平台用户列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "需要系统管理员",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users/{user_id}/password": {
+      "put": {
+        "tags": [],
+        "operationId": "reset_user_password",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "用户 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPasswordResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMutationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users/{user_id}/status": {
+      "patch": {
+        "tags": [],
+        "operationId": "update_status",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "用户 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMutationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users/{user_id}/system-admin": {
+      "patch": {
+        "tags": [],
+        "operationId": "update_role",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "用户 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMutationEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/csrf": {
       "get": {
         "tags": [],
@@ -2474,7 +2893,7 @@
         },
         "responses": {
           "201": {
-            "description": "邀请注册成功",
+            "description": "创建账号成功",
             "content": {
               "application/json": {
                 "schema": {
@@ -2494,17 +2913,7 @@
             }
           },
           "403": {
-            "description": "CSRF 校验失败",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "邀请无效",
+            "description": "CSRF 校验失败或当前策略需要有效邀请",
             "content": {
               "application/json": {
                 "schema": {
@@ -3315,6 +3724,84 @@
         "properties": {
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "AdminMutationData": {
+        "type": "object",
+        "required": [
+          "userId",
+          "changed"
+        ],
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          },
+          "userId": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminMutationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AdminMutationData"
+          }
+        }
+      },
+      "AdminPasswordResetRequest": {
+        "type": "object",
+        "required": [
+          "newPassword"
+        ],
+        "properties": {
+          "newPassword": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminUserData": {
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "displayName",
+          "disabled",
+          "isSystemAdmin"
+        ],
+        "properties": {
+          "disabled": {
+            "type": "boolean"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "isSystemAdmin": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminUserListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminUserData"
+            }
           }
         }
       },
@@ -4489,11 +4976,15 @@
         "required": [
           "userId",
           "username",
-          "displayName"
+          "displayName",
+          "isSystemAdmin"
         ],
         "properties": {
           "displayName": {
             "type": "string"
+          },
+          "isSystemAdmin": {
+            "type": "boolean"
           },
           "userId": {
             "type": "string"
@@ -4721,11 +5212,15 @@
         "required": [
           "userId",
           "username",
-          "displayName"
+          "displayName",
+          "isSystemAdmin"
         ],
         "properties": {
           "displayName": {
             "type": "string"
+          },
+          "isSystemAdmin": {
+            "type": "boolean"
           },
           "userId": {
             "type": "string"
@@ -4751,15 +5246,17 @@
         "required": [
           "username",
           "password",
-          "displayName",
-          "invitationToken"
+          "displayName"
         ],
         "properties": {
           "displayName": {
             "type": "string"
           },
           "invitationToken": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "password": {
             "type": "string"
@@ -4769,16 +5266,71 @@
           }
         }
       },
+      "RegistrationPolicyData": {
+        "type": "object",
+        "required": [
+          "policy",
+          "version"
+        ],
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/RegistrationPolicyValue"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RegistrationPolicyEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RegistrationPolicyData"
+          }
+        }
+      },
+      "RegistrationPolicyRequest": {
+        "type": "object",
+        "required": [
+          "policy",
+          "version"
+        ],
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/RegistrationPolicyValue"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RegistrationPolicyValue": {
+        "type": "string",
+        "description": "注册策略在 HTTP contract 中的稳定枚举；handler 仍以字符串接收未知值并返回统一 422 envelope。",
+        "enum": [
+          "INVITE_ONLY",
+          "OPEN"
+        ]
+      },
       "SessionData": {
         "type": "object",
         "required": [
           "userId",
           "username",
-          "displayName"
+          "displayName",
+          "isSystemAdmin"
         ],
         "properties": {
           "displayName": {
             "type": "string"
+          },
+          "isSystemAdmin": {
+            "type": "boolean"
           },
           "userId": {
             "type": "string"
@@ -5050,6 +5602,28 @@
           "file": {
             "type": "string",
             "format": "binary"
+          }
+        }
+      },
+      "UserRoleRequest": {
+        "type": "object",
+        "required": [
+          "granted"
+        ],
+        "properties": {
+          "granted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserStatusRequest": {
+        "type": "object",
+        "required": [
+          "disabled"
+        ],
+        "properties": {
+          "disabled": {
+            "type": "boolean"
           }
         }
       },

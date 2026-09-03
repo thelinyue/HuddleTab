@@ -24,8 +24,10 @@ impl AuthRepository for PostgresAuthRepository {
         &self,
         username: &str,
     ) -> Result<Option<StoredCredentials>, AuthRepositoryError> {
-        let row = sqlx::query_as::<_, (uuid::Uuid, String, String, String)>(
-            "SELECT id, username, display_name, password_hash FROM users WHERE username = $1",
+        let row = sqlx::query_as::<_, (uuid::Uuid, String, String, String, bool)>(
+            "SELECT u.id, u.username, u.display_name, u.password_hash, \
+             EXISTS (SELECT 1 FROM system_roles sr WHERE sr.user_id = u.id AND sr.role = 'SYSTEM_ADMIN') \
+             FROM users u WHERE u.username = $1 AND u.disabled_at IS NULL",
         )
         .bind(username)
         .fetch_optional(&self.pool)
@@ -35,11 +37,12 @@ impl AuthRepository for PostgresAuthRepository {
             AuthRepositoryError
         })?;
         Ok(row.map(
-            |(user_id, username, display_name, password_hash)| StoredCredentials {
+            |(user_id, username, display_name, password_hash, is_system_admin)| StoredCredentials {
                 user_id,
                 username,
                 display_name,
                 password_hash,
+                is_system_admin,
             },
         ))
     }
@@ -89,12 +92,14 @@ impl AuthRepository for PostgresAuthRepository {
                 String,
                 time::OffsetDateTime,
                 time::OffsetDateTime,
+                bool,
             ),
         >(
             "SELECT s.id, u.id, u.username, u.display_name, u.password_hash, \
-             s.created_at, s.last_seen_at \
+             s.created_at, s.last_seen_at, \
+             EXISTS (SELECT 1 FROM system_roles sr WHERE sr.user_id = u.id AND sr.role = 'SYSTEM_ADMIN') \
              FROM sessions s JOIN users u ON u.id = s.user_id \
-             WHERE s.token_hash = $1 AND s.revoked_at IS NULL",
+             WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND u.disabled_at IS NULL",
         )
         .bind(token_hash.as_slice())
         .fetch_optional(&self.pool)
@@ -109,6 +114,7 @@ impl AuthRepository for PostgresAuthRepository {
                 password_hash,
                 created_at,
                 last_seen_at,
+                is_system_admin,
             )| {
                 StoredSession {
                     session_id,
@@ -118,6 +124,7 @@ impl AuthRepository for PostgresAuthRepository {
                     password_hash,
                     created_at,
                     last_seen_at,
+                    is_system_admin,
                 }
             },
         ))

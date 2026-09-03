@@ -16,6 +16,8 @@ export const queryKeys = {
     ["users", userId, "join-requests", requestId] as const,
   notifications: (userId: string) =>
     ["users", userId, "notifications"] as const,
+  adminUsers: (userId: string) => ["users", userId, "admin", "users"] as const,
+  adminRegistrationPolicy: (userId: string) => ["users", userId, "admin", "registration-policy"] as const,
   activitySnapshot: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "snapshot"] as const,
   expenses: (userId: string, activityId: string) =>

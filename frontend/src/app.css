@@ -320,6 +320,20 @@ button.settings-row:hover { background: var(--surface-muted); }
 .me-subpage-header h1 { font-size: 21px; text-align: center; }
 .password-form { display: grid; width: min(100%, 480px); gap: 16px; margin: 24px auto 0; }
 .password-form > .button { width: 100%; }
+.admin-entry-list { margin-top: 18px; }
+.admin-user-list { margin-top: 18px; border-top: 1px solid var(--border); }
+.admin-user-row { display: grid; gap: 10px; border-bottom: 1px solid var(--border); padding: 12px 4px; }
+.admin-user-row__identity { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.admin-user-row__identity > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.admin-user-row__identity small { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.admin-user-row__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-user-row__actions .button { min-height: 40px; padding-inline: 10px; }
+.admin-settings-card { display: grid; gap: 12px; margin-top: 20px; border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--surface); }
+.admin-settings-card__heading { display: flex; align-items: start; gap: 10px; }
+.admin-settings-card__heading > svg { flex: 0 0 auto; color: var(--primary); }
+.admin-settings-card__heading h2 { font-size: 16px; }
+.admin-settings-card__heading p { margin-top: 3px; color: var(--muted-foreground); font-size: 13px; }
+.settings-choice { display: flex; min-height: 44px; align-items: center; gap: 9px; }
 
 .notification-count { color: var(--muted-foreground); font-size: 13px; font-weight: 650; }
 .notification-filters { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 14px; scrollbar-width: none; }

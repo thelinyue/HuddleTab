@@ -5,6 +5,7 @@ import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
 import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "../features/accounting/pages";
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
+import { AdminHomePage, AdminSettingsPage, AdminUsersPage } from "../features/admin/pages";
 import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
 import { useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
@@ -26,6 +27,15 @@ function ProtectedRoute() {
   if (session.isPending) return <LoadingState label="正在确认登录状态…" />;
   if (!session.data) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
   return <><ExpenseQueueSync userId={session.data.userId} /><Outlet /></>;
+}
+
+function ProtectedAdminRoute() {
+  const session = useSessionQuery();
+  const location = useLocation();
+  if (session.isPending) return <LoadingState label="正在确认管理员权限…" />;
+  if (!session.data) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  if (!session.data.isSystemAdmin) return <Navigate to="/me" replace />;
+  return <Outlet />;
 }
 
 function NotFoundPage() {
@@ -65,6 +75,11 @@ export function ApplicationRouter() {
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/me" element={<MePage />} />
           <Route path="/me/password" element={<ChangePasswordPage />} />
+          <Route element={<ProtectedAdminRoute />}>
+            <Route path="/admin" element={<AdminHomePage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/settings" element={<AdminSettingsPage />} />
+          </Route>
           <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />

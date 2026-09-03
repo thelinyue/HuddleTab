@@ -2,6 +2,7 @@ const baseUrl = process.env.HUDDLETAB_E2E_BASE_URL;
 const username = process.env.HUDDLETAB_E2E_USERNAME;
 const password = process.env.HUDDLETAB_E2E_PASSWORD;
 const attachmentMode = process.env.HUDDLETAB_E2E_ATTACHMENT_MODE === "true";
+const task29Mode = process.env.HUDDLETAB_E2E_TASK29_MODE === "true";
 
 if (!baseUrl || !username || !password) {
   throw new Error("缺少持久性检查所需的临时环境，请通过 Phase 1E PowerShell 入口运行。");
@@ -40,7 +41,17 @@ const activitiesResponse = await fetch(`${baseUrl}/api/activities?view=current`,
 });
 if (!activitiesResponse.ok) throw new Error("重启后无法读取测试活动。");
 const activities = (await activitiesResponse.json()).data;
-if (!attachmentMode) {
+if (task29Mode) {
+  const usersResponse = await fetch(`${baseUrl}/api/admin/users`, {
+    headers: { cookie: sessionCookie },
+  });
+  if (!usersResponse.ok) throw new Error("重启后无法读取系统管理用户数据。");
+  const users = (await usersResponse.json()).data;
+  if (!users.some((user) => user.username === username) || users.length < 2) {
+    throw new Error("重启后未找到 Task 29 管理测试数据。");
+  }
+  console.log("重启持久性检查通过：系统管理用户与账号状态仍可读取。");
+} else if (!attachmentMode) {
   if (!activities.some((activity) => activity.name.startsWith("Phase 1E "))) {
     throw new Error("重启后未找到 Chromium 核心流程创建的持久数据。");
   }

@@ -11,6 +11,7 @@ import {
   Plus,
   Pencil,
   RotateCcw,
+  ShieldCheck,
   Trash2,
   UserPlus,
   UserRound,
@@ -94,7 +95,7 @@ function localCalendarToday(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-function Overlay({ open, title, backLabel, onBack, onClose, focusKey, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; children: ReactNode }) {
+export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; children: ReactNode }) {
   const titleId = useId();
   const sheetRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
@@ -853,6 +854,16 @@ export function MePage() {
             </Link>
           </div>
         </section>
+        {session.data?.isSystemAdmin ? <section className="account-settings" aria-labelledby="system-management-heading">
+          <h2 id="system-management-heading">管理</h2>
+          <div className="settings-list">
+            <Link className="settings-link" to="/admin" aria-label="系统管理">
+              <ShieldCheck aria-hidden="true" size={18} />
+              <span><strong>系统管理</strong><small>用户与注册策略</small></span>
+              <ChevronRight aria-hidden="true" size={18} />
+            </Link>
+          </div>
+        </section> : null}
         <Button variant="secondary" busy={logout.isPending} onClick={() => void logout.mutateAsync().then(() => navigate("/login", { replace: true }))}>退出登录</Button>
       </main>
       <ProductBottomNavigation />

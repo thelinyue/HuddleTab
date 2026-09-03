@@ -82,7 +82,7 @@ export function LoginPage() {
           <LogIn aria-hidden="true" size={18} /> 登录
         </Button>
       </form>
-      <p className="auth-panel__switch">收到邀请但还没有账号？ <Link to="/register">注册</Link></p>
+      <p className="auth-panel__switch">还没有账号？ <Link to="/register">注册</Link></p>
     </AuthLayout>
   );
 }
@@ -101,20 +101,20 @@ export function RegisterPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await mutation.mutateAsync({ username, displayName, password, invitationToken });
-    navigate(`/join/${invitationToken}`, { replace: true });
+    await mutation.mutateAsync({ username, displayName, password, invitationToken: invitationToken || undefined });
+    navigate(invitationToken ? `/join/${invitationToken}` : "/activities", { replace: true });
   }
 
   return (
     <AuthLayout>
       <header className="auth-panel__header">
-        <p className="eyebrow">凭邀请加入</p>
+        <p className="eyebrow">创建账号</p>
         <h1>创建账号</h1>
-        <p>注册后仍会再次确认邀请，避免加入错误活动。</p>
+        <p>有邀请口令时注册后可以继续加入活动。</p>
       </header>
       <form className="form-stack" onSubmit={submit}>
-        <Field label="邀请口令" hint="从邀请链接自动带入，也可以粘贴完整口令。">
-          <Input value={invitationToken} onChange={(event) => setInvitationToken(event.target.value.trim())} required autoFocus />
+        <Field label="邀请口令" hint="有邀请时从链接自动带入，也可以粘贴口令；开放注册可留空。">
+          <Input value={invitationToken} onChange={(event) => setInvitationToken(event.target.value.trim())} autoFocus />
         </Field>
         <Field label="用户名" hint="3–32 位，仅限字母、数字、点、下划线和连字符。">
           <Input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} maxLength={32} />

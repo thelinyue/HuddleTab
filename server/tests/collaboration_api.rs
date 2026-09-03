@@ -1769,8 +1769,11 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
             .expect("注册请求应可构造"),
     )
     .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(registration["error"]["code"], "INVALID_INVITATION");
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        registration["error"]["code"],
+        "REGISTRATION_INVITE_REQUIRED"
+    );
 
     let (status, joined) = json_response(
         &app,

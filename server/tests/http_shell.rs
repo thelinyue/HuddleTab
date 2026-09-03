@@ -2,7 +2,12 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use huddletab_server::{
+    http::router::{AppState, router_with_state},
+    infrastructure::app_secret::AppSecret,
+};
 use serde_json::{Value, json};
+use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -62,6 +67,38 @@ async fn unsupported_api_method_returns_the_json_error_envelope() {
         "METHOD_NOT_ALLOWED",
     )
     .await;
+}
+
+#[tokio::test]
+async fn system_admin_routes_require_a_session() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
+        .expect("测试应创建 lazy pool");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool,
+            AppSecret::from_bytes([7; 32]),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+    for request in [
+        ("GET", "/api/admin/users"),
+        ("GET", "/api/admin/registration-policy"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(request.0)
+                    .uri(request.1)
+                    .body(Body::empty())
+                    .expect("测试请求应可构造"),
+            )
+            .await
+            .expect("router 应返回响应");
+        assert_json_error(response, StatusCode::UNAUTHORIZED, "UNAUTHENTICATED").await;
+    }
 }
 
 #[tokio::test]

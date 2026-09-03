@@ -141,6 +141,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_admin_input(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_ADMIN_INPUT",
+            "系统管理请求不合法，请检查后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn operation_forbidden(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
@@ -156,6 +166,66 @@ impl ApiError {
             StatusCode::NOT_FOUND,
             "INVALID_INVITATION",
             "邀请不存在、已过期或已失效。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn registration_invite_required(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "REGISTRATION_INVITE_REQUIRED",
+            "当前系统仅允许受邀用户注册。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn system_admin_required(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "SYSTEM_ADMIN_REQUIRED",
+            "只有系统管理员可以执行此操作。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn user_not_found(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "USER_NOT_FOUND",
+            "用户不存在。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn last_active_admin(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "LAST_ACTIVE_ADMIN",
+            "系统必须至少保留一个能够正常登录的系统管理员。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn version_conflict(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "VERSION_CONFLICT",
+            "账单已被其他人修改，请刷新后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn admin_version_conflict(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "VERSION_CONFLICT",
+            "系统设置已被更新，请刷新后重试。",
             request_id,
         )
     }
@@ -316,16 +386,6 @@ impl ApiError {
             StatusCode::CONFLICT,
             "ATTACHMENT_LIMIT_REACHED",
             "每笔账单最多上传三张图片。",
-            request_id,
-        )
-    }
-
-    #[must_use]
-    pub fn version_conflict(request_id: RequestId) -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            "VERSION_CONFLICT",
-            "账单已被其他人修改，请刷新后重试。",
             request_id,
         )
     }

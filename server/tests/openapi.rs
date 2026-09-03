@@ -43,6 +43,30 @@ fn protected_operations_publish_the_rate_limit_response() {
 }
 
 #[test]
+fn system_admin_contract_publishes_management_routes() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    for (path, method) in [
+        ("/api/admin/users", "get"),
+        ("/api/admin/users/{user_id}/status", "patch"),
+        ("/api/admin/users/{user_id}/system-admin", "patch"),
+        ("/api/admin/users/{user_id}/password", "put"),
+        ("/api/admin/registration-policy", "get"),
+        ("/api/admin/registration-policy", "put"),
+    ] {
+        assert!(
+            value["paths"][path][method].is_object(),
+            "缺少 {method} {path}"
+        );
+        for status in ["401", "403"] {
+            assert!(value["paths"][path][method]["responses"][status].is_object());
+        }
+    }
+    assert!(value["components"]["schemas"]["AdminUserData"].is_object());
+    assert!(value["components"]["schemas"]["RegistrationPolicyRequest"].is_object());
+}
+
+#[test]
 fn activity_snapshot_publishes_conditional_get_contract() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");

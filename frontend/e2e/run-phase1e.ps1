@@ -2,7 +2,8 @@
 param(
   [switch] $AttachmentOnly,
   [switch] $NotificationOwnershipOnly,
-  [switch] $Phase2Only
+  [switch] $Phase2Only,
+  [switch] $Task29Only
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,10 +25,8 @@ $sensitiveNames = @(
   "POSTGRES_PASSWORD"
 )
 
-if (($AttachmentOnly -and $NotificationOwnershipOnly) -or
-    ($AttachmentOnly -and $Phase2Only) -or
-    ($NotificationOwnershipOnly -and $Phase2Only)) {
-  throw "附件、通知/所有权与 Phase 2 专项模式不能同时运行。"
+if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $Task29Only).Where({ $_ }).Count -gt 1) {
+  throw "附件、通知/所有权、Phase 2 与 Task 29 专项模式不能同时运行。"
 }
 
 function Invoke-Wsl {
@@ -147,6 +146,7 @@ try {
   $env:APP_BASE_URL = $baseUrl
   $env:HUDDLETAB_E2E_BASE_URL = $baseUrl
   $env:HUDDLETAB_E2E_ATTACHMENT_MODE = if ($AttachmentOnly) { "true" } else { "false" }
+  $env:HUDDLETAB_E2E_TASK29_MODE = if ($Task29Only) { "true" } else { "false" }
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
@@ -180,6 +180,8 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
 
   $matrixLabel = if ($Phase2Only) {
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
+  } elseif ($Task29Only) {
+    "Task 29 Chromium Desktop/Mobile 管理矩阵"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {
@@ -190,7 +192,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   Write-Host "[4/9] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -Task29Only $Task29Only.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
@@ -262,7 +264,7 @@ printf '%s\n' "`$password" | huddletab bootstrap-user --username "`$username" --
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE -ErrorAction SilentlyContinue
   $env:WSLENV = $originalWslEnv
 }
 

@@ -24,6 +24,7 @@ pub struct StoredCredentials {
     pub username: String,
     pub display_name: String,
     pub password_hash: String,
+    pub is_system_admin: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +47,7 @@ pub struct StoredSession {
     pub password_hash: String,
     pub created_at: OffsetDateTime,
     pub last_seen_at: OffsetDateTime,
+    pub is_system_admin: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -100,7 +102,7 @@ pub struct NewRegistration {
     pub username: String,
     pub display_name: String,
     pub password_hash: String,
-    pub invitation_hash: [u8; 32],
+    pub invitation_hash: Option<[u8; 32]>,
     pub created_at: OffsetDateTime,
     pub session: NewSession,
 }
@@ -145,6 +147,7 @@ pub struct LoginOutput {
     pub username: String,
     pub display_name: String,
     pub session_token: SessionToken,
+    pub is_system_admin: bool,
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -200,6 +203,7 @@ pub struct CurrentSession {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub is_system_admin: bool,
 }
 
 #[derive(Debug, Error)]
@@ -263,9 +267,15 @@ pub async fn register(
     if !(1..=80).contains(&display_name.chars().count()) {
         return Err(RegisterError::InvalidInput);
     }
-    let invitation_hash = invitation_codec
-        .hash(&input.invitation_token)
-        .ok_or(RegisterError::InvalidInvitation)?;
+    let invitation_hash = if input.invitation_token.trim().is_empty() {
+        None
+    } else {
+        Some(
+            invitation_codec
+                .hash(&input.invitation_token)
+                .ok_or(RegisterError::InvalidInvitation)?,
+        )
+    };
     let password_hash = password_hasher
         .hash(&password)
         .map_err(|_| RegisterError::Unavailable)?;
@@ -366,6 +376,7 @@ pub async fn login(
         username: credentials.username,
         display_name: credentials.display_name,
         session_token,
+        is_system_admin: credentials.is_system_admin,
     })
 }
 
@@ -407,6 +418,7 @@ pub async fn current_session(
                 user_id: stored.user_id,
                 username: stored.username,
                 display_name: stored.display_name,
+                is_system_admin: stored.is_system_admin,
             })
         }
     }
