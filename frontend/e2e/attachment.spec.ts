@@ -60,8 +60,10 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   expect(download.headers()["x-content-type-options"]).toBe("nosniff");
   expect((await download.body()).subarray(0, 4).toString("ascii")).toBe("RIFF");
 
-  page.once("dialog", (confirmation) => confirmation.accept());
   await page.getByRole("button", { name: "删除附件 1" }).click();
+  const deleteConfirmation = page.getByRole("alertdialog", { name: "删除附件" });
+  await expect(deleteConfirmation).toBeVisible();
+  await deleteConfirmation.getByRole("button", { name: "确认删除" }).click();
   await expect(previews).toHaveCount(1);
   await assertNoHorizontalOverflow(page);
   await saveChromiumSuccessScreenshot(page, testInfo);

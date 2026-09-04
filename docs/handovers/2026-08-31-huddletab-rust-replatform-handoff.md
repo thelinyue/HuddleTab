@@ -636,7 +636,7 @@ git diff --check
 
 修复后最终交付候选已重新建立：`huddletab-v003-local-review`，数据目录为 `/tmp/huddletab-v003-local-review-RwlSU6yK`，镜像版本 `0.0.3`，app/postgres healthy，migration `9` 条，`users = 0`，app UID/GID `10001:10001`，挂载点 `0750`。`/api/health` 为 200，`/api/setup/status` 为 `200 {"data":{"setupRequired":true}}` 且 `Cache-Control: no-store`；Chromium 无来源头但带有效 token 的无效输入请求返回 `400 INVALID_SETUP_INPUT`，跨站来源头返回 `403 CSRF_INVALID`。5682 的 `v0.0.2` 对照容器保持 healthy 未修改。当前地址仍为 `http://192.168.11.111:5683/setup`，等待用户通过网页完成初始化。
 
-### 7.17 全站 UI 还原与 Apple Design 交互收口（2026-09-04，进行中）
+### 7.17 全站 UI 还原与 Apple Design 交互收口（2026-09-04，模拟验收完成）
 
 本轮再次以远程 `v0.0.2`（`2f1fad2f3411cc7c448fbc055fb81d4a96fd1dfa`）和本地 5682 页面为只读 UI 基线。后续任何 UI 功能都必须先对照 v0.0.2，再在 Rust 新栈中实现，保持其视觉风格、信息层级和交互习惯统一；Apple Design 只用于不改变业务流程的触摸反馈、Sheet 物理感、焦点和无障碍增强。
 
@@ -656,9 +656,11 @@ git diff --check
 
 固定入口 `& ./frontend/e2e/run-phase1e.ps1 -UiParityOnly` 已在独立临时 Compose 中通过：网页初始化 Desktop/Mobile `2/2`，UI 对照 Chromium Desktop/Mobile `4/4`，并完成深链、非 root/无 Node runtime、app 与 PostgreSQL 重启持久性、中文冷启动错误、artifact 脱敏和 finally 限定清理。过程中修正了标题栏图标点击被手势识别器吞掉的问题，并让持久性检查识别 UI 对照活动前缀；随后按当前源码原地重建 5683 候选 app，保留既有数据库和账号。相关设计与实施记录：`docs/superpowers/specs/2026-09-04-huddletab-ui-parity-apple-design.md`、`docs/superpowers/plans/2026-09-04-huddletab-ui-parity-apple-design.md`。
 
+随后运行固定 `& ./frontend/e2e/run-phase1e.ps1 -IPhoneSimulationOnly`，在隔离 Compose 中通过初始化 Desktop/Mobile `2/2`、Chromium Mobile Phase 2/附件 `2/2` 和 WebKit `iPhone 13` 在线 UI/Manifest `2/2`，总计 `4/4`；深链、非 root/无 Node runtime、双容器重启持久性、中文冷启动错误、artifact 脱敏及限定清理同样通过。该入口验证了窄屏触控布局、活动主导航、记账附件缩略图/X/原图预览、可访问删除确认弹层和 PWA Manifest 资源。为匹配已还原的 v0.0.2 创建路径，E2E `createActivity` helper 现在支持“新建或加入活动”子视图；附件删除用例改为确认产品内 `alertdialog`，不再等待已移除的原生 `window.confirm`。WebKit 模拟不提供 Chromium Service Worker 能力，也不等同于真实 iPhone Safari/Home Screen 验收。
+
 候选重建后的现场检查：app/postgres 均 `healthy`，`/api/health` 为 200，`/api/setup/status` 返回 `setupRequired: false`，app 仍以 `10001:10001` 运行；生产 bundle 已包含 384px 桌面 Dialog、确认弹层和“更多设置”，且未出现 `bootstrap-user`。
 
-结论仍只表述为“全站 UI parity/Apple Design 收口进行中”；Task 31 exit gate、真机 iPhone Safari/Home Screen PWA、最终 Release Verification、后台清理 Job、正式 `v0.0.3` tag/GHCR 发布仍未完成，不能宣称正式发布状态。
+结论更新为“全站 UI parity/Apple Design 与 iPhone 模拟验收完成，等待真机验收”；Task 31 exit gate、真实 iPhone Safari/Home Screen PWA、最终 Release Verification、后台清理 Job、正式 `v0.0.3` tag/GHCR 发布仍未完成，不能宣称正式发布状态。
 
 ## 8. 当前本地运行现场
 

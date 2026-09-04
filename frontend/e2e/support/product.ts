@@ -75,7 +75,15 @@ export async function login(page: Page): Promise<void> {
 }
 
 export async function createActivity(page: Page, name: string): Promise<string> {
-  await page.getByRole("button", { name: "创建活动" }).first().click();
+  const directCreate = page.getByRole("button", { name: "创建活动", exact: true });
+  if (await directCreate.count() > 0) {
+    await directCreate.first().click();
+  } else {
+    // v0.0.2 的非空活动列表从“新建或加入活动”进入创建子视图。
+    await page.getByRole("button", { name: "新建或加入活动", exact: true }).click();
+    const actionDialog = page.getByRole("dialog", { name: "新建或加入活动" });
+    await actionDialog.getByRole("button", { name: /^创建活动/ }).click();
+  }
   const dialog = page.getByRole("dialog", { name: "创建活动" });
   await dialog.getByLabel("活动名称").fill(name);
   await dialog.getByRole("button", { name: "创建活动", exact: true }).click();
