@@ -525,17 +525,17 @@ pub(crate) fn validate_session_csrf(
     if !validate_same_origin_headers(headers, &state.base_origin) {
         return Err(ApiError::forbidden(request_id));
     }
-    let csrf = headers
-        .get("x-csrf-token")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| ApiError::forbidden(request_id.clone()))?;
-    let csrf = CsrfToken::parse(csrf).map_err(|_| ApiError::forbidden(request_id.clone()))?;
     let session = jar
         .get(SESSION_COOKIE)
         .map(Cookie::value)
         .ok_or_else(|| ApiError::unauthenticated(request_id.clone()))?;
     let session =
         SessionToken::parse(session).map_err(|_| ApiError::unauthenticated(request_id.clone()))?;
+    let csrf = headers
+        .get("x-csrf-token")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| ApiError::forbidden(request_id.clone()))?;
+    let csrf = CsrfToken::parse(csrf).map_err(|_| ApiError::forbidden(request_id.clone()))?;
     if !csrf.verify(
         &state.app_secret,
         CsrfContext::Session(&session.sha256_hash()),

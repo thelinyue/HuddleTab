@@ -517,6 +517,10 @@ pub(crate) async fn join_invitation(
         .rate_limiter
         .check(RateLimitCategory::AnonymousInvite, client_ip.as_str())
         .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
+    // 公开加入接口在共享限流后拒绝缺少 CSRF token 的请求，避免匿名请求进入 Session 认证分支。
+    if !headers.contains_key("x-csrf-token") {
+        return Err(ApiError::forbidden(request_id.clone()));
+    }
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
     let repository = PostgresCollaborationRepository::new(state.pool);
     let joined = accept_invitation(
