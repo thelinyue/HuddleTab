@@ -5,6 +5,7 @@ const attachmentMode = process.env.HUDDLETAB_E2E_ATTACHMENT_MODE === "true";
 const task29Mode = process.env.HUDDLETAB_E2E_TASK29_MODE === "true";
 const task30Mode = process.env.HUDDLETAB_E2E_TASK30_MODE === "true";
 const task31Mode = process.env.HUDDLETAB_E2E_TASK31_MODE === "true";
+const uiParityMode = process.env.HUDDLETAB_E2E_UI_PARITY_MODE === "true";
 const releaseMode = process.env.HUDDLETAB_E2E_RELEASE_MODE === "true";
 
 if (!baseUrl || !username || !password) {
@@ -79,6 +80,11 @@ if (releaseMode) {
     throw new Error("重启后未找到 Task 30 管理与分享测试活动。");
   }
   console.log("重启持久性检查通过：Task 30 测试活动仍可读取。");
+} else if (uiParityMode) {
+  if (!activities.some((activity) => activity.name.startsWith("UI 对照 "))) {
+    throw new Error("重启后未找到 UI 对照流程创建的持久数据。");
+  }
+  console.log("重启持久性检查通过：UI 对照测试活动仍可读取。");
 } else if (!attachmentMode) {
   if (!activities.some((activity) => activity.name.startsWith("Phase 1E "))) {
     throw new Error("重启后未找到 Chromium 核心流程创建的持久数据。");

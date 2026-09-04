@@ -20,7 +20,7 @@ Phase 2 Task 24 的 Activity Revision Snapshot/weak ETag、Task 25 的 IndexedDB
 | 当前检查点 | 本交接文档所在提交，使用 `git log -1 --oneline` 查看 |
 | 远程仓库 | `https://github.com/thelinyue/HuddleTab.git` |
 
-当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–31 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。最终自动化 Release Verification 只构建本地 `0.0.3` 候选，不创建 tag 或发布镜像，已通过并等待真机验收。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
+当前 React/Rust 迁移快照、Phase 1E 收口修复、Task 24–31 与本文档已形成 Git 检查点。Rate Provider 使用服务端 Frankfurter v2 和 PostgreSQL 缓存，Expense 保存精确来源快照；通知与事实在同一 PostgreSQL 事务提交；Service Worker 仍不执行业务写入。此前包含 CLI 初始化的自动化 Release Verification 结论已作废，必须在网页初始化和本轮 UI 收口后重新执行；当前不创建 tag 或发布镜像。接手时仍应先确认现场；若之后存在未提交改动，不要运行 `git clean`、`git reset --hard`，也不要删除 worktree：
 
 ```powershell
 Set-Location D:\code\HuddleTab\.worktrees\rust-replatform
@@ -636,15 +636,39 @@ git diff --check
 
 修复后最终交付候选已重新建立：`huddletab-v003-local-review`，数据目录为 `/tmp/huddletab-v003-local-review-RwlSU6yK`，镜像版本 `0.0.3`，app/postgres healthy，migration `9` 条，`users = 0`，app UID/GID `10001:10001`，挂载点 `0750`。`/api/health` 为 200，`/api/setup/status` 为 `200 {"data":{"setupRequired":true}}` 且 `Cache-Control: no-store`；Chromium 无来源头但带有效 token 的无效输入请求返回 `400 INVALID_SETUP_INPUT`，跨站来源头返回 `403 CSRF_INVALID`。5682 的 `v0.0.2` 对照容器保持 healthy 未修改。当前地址仍为 `http://192.168.11.111:5683/setup`，等待用户通过网页完成初始化。
 
+### 7.17 全站 UI 还原与 Apple Design 交互收口（2026-09-04，进行中）
+
+本轮再次以远程 `v0.0.2`（`2f1fad2f3411cc7c448fbc055fb81d4a96fd1dfa`）和本地 5682 页面为只读 UI 基线。后续任何 UI 功能都必须先对照 v0.0.2，再在 Rust 新栈中实现，保持其视觉风格、信息层级和交互习惯统一；Apple Design 只用于不改变业务流程的触摸反馈、Sheet 物理感、焦点和无障碍增强。
+
+已完成的代码收口包括：认证页插画/重叠表单面、品牌与图标输入、分隔式登录/注册入口；800px 产品边界、16px 主要圆角、44px 触控区、48px 主按钮、半透明底部导航；活动首页持续天数、历史活动折叠和“加入已有活动”；Workspace 页头天数/成员数/状态；通知五段筛选、未读圆点、48px 类型图标、时间分组和受控深链；快速记账金额优先结构与“更多设置”层级。通用桌面 Dialog/Sheet 已收窄到 v0.0.2 的约 384px，根视图标题居中、子视图保留左侧返回，移动端仍为全宽 Sheet。删除账单、删除附件、作废结算和丢弃本地记录统一使用可访问确认弹层，不再调用原生 `window.confirm`。未恢复旧版不存在于 Rust 新栈的邮箱、资料编辑、主题或 SMTP 功能。
+
+`useSheetDrag` 统一实现标题栏起手、10px 迟滞、Pointer Capture、1:1 位移、释放速度投影、边界 rubber-band、可中断回弹和 reduced-motion；Overlay/账务 Sheet 具有 Escape、焦点循环、关闭后焦点返回及背景滚动锁定。通知与所有现有业务查询/缓存逻辑保持不变，没有修改 Rust API、数据库或 OpenAPI。
+
+新增固定 `UiParityOnly` 入口，只允许 `ui-parity.spec.ts` 的 Chromium Desktop `1440x1000` 与 Mobile `390x844` 项目，不接受任意测试路径、Compose 文件或 Playwright 参数。新增手势单测并保留报告脱敏/限定清理规则。实际已通过：
+
+```powershell
+npm --prefix frontend run test:unit       # 32 files / 192 tests
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+pwsh -NoProfile -File frontend/e2e/support/run-phase1e-safety.test.ps1
+git diff --check
+```
+
+固定入口 `& ./frontend/e2e/run-phase1e.ps1 -UiParityOnly` 已在独立临时 Compose 中通过：网页初始化 Desktop/Mobile `2/2`，UI 对照 Chromium Desktop/Mobile `4/4`，并完成深链、非 root/无 Node runtime、app 与 PostgreSQL 重启持久性、中文冷启动错误、artifact 脱敏和 finally 限定清理。过程中修正了标题栏图标点击被手势识别器吞掉的问题，并让持久性检查识别 UI 对照活动前缀；随后按当前源码原地重建 5683 候选 app，保留既有数据库和账号。相关设计与实施记录：`docs/superpowers/specs/2026-09-04-huddletab-ui-parity-apple-design.md`、`docs/superpowers/plans/2026-09-04-huddletab-ui-parity-apple-design.md`。
+
+候选重建后的现场检查：app/postgres 均 `healthy`，`/api/health` 为 200，`/api/setup/status` 返回 `setupRequired: false`，app 仍以 `10001:10001` 运行；生产 bundle 已包含 384px 桌面 Dialog、确认弹层和“更多设置”，且未出现 `bootstrap-user`。
+
+结论仍只表述为“全站 UI parity/Apple Design 收口进行中”；Task 31 exit gate、真机 iPhone Safari/Home Screen PWA、最终 Release Verification、后台清理 Job、正式 `v0.0.3` tag/GHCR 发布仍未完成，不能宣称正式发布状态。
+
 ## 8. 当前本地运行现场
 
 当前保留一个供用户体验的本地 `0.0.3` 候选 Compose；它不是正式发布镜像。另有 `v0.0.2` UI 对照环境和可丢弃 WSL PostgreSQL 测试现场：
 
 | 服务 | 地址/名称 |
 | --- | --- |
-| Rust API 候选 | `http://192.168.11.111:5683`；Compose project `huddletab-v003-local-review`；健康；数据库为空 |
-| 候选 app 镜像 | `ghcr.io/thelinyue/huddletab:0.0.3`（本地构建候选，非远程正式发布）；UID/GID `10001:10001` |
-| 候选数据目录 | `/tmp/huddletab-v003-local-review-RwlSU6yK`（仅此临时目录，用户确认后再清理） |
+| Rust API 候选 | `http://192.168.11.111:5683`；Compose project `huddletab-v003-local-review`；健康；数据库已由用户网页初始化 |
+| 候选 app 镜像 | `ghcr.io/thelinyue/huddletab:0.0.3`（本地构建候选，非远程正式发布；当前 digest `sha256:4f33589a36998f41f807351690a4672c29801f00ca9e6c683c7a65b22fdb6313`）；UID/GID `10001:10001` |
+| 候选数据目录 | `/tmp/huddletab-v003-local-review-RwlSU6yK`（保留现有账号与体验数据；用户确认后再清理） |
 | Vite 前端 | 未启动（由候选 Rust 镜像提供生产静态资源） |
 | `v0.0.2` UI 对照环境 | `http://127.0.0.1:5682`；Compose project `huddletab-v002-reference`，仅用于 UI 对照 |
 | WSL PostgreSQL 容器 | `huddletab-postgres` |
@@ -788,4 +812,4 @@ PostgreSQL integration tests 会清理测试表，只能指向可丢弃数据库
 - `docs/superpowers/plans/2026-09-03-huddletab-task31-system-information.md`
 - `docs/deployment/release-verification.md`
 
-这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-03 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 31 已完成并通过 Phase 3 exit gate，最终自动化 Release Verification 已通过，但真机验收和正式发布仍未完成。
+这些文档描述目标架构和完整阶段计划；本交接文档描述截至 2026-09-04 的实际落地状态。发生冲突时，以当前源码、OpenAPI 和本交接文档中的“功能完成度”为准，不得把计划项当成已完成功能。Task 31 已完成并通过 Phase 3 exit gate；此前最终自动化 Release Verification 因网页初始化入口变更已作废，本轮 UI parity/Apple Design 收口仍需在独立环境执行，真机验收和正式发布仍未完成。

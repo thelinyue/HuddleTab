@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  ArrowRight,
   ChevronRight,
   CircleDollarSign,
   Download,
@@ -40,6 +41,7 @@ import { formatMoney } from "../../domain-preview/money";
 import { Button, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select } from "../../components/ui";
 import { MemberAvatar } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
+import { useSheetDrag } from "../../components/gesture-sheet";
 import { useActivityLedgersQuery } from "../accounting/api";
 import {
   type Activity,
@@ -68,6 +70,7 @@ import {
 } from "./api";
 import { type Session, useLogoutMutation, useSessionQuery } from "../auth/api";
 import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
+import { inclusiveCalendarDays } from "../../lib/calendar-date";
 
 type WorkspaceValue = { session: Session; activity: Activity; members: ActivityMember[]; offline: boolean; snapshot?: ReturnType<typeof useActivitySnapshotQuery>["data"] };
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
@@ -84,6 +87,13 @@ function activityStatus(status: string): string {
   return "已归档";
 }
 
+/** 活动列表沿用 v0.0.2 的可扫描元数据：优先显示包含首尾两天的持续天数。 */
+function activityPeriodLabel(activity: Activity): string {
+  const days = inclusiveCalendarDays(activity.startDate, activity.endDate);
+  if (days !== null) return `${days}天`;
+  return [activity.location, activity.startDate].filter(Boolean).join(" · ");
+}
+
 function stableIndex(value: string, length: number): number {
   let hash = 0;
   for (const character of value) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
@@ -97,7 +107,7 @@ function localCalendarToday(): string {
 
 export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; children: ReactNode }) {
   const titleId = useId();
-  const sheetRef = useRef<HTMLElement>(null);
+  const { sheetRef, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -143,8 +153,8 @@ export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, chi
   return (
     <div className="form-overlay" role="presentation">
       <button className="form-overlay__scrim" type="button" aria-hidden="true" tabIndex={-1} onClick={onClose} />
-      <section ref={sheetRef} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header className="form-overlay__header">
+      <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header className="form-overlay__header" {...headerProps}>
           <div className="form-overlay__header-main">
             {onBack ? <button className="icon-button" type="button" aria-label={backLabel ?? "返回"} onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : null}
             <h2 id={titleId}>{title}</h2>
@@ -200,7 +210,7 @@ export function ActivityWorkspace() {
           </div>
           <div className="workspace-header__identity">
             <h1>{activityData.name}</h1>
-            <p>{membersData.length}人 · {activityStatus(activityData.status)} · {activityData.baseCurrency}</p>
+            <p>{activityPeriodLabel(activityData) ? `${activityPeriodLabel(activityData)} · ` : null}{membersData.length}人 · {activityStatus(activityData.status)}</p>
           </div>
           <nav className="workspace-nav" aria-label="活动导航">
             <Link className={tab === "feed" ? "active" : ""} aria-current={tab === "feed" ? "page" : undefined} to={tabUrl(activityId, "feed")}>流水</Link>
@@ -242,7 +252,7 @@ function ActivityGroup({ title, activities, allActivities, ledgers }: { title: s
             <li key={activity.activityId}>
               <Link className="activity-list-item" to={`/activities/${activity.activityId}`}>
                 <img src={`/activity-covers/cover-0${stableIndex(activity.activityId, 6) + 1}.webp`} width={72} height={56} alt="" />
-                <span className="activity-list-item__content"><strong>{activity.name}</strong><small>{activityStatus(activity.status)} · {activity.baseCurrency}</small></span>
+                <span className="activity-list-item__content"><strong>{activity.name}</strong><small className="activity-list-item__period">{[activityPeriodLabel(activity), activityStatus(activity.status)].filter(Boolean).join(" · ")}</small></span>
                 <span className="activity-list-item__balance">{amount === 0n ? <small>已结清</small> : <><small>{amount > 0n ? "应收" : "应付"}</small><Money value={formatMoney(activity.baseCurrency, (amount < 0n ? -amount : amount).toString())} tone={amount > 0n ? "positive" : "negative"} /></>}<ChevronRight aria-hidden="true" size={16} /></span>
               </Link>
             </li>
@@ -292,7 +302,9 @@ export function ActivitiesPage() {
   const deletedActivities = useDeletedActivitiesQuery(session.data?.userId ?? "", deletedOpen);
   const ledgers = useActivityLedgersQuery(session.data?.userId ?? "", activities.data ?? []);
   const create = useCreateActivityMutation(session.data?.userId ?? "");
-  const [open, setOpen] = useState(false);
+  const [actionView, setActionView] = useState<"actions" | "create" | "join" | null>(null);
+  const [joinToken, setJoinToken] = useState("");
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [baseCurrency, setBaseCurrency] = useState("CNY");
@@ -316,7 +328,7 @@ export function ActivitiesPage() {
       setBaseCurrency("CNY");
       setStartDate(localCalendarToday());
       setEndDate("");
-      setOpen(false);
+      setActionView(null);
     } catch (error) {
       setCreateError(error);
     }
@@ -327,20 +339,23 @@ export function ActivitiesPage() {
   const items = activities.data ?? [];
   const summaries = summarizeLedgers(items, ledgers);
   const active = items.filter((item) => item.status === "ACTIVE");
-  const ended = items.filter((item) => item.status !== "ACTIVE");
+  const ended = items.filter((item) => item.status === "ENDED");
+  const archived = items.filter((item) => item.status === "ARCHIVED");
+  const openCreate = () => setActionView("create");
   return (
     <div className="top-level-page">
       <main className="app-frame app-frame--with-nav">
-        <header className="home-header"><h1>活动</h1><button className="home-add" type="button" aria-label="创建活动" onClick={() => setOpen(true)}><Plus aria-hidden="true" size={18} /></button></header>
+        <header className="home-header"><h1>活动</h1><button className="home-add" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => setActionView("actions")}><Plus aria-hidden="true" size={18} /></button></header>
         {summaries.map(([currency, summary]) => (
           <dl className="home-summary" key={currency} aria-label={`${currency} 跨活动账务摘要`}>
             <div><dt>待支付</dt><dd><Money value={formatMoney(currency, summary.payable.toString())} tone="negative" /></dd></div>
             <div><dt>待收款</dt><dd><Money value={formatMoney(currency, summary.receivable.toString())} tone="positive" /></dd></div>
           </dl>
         ))}
-        {!items.length ? <EmptyState icon={<Plus size={28} />} title="还没有活动" description="创建第一个活动后，就可以开始记录消费。" action={<Button onClick={() => setOpen(true)}>创建活动</Button>} /> : null}
+        {!items.length ? <EmptyState icon={<Plus size={28} />} title="还没有活动" description="创建第一个活动后，就可以开始记录消费。" action={<div className="empty-state__actions"><Button onClick={openCreate}>创建活动</Button><Button variant="secondary" onClick={() => setActionView("join")}>加入已有活动</Button></div>} /> : null}
         <ActivityGroup title="进行中的活动" activities={active} allActivities={items} ledgers={ledgers} />
         <ActivityGroup title="最近结束" activities={ended} allActivities={items} ledgers={ledgers} />
+        {archived.length ? <details className="activity-history"><summary>查看历史活动</summary><ActivityGroup title="已归档" activities={archived} allActivities={items} ledgers={ledgers} /></details> : null}
         <button className="settings-link deleted-activities-entry" type="button" aria-label="已删除活动" onClick={() => setDeletedOpen(true)}>
           <RotateCcw aria-hidden="true" size={18} />
           <span><strong>已删除活动</strong><small>查看恢复期限内可恢复的活动</small></span>
@@ -348,8 +363,12 @@ export function ActivitiesPage() {
         </button>
       </main>
       <ProductBottomNavigation />
-      <Overlay open={open} title="创建活动" onClose={() => setOpen(false)}>
-        <form className="form-stack" onSubmit={submit}>
+      <Overlay open={actionView !== null} title={actionView === "create" ? "创建活动" : actionView === "join" ? "加入活动" : "新建或加入活动"} onBack={actionView && actionView !== "actions" ? () => setActionView("actions") : undefined} backLabel="新建或加入活动" onClose={() => setActionView(null)}>
+        {actionView === "actions" ? <div className="overlay-action-list">
+          <button type="button" className="settings-row" onClick={openCreate}><Plus aria-hidden="true" size={20} /><span><strong>创建活动</strong><small>为旅行或聚会建立新的账本</small></span><ChevronRight aria-hidden="true" size={18} /></button>
+          <button type="button" className="settings-row" onClick={() => setActionView("join")}><LinkIcon aria-hidden="true" size={20} /><span><strong>加入活动</strong><small>粘贴活动所有者发送的邀请口令</small></span><ChevronRight aria-hidden="true" size={18} /></button>
+        </div> : null}
+        {actionView === "create" ? <form className="form-stack" onSubmit={submit}>
           <Field label="活动名称"><Input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></Field>
           <Field label="地点（可选）"><Input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} /></Field>
           <Field label="主币种"><Select value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field>
@@ -357,7 +376,11 @@ export function ActivitiesPage() {
           <Field label="结束日期（可选）"><Input type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></Field>
           {createError ?? create.error ? <ErrorNotice error={createError ?? create.error} /> : null}
           <Button type="submit" busy={create.isPending}>创建活动</Button>
-        </form>
+        </form> : null}
+        {actionView === "join" ? <form className="form-stack" onSubmit={(event) => { event.preventDefault(); const token = joinToken.trim(); if (token) navigate(`/join/${encodeURIComponent(token)}`); }}>
+          <Field label="邀请口令" hint="向活动所有者索取邀请口令后粘贴到这里。"><Input value={joinToken} onChange={(event) => setJoinToken(event.target.value)} autoComplete="off" autoFocus required /></Field>
+          <Button type="submit">查看邀请 <ArrowRight aria-hidden="true" size={18} /></Button>
+        </form> : null}
       </Overlay>
       <Overlay open={deletedOpen} title="已删除活动" onClose={() => setDeletedOpen(false)}>
         {deletedActivities.isPending ? <LoadingState label="正在读取已删除活动…" /> : null}

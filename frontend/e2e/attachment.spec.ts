@@ -4,6 +4,7 @@ import {
   assertNoHorizontalOverflow,
   createActivity,
   login,
+  openExpenseMoreSettings,
   saveChromiumSuccessScreenshot,
 } from "./support/product";
 
@@ -24,6 +25,7 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   const dialog = page.getByRole("dialog", { name: "记一笔消费" });
   await dialog.locator(".amount-input input").fill("12.34");
   await dialog.getByLabel("标题").fill(title);
+  await openExpenseMoreSettings(dialog);
   await dialog.getByLabel("附件（最多三张）").setInputFiles([
     { name: "receipt-a.png", mimeType: "image/png", buffer: onePixelPng },
     { name: "receipt-b.png", mimeType: "image/png", buffer: onePixelPng },

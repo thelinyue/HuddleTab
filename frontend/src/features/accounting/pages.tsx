@@ -1,9 +1,10 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Filter, ImageDown, Info, Plus, ReceiptText, Trash2, UsersRound, X } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
-import { Button, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select, Textarea } from "../../components/ui";
+import { useSheetDrag } from "../../components/gesture-sheet";
+import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select, Textarea } from "../../components/ui";
 import { amountToMinor, formatMoney, minorToInput, normalizeCurrency } from "../../domain-preview/money";
 import { useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/pages";
@@ -233,12 +234,42 @@ export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZ
 }
 
 function AccountingOverlay({ open, title, onClose, children, className = "" }: { open: boolean; title: string; onClose: () => void; children: ReactNode; className?: string }) {
+  const { sheetRef, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const sheet = sheetRef.current;
+    const focusableSelector = "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
+    const initial = sheet?.querySelector<HTMLElement>("[data-overlay-initial-focus], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)");
+    initial?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !sheet) return;
+      const focusable = [...sheet.querySelectorAll<HTMLElement>(focusableSelector)];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [open, sheetRef]);
   if (!open) return null;
   return (
     <div className={`form-overlay ${className}`} role="presentation">
       <button type="button" className="form-overlay__scrim" aria-label={`关闭${title}`} onClick={onClose} />
-      <section className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby="accounting-overlay-title">
-        <header className="form-overlay__header"><h2 id="accounting-overlay-title">{title}</h2><button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><X aria-hidden="true" size={20} /></button></header>
+      <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby="accounting-overlay-title">
+        <header className="form-overlay__header" {...headerProps}><h2 id="accounting-overlay-title">{title}</h2><button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><X aria-hidden="true" size={20} /></button></header>
         <div className="form-overlay__body">{children}</div>
       </section>
     </div>
@@ -264,6 +295,17 @@ export function ExpenseFeedPage() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [rejectedDraft, setRejectedDraft] = useState<PendingExpenseDraft>();
+  const [discardTarget, setDiscardTarget] = useState<{ mutationId: string; activityId: string }>();
+
+  async function confirmDiscard() {
+    if (!discardTarget) return;
+    try {
+      await discardPending.mutateAsync(discardTarget);
+      setDiscardTarget(undefined);
+    } catch {
+      // 错误由流水页已有的 ErrorNotice 展示，保留确认弹层让用户可以重试或取消。
+    }
+  }
 
   if ((!offline && expenses.isPending) || members.isPending && (cachedMembers?.length ?? 0) === 0) return <LoadingState label="正在读取流水…" />;
   if ((!offline && expenses.error && !snapshot) || members.error && (cachedMembers?.length ?? 0) === 0) return <ErrorNotice error={expenses.error ?? members.error} />;
@@ -323,7 +365,7 @@ export function ExpenseFeedPage() {
                 return (
                   <div key={record.id} className="expense-row expense-row--pending">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => setRejectedDraft(record)}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => { if (window.confirm("丢弃后无法恢复这条本地离线消费，确定继续吗？")) void discardPending.mutateAsync({ mutationId: record.id, activityId: record.activityId }); }}>丢弃本地记录</Button></span> : null}</span>
+                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => setRejectedDraft(record)}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => setDiscardTarget({ mutationId: record.id, activityId: record.activityId })}>丢弃本地记录</Button></span> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(record.payload.originalCurrency, record.payload.originalAmountMinor)} /><small>{new Date(record.payload.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </div>
                 );
@@ -366,6 +408,7 @@ export function ExpenseFeedPage() {
       <AccountingOverlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
         <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
       </AccountingOverlay>
+      <ConfirmDialog open={Boolean(discardTarget)} title="丢弃本地记录" message="丢弃后无法恢复这条本地离线消费，也不会影响服务器上的账单。确定继续吗？" confirmLabel="确认丢弃" busy={discardPending.isPending} onConfirm={() => void confirmDiscard()} onCancel={() => setDiscardTarget(undefined)} />
     </div>
   );
 }
@@ -408,7 +451,11 @@ export function ExpenseEditor({ initial, rejected, onSaved, onCancel, compact = 
     blob: attachment.blob,
     file: new File([attachment.blob], attachment.fileName, { type: attachment.mimeType }),
   })) ?? []);
+  // 紧凑记账沿用 v0.0.2：常用字段先呈现，日期/币种/备注/附件放在“更多设置”内。
+  // 独立编辑页不折叠高级字段，避免影响既有完整编辑路径。
+  const [moreSettingsOpen, setMoreSettingsOpen] = useState(!compact || Boolean(rejected));
   const [localError, setLocalError] = useState<string>();
+  const [attachmentToDelete, setAttachmentToDelete] = useState<string>();
   const mutation = rejected ? reviseRejected : expenseId ? update : create;
 
   const memberData = members.data ?? cachedMembers ?? [];
@@ -533,31 +580,35 @@ export function ExpenseEditor({ initial, rejected, onSaved, onCancel, compact = 
 
   return (
     <form className={`expense-editor${compact ? " expense-editor--compact" : ""}`} onSubmit={submit}>
-      <section className={`${compact ? "" : "panel "}form-section`}>
+      <section className={`${compact ? "" : "panel "}form-section expense-basics`}>
         <header className="panel__header"><div><p className="eyebrow">基本信息</p><h2>{initial ? "修改账单" : rejected ? "修改被拒账单" : "记一笔支出"}</h2></div></header>
         <div className="form-grid form-grid--two">
-          <Field label="金额"><div className="amount-input"><span>{currency}</span><Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required autoFocus /></div></Field>
-          <Field label="币种"><Input value={currency} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} maxLength={3} required /></Field>
-          {currency.trim().toUpperCase() !== activity.baseCurrency ? <Field label={`汇率（1 ${currency || "原币"} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input inputMode="decimal" value={exchangeRate} onChange={(event) => { setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} required placeholder="例如 7.25" /><Button type="button" variant="secondary" onClick={() => void requestReferenceRate()} disabled={rateSuggestion.isPending}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : "Frankfurter 参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field> : null}
-          <Field label="标题"><Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required /></Field>
-          <Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field>
-          <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); clearAutomaticRate(false); }} required /></Field>
+          <Field className="expense-field--amount" label="金额"><div className="amount-input"><span>{currency}</span><Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required autoFocus /></div></Field>
+          <Field className="expense-field--title" label="标题"><Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required /></Field>
+          <Field className="expense-field--category" label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field>
+          {compact ? <button type="button" className="expense-more-settings-toggle" aria-expanded={moreSettingsOpen} onClick={() => setMoreSettingsOpen((current) => !current)}><span>更多设置</span><ChevronRight aria-hidden="true" size={17} /></button> : null}
+          {(!compact || moreSettingsOpen) ? <div className={`expense-more-settings${moreSettingsOpen ? " expense-more-settings--open" : ""}`} data-open={moreSettingsOpen ? "true" : "false"}>
+            <Field className="expense-field--currency" label="币种"><Input value={currency} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} maxLength={3} required /></Field>
+            {currency.trim().toUpperCase() !== activity.baseCurrency ? <Field className="expense-field--rate" label={`汇率（1 ${currency || "原币"} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input inputMode="decimal" value={exchangeRate} onChange={(event) => { setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} required placeholder="例如 7.25" /><Button type="button" variant="secondary" onClick={() => void requestReferenceRate()} disabled={rateSuggestion.isPending}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : "Frankfurter 参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field> : null}
+            <Field className="expense-field--occurred" label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); clearAutomaticRate(false); }} required /></Field>
+            <Field className="expense-field--note" label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
+            {!initial ? <Field className="expense-field--attachments" label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => { selectAttachments(event.target.files); event.target.value = ""; }} />{selectedAttachments.length ? <small className="attachment-selection">已选择 {selectedAttachments.length} 张</small> : null}<SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field> : null}
+          </div> : null}
         </div>
-        <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
-        {!initial ? <Field label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => { selectAttachments(event.target.files); event.target.value = ""; }} />{selectedAttachments.length ? <small className="attachment-selection">已选择 {selectedAttachments.length} 张</small> : null}<SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field> : null}
       </section>
 
-      {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={(attachmentId) => { if (window.confirm("确定删除这张附件吗？此操作会立即生效。")) void deleteAttachment.mutateAsync(attachmentId).catch(() => undefined); }} /> : null}
+      {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={(attachmentId) => setAttachmentToDelete(attachmentId)} /> : null}
       {deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}
+      <ConfirmDialog open={Boolean(attachmentToDelete)} title="删除附件" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} />
 
-      <section className={`${compact ? "" : "panel "}form-section`}>
+      <section className={`${compact ? "" : "panel "}form-section expense-payments`}>
         <header className="panel__header"><div><p className="eyebrow">付款事实</p><h2>谁先付了钱</h2><p>留空时默认由你支付全部金额；多人付款可分别填写。</p></div></header>
         <div className="member-input-list">
           {activeMembers.map((member) => <label key={member.memberId}><MemberAvatar memberId={member.memberId} displayName={member.displayName} size="sm" /><span>{member.displayName}</span><Input inputMode="decimal" value={paymentValues[member.memberId] ?? ""} onChange={(event) => updateRecord(setPaymentValues, member.memberId, event.target.value)} placeholder="0" aria-label={`${member.displayName}支付金额`} /></label>)}
         </div>
       </section>
 
-      <section className={`${compact ? "" : "panel "}form-section`}>
+      <section className={`${compact ? "" : "panel "}form-section expense-splits`}>
         <header className="panel__header"><div><p className="eyebrow">分摊方式</p><h2>这笔钱该怎么分</h2></div></header>
         <div className="segmented segmented--four" role="group" aria-label="分摊方式">{splitModes.map(([value, label]) => <button type="button" key={value} aria-pressed={splitMode === value} onClick={() => setSplitMode(value)}>{label}</button>)}</div>
         <div className="member-input-list">
@@ -596,6 +647,7 @@ export function ExpenseDetailPage() {
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const remove = useDeleteExpenseMutation(session.userId, activity.activityId, expenseId);
   const navigate = useNavigate();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const aggregate = expense.data ?? snapshot?.snapshot.expenses.find((item) => item.expense.expenseId === expenseId);
   const memberData = members.data ?? cachedMembers ?? [];
   if ((!offline && expense.isPending) || members.isPending && memberData.length === 0) return <LoadingState label="正在读取账单…" />;
@@ -627,8 +679,9 @@ export function ExpenseDetailPage() {
   }
   return (
     <div className="workspace-page">
-      <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => { if (window.confirm("确定删除这笔账单吗？账本会立即重新计算。")) void remove.mutateAsync(expense.data!.expense.version).then(() => navigate(`/activities/${activity.activityId}`)); }}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
+      <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
       {remove.error ? <ErrorNotice error={remove.error} /> : null}
+      <ConfirmDialog open={deleteOpen} title="删除账单" message="删除后账本会立即重新计算，这笔账单无法恢复。确定继续吗？" confirmLabel="确认删除" busy={remove.isPending} onConfirm={() => { void remove.mutateAsync(expense.data!.expense.version).then(() => { setDeleteOpen(false); navigate(`/activities/${activity.activityId}`); }).catch(() => undefined); }} onCancel={() => setDeleteOpen(false)} />
       <ExpenseEditor initial={aggregate} />
     </div>
   );
@@ -639,6 +692,7 @@ function SettlementRow({ settlement, members, writable }: { settlement: Settleme
   const update = useUpdateSettlementMutation(session.userId, activity.activityId);
   const voidMutation = useVoidSettlementMutation(session.userId, activity.activityId);
   const [editing, setEditing] = useState(false);
+  const [voidOpen, setVoidOpen] = useState(false);
   const [amount, setAmount] = useState(minorToInput(settlement.amountMinor, settlement.currency));
   async function save() {
     await update.mutateAsync({ settlementId: settlement.settlementId, input: { amountMinor: amountToMinor(amount, settlement.currency), payerMemberId: settlement.payerMemberId, receiverMemberId: settlement.receiverMemberId, version: settlement.version } });
@@ -648,8 +702,9 @@ function SettlementRow({ settlement, members, writable }: { settlement: Settleme
     <div className={`settlement-row${settlement.status === "VOID" ? " settlement-row--void" : ""}`}>
       <span className="settlement-row__route"><strong>{memberName(settlement.payerMemberId, members)}</strong><span>付给</span><strong>{memberName(settlement.receiverMemberId, members)}</strong><small>{new Date(settlement.createdAt).toLocaleDateString("zh-CN")}{settlement.status === "VOID" ? " · 已作废" : ""}</small></span>
       {editing ? <div className="inline-edit"><Input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" aria-label="结算金额" /><Button busy={update.isPending} onClick={() => void save()}>保存</Button><Button variant="ghost" onClick={() => setEditing(false)}>取消</Button></div> : <Money value={formatMoney(settlement.currency, settlement.amountMinor)} />}
-      {writable && settlement.status === "ACTIVE" && !editing ? <div className="row-actions"><Button variant="ghost" onClick={() => setEditing(true)}>修改</Button><Button variant="ghost" busy={voidMutation.isPending} onClick={() => { if (window.confirm("确定作废这笔结算吗？")) voidMutation.mutate({ settlementId: settlement.settlementId, version: settlement.version }); }}>作废</Button></div> : null}
+      {writable && settlement.status === "ACTIVE" && !editing ? <div className="row-actions"><Button variant="ghost" onClick={() => setEditing(true)}>修改</Button><Button variant="ghost" busy={voidMutation.isPending} onClick={() => setVoidOpen(true)}>作废</Button></div> : null}
       {update.error || voidMutation.error ? <ErrorNotice error={update.error ?? voidMutation.error} /> : null}
+      <ConfirmDialog open={voidOpen} title="作废结算" message="作废后这笔结算将不再计入余额，确定继续吗？" confirmLabel="确认作废" busy={voidMutation.isPending} onConfirm={() => { void voidMutation.mutateAsync({ settlementId: settlement.settlementId, version: settlement.version }).then(() => setVoidOpen(false)).catch(() => undefined); }} onCancel={() => setVoidOpen(false)} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { assertCredentialFieldsVisuallyMasked, assertNoHorizontalOverflow, createActivity, installArtifactVisualRedaction, login, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertCredentialFieldsVisuallyMasked, assertNoHorizontalOverflow, createActivity, installArtifactVisualRedaction, login, openExpenseMoreSettings, saveChromiumSuccessScreenshot } from "./support/product";
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -51,6 +51,7 @@ async function createEqualExpense(page: Page, title: string): Promise<void> {
 async function createForeignExpense(page: Page, title: string): Promise<void> {
   const dialog = await openQuickExpense(page);
   await dialog.locator(".amount-input input").fill("100");
+  await openExpenseMoreSettings(dialog);
   await dialog.getByLabel("币种").fill("USD");
   await dialog.getByLabel(/汇率/).fill("7");
   await dialog.getByLabel("标题").fill(title);

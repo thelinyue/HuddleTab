@@ -4,6 +4,7 @@ import {
   assertNoHorizontalOverflow,
   createActivity,
   login,
+  openExpenseMoreSettings,
 } from "./support/product";
 
 const onePixelPng = Buffer.from(
@@ -25,6 +26,7 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   const dialog = page.getByRole("dialog", { name: "记一笔消费" });
   await dialog.locator(".amount-input input").fill("12.34");
   await dialog.getByLabel("标题").fill(expenseTitle);
+  await openExpenseMoreSettings(dialog);
   const attachmentInput = dialog.getByLabel("附件（最多三张）");
   await attachmentInput.setInputFiles([
     { name: "iphone-receipt-a.png", mimeType: "image/png", buffer: onePixelPng },

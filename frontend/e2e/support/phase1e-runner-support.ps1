@@ -11,14 +11,15 @@ function New-Phase1EPlaywrightArguments {
     [Parameter(Mandatory)] [bool] $NotificationOwnershipOnly,
     [bool] $Phase2Only = $false,
     [bool] $IPhoneSimulationOnly = $false,
+    [bool] $UiParityOnly = $false,
     [bool] $Task29Only = $false,
     [bool] $Task30Only = $false,
     [bool] $Task31Only = $false,
     [bool] $ReleaseVerification = $false
   )
 
-  if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $IPhoneSimulationOnly, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
-    throw "附件、通知/所有权、Phase 2、iPhone 模拟、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
+  if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $IPhoneSimulationOnly, $UiParityOnly, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
+    throw "附件、通知/所有权、Phase 2、iPhone 模拟、UI 对照、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
   }
 
   if ($AttachmentOnly) {
@@ -63,6 +64,16 @@ function New-Phase1EPlaywrightArguments {
       "--project=chromium-phase2-mobile",
       "--project=chromium-attachment-mobile",
       "--project=webkit-iphone-ui"
+    )
+  }
+  if ($UiParityOnly) {
+    return @(
+      "run",
+      "test:e2e",
+      "--",
+      "ui-parity.spec.ts",
+      "--project=chromium-ui-parity-desktop",
+      "--project=chromium-ui-parity-mobile"
     )
   }
   if ($Task29Only) {

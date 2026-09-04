@@ -85,6 +85,15 @@ export async function createActivity(page: Page, name: string): Promise<string> 
   return new URL(page.url()).pathname.split("/").at(-1)!;
 }
 
+/** 紧凑记账沿用 v0.0.2：需要日期、币种或附件时显式展开“更多设置”。 */
+export async function openExpenseMoreSettings(dialog: Locator): Promise<void> {
+  const toggle = dialog.getByRole("button", { name: "更多设置", exact: true });
+  if (await toggle.count() === 0) return;
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+
 export async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,

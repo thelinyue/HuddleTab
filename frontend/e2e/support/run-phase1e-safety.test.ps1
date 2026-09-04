@@ -37,6 +37,9 @@ Assert-True (-not ($phase2Playwright -match "--grep|--config|--headed")) "Phase2
 $iPhonePlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -IPhoneSimulationOnly $true
 Assert-True (($iPhonePlaywright -join " ") -eq "run test:e2e -- --project=chromium-phase2-mobile --project=chromium-attachment-mobile --project=webkit-iphone-ui") "IPhoneSimulationOnly 没有固定到 PWA Mobile 与 WebKit iPhone 项目。"
 Assert-True (-not ($iPhonePlaywright -match "--grep|--config|--headed")) "IPhoneSimulationOnly 注入了未批准的 Playwright 参数。"
+$uiParityPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -UiParityOnly $true
+Assert-True (($uiParityPlaywright -join " ") -eq "run test:e2e -- ui-parity.spec.ts --project=chromium-ui-parity-desktop --project=chromium-ui-parity-mobile") "UiParityOnly 没有固定到 v0.0.2 对照 Desktop/Mobile 项目。"
+Assert-True (-not ($uiParityPlaywright -match "--grep|--config|--headed")) "UiParityOnly 注入了未批准的 Playwright 参数。"
 $task29Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task29Only $true
 Assert-True (($task29Playwright -join " ") -eq "run test:e2e -- task29.spec.ts --project=chromium-task29-desktop --project=chromium-task29-mobile") "Task29Only 没有固定到管理员 Desktop/Mobile 项目。"
 Assert-True (-not ($task29Playwright -match "--grep|--config|--headed")) "Task29Only 注入了未批准的 Playwright 参数。"
@@ -55,6 +58,8 @@ $phase2ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $
 Assert-True ($null -ne $phase2ExclusiveFailure) "Phase2Only 与专项模式同时启用时没有拒绝执行。"
 $iPhoneExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -IPhoneSimulationOnly $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -IPhoneSimulationOnly $true; $null } catch { $_ }
 Assert-True ($null -ne $iPhoneExclusiveFailure) "IPhoneSimulationOnly 与其他专项模式同时启用时没有拒绝执行。"
+$uiParityExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -UiParityOnly $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -UiParityOnly $true -Task31Only $true; $null } catch { $_ }
+Assert-True ($null -ne $uiParityExclusiveFailure) "UiParityOnly 与其他专项模式同时启用时没有拒绝执行。"
 $task29ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $false -Task29Only $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Phase2Only $true -Task29Only $true; $null } catch { $_ }
 Assert-True ($null -ne $task29ExclusiveFailure) "Task29Only 与其他专项模式同时启用时没有拒绝执行。"
 $task30ExclusiveFailure = try { New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task30Only $true; New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task29Only $true -Task30Only $true; $null } catch { $_ }

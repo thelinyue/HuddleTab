@@ -361,10 +361,11 @@ describe("Expense 附件选择与私有预览", () => {
   );
 
   it("ACTIVE 编辑页确认后立即删除指定已有附件", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPage(<ExpenseDetailPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
+    expect(screen.getByRole("alertdialog", { name: "删除附件" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 
     await waitFor(() => expect(deleteAttachmentMutation.mutateAsync)
       .toHaveBeenCalledWith("attachment-1"));
@@ -494,7 +495,6 @@ describe("Expense pending 流水隔离", () => {
   });
 
   it("REJECTED 丢弃需要确认且只删除本地记录", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     pendingMutations.records = [{
       activityId: "activity-1",
       attachments: [],
@@ -522,11 +522,12 @@ describe("Expense pending 流水隔离", () => {
 
     renderPage(<ExpenseFeedPage />);
     fireEvent.click(screen.getByRole("button", { name: "丢弃本地记录" }));
+    expect(screen.getByRole("alertdialog", { name: "丢弃本地记录" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "确认丢弃" }));
     await waitFor(() => expect(discardMutation.mutateAsync).toHaveBeenCalledWith({
       mutationId: "rejected-discard",
       activityId: "activity-1",
     }));
-    expect(window.confirm).toHaveBeenCalledOnce();
   });
 });
 

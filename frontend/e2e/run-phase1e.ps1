@@ -4,6 +4,7 @@ param(
   [switch] $NotificationOwnershipOnly,
   [switch] $Phase2Only,
   [switch] $IPhoneSimulationOnly,
+  [switch] $UiParityOnly,
   [switch] $Task29Only,
   [switch] $Task30Only,
   [switch] $Task31Only,
@@ -26,14 +27,15 @@ $originalWslEnv = $env:WSLENV
 $originalAppVersion = $env:APP_VERSION
 $originalPostgresDb = $env:POSTGRES_DB
 $originalTrustProxy = $env:TRUST_PROXY
+$originalUiParityMode = $env:HUDDLETAB_E2E_UI_PARITY_MODE
 $sensitiveNames = @(
   "HUDDLETAB_E2E_USERNAME",
   "HUDDLETAB_E2E_PASSWORD",
   "POSTGRES_PASSWORD"
 )
 
-if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $IPhoneSimulationOnly, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
-  throw "附件、通知/所有权、Phase 2、iPhone 模拟、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
+if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $IPhoneSimulationOnly, $UiParityOnly, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
+  throw "附件、通知/所有权、Phase 2、iPhone 模拟、UI 对照、Task 29、Task 30、Task 31 与最终 Release Verification 模式不能同时运行。"
 }
 
 function Invoke-Wsl {
@@ -160,6 +162,7 @@ try {
   $env:HUDDLETAB_E2E_TASK29_MODE = if ($Task29Only) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK30_MODE = if ($Task30Only) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_TASK31_MODE = if ($Task31Only) { "true" } else { "false" }
+  $env:HUDDLETAB_E2E_UI_PARITY_MODE = if ($UiParityOnly) { "true" } else { "false" }
   $env:HUDDLETAB_E2E_RELEASE_MODE = if ($ReleaseVerification) { "true" } else { "false" }
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
@@ -215,6 +218,8 @@ try {
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
   } elseif ($IPhoneSimulationOnly) {
     "iPhone WebKit UI 与 Chromium Mobile PWA 模拟矩阵"
+  } elseif ($UiParityOnly) {
+    "v0.0.2 UI 对照 Chromium Desktop/Mobile 矩阵"
   } elseif ($Task29Only) {
     "Task 29 Chromium Desktop/Mobile 管理矩阵"
   } elseif ($Task30Only) {
@@ -233,7 +238,7 @@ try {
   Write-Host "[4/10] 运行 $matrixLabel"
   Push-Location $frontendDir
   try {
-    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -IPhoneSimulationOnly $IPhoneSimulationOnly.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent -Task31Only $Task31Only.IsPresent -ReleaseVerification $ReleaseVerification.IsPresent
+    $playwrightArguments = New-Phase1EPlaywrightArguments -AttachmentOnly $AttachmentOnly.IsPresent -NotificationOwnershipOnly $NotificationOwnershipOnly.IsPresent -Phase2Only $Phase2Only.IsPresent -IPhoneSimulationOnly $IPhoneSimulationOnly.IsPresent -UiParityOnly $UiParityOnly.IsPresent -Task29Only $Task29Only.IsPresent -Task30Only $Task30Only.IsPresent -Task31Only $Task31Only.IsPresent -ReleaseVerification $ReleaseVerification.IsPresent
     & npm @playwrightArguments
     $playwrightExitCode = $LASTEXITCODE
     node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
@@ -305,10 +310,11 @@ try {
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:TRUST_PROXY, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:TRUST_PROXY, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_UI_PARITY_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
   if ($null -ne $originalAppVersion) { $env:APP_VERSION = $originalAppVersion }
   if ($null -ne $originalPostgresDb) { $env:POSTGRES_DB = $originalPostgresDb } else { Remove-Item Env:POSTGRES_DB -ErrorAction SilentlyContinue }
   if ($null -ne $originalTrustProxy) { $env:TRUST_PROXY = $originalTrustProxy }
+  if ($null -ne $originalUiParityMode) { $env:HUDDLETAB_E2E_UI_PARITY_MODE = $originalUiParityMode }
   $env:WSLENV = $originalWslEnv
 }
 

@@ -1,4 +1,4 @@
-import { ArrowRight, Eye, EyeOff, LogIn, UserPlus, UserRoundCheck, UsersRound } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LockKeyhole, LogIn, UserPlus, UserRound, UserRoundCheck, UsersRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Brand } from "../../components/brand";
@@ -7,30 +7,31 @@ import { useInvitationPreviewQuery, useJoinInvitationMutation, useJoinRequestQue
 
 function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="auth-layout">
-      <section className="auth-layout__visual" aria-label="朋友共同旅行与记账">
-        <img src="/auth/auth-hero.webp" alt="朋友们一起旅行" width={1024} height={1024} />
-        <div className="auth-layout__caption">
-          <strong>一起花，清楚分。</strong>
-          <span>旅行、聚餐和合租账目，在一个地方算清。</span>
-        </div>
-      </section>
-      <section className="auth-layout__form">
-        <div className="auth-panel">
-          <Brand />
+    <main className="account-page">
+      <div className="account-card">
+        <section className="account-card__hero" aria-label="朋友共同旅行与记账">
+          <img src="/auth/auth-hero.webp" alt="朋友们一起旅行" width={950} height={625} />
+        </section>
+        <section className="account-card__body">
+          <div className="account-brand">
+            <img src="/icons/icon-192.png" alt="" width={64} height={64} />
+            <span><strong>伙记</strong><small>HuddleTab</small></span>
+          </div>
           {children}
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
 
-function PasswordInput({ value, onChange, autoComplete }: { value: string; onChange: (value: string) => void; autoComplete: string }) {
+function PasswordInput({ id, value, onChange, autoComplete }: { id: string; value: string; onChange: (value: string) => void; autoComplete: string }) {
   const [visible, setVisible] = useState(false);
   return (
-    <div className="password-input">
+    <div className="auth-input-wrap">
+      <LockKeyhole aria-hidden="true" size={20} />
       <Input
-        aria-label="密码"
+        id={id}
+        name={id}
         type={visible ? "text" : "password"}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -39,9 +40,45 @@ function PasswordInput({ value, onChange, autoComplete }: { value: string; onCha
         minLength={8}
         maxLength={128}
       />
-      <button type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? "隐藏密码" : "显示密码"}>
+      <button className="auth-password-toggle" type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? "隐藏密码" : "显示密码"}>
         {visible ? <EyeOff aria-hidden="true" size={19} /> : <Eye aria-hidden="true" size={19} />}
       </button>
+    </div>
+  );
+}
+
+function AuthField({ id, label, value, onChange, autoComplete, icon, type = "text", minLength, maxLength, autoFocus }: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+  icon?: React.ReactNode;
+  type?: "text" | "password";
+  minLength?: number;
+  maxLength?: number;
+  autoFocus?: boolean;
+}) {
+  return (
+    <label className="auth-field" htmlFor={id}>
+      <span>{label}</span>
+      {type === "password" ? <PasswordInput id={id} value={value} onChange={onChange} autoComplete={autoComplete} /> : (
+        <div className="auth-input-wrap">
+          {icon}
+          <Input id={id} name={id} value={value} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} required minLength={minLength} maxLength={maxLength} autoFocus={autoFocus} />
+        </div>
+      )}
+    </label>
+  );
+}
+
+/** 认证页底部的分隔式切换入口，保持 v0.0.2 的视觉层级，同时保留键盘可访问链接。 */
+function AuthSwitch({ prompt, label, href }: { prompt: string; label: string; href: string }) {
+  return (
+    <div className="auth-switch">
+      <span aria-hidden="true" />
+      <div><span>{prompt}</span><Link to={href}>{label}<ArrowRight aria-hidden="true" size={16} /></Link></div>
+      <span aria-hidden="true" />
     </div>
   );
 }
@@ -66,23 +103,18 @@ export function LoginPage() {
   return (
     <AuthLayout>
       <header className="auth-panel__header">
-        <p className="eyebrow">欢迎回来</p>
-        <h1>登录伙记</h1>
-        <p>继续查看活动账目和成员余额。</p>
+        <h1 aria-label="登录伙记">登录</h1>
+        <p>继续管理你的活动和账目</p>
       </header>
-      <form className="form-stack" onSubmit={submit}>
-        <Field label="用户名">
-          <Input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} maxLength={32} autoFocus />
-        </Field>
-        <Field label="密码">
-          <PasswordInput value={password} onChange={setPassword} autoComplete="current-password" />
-        </Field>
+      <form className="auth-form" onSubmit={submit}>
+        <AuthField id="login-username" label="用户名" value={username} onChange={setUsername} autoComplete="username" minLength={3} maxLength={32} autoFocus icon={<UserRound aria-hidden="true" size={20} />} />
+        <AuthField id="login-password" label="密码" value={password} onChange={setPassword} autoComplete="current-password" type="password" />
         {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
-        <Button type="submit" busy={mutation.isPending}>
+        <Button className="auth-submit" type="submit" busy={mutation.isPending}>
           <LogIn aria-hidden="true" size={18} /> 登录
         </Button>
       </form>
-      <p className="auth-panel__switch">还没有账号？ <Link to="/register">注册</Link></p>
+      <AuthSwitch prompt="还没有账号？" label="注册新账号" href="/register" />
     </AuthLayout>
   );
 }
@@ -96,11 +128,18 @@ export function RegisterPage() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [localError, setLocalError] = useState<string>();
 
   if (session.data) return <Navigate to={invitationToken ? `/join/${invitationToken}` : "/activities"} replace />;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setLocalError(undefined);
+    if (password !== confirmPassword) {
+      setLocalError("两次输入的密码不一致。");
+      return;
+    }
     await mutation.mutateAsync({ username, displayName, password, invitationToken: invitationToken || undefined });
     navigate(invitationToken ? `/join/${invitationToken}` : "/activities", { replace: true });
   }
@@ -108,29 +147,22 @@ export function RegisterPage() {
   return (
     <AuthLayout>
       <header className="auth-panel__header">
-        <p className="eyebrow">创建账号</p>
         <h1>创建账号</h1>
-        <p>有邀请口令时注册后可以继续加入活动。</p>
+        <p>创建账号后即可开始管理活动和账目。</p>
       </header>
-      <form className="form-stack" onSubmit={submit}>
-        <Field label="邀请口令" hint="有邀请时从链接自动带入，也可以粘贴口令；开放注册可留空。">
-          <Input value={invitationToken} onChange={(event) => setInvitationToken(event.target.value.trim())} autoFocus />
-        </Field>
-        <Field label="用户名" hint="3–32 位，仅限字母、数字、点、下划线和连字符。">
-          <Input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} maxLength={32} />
-        </Field>
-        <Field label="显示名称">
-          <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="name" required maxLength={80} />
-        </Field>
-        <Field label="密码" hint="8–128 个字符，可以使用密码管理器生成和粘贴。">
-          <PasswordInput value={password} onChange={setPassword} autoComplete="new-password" />
-        </Field>
+      <form className="auth-form" onSubmit={submit}>
+        <AuthField id="register-nickname" label="昵称" value={displayName} onChange={setDisplayName} autoComplete="name" maxLength={80} autoFocus />
+        <AuthField id="register-username" label="用户名" value={username} onChange={setUsername} autoComplete="username" minLength={3} maxLength={32} icon={<UserRound aria-hidden="true" size={20} />} />
+        <AuthField id="register-password" label="密码" value={password} onChange={setPassword} autoComplete="new-password" type="password" />
+        <AuthField id="register-confirm-password" label="确认密码" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" type="password" />
+        <Field label="邀请口令" hint="开放注册可留空；有邀请时可粘贴口令。"><Input value={invitationToken} onChange={(event) => setInvitationToken(event.target.value.trim())} /></Field>
+        {localError ? <div className="field__error" role="alert">{localError}</div> : null}
         {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
-        <Button type="submit" busy={mutation.isPending}>
-          <UserPlus aria-hidden="true" size={18} /> 注册并继续
+        <Button className="auth-submit" type="submit" busy={mutation.isPending}>
+          <UserPlus aria-hidden="true" size={18} /> 注册
         </Button>
       </form>
-      <p className="auth-panel__switch">已有账号？ <Link to="/login">登录</Link></p>
+      <AuthSwitch prompt="已有账号？" label="登录" href="/login" />
     </AuthLayout>
   );
 }

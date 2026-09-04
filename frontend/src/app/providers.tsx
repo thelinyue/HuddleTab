@@ -5,6 +5,7 @@ import { clearCsrfToken } from "../api/csrf";
 import { ApiRequestError } from "../api/error";
 import { queryKeys } from "../api/query-keys";
 import { clearRememberedOfflineSession } from "../features/auth/api";
+import { Toaster } from "sonner";
 
 export function AppProviders({ children }: PropsWithChildren) {
   // 每个已挂载应用只持有一个 QueryClient，避免 React 重渲染清空服务器状态。
@@ -47,6 +48,9 @@ export function AppProviders({ children }: PropsWithChildren) {
   }, [queryClient]);
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <Toaster position="top-center" closeButton richColors />
+    </QueryClientProvider>
   );
 }

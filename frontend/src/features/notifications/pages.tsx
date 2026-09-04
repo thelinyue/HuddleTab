@@ -1,4 +1,4 @@
-import { Bell, Check, CheckCheck, HandCoins, ReceiptText, Settings, UserPlus } from "lucide-react";
+import { Bell, BellRing, Check, CheckCheck, CircleDollarSign, Crown, Info, MailPlus, ReceiptText, Trash2, UserRoundPlus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button, EmptyState, ErrorNotice, LoadingState } from "../../components/ui";
@@ -26,12 +26,17 @@ function notificationTitle(notification: Notification): string {
 }
 
 function notificationSummary(notification: Notification): string | undefined {
-  if (notification.kind.startsWith("PARTICIPATING_EXPENSE_")) return notification.payload.title;
+  if (notification.kind === "JOIN_APPROVAL_REQUESTED") return "等待你处理加入申请";
+  if (notification.kind === "JOIN_APPROVAL_RESOLVED") return notification.payload.status === "APPROVED" ? "你现在可以进入活动" : "申请已由管理员处理";
+  if (notification.kind === "MEMBER_JOINED") return "成员已加入活动";
+  if (notification.kind === "PARTICIPATING_EXPENSE_CHANGED") return "消费记录发生变更";
+  if (notification.kind === "PARTICIPATING_EXPENSE_DELETED") return "该消费已不再计入活动账务";
   if (notification.kind === "SETTLEMENT_RECEIVED") {
     const { amountMinor, currency } = notification.payload;
     return amountMinor && currency ? formatMoney(currency, amountMinor) : undefined;
   }
-  if (notification.kind === "ACTIVITY_STATUS_CHANGED") return [notification.payload.activityName, notification.payload.status].filter(Boolean).join(" · ");
+  if (notification.kind === "ACTIVITY_STATUS_CHANGED") return notification.payload.status === "ENDED" ? "活动已结束" : notification.payload.status === "ARCHIVED" ? "活动已归档" : "活动状态发生变更";
+  if (notification.kind === "OWNERSHIP_CHANGED") return "请留意新的活动管理权限";
   return notification.payload.activityName;
 }
 
@@ -51,10 +56,15 @@ export function notificationDestination(notification: Notification): string | un
 }
 
 function notificationIcon(notification: Notification): ReactNode {
-  if (notification.kind.startsWith("JOIN_") || notification.kind === "MEMBER_JOINED") return <UserPlus aria-hidden="true" size={19} />;
-  if (notification.kind === "SETTLEMENT_RECEIVED") return <HandCoins aria-hidden="true" size={19} />;
-  if (notification.kind.startsWith("PARTICIPATING_EXPENSE_")) return <ReceiptText aria-hidden="true" size={19} />;
-  return <Settings aria-hidden="true" size={19} />;
+  if (notification.kind === "JOIN_APPROVAL_REQUESTED") return <UserRoundPlus aria-hidden="true" size={22} />;
+  if (notification.kind === "JOIN_APPROVAL_RESOLVED") return <MailPlus aria-hidden="true" size={22} />;
+  if (notification.kind === "MEMBER_JOINED") return <UserRoundPlus aria-hidden="true" size={22} />;
+  if (notification.kind === "PARTICIPATING_EXPENSE_CHANGED") return <ReceiptText aria-hidden="true" size={22} />;
+  if (notification.kind === "PARTICIPATING_EXPENSE_DELETED") return <Trash2 aria-hidden="true" size={22} />;
+  if (notification.kind === "SETTLEMENT_RECEIVED") return <CircleDollarSign aria-hidden="true" size={22} />;
+  if (notification.kind === "ACTIVITY_STATUS_CHANGED") return <BellRing aria-hidden="true" size={22} />;
+  if (notification.kind === "OWNERSHIP_CHANGED") return <Crown aria-hidden="true" size={22} />;
+  return <Info aria-hidden="true" size={22} />;
 }
 
 function dateNumber(value: Date, timeZone: string): number {
@@ -128,7 +138,7 @@ export function NotificationsPage() {
           const summary = notificationSummary(notification);
           const content = <><span className="notification-row__icon">{notificationIcon(notification)}</span><span className="notification-row__content"><strong>{notificationTitle(notification)}</strong>{summary ? <span>{summary}</span> : null}<small>{new Date(notification.createdAt).toLocaleString("zh-CN", { timeZone })}</small></span></>;
           const actionable = notification.kind === "JOIN_APPROVAL_REQUESTED" && notification.readAt === null && !notification.payload.status && notification.payload.requestId;
-          return <article className="notification-row" data-testid={`notification-${notification.notificationId}`} data-unread={notification.readAt === null} key={notification.notificationId}>
+          return <article className="notification-row" data-testid={`notification-${notification.notificationId}`} data-kind={notification.kind} data-unread={notification.readAt === null} key={notification.notificationId}>
             {destination ? <Link className="notification-row__link" to={destination}>{content}</Link> : <div className="notification-row__link">{content}</div>}
             <div className="notification-row__actions">{actionable ? <><Button variant="ghost" busy={decide.isPending} onClick={() => void decideRequest(notification, "REJECT")}>拒绝</Button><Button busy={decide.isPending} onClick={() => void decideRequest(notification, "APPROVE")}>通过</Button></> : null}{notification.readAt === null && !actionable ? <Button className="notification-read-button" variant="ghost" busy={markRead.isPending} aria-label="标记通知为已读" title="标记通知为已读" onClick={() => void read(notification.notificationId)}><Check aria-hidden="true" size={18} /></Button> : null}</div>
           </article>;
