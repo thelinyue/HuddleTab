@@ -624,7 +624,9 @@ pwsh -NoProfile -File frontend/e2e/support/run-phase1e-safety.test.ps1
 git diff --check
 ```
 
-专项完成后已关闭旧的 `huddletab-v003-local-review` 空库临时环境，并以新随机密码和 `/tmp/huddletab-v003-local-review-nREVgoFk` 重建 `APP_VERSION=0.0.3`、端口 `5683` 的局域网候选环境。数据库当前仍为空，直接打开 `/setup` 供网页初始化。不要创建 tag、发布镜像或宣称正式发布完成。
+专项完成后已关闭旧的 `huddletab-v003-local-review` 空库临时环境，并以新随机密码和 `/tmp/huddletab-v003-local-review-d00c729fa483` 重建 `APP_VERSION=0.0.3`、端口 `5683` 的局域网候选环境。数据库当前仍为空，直接打开 `/setup` 供网页初始化。不要创建 tag、发布镜像或宣称正式发布完成。
+
+2026-09-04 本地候选环境重建记录：旧目录先确认 `users = 0`，再按精确路径校验后删除；使用 Debian WSL 的 Docker 通过固定 `compose.yaml`、`--pull=false` 本地构建并启动。新镜像摘要为 `sha256:cfdef0ab0540aaeba89df9719f0377c42d4ba0c04f0d8b66cc35fcdd7ed19241`，app/postgres 均 healthy，fresh migration 为 9 条，app UID/GID 为 `10001:10001`，挂载点权限为 `0750`。`/api/health` 返回 `ok`，`/api/setup/status` 返回 `setupRequired: true` 且 `Cache-Control: no-store`；新静态 bundle 不再包含 `bootstrap-user` 或 CLI 命令提示，并包含网页初始化字段和“完成初始化”文案。`v0.0.2` 对照 Compose（5682）保持 healthy 未受影响。浏览器若仍显示旧命令，需要清理 `192.168.11.111:5683` 的 Service Worker/站点数据后重新打开 `/setup`。
 
 ## 8. 当前本地运行现场
 
@@ -634,7 +636,7 @@ git diff --check
 | --- | --- |
 | Rust API 候选 | `http://192.168.11.111:5683`；Compose project `huddletab-v003-local-review`；健康；数据库为空 |
 | 候选 app 镜像 | `ghcr.io/thelinyue/huddletab:0.0.3`（本地构建候选，非远程正式发布）；UID/GID `10001:10001` |
-| 候选数据目录 | `/tmp/huddletab-v003-local-review-nREVgoFk`（仅此临时目录，用户确认后再清理） |
+| 候选数据目录 | `/tmp/huddletab-v003-local-review-d00c729fa483`（仅此临时目录，用户确认后再清理） |
 | Vite 前端 | 未启动（由候选 Rust 镜像提供生产静态资源） |
 | `v0.0.2` UI 对照环境 | `http://127.0.0.1:5682`；Compose project `huddletab-v002-reference`，仅用于 UI 对照 |
 | WSL PostgreSQL 容器 | `huddletab-postgres` |
