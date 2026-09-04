@@ -116,9 +116,10 @@ function Stop-DisposablePostgres {
 
 function Compare-FilesExactly {
   param([Parameter(Mandatory)] [string] $Left, [Parameter(Mandatory)] [string] $Right)
-  $leftBytes = [System.IO.File]::ReadAllBytes($Left)
-  $rightBytes = [System.IO.File]::ReadAllBytes($Right)
-  if (-not [System.Linq.Enumerable]::SequenceEqual($leftBytes, $rightBytes)) {
+  # 生成器在 Windows 与 WSL 之间可能使用不同换行符；合同内容比较不应受 CRLF/LF 影响。
+  $leftText = ([System.IO.File]::ReadAllText($Left)).Replace("`r`n", "`n")
+  $rightText = ([System.IO.File]::ReadAllText($Right)).Replace("`r`n", "`n")
+  if ($leftText -cne $rightText) {
     throw "生成文件与仓库文件存在差异：$Left <> $Right"
   }
 }
