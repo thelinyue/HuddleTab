@@ -596,7 +596,7 @@ GHCR workflow 已收紧为仅语义版本 Git tag 触发，发布前执行 Rust/
 
 ### 7.15 网页管理员初始化修正（2026-09-04，专项完成）
 
-按本地及远程 `v0.0.2` 初始化页对照恢复网页初始化：`/setup` 现在按“管理员昵称、用户名、密码、确认密码”显示独立紧凑表单；`POST /api/setup` 在 pre-auth CSRF、Origin 和 Auth 限流通过后，于 PostgreSQL advisory transaction lock 内创建首位用户并写入 `SYSTEM_ADMIN`。成功返回 `201` 与 `Cache-Control: no-store`，前端随后复用登录接口自动进入 `/activities`；输入错误、服务失败和登录失败均保留草稿。并发请求只有一个成功，已完成初始化返回 `409 SETUP_COMPLETED`，前端会用当前凭据继续尝试登录。
+按本地及远程 `v0.0.2` 初始化页对照恢复网页初始化：`/setup` 现在按“管理员昵称、用户名、密码、确认密码”显示独立紧凑表单；`POST /api/setup` 在绑定 pre-auth CSRF、可选来源头校验和 Auth 限流通过后，于 PostgreSQL advisory transaction lock 内创建首位用户并写入 `SYSTEM_ADMIN`。成功返回 `201` 与 `Cache-Control: no-store`，前端随后复用登录接口自动进入 `/activities`；输入错误、服务失败和登录失败均保留草稿。并发请求只有一个成功，已完成初始化返回 `409 SETUP_COMPLETED`，前端会用当前凭据继续尝试登录。
 
 Rust 二进制已删除 `bootstrap-user` 子命令、标准输入密码读取和 `rpassword` 依赖；当前唯一初始化方式是受控网络内的网页表单。初始化完成前不得把实例暴露给不可信网络。历史记录中的 CLI/stdin 文字全部仅作追溯，不再作为运行或验收指引。
 
@@ -628,6 +628,14 @@ git diff --check
 
 2026-09-04 本地候选环境重建记录：旧目录先确认 `users = 0`，再按精确路径校验后删除；使用 Debian WSL 的 Docker 通过固定 `compose.yaml`、`--pull=false` 本地构建并启动。新镜像摘要为 `sha256:cfdef0ab0540aaeba89df9719f0377c42d4ba0c04f0d8b66cc35fcdd7ed19241`，app/postgres 均 healthy，fresh migration 为 9 条，app UID/GID 为 `10001:10001`，挂载点权限为 `0750`。`/api/health` 返回 `ok`，`/api/setup/status` 返回 `setupRequired: true` 且 `Cache-Control: no-store`；新静态 bundle 不再包含 `bootstrap-user` 或 CLI 命令提示，并包含网页初始化字段和“完成初始化”文案。`v0.0.2` 对照 Compose（5682）保持 healthy 未受影响。浏览器若仍显示旧命令，需要清理 `192.168.11.111:5683` 的 Service Worker/站点数据后重新打开 `/setup`。
 
+### 7.16 浏览器来源头兼容修复（2026-09-04）
+
+实际 Chromium 同源 `fetch` 可能同时省略 `Origin` 与 `Sec-Fetch-Site`；此前服务端把两者当作必需头，导致网页初始化即使携带正确的 pre-auth CSRF token 也返回 `403 CSRF_INVALID`。现已在 `server/src/http/auth.rs` 统一修正：来源头缺失时继续依赖绑定 Cookie 的 HMAC token；来源头存在时必须是单值且严格匹配，非法、重复或明确跨站值仍拒绝。新增 Rust helper 测试和 HTTP shell 测试覆盖该边界，并更新架构/部署说明。
+
+专项验证结果：Rust `fmt --check`、严格 Clippy、来源头单元测试、有效 token 缺失来源头的 HTTP 测试、Frontend Setup/Router 测试、typecheck、production build 和 `git diff --check` 通过。使用真实 Chromium 移动视口网页表单提交验证返回成功并自动登录；使用错误 Origin/Fetch Metadata 验证仍返回 `403 CSRF_INVALID`。该结果只覆盖本次来源头修复，不替代最终 Release Verification。
+
+修复后最终交付候选已重新建立：`huddletab-v003-local-review`，数据目录为 `/tmp/huddletab-v003-local-review-RwlSU6yK`，镜像版本 `0.0.3`，app/postgres healthy，migration `9` 条，`users = 0`，app UID/GID `10001:10001`，挂载点 `0750`。`/api/health` 为 200，`/api/setup/status` 为 `200 {"data":{"setupRequired":true}}` 且 `Cache-Control: no-store`；Chromium 无来源头但带有效 token 的无效输入请求返回 `400 INVALID_SETUP_INPUT`，跨站来源头返回 `403 CSRF_INVALID`。5682 的 `v0.0.2` 对照容器保持 healthy 未修改。当前地址仍为 `http://192.168.11.111:5683/setup`，等待用户通过网页完成初始化。
+
 ## 8. 当前本地运行现场
 
 当前保留一个供用户体验的本地 `0.0.3` 候选 Compose；它不是正式发布镜像。另有 `v0.0.2` UI 对照环境和可丢弃 WSL PostgreSQL 测试现场：
@@ -636,7 +644,7 @@ git diff --check
 | --- | --- |
 | Rust API 候选 | `http://192.168.11.111:5683`；Compose project `huddletab-v003-local-review`；健康；数据库为空 |
 | 候选 app 镜像 | `ghcr.io/thelinyue/huddletab:0.0.3`（本地构建候选，非远程正式发布）；UID/GID `10001:10001` |
-| 候选数据目录 | `/tmp/huddletab-v003-local-review-d00c729fa483`（仅此临时目录，用户确认后再清理） |
+| 候选数据目录 | `/tmp/huddletab-v003-local-review-RwlSU6yK`（仅此临时目录，用户确认后再清理） |
 | Vite 前端 | 未启动（由候选 Rust 镜像提供生产静态资源） |
 | `v0.0.2` UI 对照环境 | `http://127.0.0.1:5682`；Compose project `huddletab-v002-reference`，仅用于 UI 对照 |
 | WSL PostgreSQL 容器 | `huddletab-postgres` |

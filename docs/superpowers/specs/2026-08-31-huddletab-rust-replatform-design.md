@@ -269,7 +269,7 @@ Phase 1 注册必须携带有效邀请。注册时验证邀请只允许创建账
 - `/data/app-secret` 是持久化随机密钥；首次启动以受限权限原子创建。
 - CSRF token 使用 HMAC 签名并绑定 Session 或 pre-auth context。
 - 所有 cookie-authenticated unsafe method 校验 `X-CSRF-Token`。
-- 同时校验允许的 Origin 与 `Sec-Fetch-Site`，拒绝明确跨站请求。
+- 若请求带有 Origin 或 `Sec-Fetch-Site`，必须分别匹配允许的同源值；浏览器可能省略这些可选元数据头，缺失时仍必须通过绑定 Cookie 的 HMAC CSRF token，明确跨站或非法/重复值继续拒绝。
 - API 只支持同源，不提供通用 CORS。
 - 登录等 pre-auth 写请求也必须获得并提交绑定的 CSRF token。
 

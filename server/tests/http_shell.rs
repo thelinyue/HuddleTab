@@ -1,10 +1,14 @@
 use axum::{
     body::{Body, to_bytes},
-    http::{Request, StatusCode},
+    http::{
+        Request, StatusCode,
+        header::{CONTENT_TYPE, COOKIE, SET_COOKIE},
+    },
 };
 use huddletab_server::{
     http::router::{AppState, router_with_state},
     infrastructure::app_secret::AppSecret,
+    infrastructure::csrf::{CsrfContext, CsrfToken},
 };
 use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
@@ -198,6 +202,70 @@ async fn setup_status_is_read_only_and_has_a_json_route() {
         .expect("router 应返回响应");
     // 没有同源 pre-auth CSRF 上下文时，初始化必须在进入数据库前拒绝。
     assert_json_error(response, StatusCode::FORBIDDEN, "CSRF_INVALID").await;
+}
+
+#[tokio::test]
+async fn setup_accepts_valid_csrf_when_browser_omits_optional_origin_headers() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
+        .expect("测试应创建 lazy pool");
+    let secret = AppSecret::from_bytes([9; 32]);
+    let app = router_with_state(
+        None,
+        AppState::new(pool, secret.clone(), "http://localhost:5660".to_owned()),
+    );
+
+    let csrf_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/auth/csrf")
+                .body(Body::empty())
+                .expect("请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+    let cookie = csrf_response
+        .headers()
+        .get(SET_COOKIE)
+        .expect("应设置 pre-auth Cookie")
+        .to_str()
+        .expect("Cookie 应为 ASCII")
+        .split(';')
+        .next()
+        .expect("应包含 Cookie pair")
+        .to_owned();
+    let body = to_bytes(csrf_response.into_body(), usize::MAX)
+        .await
+        .expect("应读取 CSRF 响应");
+    let payload: Value = serde_json::from_slice(&body).expect("CSRF 响应应为 JSON");
+    let csrf = payload["data"]["token"]
+        .as_str()
+        .expect("应返回 CSRF token");
+    let parsed = CsrfToken::parse(csrf).expect("token 应符合规范");
+    let context = cookie
+        .strip_prefix("huddletab_pre_auth=")
+        .expect("应包含 pre-auth Cookie");
+    assert!(parsed.verify(&secret, CsrfContext::PreAuth(context)));
+
+    // Chromium 的同源 fetch 可能省略 Origin 与 Sec-Fetch-Site；有效绑定 token
+    // 仍应让请求通过来源检查并进入数据库业务层（lazy pool 随后返回 500）。
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/setup")
+                .header(CONTENT_TYPE, "application/json")
+                .header(COOKIE, cookie)
+                .header("x-csrf-token", csrf)
+                .body(Body::from(
+                    r#"{"displayName":"管理员","username":"admin","password":"password123"}"#,
+                ))
+                .expect("请求应可构造"),
+        )
+        .await
+        .expect("router 应响应");
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]

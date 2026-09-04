@@ -497,11 +497,7 @@ pub(crate) fn validate_pre_auth(
     headers: &HeaderMap,
     request_id: RequestId,
 ) -> Result<(), ApiError> {
-    let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
-    let fetch_site = headers
-        .get("sec-fetch-site")
-        .and_then(|value| value.to_str().ok());
-    if origin != Some(state.base_origin.as_str()) || fetch_site != Some("same-origin") {
+    if !validate_same_origin_headers(headers, &state.base_origin) {
         return Err(ApiError::forbidden(request_id));
     }
     let context = jar
@@ -526,11 +522,7 @@ pub(crate) fn validate_session_csrf(
     headers: &HeaderMap,
     request_id: RequestId,
 ) -> Result<SessionToken, ApiError> {
-    let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
-    let fetch_site = headers
-        .get("sec-fetch-site")
-        .and_then(|value| value.to_str().ok());
-    if origin != Some(state.base_origin.as_str()) || fetch_site != Some("same-origin") {
+    if !validate_same_origin_headers(headers, &state.base_origin) {
         return Err(ApiError::forbidden(request_id));
     }
     let session = jar
@@ -551,4 +543,84 @@ pub(crate) fn validate_session_csrf(
         return Err(ApiError::forbidden(request_id));
     }
     Ok(session)
+}
+
+/// 浏览器并不保证为同源 `fetch` 发送 `Origin` 或 Fetch Metadata 头。
+/// 这两个头如果存在必须严格匹配；缺失时仍必须通过绑定 Cookie 的 HMAC CSRF token，
+/// 从而兼容真实浏览器，同时继续拒绝明确的跨站请求、非法值和重复值。
+fn validate_same_origin_headers(headers: &HeaderMap, expected_origin: &str) -> bool {
+    optional_single_header_matches(headers, ORIGIN, expected_origin)
+        && optional_single_header_matches(headers, "sec-fetch-site", "same-origin")
+}
+
+fn optional_single_header_matches(
+    headers: &HeaderMap,
+    name: impl axum::http::header::AsHeaderName,
+    expected: &str,
+) -> bool {
+    let mut values = headers.get_all(name).iter();
+    let Some(value) = values.next() else {
+        return true;
+    };
+    values.next().is_none() && value.to_str().ok() == Some(expected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_same_origin_headers;
+    use axum::http::{HeaderMap, HeaderValue, header::ORIGIN};
+
+    #[test]
+    fn allows_browser_requests_that_omit_optional_origin_headers() {
+        assert!(validate_same_origin_headers(
+            &HeaderMap::new(),
+            "http://localhost:5660"
+        ));
+    }
+
+    #[test]
+    fn accepts_matching_optional_origin_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ORIGIN, HeaderValue::from_static("http://localhost:5660"));
+        headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+        assert!(validate_same_origin_headers(
+            &headers,
+            "http://localhost:5660"
+        ));
+    }
+
+    #[test]
+    fn rejects_mismatched_invalid_or_duplicate_origin_headers() {
+        let mut mismatched = HeaderMap::new();
+        mismatched.insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
+        assert!(!validate_same_origin_headers(
+            &mismatched,
+            "http://localhost:5660"
+        ));
+
+        let mut invalid_fetch_site = HeaderMap::new();
+        invalid_fetch_site.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+        assert!(!validate_same_origin_headers(
+            &invalid_fetch_site,
+            "http://localhost:5660"
+        ));
+
+        let mut duplicate = HeaderMap::new();
+        duplicate.append(ORIGIN, HeaderValue::from_static("http://localhost:5660"));
+        duplicate.append(ORIGIN, HeaderValue::from_static("http://localhost:5660"));
+        assert!(!validate_same_origin_headers(
+            &duplicate,
+            "http://localhost:5660"
+        ));
+
+        let mut invalid = HeaderMap::new();
+        invalid.insert(
+            ORIGIN,
+            HeaderValue::from_bytes(b"\xff").expect("HTTP 头可以保留非 UTF-8 字节"),
+        );
+        assert!(!validate_same_origin_headers(
+            &invalid,
+            "http://localhost:5660"
+        ));
+    }
 }

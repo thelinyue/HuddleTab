@@ -272,7 +272,7 @@ npm --prefix frontend test -- --run src/domain-preview
 - 30-day idle、90-day absolute、24h last-seen throttle。
 - logout、改密撤销与当前 session rotation。
 - app-secret 持久化与并发原子创建。
-- CSRF 绑定 session/pre-auth context，Origin 与 Sec-Fetch-Site 拒绝。
+- CSRF 绑定 session/pre-auth context；Origin 与 Sec-Fetch-Site 若存在则严格校验，缺失时仍要求绑定 token，明确跨站请求拒绝。
 - Cookie 属性、JSON 401、rate limit。
 
 **Files:**
