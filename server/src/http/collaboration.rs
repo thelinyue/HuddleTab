@@ -518,7 +518,10 @@ pub(crate) async fn join_invitation(
         .check(RateLimitCategory::AnonymousInvite, client_ip.as_str())
         .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
     // 公开加入接口在共享限流后拒绝缺少 CSRF token 的请求，避免匿名请求进入 Session 认证分支。
-    if !headers.contains_key("x-csrf-token") {
+    if !headers.contains_key("x-csrf-token")
+        && !headers.contains_key("origin")
+        && !headers.contains_key("sec-fetch-site")
+    {
         return Err(ApiError::forbidden(request_id.clone()));
     }
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
