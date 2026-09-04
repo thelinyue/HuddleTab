@@ -1,10 +1,10 @@
 # HuddleTab
 
-HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用。当前分支正在把运行栈迁移到 React/Vite 与 Rust/Axum；Phase 2 与 Phase 3 Task 29–31 已完成，最终 Release Verification 和真机 PWA 验收仍未完成。
+HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.3`，运行栈为 React/Vite 与 Rust/Axum。
 
 ## 当前源码运行
 
-Rust 新栈的正式镜像版本预留为 `0.0.3`，对应未来的 Git tag `v0.0.3`。该版本必须等 Phase 2、Phase 3 和最终 Release Verification 全部完成后才能发布；当前不存在可供正式部署的 `0.0.3` 镜像。`ghcr.io/thelinyue/huddletab:0.0.2` 是旧 Node/Next.js 运行栈，不能用于验证当前 Rust 源码。
+正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.3`，对应 Git tag `v0.0.3`。该版本使用 Rust/Axum 运行栈；旧版 `0.0.2` 镜像不用于验证当前源码。
 
 Task 31 只提供管理员存储占用和系统信息读取；SMTP、邮件测试及应用级备份/还原不属于当前产品范围。宿主/NAS 数据保护责任见[数据保护与恢复](docs/deployment/data-protection.md)，活动软删除恢复仍是独立的业务功能。
 
@@ -31,7 +31,7 @@ docker compose ps
 docker compose logs -f app
 ```
 
-最终 `0.0.3` 候选的自动化门禁和真实 iPhone Safari/Home Screen 验收流程见[最终 Release Verification](docs/deployment/release-verification.md)。门禁入口固定使用隔离环境，不会创建 tag 或推送镜像。
+自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.3` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外。
 
 `prepare-data-dir.sh` 只接受仓库固定 Compose 文件，可选参数仅为 `--project-name`。它会先解析和校验真实的 `DATA_HOST_DIR/app`，再由一次性 root 容器把挂载点本身设置为 `10001:10001`、`0750`；不会递归改写已有文件。实际 `app` 服务仍以 UID/GID `10001:10001` 运行。
 
