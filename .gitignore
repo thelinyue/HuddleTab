@@ -10,3 +10,6 @@ tsconfig.tsbuildinfo
 .env.*
 !.env.example
 .worktrees/
+frontend/dist/
+frontend/artifacts/
+server/target/

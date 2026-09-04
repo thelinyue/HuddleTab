@@ -269,12 +269,6 @@ CREATE TABLE "system_roles" (
 CREATE TABLE "system_settings" (
 	"id" text PRIMARY KEY DEFAULT 'singleton' NOT NULL,
 	"registration_policy" "registration_policy" DEFAULT 'INVITE_ONLY' NOT NULL,
-	"smtp_enabled" boolean DEFAULT false NOT NULL,
-	"smtp_host" text,
-	"smtp_port" integer,
-	"smtp_secure" boolean DEFAULT false NOT NULL,
-	"smtp_username" text,
-	"smtp_password_encrypted" text,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_by_user_id" text
 );

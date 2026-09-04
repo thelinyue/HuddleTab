@@ -25,7 +25,6 @@ Dockerfile                                       Node 24 生产镜像与 pg 工�
 compose.yaml                                     仅 app + postgres、5660 与三类持久卷
 docs/deployment/https.md                         外部 HTTPS 反向代理
 scripts/smoke.mjs                                无状态发布 Smoke
-scripts/verify-backup-restore.mjs                备份恢复演练
 scripts/verify-upgrade.ps1                       升级/Migration 演练
 ```
 
@@ -246,7 +245,7 @@ printf '%s\n' '正在检查首次初始化状态……'
 exec npm run start:container
 ```
 
-The runtime image copies `docker/entrypoint.sh`, marks it executable, and uses it as `ENTRYPOINT`. Compose remains exactly `app` plus `postgres`, maps `5660:5660`, and mounts only PostgreSQL data, uploads, and backups. The Setup Token remains the one explicit sensitive-log exception and deployment documentation states that container logs must be visible only to administrators.
+The runtime image copies the Rust server and frontend assets, marks the entrypoint executable, and uses it as `ENTRYPOINT`. Compose remains exactly `app` plus `postgres`, maps `5660:5660`, and mounts PostgreSQL data and app data. Host/NAS snapshots are the deployment owner's responsibility; the application does not provide backup/restore APIs.
 
 - [ ] **Step 4: Verify pass**
 
@@ -260,14 +259,12 @@ Expected: PASS; services are exactly `app` and `postgres`; uninitialized startup
 git add src/server/bootstrap/container-start.ts docker/entrypoint.sh Dockerfile compose.yaml .env.example package.json tests/integration/phase-10/bootstrap.test.ts tests/e2e/production-compose.spec.ts
 git commit -m "chore: harden production startup"
 ```
-### Task 4: Add HTTPS, backup/restore, upgrade and release verification
+### Task 4: Add HTTPS, host data protection, upgrade and release verification
 
 **Files:**
 - Create: `docs/deployment/https.md`
-- Create: `docs/deployment/backup-restore.md`
 - Create: `docs/deployment/upgrade.md`
 - Create: `scripts/smoke.mjs`
-- Create: `scripts/verify-backup-restore.mjs`
 - Create: `scripts/verify-upgrade.ps1`
 - Modify: `package.json`
 - Modify: `next.config.ts`
@@ -308,19 +305,18 @@ huddletab.example.com {
 
 It states that public production deployment requires HTTPS, proxy logs/config are administrator-only, and the core Compose must not gain a proxy service.
 
-`scripts/smoke.mjs` checks health, manifest, login page, authenticated activity list, one authorized attachment, and reports Chinese errors with stable step names. `scripts/verify-backup-restore.mjs` seeds a record plus attachment, creates backup, changes data, restores, then verifies the original row/file and `/api/health`. `scripts/verify-upgrade.ps1` takes a backup, records the old image, pulls/builds the new image, starts Compose so migrations run, executes Smoke, and prints the old image rollback command; it never uses `drizzle-kit push`.
+`scripts/smoke.mjs` checks health, manifest, login page, authenticated activity list, one authorized attachment, and reports Chinese errors with stable step names. `scripts/verify-upgrade.ps1` asks the host backup system to protect data, records the old image, pulls/builds the new image, starts Compose so migrations run, executes Smoke, and prints the old image rollback command; it never uses `drizzle-kit push`.
 
 Add scripts:
 
 ```json
 {
   "smoke": "node scripts/smoke.mjs",
-  "verify:backup-restore": "node scripts/verify-backup-restore.mjs",
   "verify:upgrade": "powershell -ExecutionPolicy Bypass -File scripts/verify-upgrade.ps1"
 }
 ```
 
-`docs/deployment/backup-restore.md` states the backup boundary (`database.dump`, `uploads/`, `manifest.json`), Maintenance Mode behavior, checksum check and post-restore Smoke. `docs/deployment/upgrade.md` states backup → pull/build → migration → Smoke → retain old image; migration failure means App does not start.
+`docs/deployment/data-protection.md` states the host snapshot boundary and restore responsibility. `docs/deployment/upgrade.md` states backup → pull/build → migration → Smoke → retain old image; migration failure means App does not start.
 
 - [ ] **Step 4: Run final release gate**
 
@@ -336,7 +332,6 @@ npm run build
 docker compose build
 docker compose up -d
 npm run smoke
-npm run verify:backup-restore
 npm run test:e2e
 ```
 
@@ -356,5 +351,5 @@ git commit -m "docs: add production release runbooks"
 - Production Compose 仅 `app + postgres`，App 固定监听 `0.0.0.0:5660` 并默认映射 `5660:5660`。
 - 首次未初始化启动自动生成 Setup Token，数据库只存 Hash，明文只在该次容器启动日志输出一次，并明确提醒日志仅管理员可见。
 - 正式升级只执行已提交 SQL Migration；失败时 App 不启动，禁止 `drizzle-kit push`。
-- PostgreSQL、Uploads、Backups 均为持久卷；完整备份恢复和 Smoke 演练通过后才可发布。
+- PostgreSQL 与 App data 均为持久目录；宿主快照和 Smoke 验证通过后才可发布。
 - HTTPS 由外部可信反向代理提供，不向核心 Compose 增加第三个服务。

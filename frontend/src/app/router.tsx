@@ -1,0 +1,126 @@
+import { FileQuestion } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef } from "react";
+import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
+import { Brand } from "../components/brand";
+import { EmptyState, LoadingState } from "../components/ui";
+import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "../features/accounting/pages";
+import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
+import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "../features/admin/pages";
+import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
+import { useOnlineStatus } from "../features/activities/offline-workspace";
+import { hasRememberedOfflineSession, useSessionQuery } from "../features/auth/api";
+import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
+import { ChangePasswordPage } from "../features/me/password-page";
+import { NotificationsPage } from "../features/notifications/pages";
+import { PwaUpdatePrompt } from "./pwa-update";
+import { SetupPage, SetupStatusError } from "../features/setup/pages";
+import { useSetupStatusQuery } from "../features/setup/api";
+
+const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));
+
+function RootRedirect() {
+  const session = useSessionQuery();
+  if (session.isPending) return <LoadingState label="正在打开伙记…" />;
+  return <Navigate to={session.data ? "/activities" : "/login"} replace />;
+}
+
+/** 初始化是全站部署前置条件；网络故障时宁可停在提示页，也不使用可能过期的产品缓存。 */
+function SetupGuard() {
+  const location = useLocation();
+  const status = useSetupStatusQuery();
+  const session = useSessionQuery();
+  const online = useOnlineStatus();
+  const previousOnline = useRef(online);
+  useEffect(() => {
+    const becameOnline = online && !previousOnline.current;
+    previousOnline.current = online;
+    if (becameOnline && status.error) void status.refetch();
+  }, [online, status.error, status.refetch]);
+  if (status.isPending) return <LoadingState label="正在确认初始化状态…" />;
+  // 离线工作台已经由当前标签页 Session 和 Snapshot 保护；只在网络错误时放行，
+  // 认证失效仍会由 ProtectedRoute 清理身份，不能借缓存绕过服务端授权。
+  if (status.error || !status.data) {
+    if (online && status.error) return <LoadingState label="正在重新确认初始化状态…" />;
+    // 只有已缓存的活动深链允许在断网时跳过初始化状态探针；列表、管理等页面仍需在线确认。
+    const cachedActivityDeepLink = location.pathname.startsWith("/activities/");
+    if (!online && cachedActivityDeepLink && (session.data || hasRememberedOfflineSession())) return <Outlet />;
+    return <SetupStatusError onRetry={() => void status.refetch()} />;
+  }
+  if (status.data.setupRequired) {
+    return location.pathname === "/setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
+  }
+  if (location.pathname === "/setup") return <Navigate to="/login" replace />;
+  return <Outlet />;
+}
+
+function ProtectedRoute() {
+  const session = useSessionQuery();
+  const location = useLocation();
+  if (session.isPending) return <LoadingState label="正在确认登录状态…" />;
+  if (!session.data) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  return <><ExpenseQueueSync userId={session.data.userId} /><Outlet /></>;
+}
+
+function ProtectedAdminRoute() {
+  const session = useSessionQuery();
+  const location = useLocation();
+  if (session.isPending) return <LoadingState label="正在确认管理员权限…" />;
+  if (!session.data) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  if (!session.data.isSystemAdmin) return <Navigate to="/me" replace />;
+  return <Outlet />;
+}
+
+function NotFoundPage() {
+  return (
+    <main className="center-page">
+      <Brand />
+      <EmptyState icon={<FileQuestion size={30} />} title="找不到这个页面" description="链接可能已过期，或页面地址输入有误。" action={<a className="button button--primary" href="/">返回首页</a>} />
+    </main>
+  );
+}
+
+function ActivityPrimaryPage() {
+  const [searchParams] = useSearchParams();
+  return searchParams.get("tab") === "settlement" ? <SettlementsPage /> : <ExpenseFeedPage />;
+}
+
+function RoutePwaUpdatePrompt() {
+  const location = useLocation();
+  return location.pathname.startsWith("/share-summary/") ? null : <PwaUpdatePrompt />;
+}
+
+export function ApplicationRouter() {
+  return (
+    <>
+      <Routes>
+        <Route element={<SetupGuard />}>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/join/:token" element={<JoinPage />} />
+          <Route element={<ProtectedRoute />}>
+          <Route path="/activities" element={<ActivitiesPage />} />
+          <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
+            <Route index element={<ActivityPrimaryPage />} />
+            <Route path="expenses/new" element={<NewExpensePage />} />
+            <Route path="expenses/:expenseId" element={<ExpenseDetailPage />} />
+          </Route>
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/me" element={<MePage />} />
+          <Route path="/me/password" element={<ChangePasswordPage />} />
+          <Route element={<ProtectedAdminRoute />}>
+            <Route path="/admin" element={<AdminHomePage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/settings" element={<AdminSettingsPage />} />
+            <Route path="/admin/system" element={<AdminSystemInformationPage />} />
+          </Route>
+            <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+      <RoutePwaUpdatePrompt />
+    </>
+  );
+}

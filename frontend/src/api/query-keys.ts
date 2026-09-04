@@ -1,0 +1,41 @@
+export const queryKeys = {
+  setupStatus: ["setup-status"] as const,
+  session: ["session"] as const,
+  activitiesCurrent: (userId: string) =>
+    ["users", userId, "activities", "current"] as const,
+  activitiesDeleted: (userId: string) =>
+    ["users", userId, "activities", "deleted"] as const,
+  activityDetail: (userId: string, activityId: string) =>
+    ["users", userId, "activities", "detail", activityId] as const,
+  members: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "members"] as const,
+  invitations: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "invitations"] as const,
+  joinRequests: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "join-requests"] as const,
+  joinRequest: (userId: string, requestId: string) =>
+    ["users", userId, "join-requests", requestId] as const,
+  notifications: (userId: string) =>
+    ["users", userId, "notifications"] as const,
+  adminUsers: (userId: string) => ["users", userId, "admin", "users"] as const,
+  adminRegistrationPolicy: (userId: string) => ["users", userId, "admin", "registration-policy"] as const,
+  adminStorage: (userId: string) => ["users", userId, "admin", "storage"] as const,
+  adminSystemInformation: (userId: string) => ["users", userId, "admin", "system-information"] as const,
+  activitySnapshot: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "snapshot"] as const,
+  expenses: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "expenses"] as const,
+  pendingExpenses: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "pending-expenses"] as const,
+  expense: (userId: string, activityId: string, expenseId: string) =>
+    ["users", userId, "activities", activityId, "expenses", expenseId] as const,
+  ledger: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "ledger"] as const,
+  recommendations: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "recommendations"] as const,
+  settlements: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "settlements"] as const,
+  activitySummary: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "summary"] as const,
+  invitationPreview: (token: string) => ["invitations", token] as const,
+};

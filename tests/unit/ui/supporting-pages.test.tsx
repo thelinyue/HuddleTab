@@ -39,7 +39,7 @@ test("系统管理首页仅提供三个已实现管理页面的导航", () => {
     "/admin/system",
   );
   expect(screen.getAllByRole("link")).toHaveLength(4);
-  expect(screen.queryByText(/SMTP/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/邮件/)).not.toBeInTheDocument();
 });
 
 const members = [

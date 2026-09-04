@@ -55,7 +55,7 @@
 | 6 | `2026-08-23-huddletab-phase-6-core-ui.md` | Mobile-first product UI and dark mode | Phases 2–5 |
 | 7 | `2026-08-23-huddletab-phase-7-offline.md` | IndexedDB snapshots, pending mutations, idempotent sync | Phases 4–6 |
 | 8 | `2026-08-23-huddletab-phase-8-notifications-attachments.md` | Notifications and secure image attachments | Phases 4–7 |
-| 9 | `2026-08-23-huddletab-phase-9-admin.md` | Users, policy, SMTP, storage, backup and restore | Phases 2–8 |
+| 9 | `2026-08-23-huddletab-phase-9-admin.md` | Users, policy, storage and system information（SMTP/应用级备份还原取消） | Phases 2–8 |
 | 10 | `2026-08-23-huddletab-phase-10-release.md` | Manifest, Serwist, production image, HTTPS docs, release gates | Phases 0–9 |
 
 ## Design Spec coverage map
@@ -70,7 +70,7 @@
 | 8.3 Expense aggregate | Phase 4 |
 | 8.4 Settlement | Phase 5 |
 | 8.5 Attachments, notifications, audit | Phase 4 + Phase 8 |
-| 8.6 Rate cache, backup records, support data | Phase 4 + Phase 9 |
+| 8.6 Rate cache and system support data | Phase 4 + Phase 9 |
 | 9 Transaction boundaries | Phases 3–5 + Phase 9 |
 | 10 API conventions and resource routes | Phases 2–9 |
 | 11 Permission model and LEFT constraints | Phase 3 + Phase 5 |
@@ -78,7 +78,7 @@
 | 13 PWA and offline flow | Phase 7 + Phase 10 |
 | 14 UI/UX specification | Phase 6 |
 | 15 Notifications, attachments, summary, CSV, Me | Phase 6 + Phase 8 + Phase 9 |
-| 16 Operations, migration, backup, HTTPS | Phase 9 + Phase 10 |
+| 16 Operations, migration, host data protection, HTTPS | Phase 9 + Phase 10 |
 | 17 Security design | Phases 0, 2–5, 8–10 |
 | 18 Chinese comments and understandable logs | Every phase |
 | 19 Test strategy and acceptance evidence | Every phase; final consolidation in Phase 10 |

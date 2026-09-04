@@ -6,10 +6,11 @@ HuddleTab 升级只执行已提交的 SQL Migration。禁止用 `drizzle-kit pus
 
 1. 使用 NAS / Docker 宿主的备份机制保护 `data/postgres`、`data/app`、Compose 文件、`.env` 和部署密钥。
 2. 记录当前应用镜像 ID，保留它作为回退目标。
-3. 拉取或构建新版本，并启动 Compose。容器入口会先执行 `node src/server/db/migrate.ts`；迁移失败时应用不会继续启动。
-4. 检查 `docker compose ps` 与应用健康检查。
-5. 使用具备测试活动和附件权限的会话运行 `npm run smoke`。
-6. 确认业务访问正常后，再清理旧镜像。
+3. 拉取或构建新版本。若 `./data/app` 是新建目录或刚恢复到新宿主，先按 README 的数据目录准备命令把挂载点设置为 `10001:10001`、`0750`；已有目录正常升级时不要递归改写数据属主。
+4. 启动 Compose。容器入口会自动执行已提交的 SQL migration；迁移失败时应用不会继续启动。
+5. 检查 `docker compose ps` 与应用健康检查。
+6. 使用具备测试活动和附件权限的会话运行 Smoke。
+7. 确认业务访问正常后，再清理旧镜像。
 
 PowerShell 部署者可运行：
 

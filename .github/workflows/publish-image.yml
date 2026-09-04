@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "要发布的镜像版本，例如 0.0.1"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -19,10 +13,94 @@ env:
   IMAGE_NAME: ghcr.io/thelinyue/huddletab
 
 jobs:
+  verify:
+    name: 发布前验证
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: huddletab_test
+          POSTGRES_USER: huddletab
+          POSTGRES_PASSWORD: release-verification
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U huddletab -d huddletab_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 校验版本标签
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "只允许形如 v0.0.3 的语义版本 tag。" >&2
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: 设置 Rust
+        uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: clippy, rustfmt
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装 Frontend 依赖
+        run: npm --prefix frontend ci
+
+      - name: Rust 格式
+        run: cargo fmt --manifest-path server/Cargo.toml --all -- --check
+
+      - name: Rust 严格 Clippy
+        run: cargo clippy --manifest-path server/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Rust 非数据库测试
+        run: cargo test --manifest-path server/Cargo.toml --all-targets --all-features -- --test-threads=1
+
+      - name: Rust PostgreSQL 测试
+        env:
+          TEST_DATABASE_URL: postgresql://huddletab:release-verification@127.0.0.1:5432/huddletab_test
+        run: cargo test --manifest-path server/Cargo.toml --all-targets --all-features -- --ignored --test-threads=1
+
+      - name: OpenAPI 与 TypeScript client 漂移检查
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "$temp_dir"' EXIT
+          cargo run --manifest-path server/Cargo.toml -- openapi --output "$temp_dir/openapi.json"
+          diff -u contracts/openapi.json "$temp_dir/openapi.json"
+          npx --prefix frontend openapi-typescript "$temp_dir/openapi.json" -o "$temp_dir/openapi.ts"
+          diff -u frontend/src/api/generated/openapi.ts "$temp_dir/openapi.ts"
+
+      - name: Frontend 测试、类型检查与构建
+        run: |
+          npm --prefix frontend run test:unit
+          npm --prefix frontend run typecheck
+          npm --prefix frontend run build
+
+      - name: 检查提交洁净度
+        run: git diff --check
+
   publish:
     name: 发布 GHCR 镜像
+    needs: verify
     runs-on: ubuntu-latest
-
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -43,8 +121,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=${{ inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ needs.verify.outputs.version }}
             type=raw,value=latest
 
       - name: 构建并推送镜像
@@ -52,5 +129,7 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            APP_VERSION=${{ needs.verify.outputs.version }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
