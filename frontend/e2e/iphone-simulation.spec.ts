@@ -53,8 +53,12 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await assertNoHorizontalOverflow(page);
 });
 
-test("生产 Manifest 声明 standalone、图标和 Apple touch icon", async ({ page, request }) => {
+test("生产页面锁定 viewport，并声明 standalone、图标和 Apple touch icon", async ({ page, request }) => {
   await login(page);
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+    "content",
+    "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+  );
   const manifest = await request.get("/manifest.webmanifest");
   expect(manifest.status()).toBe(200);
   expect(manifest.headers()["content-type"]).toContain("application/manifest+json");
