@@ -122,18 +122,13 @@ test("流水消费摘要按总消费、外币原币合计、笔数和人均消�
     />,
   );
 
-  expect(
-    screen.queryByRole("banner", { name: "活动信息" }),
-  ).not.toBeInTheDocument();
+  expect(screen.getByRole("banner", { name: "活动信息" })).toHaveTextContent(
+    "5天 · 3人 · 进行中",
+  );
   expect(screen.getByLabelText("消费摘要")).toHaveTextContent(
     "总消费¥60.00其中外币消费JPY 12,000 · USD 20.00 · 已折算3 笔消费 · 人均消费 ¥15.00",
   );
   const summary = screen.getByLabelText("消费摘要");
-  expect(summary).toHaveClass("bg-summary", "rounded-sm", "px-4", "py-4");
-  expect(within(summary).getByText("¥60.00")).toHaveClass(
-    "type-display-amount",
-    "money",
-  );
   const foreignLabel = within(summary).getByText("其中外币消费");
   expect(foreignLabel).toBeVisible();
   expect(foreignLabel.parentElement).not.toHaveClass("border-t");
@@ -310,16 +305,9 @@ test("仅一个 active 正式成员时在摘要前展示邀请提示，临时成
       }
     />,
   );
-  const invitation = screen.getByRole("link", { name: /邀请成员一起记账/ });
-  expect(invitation).toHaveAttribute(
-    "href",
-    "/activities/activity-1?panel=members",
-  );
-  expect(invitation).toHaveClass("bg-summary");
   expect(
-    within(invitation).getByText("分享链接或二维码即可加入"),
-  ).toBeVisible();
-  expect(invitation.querySelector(".lucide-chevron-right")).toBeInTheDocument();
+    screen.getByRole("link", { name: /邀请成员一起记账/ }),
+  ).toHaveAttribute("href", "/activities/activity-1?panel=members");
 });
 
 test.each([

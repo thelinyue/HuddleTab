@@ -38,7 +38,6 @@ afterEach(() => {
 test("活动首页按参考稿呈现紧凑标题、账务摘要和生命周期列表", () => {
   render(
     <ActivityHome
-      timeZone="Asia/Shanghai"
       data={{
         summaries: [
           {
@@ -94,10 +93,9 @@ test("活动首页按参考稿呈现紧凑标题、账务摘要和生命周期�
   ).toHaveAttribute("data-size", "icon");
 });
 
-test("没有活动时用场景插画突出创建入口并弱化加入入口", () => {
-  const { container } = render(
+test("没有活动时显示可恢复的空状态", () => {
+  render(
     <ActivityHome
-      timeZone="Asia/Shanghai"
       data={{ summaries: [], active: [], ended: [], archived: [] }}
     />,
   );
@@ -108,69 +106,13 @@ test("没有活动时用场景插画突出创建入口并弱化加入入口", ()
   ).toHaveAttribute("data-size", "icon");
   const createActions = screen.getAllByRole("button", { name: "创建活动" });
   expect(createActions).toHaveLength(1);
-  expect(createActions[0]).toHaveAttribute("data-size", "lg");
-  expect(createActions[0]).toHaveAttribute("data-variant", "default");
-  expect(screen.getByRole("button", { name: "加入已有活动" })).toHaveAttribute(
-    "data-variant",
-    "link",
-  );
-
-  const illustration = container.querySelector(
-    'img[src*="activity-list-empty"][alt=""][aria-hidden="true"]',
-  );
-  expect(illustration).toBeInTheDocument();
-  expect(illustration).toHaveAttribute("width", "960");
-  expect(illustration).toHaveAttribute("height", "640");
-  expect(illustration).toHaveAttribute("loading", "eager");
-  expect(illustration).toHaveAttribute(
-    "sizes",
-    "(max-width: 351px) calc(100vw - 32px), 320px",
-  );
-});
-
-test("空白态创建和加入入口分别打开对应表单", async () => {
-  const user = userEvent.setup();
-  const data = { summaries: [], active: [], ended: [], archived: [] };
-  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
-
-  await user.click(screen.getByRole("button", { name: "创建活动" }));
-  expect(screen.getByRole("dialog", { name: "创建活动" })).toBeVisible();
-
-  cleanup();
-  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
-  await user.click(screen.getByRole("button", { name: "加入已有活动" }));
-  expect(screen.getByRole("dialog", { name: "加入活动" })).toBeVisible();
-});
-
-test("已有活动时不显示空白态插画", () => {
-  const { container } = render(
-    <ActivityHome
-      timeZone="Asia/Shanghai"
-      data={{
-        summaries: [],
-        active: [
-          {
-            id: "active",
-            name: "周末聚餐",
-            status: "ACTIVE",
-            myNetMinor: "0",
-          },
-        ],
-        ended: [],
-        archived: [],
-      }}
-    />,
-  );
-
-  expect(
-    container.querySelector('img[src*="activity-list-empty"]'),
-  ).not.toBeInTheDocument();
+  expect(createActions[0]).toHaveTextContent("创建活动");
 });
 
 test("加号打开新建或加入操作面板，并能切换到两种表单", async () => {
   const user = userEvent.setup();
   const data = { summaries: [], active: [], ended: [], archived: [] };
-  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
+  render(<ActivityHome data={data} />);
 
   await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
   const actionDialog = screen.getByRole("dialog", { name: "新建或加入活动" });
@@ -187,7 +129,7 @@ test("加号打开新建或加入操作面板，并能切换到两种表单", as
   expect(screen.getByRole("textbox", { name: "邀请链接" })).toBeVisible();
 
   cleanup();
-  render(<ActivityHome data={data} timeZone="Asia/Shanghai" />);
+  render(<ActivityHome data={data} />);
   await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
   await user.click(
     within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole(
@@ -205,7 +147,6 @@ test("活动操作与创建/加入共用同一个导航 Overlay，并可返回�
   const user = userEvent.setup();
   render(
     <ActivityHome
-      timeZone="Asia/Shanghai"
       data={{ summaries: [], active: [], ended: [], archived: [] }}
     />,
   );
@@ -228,55 +169,9 @@ test("活动操作与创建/加入共用同一个导航 Overlay，并可返回�
   );
 });
 
-test("创建活动在同一 Overlay 选择币种并保留已填写字段", async () => {
-  const user = userEvent.setup();
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  );
-  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-    configurable: true,
-    value: vi.fn(),
-  });
-  render(
-    <ActivityHome
-      timeZone="Asia/Shanghai"
-      data={{ summaries: [], active: [], ended: [], archived: [] }}
-    />,
-  );
-
-  await user.click(screen.getByRole("button", { name: "新建或加入活动" }));
-  await user.click(
-    within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole(
-      "button",
-      { name: "创建活动" },
-    ),
-  );
-  await user.type(screen.getByRole("textbox", { name: "活动名称" }), "大阪行");
-  await user.click(screen.getByRole("button", { name: "主币种" }));
-
-  const picker = screen.getByRole("dialog", { name: "选择币种" });
-  expect(picker).toBe(screen.getByRole("dialog"));
-  await user.type(screen.getByRole("combobox", { name: "搜索币种" }), "日元");
-  await user.click(screen.getByRole("option", { name: /JPY日元/ }));
-
-  expect(screen.getByRole("dialog", { name: "创建活动" })).toBe(picker);
-  expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveValue(
-    "大阪行",
-  );
-  expect(screen.getByRole("button", { name: "主币种" })).toHaveTextContent(
-    "JPY · 日元",
-  );
-});
-
 test("已结清活动只显示结清状态，不重复显示零金额", () => {
   render(
     <ActivityHome
-      timeZone="Asia/Shanghai"
       data={{
         summaries: [],
         active: [
@@ -303,7 +198,6 @@ test("有起止日期时用包含首尾的活动天数压缩列表元数据", ()
 
   render(
     <ActivityHome
-      timeZone="Asia/Shanghai"
       data={{
         summaries: [],
         active: [

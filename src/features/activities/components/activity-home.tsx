@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { PlusIcon } from "lucide-react";
-import Image from "next/image";
-import activityListEmptyIllustration from "@/assets/illustrations/activity-list-empty.webp";
 import {
   getActivityHome,
   type ActivityHomeDto,
@@ -12,7 +10,6 @@ import {
 } from "@/features/activities/api";
 import { ActivityListItem } from "@/features/activities/components/activity-list-item";
 import { CreateActivityForm } from "@/features/activities/components/create-activity-form";
-import { CurrencyPickerOptions } from "@/features/currency/components/currency-picker";
 import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 import { JoinActivityForm } from "@/features/activities/components/join-activity-form";
 import { EmptyState } from "@/components/design-system/empty-state";
@@ -52,21 +49,10 @@ function ActivityGroup({
 }
 
 /** 首页只格式化服务器返回的汇总；跨活动应收、应付保留为两个独立数字。 */
-export function ActivityHome({
-  data,
-  timeZone,
-}: {
-  readonly data: ActivityHomeDto;
-  readonly timeZone: string;
-}) {
+export function ActivityHome({ data }: { readonly data: ActivityHomeDto }) {
   const [actionView, setActionView] = useState<
-    "actions" | "create" | "create-currency" | "join" | null
+    "actions" | "create" | "join" | null
   >(null);
-  const [baseCurrency, setBaseCurrency] = useState("CNY");
-  const openCreate = () => {
-    setBaseCurrency("CNY");
-    setActionView("create");
-  };
   const hasActivities =
     data.active.length + data.ended.length + data.archived.length > 0;
   return (
@@ -95,45 +81,19 @@ export function ActivityHome({
           title={
             actionView === "create"
               ? "创建活动"
-              : actionView === "create-currency"
-                ? "选择币种"
               : actionView === "join"
                 ? "加入活动"
                 : "新建或加入活动"
           }
           onBack={
             actionView && actionView !== "actions"
-              ? () =>
-                  setActionView(
-                    actionView === "create-currency" ? "create" : "actions",
-                  )
+              ? () => setActionView("actions")
               : undefined
           }
-          backLabel={
-            actionView === "create-currency" ? "创建活动" : "新建或加入活动"
-          }
+          backLabel="新建或加入活动"
         >
-          {actionView === "create" || actionView === "create-currency" ? (
-            <>
-              <div hidden={actionView === "create-currency"}>
-                <CreateActivityForm
-                  timeZone={timeZone}
-                  baseCurrency={baseCurrency}
-                  onBaseCurrencyClick={() => setActionView("create-currency")}
-                />
-              </div>
-              {actionView === "create-currency" ? (
-                <div className="flex min-h-[50dvh] flex-col pt-2">
-                  <CurrencyPickerOptions
-                    value={baseCurrency}
-                    onSelect={(code) => {
-                      setBaseCurrency(code);
-                      setActionView("create");
-                    }}
-                  />
-                </div>
-              ) : null}
-            </>
+          {actionView === "create" ? (
+            <CreateActivityForm />
           ) : actionView === "join" ? (
             <JoinActivityForm />
           ) : (
@@ -141,7 +101,7 @@ export function ActivityHome({
               <Button
                 type="button"
                 size="lg"
-                onClick={openCreate}
+                onClick={() => setActionView("create")}
               >
                 创建活动
               </Button>
@@ -193,34 +153,14 @@ export function ActivityHome({
         {!hasActivities && (
           <EmptyState
             icon={PlusIcon}
-            visual={
-              <Image
-                src={activityListEmptyIllustration}
-                alt=""
-                aria-hidden="true"
-                width={960}
-                height={640}
-                loading="eager"
-                sizes="(max-width: 351px) calc(100vw - 32px), 320px"
-                className="mx-auto mb-5 h-auto w-full max-w-80 object-contain"
-              />
-            }
             title="还没有活动"
             description="创建第一个活动后，就可以开始记录消费。"
             action={
-              <div className="grid w-full max-w-72 gap-1">
-                <Button
-                  size="lg"
-                  className="w-full"
-                  onClick={openCreate}
-                >
+              <div className="grid gap-2">
+                <Button onClick={() => setActionView("create")}>
                   创建活动
                 </Button>
-                <Button
-                  variant="link"
-                  className="w-full"
-                  onClick={() => setActionView("join")}
-                >
+                <Button variant="outline" onClick={() => setActionView("join")}>
                   加入已有活动
                 </Button>
               </div>
@@ -243,7 +183,7 @@ export function ActivityHome({
 }
 
 /** 页面加载层只处理加载与错误状态，保持实际展示组件可由纯数据测试。 */
-export function ActivityHomeLoader({ timeZone }: { readonly timeZone: string }) {
+export function ActivityHomeLoader() {
   const [data, setData] = useState<ActivityHomeDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -264,5 +204,5 @@ export function ActivityHomeLoader({ timeZone }: { readonly timeZone: string }) 
       </p>
     );
   if (!data) return <p className="text-muted-foreground">正在加载活动…</p>;
-  return <ActivityHome data={data} timeZone={timeZone} />;
+  return <ActivityHome data={data} />;
 }

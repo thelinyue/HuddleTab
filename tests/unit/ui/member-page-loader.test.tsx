@@ -2,7 +2,13 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -17,6 +23,36 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+test("嵌入成员数据加载期间仍显示统一成员 Sheet Header", async () => {
+  const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<MemberPageLoader embedded />);
+
+  const dialog = await screen.findByRole("dialog", { name: "成员" });
+  expect(dialog).toBeVisible();
+  expect(within(dialog).getByRole("button", { name: "关闭" })).toBeVisible();
+  expect(screen.getByText("正在加载成员…")).toBeVisible();
+  expect(screen.queryAllByRole("dialog")).toHaveLength(1);
+});
+
+test("嵌入成员数据加载失败时仍显示统一成员 Sheet Header", async () => {
+  const fetchMock = vi.fn(() =>
+    Promise.resolve(new Response("", { status: 500 })),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<MemberPageLoader embedded />);
+
+  const dialog = await screen.findByRole("dialog", { name: "成员" });
+  expect(dialog).toBeVisible();
+  expect(within(dialog).getByRole("button", { name: "关闭" })).toBeVisible();
+  expect(within(dialog).getByRole("alert")).toHaveTextContent(
+    "成员列表加载失败",
+  );
+  expect(screen.queryAllByRole("dialog")).toHaveLength(1);
 });
 
 test("普通成员加载成员面板时不请求受保护的邀请状态，也不渲染邀请动作", async () => {
