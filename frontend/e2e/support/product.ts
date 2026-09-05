@@ -36,6 +36,7 @@ export async function assertCredentialFieldsVisuallyMasked(page: Page): Promise<
   const { username, password } = credentials();
   await installArtifactVisualRedaction(page.context());
   await page.goto("/login");
+  await expect(page.getByLabel("用户名")).toBeVisible();
   const fields: Array<{ label: string; locator: Locator; value: string }> = [
     { label: "用户名", locator: page.getByLabel("用户名"), value: username },
     { label: "密码", locator: page.locator('input[autocomplete="current-password"]'), value: password },
@@ -56,6 +57,7 @@ export async function login(page: Page): Promise<void> {
   const { username, password } = credentials();
   await installArtifactVisualRedaction(page.context());
   await page.goto("/login");
+  await expect(page.getByLabel("用户名")).toBeVisible();
   await page.getByLabel("用户名").fill(username);
   await page.locator('input[autocomplete="current-password"]').fill(password);
   const loginResponse = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/api/auth/login"));
