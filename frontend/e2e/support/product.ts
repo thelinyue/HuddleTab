@@ -1,4 +1,5 @@
 import { expect, type BrowserContext, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { PNG } from "playwright-core/lib/utilsBundle";
 
 export async function installArtifactVisualRedaction(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
@@ -46,10 +47,19 @@ export async function assertCredentialFieldsVisuallyMasked(page: Page): Promise<
     // MutationObserver 尚未调度时把临时账号写入 Playwright artifact。
     await field.locator.evaluate((element) => element.setAttribute("data-e2e-sensitive-mask", "true"));
     await field.locator.fill("x".repeat(field.value.length));
+    // Chromium 会在聚焦的密码框中短暂显示最后输入字符；失焦后再截图，避免
+    // 浏览器原生 reveal 时序把同长度的随机密码误判为脱敏失败。
+    await field.locator.evaluate((element) => (element as HTMLInputElement).blur());
     const referencePixels = await field.locator.screenshot({ animations: "disabled", caret: "hide" });
     await field.locator.fill(field.value);
+    await field.locator.evaluate((element) => (element as HTMLInputElement).blur());
     const credentialPixels = await field.locator.screenshot({ animations: "disabled", caret: "hide" });
-    expect(credentialPixels, `${field.label}输入框的真实凭据仍改变了截图像素。`).toEqual(referencePixels);
+    const referenceImage = PNG.sync.read(referencePixels);
+    const credentialImage = PNG.sync.read(credentialPixels);
+    expect(credentialImage.width).toBe(referenceImage.width);
+    expect(credentialImage.height).toBe(referenceImage.height);
+    expect(Buffer.from(credentialImage.data), `${field.label}输入框的真实凭据仍改变了截图像素。`)
+      .toEqual(Buffer.from(referenceImage.data));
   }
 }
 
