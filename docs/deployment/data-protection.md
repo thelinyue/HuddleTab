@@ -15,11 +15,11 @@ Compose 将 `./data/app`（发布 Compose 为 `./huddletab-data/app`）挂载到
 
 1. 停止 HuddleTab 应用和 PostgreSQL 容器，按照宿主备份工具的流程恢复 Compose 文件、密钥、PostgreSQL 数据目录和应用数据目录。
 2. 检查 PostgreSQL 数据目录或 volume 的属主、权限和可读写状态，并确保恢复工具保留 `./data/app` 内已有文件的属主。
-3. 如果应用挂载点是在新宿主创建的，先准备其根目录；此命令只调整 `/data` 本身，不会递归改写恢复的数据：
+3. 如果应用挂载点是在新宿主创建的，设置与 NAS 宿主用户匹配的 `PUID`/`PGID`（未设置时默认 `10001:10001`）。容器首次启动会自动准备 `/data`、`app-secret` 和 `uploads`；不会修改 PostgreSQL 目录或 `/data` 中未知文件。
 
    ```bash
    docker compose pull
-   docker compose run --rm --no-deps --user 0:0 --entrypoint sh app -c 'set -eu; chown 10001:10001 /data; chmod 0750 /data; test "$(stat -c "%u:%g:%a" /data)" = "10001:10001:750"'
+   docker compose up -d
    ```
 
 4. 启动 Compose 并查看应用日志与健康检查：

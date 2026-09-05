@@ -13,10 +13,19 @@ it("两个 Compose 配置将数据库和应用持久化目录分开挂载", asyn
   );
   expect(compose).toContain("- ${DATA_HOST_DIR:-./data}/app:/data");
   expect(compose).not.toContain("- ${DATA_HOST_DIR:-./data}:/data");
+  expect(compose).toContain("PUID: ${PUID:-10001}");
+  expect(compose).toContain("PGID: ${PGID:-10001}");
+  expect(compose).toContain("gosu");
+  expect(compose).toContain("$$PUID:$$PGID");
+  expect(compose).toContain("/api/health");
 
   expect(releaseCompose).toContain(
     "- ./huddletab-data/postgres:/var/lib/postgresql",
   );
   expect(releaseCompose).toContain("- ./huddletab-data/app:/data");
   expect(releaseCompose).not.toContain("- ./huddletab-data:/data");
+  expect(releaseCompose).toContain("ghcr.io/thelinyue/huddletab:0.0.4");
+  expect(releaseCompose).toContain("PUID: ${PUID:-10001}");
+  expect(releaseCompose).toContain("PGID: ${PGID:-10001}");
+  expect(releaseCompose).not.toContain('"node"');
 });

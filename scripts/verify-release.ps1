@@ -1,6 +1,6 @@
 <##
   HuddleTab Rust 新栈最终自动化发布门禁。
-  该入口故意不接受 Compose 文件、测试路径或版本参数；它只验证固定的 0.0.3 候选，
+  该入口故意不接受 Compose 文件、测试路径或版本参数；它只验证固定的 0.0.4 候选，
   不创建 Git tag、不登录 GHCR、不推送镜像。真机 iPhone 验收仍需部署者单独完成。
 ##>
 [CmdletBinding()]
@@ -155,14 +155,12 @@ try {
   Invoke-Checked "Frontend typecheck" { npm --prefix $frontendDir run typecheck }
   Invoke-Checked "Frontend production build" { npm --prefix $frontendDir run build }
   Invoke-Checked "runner 安全测试" { pwsh -NoProfile -File (Join-Path $frontendDir "e2e/support/run-phase1e-safety.test.ps1") }
-  Invoke-Checked "数据目录参数安全测试" { wsl.exe -d Debian -- sh -lc "cd '$repoWslPath' && sh frontend/e2e/support/prepare-data-dir-arguments.test.sh" }
-  Invoke-Checked "数据目录路径安全测试" { wsl.exe -d Debian -- sh -lc "cd '$repoWslPath' && sh frontend/e2e/support/prepare-data-dir-paths.test.sh" }
   Invoke-Checked "数据目录权限安全测试" { wsl.exe -d Debian -- sh -lc "cd '$repoWslPath' && sh frontend/e2e/support/data-directory-permissions.test.sh" }
   Invoke-Checked "完整候选镜像与浏览器矩阵" { & (Join-Path $frontendDir "e2e/run-phase1e.ps1") -ReleaseVerification }
   Invoke-Checked "Git diff whitespace 检查" { git -C $repoDir diff --check }
 
-  Write-Host "[release] 自动化门禁通过：0.0.3 候选镜像已完成 Rust、PostgreSQL、Frontend、Compose 与浏览器验收。"
-  Write-Host "[release] 仍需真机 iPhone Safari/Home Screen PWA 验收；本次未创建 tag、未推送 GHCR。"
+  Write-Host "[release] 自动化门禁通过：0.0.4 候选镜像已完成 Rust、PostgreSQL、Frontend、Compose 与浏览器验收。"
+  Write-Host "[release] 真实 iPhone Safari/Home Screen PWA 验收未执行，已记录为本次发布例外；本次未创建 tag、未推送 GHCR。"
 } finally {
   try { Stop-DisposablePostgres } catch { Write-Error $_ }
   if ($temporaryContractDir -and (Test-Path $temporaryContractDir)) {

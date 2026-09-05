@@ -15,7 +15,7 @@ services:
       retries: 20
 
   app:
-    image: ghcr.io/thelinyue/huddletab:0.0.3
+    image: ghcr.io/thelinyue/huddletab:0.0.4
     restart: unless-stopped
     depends_on:
       postgres:
@@ -25,6 +25,8 @@ services:
       BETTER_AUTH_URL: http://localhost:5660
       APP_BASE_URL: http://localhost:5660
       DATA_DIR: /data
+      PUID: ${PUID:-10001}
+      PGID: ${PGID:-10001}
       TRUST_PROXY: "false"
       TZ: Asia/Shanghai
     ports:
@@ -35,9 +37,9 @@ services:
       test:
         [
           "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:5660/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+          "sh",
+          "-c",
+          "exec gosu \"$$PUID:$$PGID\" curl --fail --silent http://127.0.0.1:5660/api/health",
         ]
       interval: 10s
       timeout: 5s

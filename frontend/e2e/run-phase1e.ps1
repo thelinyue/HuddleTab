@@ -26,6 +26,8 @@ $script:composeFileWsl = $null
 $originalWslEnv = $env:WSLENV
 $originalAppVersion = $env:APP_VERSION
 $originalPostgresDb = $env:POSTGRES_DB
+$originalPuid = $env:PUID
+$originalPgid = $env:PGID
 $originalTrustProxy = $env:TRUST_PROXY
 $originalUiParityMode = $env:HUDDLETAB_E2E_UI_PARITY_MODE
 $sensitiveNames = @(
@@ -153,7 +155,9 @@ try {
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
-  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.3" } else { "dev" }
+  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.4" } else { "dev" }
+  $env:PUID = "10001"
+  $env:PGID = "10001"
   $env:TRUST_PROXY = "false"
   # Release Verification 的父进程会暂时使用另一个 PostgreSQL 测试库；E2E Compose 必须固定自己的库名。
   $env:POSTGRES_DB = "huddletab"
@@ -167,11 +171,9 @@ try {
   $forwarded = New-Phase1EForwardedWslEnv
   $env:WSLENV = if ($originalWslEnv) { "$originalWslEnv`:$forwarded" } else { $forwarded }
 
-  Write-Host "[2/10] 构建镜像、准备数据目录并启动独立生产 Compose（project=$composeProject, port=$appPort）"
+  Write-Host "[2/10] 构建镜像并启动独立生产 Compose（project=$composeProject, port=$appPort）"
   $composeAttempted = $true
   Invoke-Compose "build app" | Out-Null
-  $prepareDataScriptWsl = ConvertTo-WslPath (Join-Path $repoDir "scripts/prepare-data-dir.sh")
-  Invoke-Wsl -ArgumentList @("sh", $prepareDataScriptWsl, "--project-name", $composeProject) -Quiet | Out-Null
   Invoke-Compose "up -d --wait" | Out-Null
   Wait-Health $baseUrl
   if ($ReleaseVerification) {
@@ -227,7 +229,7 @@ try {
   } elseif ($Task31Only) {
     "Task 31 Chromium Desktop/Mobile 系统信息矩阵"
   } elseif ($ReleaseVerification) {
-    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.3）"
+    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.4）"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {
@@ -258,9 +260,17 @@ try {
     throw "生产镜像没有正确回退 React SPA 深链。"
   }
 
-  Write-Host "[6/10] 检查非 root UID 与运行镜像技术栈边界"
-  $uid = (Invoke-Compose "exec -T app id -u" -Quiet).Output.Trim()
-  if ($uid -ne "10001") { throw "运行容器 UID 不是预期的非 root 用户 10001。" }
+  Write-Host "[6/10] 检查 PID1 非 root UID、capabilities 与运行镜像技术栈边界"
+  $processIdentity = (Invoke-Compose 'exec -T app sh -c ''grep -E "^(Uid|Gid|CapEff):" /proc/1/status''' -Quiet).Output
+  if ($processIdentity -notmatch "Uid:\s+10001\s+10001\s+10001\s+10001") {
+    throw "运行容器 PID1 UID 不是预期的非 root 用户 10001。"
+  }
+  if ($processIdentity -notmatch "Gid:\s+10001\s+10001\s+10001\s+10001") {
+    throw "运行容器 PID1 GID 不是预期的非 root 组 10001。"
+  }
+  if ($processIdentity -notmatch "CapEff:\s+0{16}") {
+    throw "运行容器 PID1 仍保留有效 Linux capabilities。"
+  }
   $runtimeCommands = Invoke-Compose "exec -T app sh -c '! command -v node >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1 && ! command -v npx >/dev/null 2>&1 && ! command -v next >/dev/null 2>&1'" -AllowFailure -Quiet
   $runtimeDirectories = Invoke-Compose "exec -T app sh -c 'find /app /usr/local -type d \( -name node_modules -o -name next -o -name drizzle-orm -o -name better-auth \) -print -quit'" -AllowFailure -Quiet
   if ($runtimeCommands.ExitCode -ne 0 -or $runtimeDirectories.ExitCode -ne 0 -or $runtimeDirectories.Output) {
@@ -310,9 +320,11 @@ try {
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:TRUST_PROXY, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_UI_PARITY_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:PUID, Env:PGID, Env:TRUST_PROXY, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_UI_PARITY_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
   if ($null -ne $originalAppVersion) { $env:APP_VERSION = $originalAppVersion }
   if ($null -ne $originalPostgresDb) { $env:POSTGRES_DB = $originalPostgresDb } else { Remove-Item Env:POSTGRES_DB -ErrorAction SilentlyContinue }
+  if ($null -ne $originalPuid) { $env:PUID = $originalPuid }
+  if ($null -ne $originalPgid) { $env:PGID = $originalPgid }
   if ($null -ne $originalTrustProxy) { $env:TRUST_PROXY = $originalTrustProxy }
   if ($null -ne $originalUiParityMode) { $env:HUDDLETAB_E2E_UI_PARITY_MODE = $originalUiParityMode }
   $env:WSLENV = $originalWslEnv

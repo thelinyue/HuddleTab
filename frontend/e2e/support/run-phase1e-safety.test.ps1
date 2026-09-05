@@ -21,7 +21,7 @@ Assert-True ($null -eq $earlyCleanup) "早期失败仍执行了 Compose cleanup�
 $attemptedCleanup = Invoke-Phase1EComposeCleanup -ComposeAttempted $true -Cleanup { "cleanup-called" }
 Assert-True ($attemptedCleanup -eq "cleanup-called") "up 已尝试后没有执行 Compose cleanup。"
 $forwarded = New-Phase1EForwardedWslEnv
-Assert-True ($forwarded -eq "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION:TRUST_PROXY") "WSLENV 转发集合不符合最小构建配置边界。"
+Assert-True ($forwarded -eq "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION:PUID:PGID:TRUST_PROXY") "WSLENV 转发集合不符合最小构建配置边界。"
 
 $defaultPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false
 Assert-True (($defaultPlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=webkit-smoke") "默认模式不再是原 Phase 1E 浏览器矩阵。"

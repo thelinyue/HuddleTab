@@ -18,19 +18,18 @@ FROM debian:bookworm-slim AS runtime
 ARG APP_VERSION=dev
 
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends ca-certificates curl tzdata \
+  && apt-get install --yes --no-install-recommends ca-certificates curl gosu tzdata \
   && rm -rf /var/lib/apt/lists/* \
-  && groupadd --gid 10001 huddletab \
-  && useradd --uid 10001 --gid huddletab --no-create-home --shell /usr/sbin/nologin huddletab \
-  && install -d -o huddletab -g huddletab /app/frontend/dist /data
+  && install -d /app/frontend/dist /data
 
 COPY --from=server-build /build/server/target/release/huddletab /usr/local/bin/huddletab
-COPY --from=frontend-build --chown=huddletab:huddletab /build/frontend/dist/ /app/frontend/dist/
+COPY --from=frontend-build /build/frontend/dist/ /app/frontend/dist/
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
-ENV APP_VERSION=$APP_VERSION RUST_LOG=huddletab_server=info TZ=Asia/Shanghai
+ENV APP_VERSION=$APP_VERSION PUID=10001 PGID=10001 RUST_LOG=huddletab_server=info TZ=Asia/Shanghai
 WORKDIR /app
-USER 10001:10001
 EXPOSE 5660
 
-ENTRYPOINT ["huddletab"]
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["serve", "--static-dir", "/app/frontend/dist"]

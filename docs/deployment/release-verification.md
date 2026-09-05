@@ -1,6 +1,6 @@
 # 最终 Release Verification
 
-本清单只适用于 Rust/Axum 新栈的 `0.0.3` 候选。它不会创建 Git tag，也不会推送 GHCR；正式发布必须在自动化门禁和真机验收都通过后，再创建 `v0.0.3`。
+本清单只适用于 Rust/Axum 新栈的 `0.0.4` 候选。它不会创建 Git tag，也不会推送 GHCR；正式发布必须在自动化门禁通过后，再创建 `v0.0.4`。本次发布明确记录真实 iPhone Safari/Home Screen 验收例外。
 
 ## 自动化门禁
 
@@ -10,9 +10,9 @@
 pwsh -NoProfile -File scripts/verify-release.ps1
 ```
 
-入口固定使用 `APP_VERSION=0.0.3`，会运行 Rust fmt/Clippy、全部单元与 PostgreSQL 测试、OpenAPI/client 漂移检查、Frontend 测试/typecheck/build、数据目录安全测试，以及完整的 Compose/Playwright 矩阵。它只使用一次性 PostgreSQL 和独立 Compose project，失败和成功都会清理临时资源；HTML 报告保留在 `frontend/artifacts/playwright-report/index.html`。
+入口固定使用 `APP_VERSION=0.0.4`，会运行 Rust fmt/Clippy、全部单元与 PostgreSQL 测试、OpenAPI/client 漂移检查、Frontend 测试/typecheck/build、PUID/PGID 数据目录安全测试，以及完整的 Compose/Playwright 矩阵。它只使用一次性 PostgreSQL 和独立 Compose project，失败和成功都会清理临时资源；HTML 报告保留在 `frontend/artifacts/playwright-report/index.html`。
 
-自动化矩阵包含 Chromium Desktop `1440x1000`、Chromium Mobile `390x844` 的核心、Phase 2、附件、通知/所有权、Task 29、Task 30、Task 31 项目，以及 WebKit smoke。还会检查 fresh migration、SPA 深链、API JSON 404/405、安全响应头、PWA 控制、非 root UID、运行镜像不含 Node/Next/Better Auth/Drizzle、重启持久性和中文冷启动错误。
+自动化矩阵包含 Chromium Desktop `1440x1000`、Chromium Mobile `390x844` 的核心、Phase 2、附件、通知/所有权、Task 29、Task 30、Task 31 项目，以及 WebKit smoke。还会检查 fresh migration、SPA 深链、API JSON 404/405、安全响应头、PWA 控制、PUID/PGID 下 PID1 非 root 与零 capabilities、运行镜像不含 Node/Next/Better Auth/Drizzle、重启持久性和中文冷启动错误。
 
 ## iPhone Safari/Home Screen 人工验收
 
@@ -31,4 +31,4 @@ pwsh -NoProfile -File scripts/verify-release.ps1
 
 ## 发布边界
 
-只有自动化门禁和真机验收均有记录后，才允许创建 `v0.0.3` tag。GHCR workflow 仅接受语义版本 tag，并会发布固定版本标签和 `latest`。超过 Activity 恢复窗口的物理清理 Job 属于发布后的独立任务；当前只隐藏并禁止恢复，不会物理删除记录。
+自动化门禁通过并记录真机验收例外后，允许创建 `v0.0.4` tag。GHCR workflow 仅接受语义版本 tag，并会发布固定版本标签和 `latest`。超过 Activity 恢复窗口的物理清理 Job 属于发布后的独立任务；当前只隐藏并禁止恢复，不会物理删除记录。

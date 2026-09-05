@@ -1,10 +1,10 @@
 # HuddleTab
 
-HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.3`，运行栈为 React/Vite 与 Rust/Axum。
+HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.4`，运行栈为 React/Vite 与 Rust/Axum。
 
 ## 当前源码运行
 
-正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.3`，对应 Git tag `v0.0.3`。该版本使用 Rust/Axum 运行栈；旧版 `0.0.2` 镜像不用于验证当前源码。
+正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.4`，对应 Git tag `v0.0.4`。该版本使用 Rust/Axum 运行栈。
 
 Task 31 只提供管理员存储占用和系统信息读取；SMTP、邮件测试及应用级备份/还原不属于当前产品范围。宿主/NAS 数据保护责任见[数据保护与恢复](docs/deployment/data-protection.md)，活动软删除恢复仍是独立的业务功能。
 
@@ -14,7 +14,6 @@ Task 31 只提供管理员存储占用和系统信息读取；SMTP、邮件测�
 
 ```bash
 docker compose build app
-sh ./scripts/prepare-data-dir.sh
 docker compose up -d --wait
 docker compose ps
 ```
@@ -31,9 +30,16 @@ docker compose ps
 docker compose logs -f app
 ```
 
-自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.3` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外。
+自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.4` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外；本次只修改容器权限模型，不涉及 UI/PWA。
 
-`prepare-data-dir.sh` 只接受仓库固定 Compose 文件，可选参数仅为 `--project-name`。它会先解析和校验真实的 `DATA_HOST_DIR/app`，再由一次性 root 容器把挂载点本身设置为 `10001:10001`、`0750`；不会递归改写已有文件。实际 `app` 服务仍以 UID/GID `10001:10001` 运行。
+容器支持可选的 `PUID`/`PGID` 环境变量，默认值为 `10001`。将它们设置为 NAS 宿主用户的数字 UID/GID 后，入口会短暂以 root 修正 `/data`、`app-secret` 和 `uploads` 的属主，然后立即以该非 root 身份运行 Rust 服务；不会处理 PostgreSQL 目录，也不会递归改写 `/data` 中未知文件。切换 UID/GID 时，旧 app-secret 和附件会自动迁移属主。`PUID`/`PGID` 不能设置为 `0`，也不要在 Compose 中额外设置 `user:`。
+
+例如 NAS 用户 UID/GID 为 `1000:1000` 时，在 `.env` 中设置：
+
+```dotenv
+PUID=1000
+PGID=1000
+```
 
 应用数据保存在 Compose 文件所在目录的相对路径中：
 

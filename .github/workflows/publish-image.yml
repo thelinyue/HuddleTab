@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "只允许形如 v0.0.3 的语义版本 tag。" >&2
+            echo "只允许形如 vX.Y.Z 的语义版本 tag。" >&2
             exit 1
           fi
           version="${GITHUB_REF_NAME#v}"
