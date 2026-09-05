@@ -32,4 +32,4 @@ WORKDIR /app
 EXPOSE 5660
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["serve", "--static-dir", "/app/frontend/dist"]
+CMD ["/usr/local/bin/huddletab", "serve", "--static-dir", "/app/frontend/dist"]
