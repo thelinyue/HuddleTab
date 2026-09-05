@@ -11,10 +11,10 @@ use utoipa::ToSchema;
 use crate::{
     application::auth::{
         ChangePasswordError, ChangePasswordInput, CurrentSessionError, LoginError, LoginInput,
-        RegisterError, RegisterInput, UpdateAvatarPresetError,
+        RegisterError, RegisterInput, UpdateAvatarPresetError, UpdateDisplayNameError,
         change_password as change_user_password, current_session, login as login_user,
         logout as logout_user, register as register_user,
-        update_avatar_preset as save_avatar_preset,
+        update_avatar_preset as save_avatar_preset, update_display_name as save_display_name,
     },
     infrastructure::{
         auth_repository::PostgresAuthRepository,
@@ -151,6 +151,23 @@ pub struct AvatarPresetEnvelope {
 #[serde(rename_all = "camelCase")]
 pub struct AvatarPresetData {
     pub avatar_preset: i16,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDisplayNameRequest {
+    pub display_name: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct DisplayNameEnvelope {
+    pub data: DisplayNameData,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayNameData {
+    pub display_name: String,
 }
 
 /// 为未登录请求创建短期 pre-auth context，并返回只与该 context 匹配的 CSRF token。
@@ -452,6 +469,46 @@ pub(crate) async fn update_avatar(
         data: AvatarPresetData {
             avatar_preset: request.avatar_preset,
         },
+    }))
+}
+
+/// 当前用户更新全局昵称；已绑定活动成员与 Snapshot revision 由 Repository 原子同步。
+#[utoipa::path(
+    patch,
+    path = "/api/me/profile",
+    request_body = UpdateDisplayNameRequest,
+    responses(
+        (status = 200, description = "昵称已更新", body = DisplayNameEnvelope),
+        (status = 400, description = "昵称无效", body = super::error::ErrorEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn update_profile(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<UpdateDisplayNameRequest>,
+) -> Result<Json<DisplayNameEnvelope>, ApiError> {
+    let token = validate_session_csrf(&state, &jar, &headers, request_id.clone())?;
+    let repository = PostgresAuthRepository::new(state.pool);
+    let current = current_session(&repository, &SystemClock, &token)
+        .await
+        .map_err(|error| match error {
+            CurrentSessionError::Unauthenticated => ApiError::unauthenticated(request_id.clone()),
+            CurrentSessionError::Unavailable => ApiError::internal(request_id.clone()),
+        })?;
+    let display_name = save_display_name(&repository, current.user_id, &request.display_name)
+        .await
+        .map_err(|error| match error {
+            UpdateDisplayNameError::InvalidDisplayName => {
+                ApiError::invalid_profile_input(request_id.clone())
+            }
+            UpdateDisplayNameError::Unavailable => ApiError::internal(request_id.clone()),
+        })?;
+    Ok(Json(DisplayNameEnvelope {
+        data: DisplayNameData { display_name },
     }))
 }
 

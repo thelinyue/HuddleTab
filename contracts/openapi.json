@@ -3445,6 +3445,65 @@
         }
       }
     },
+    "/api/me/profile": {
+      "patch": {
+        "tags": [],
+        "summary": "当前用户更新全局昵称；已绑定活动成员与 Snapshot revision 由 Repository 原子同步。",
+        "operationId": "update_profile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDisplayNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "昵称已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayNameEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "昵称无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/notifications": {
       "get": {
         "tags": [],
@@ -4580,6 +4639,28 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/DeletedExpenseData"
+          }
+        }
+      },
+      "DisplayNameData": {
+        "type": "object",
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "DisplayNameEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DisplayNameData"
           }
         }
       },
@@ -6126,6 +6207,17 @@
           "avatarPreset": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "UpdateDisplayNameRequest": {
+        "type": "object",
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
           }
         }
       },

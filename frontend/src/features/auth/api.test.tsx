@@ -32,6 +32,7 @@ import {
   useLogoutMutation,
   useSessionQuery,
   useUpdateAvatarPresetMutation,
+  useUpdateDisplayNameMutation,
 } from "./api";
 
 function wrapper({ children }: PropsWithChildren) {
@@ -166,6 +167,82 @@ describe("useUpdateAvatarPresetMutation", () => {
     expect(queryClient.getQueryData(queryKeys.session)).toMatchObject({ avatarPreset: 6 });
     expect(JSON.parse(sessionStorage.getItem("huddletab:offline-session") ?? "null"))
       .toMatchObject({ avatarPreset: 6, userId: "user-1" });
+  });
+});
+
+describe("useUpdateDisplayNameMutation", () => {
+  it("使用 generated contract 保存昵称并同步 Session、离线身份和用户相关查询", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const session = {
+      avatarPreset: 2,
+      displayName: "旧昵称",
+      isSystemAdmin: false,
+      userId: "user-1",
+      username: "tester",
+    };
+    queryClient.setQueryData(queryKeys.session, session);
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    client.PATCH.mockResolvedValue({
+      data: { data: { displayName: "新昵称" } },
+      response: new Response(null, { status: 200 }),
+    });
+    const localWrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useUpdateDisplayNameMutation(), { wrapper: localWrapper });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync("新昵称")).resolves.toBe("新昵称");
+    });
+
+    expect(client.PATCH).toHaveBeenCalledWith("/api/me/profile", {
+      body: { displayName: "新昵称" },
+      headers: { "X-CSRF-Token": "csrf-token" },
+    });
+    expect(queryClient.getQueryData(queryKeys.session)).toMatchObject({ displayName: "新昵称" });
+    expect(JSON.parse(sessionStorage.getItem("huddletab:offline-session") ?? "null"))
+      .toMatchObject({ displayName: "新昵称", userId: "user-1" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["users", "user-1"] });
+  });
+
+  it("服务端拒绝时保留旧 Session 和离线身份", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const session = {
+      avatarPreset: 2,
+      displayName: "旧昵称",
+      isSystemAdmin: false,
+      userId: "user-1",
+      username: "tester",
+    };
+    queryClient.setQueryData(queryKeys.session, session);
+    sessionStorage.setItem("huddletab:offline-session", JSON.stringify(session));
+    client.PATCH.mockResolvedValue({
+      error: {
+        error: {
+          code: "INVALID_PROFILE_INPUT",
+          details: {},
+          fieldErrors: {},
+          message: "昵称无效，请输入 1 到 80 个字符。",
+          requestId: "request-1",
+        },
+      },
+      response: new Response(null, { status: 400 }),
+    });
+    const localWrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useUpdateDisplayNameMutation(), { wrapper: localWrapper });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync(" ")).rejects.toThrow("昵称无效，请输入 1 到 80 个字符。");
+    });
+    expect(queryClient.getQueryData(queryKeys.session)).toMatchObject({ displayName: "旧昵称" });
+    expect(JSON.parse(sessionStorage.getItem("huddletab:offline-session") ?? "null"))
+      .toMatchObject({ displayName: "旧昵称", userId: "user-1" });
   });
 });
 

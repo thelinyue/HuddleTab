@@ -141,6 +141,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_profile_input(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INVALID_PROFILE_INPUT",
+            "昵称无效，请输入 1 到 80 个字符。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn invalid_admin_input(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,

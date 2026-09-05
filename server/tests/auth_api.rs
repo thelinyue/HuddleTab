@@ -32,6 +32,101 @@ use uuid::Uuid;
 const TEST_DATABASE_URL_ENV: &str = "TEST_DATABASE_URL";
 static DATABASE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
+async fn seed_authenticated_actor() -> (PgPool, axum::Router, SessionToken, CsrfToken, Uuid) {
+    let database_url = std::env::var(TEST_DATABASE_URL_ENV).expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试用户");
+    let user_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) \
+         VALUES ($1, 'alice', 'unused', 'Alice', $2, $2)",
+    )
+    .bind(user_id)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .expect("应插入测试用户");
+    let session = SessionToken::generate();
+    let session_hash = session.sha256_hash();
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, token_hash, created_at, last_seen_at, \
+         idle_expires_at, absolute_expires_at) VALUES ($1, $2, $3, $4, $4, $5, $6)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(session_hash.as_slice())
+    .bind(now)
+    .bind(now + Duration::days(30))
+    .bind(now + Duration::days(90))
+    .execute(&pool)
+    .await
+    .expect("应插入测试 Session");
+    let secret = AppSecret::from_bytes([9; 32]);
+    let csrf = CsrfToken::mint(&secret, CsrfContext::Session(&session_hash));
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    (pool, app, session, csrf, user_id)
+}
+
+fn authenticated_request(
+    session: &SessionToken,
+    csrf: &CsrfToken,
+    method: &str,
+    uri: &str,
+    body: &str,
+) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            COOKIE,
+            format!("huddletab_session={}", session.expose_for_cookie()),
+        )
+        .header(ORIGIN, "http://localhost:5660")
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", csrf.expose_for_header())
+        .body(Body::from(body.to_owned()))
+        .expect("请求应可构造")
+}
+
+async fn json_response(app: axum::Router, request: Request<Body>) -> (StatusCode, Value) {
+    let response = app.oneshot(request).await.expect("router 应响应");
+    let status = response.status();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("应读取响应")
+        .to_bytes();
+    let json = serde_json::from_slice(&body).expect("响应应为 JSON");
+    (status, json)
+}
+
+async fn create_activity(app: axum::Router, session: &SessionToken, csrf: &CsrfToken) -> Value {
+    let (status, json) = json_response(
+        app,
+        authenticated_request(
+            session,
+            csrf,
+            "POST",
+            "/api/activities",
+            r#"{"name":"Tokyo Trip","location":"Tokyo","baseCurrency":"jpy","startDate":"2026-09-01","endDate":"2026-09-03"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    json["data"].clone()
+}
+
 async fn assert_password_rotation(pool: &PgPool, user_id: Uuid, rotated: &SessionToken) {
     let active_hashes = sqlx::query_scalar::<_, Vec<u8>>(
         "SELECT token_hash FROM sessions WHERE user_id = $1 AND revoked_at IS NULL",
@@ -109,6 +204,56 @@ async fn csrf_endpoint_sets_a_bound_pre_auth_cookie() {
     let json: Value = serde_json::from_slice(&body).expect("响应应为 JSON");
     let token = json["data"]["token"].as_str().expect("应返回 CSRF token");
     assert_eq!(token.split('.').count(), 2);
+}
+
+#[tokio::test]
+async fn update_profile_requires_authentication_and_session_csrf_before_database_access() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
+        .expect("测试应创建 lazy pool");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool,
+            AppSecret::from_bytes([7; 32]),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+
+    let (status, body) = json_response(
+        app.clone(),
+        Request::builder()
+            .method("PATCH")
+            .uri("/api/me/profile")
+            .header(CONTENT_TYPE, "application/json")
+            .header(ORIGIN, "http://localhost:5660")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::from(r#"{"displayName":"新昵称"}"#))
+            .expect("请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "UNAUTHENTICATED");
+
+    let session = SessionToken::generate();
+    let (status, body) = json_response(
+        app,
+        Request::builder()
+            .method("PATCH")
+            .uri("/api/me/profile")
+            .header(CONTENT_TYPE, "application/json")
+            .header(
+                COOKIE,
+                format!("huddletab_session={}", session.expose_for_cookie()),
+            )
+            .header(ORIGIN, "http://localhost:5660")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::from(r#"{"displayName":"新昵称"}"#))
+            .expect("请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "CSRF_INVALID");
 }
 
 #[tokio::test]
@@ -802,4 +947,169 @@ async fn auth_requests_return_a_standard_429_after_the_shared_ip_limit() {
     let json: Value = serde_json::from_slice(&body).expect("响应应为 JSON");
     assert_eq!(json["error"]["code"], "RATE_LIMITED");
     assert_eq!(json["error"]["message"], "请求过于频繁，请稍后再试。");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 连续场景验证昵称接口的 CSRF 边界，以及用户、多个活动成员和 revision 的同事务收敛。
+#[allow(clippy::too_many_lines)]
+async fn update_profile_syncs_bound_members_and_advances_each_activity_once() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let (pool, app, session, csrf, user_id) = seed_authenticated_actor().await;
+    let first_activity = create_activity(app.clone(), &session, &csrf).await;
+    let second_activity = create_activity(app.clone(), &session, &csrf).await;
+    let first_activity_id = Uuid::parse_str(
+        first_activity["activityId"]
+            .as_str()
+            .expect("应返回第一个活动 ID"),
+    )
+    .expect("活动 ID 应为 UUID");
+    let second_activity_id = Uuid::parse_str(
+        second_activity["activityId"]
+            .as_str()
+            .expect("应返回第二个活动 ID"),
+    )
+    .expect("活动 ID 应为 UUID");
+    let guest_member_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, display_name, role, joined_at) \
+         VALUES ($1, $2, '临时成员', 'MEMBER', NOW())",
+    )
+    .bind(guest_member_id)
+    .bind(first_activity_id)
+    .execute(&pool)
+    .await
+    .expect("应插入临时成员");
+
+    let missing_csrf_request = Request::builder()
+        .method("PATCH")
+        .uri("/api/me/profile")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            COOKIE,
+            format!("huddletab_session={}", session.expose_for_cookie()),
+        )
+        .header(ORIGIN, "http://localhost:5660")
+        .header("sec-fetch-site", "same-origin")
+        .body(Body::from(r#"{"displayName":"新昵称"}"#))
+        .expect("请求应可构造");
+    let missing_csrf_response = app
+        .clone()
+        .oneshot(missing_csrf_request)
+        .await
+        .expect("router 应响应");
+    assert_eq!(missing_csrf_response.status(), StatusCode::FORBIDDEN);
+
+    let overlong_body = format!(r#"{{"displayName":"{}"}}"#, "a".repeat(81));
+    let (status, body) = json_response(
+        app.clone(),
+        authenticated_request(&session, &csrf, "PATCH", "/api/me/profile", &overlong_body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "INVALID_PROFILE_INPUT");
+
+    sqlx::query(
+        "UPDATE activity_members SET version = 9223372036854775807 \
+         WHERE activity_id = $1 AND user_id = $2",
+    )
+    .bind(first_activity_id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .expect("应准备成员版本溢出的回滚场景");
+    let (status, body) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "PATCH",
+            "/api/me/profile",
+            r#"{"displayName":"回滚昵称"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body["error"]["code"], "INTERNAL_ERROR");
+    let display_name =
+        sqlx::query_scalar::<_, String>("SELECT display_name FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取回滚后的用户昵称");
+    assert_eq!(display_name, "Alice");
+    let unchanged_members = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM activity_members WHERE user_id = $1 AND display_name = 'Alice'",
+    )
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取回滚后的成员昵称");
+    assert_eq!(unchanged_members, 2);
+    for activity_id in [first_activity_id, second_activity_id] {
+        let revision =
+            sqlx::query_scalar::<_, i64>("SELECT revision FROM activities WHERE id = $1")
+                .bind(activity_id)
+                .fetch_one(&pool)
+                .await
+                .expect("应读取回滚后的活动 revision");
+        assert_eq!(revision, 1);
+    }
+    sqlx::query("UPDATE activity_members SET version = 1 WHERE activity_id = $1 AND user_id = $2")
+        .bind(first_activity_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("应恢复成员版本以继续验证成功路径");
+
+    let (status, body) = json_response(
+        app,
+        authenticated_request(
+            &session,
+            &csrf,
+            "PATCH",
+            "/api/me/profile",
+            r#"{"displayName":"  新昵称  "}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["displayName"], "新昵称");
+
+    let user_state =
+        sqlx::query_as::<_, (String, i64)>("SELECT display_name, version FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取用户昵称");
+    assert_eq!(user_state, ("新昵称".to_owned(), 2));
+
+    let bound_state = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE version = 2) \
+         FROM activity_members WHERE user_id = $1 AND display_name = '新昵称'",
+    )
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取绑定成员");
+    assert_eq!(bound_state, (2, 2));
+
+    let guest_state = sqlx::query_as::<_, (String, i64)>(
+        "SELECT display_name, version FROM activity_members WHERE id = $1",
+    )
+    .bind(guest_member_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取临时成员");
+    assert_eq!(guest_state, ("临时成员".to_owned(), 1));
+
+    for activity_id in [first_activity_id, second_activity_id] {
+        let revision =
+            sqlx::query_scalar::<_, i64>("SELECT revision FROM activities WHERE id = $1")
+                .bind(activity_id)
+                .fetch_one(&pool)
+                .await
+                .expect("应读取活动 revision");
+        assert_eq!(revision, 2);
+    }
 }

@@ -12,11 +12,26 @@ fn document_contains_health_and_shared_envelopes() {
 }
 
 #[test]
-fn avatar_preset_contract_is_published_for_profile_and_member_views() {
+fn profile_contracts_are_published_for_current_user_and_member_views() {
     let value = serde_json::to_value(huddletab_server::http::openapi::document())
         .expect("OpenAPI 应可序列化");
 
     assert!(value["paths"]["/api/me/avatar"]["patch"].is_object());
+    let display_name = &value["paths"]["/api/me/profile"]["patch"];
+    assert_eq!(
+        display_name["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/UpdateDisplayNameRequest"
+    );
+    assert_eq!(
+        display_name["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/DisplayNameEnvelope"
+    );
+    for status in ["400", "401", "403"] {
+        assert!(
+            display_name["responses"][status].is_object(),
+            "昵称更新缺少 {status} 响应"
+        );
+    }
     assert!(
         value["components"]["schemas"]["SessionData"]["properties"]["avatarPreset"].is_object()
     );

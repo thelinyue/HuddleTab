@@ -229,6 +229,49 @@ impl AuthRepository for PostgresAuthRepository {
         }
         Ok(())
     }
+
+    /// 昵称、成员副本和活动 Snapshot revision 必须在同一事务内完成，避免 PWA
+    /// 通过旧 `ETag` 继续读取旧成员名称。临时成员没有 `user_id`，不会被匹配。
+    async fn update_display_name(
+        &self,
+        user_id: uuid::Uuid,
+        display_name: &str,
+    ) -> Result<(), AuthRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        let result = sqlx::query(
+            "UPDATE users SET display_name = $2, version = version + 1, updated_at = NOW() \
+             WHERE id = $1",
+        )
+        .bind(user_id)
+        .bind(display_name)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        if result.rows_affected() != 1 {
+            tracing::error!(%user_id, "保存昵称失败：用户不存在");
+            return Err(AuthRepositoryError);
+        }
+
+        sqlx::query(
+            "WITH changed_members AS ( \
+                 UPDATE activity_members SET display_name = $2, version = version + 1 \
+                 WHERE user_id = $1 AND display_name IS DISTINCT FROM $2 \
+                 RETURNING activity_id \
+             ), changed_activities AS ( \
+                 SELECT DISTINCT activity_id FROM changed_members \
+             ) \
+             UPDATE activities SET revision = revision + 1, updated_at = NOW() \
+             WHERE id IN (SELECT activity_id FROM changed_activities)",
+        )
+        .bind(user_id)
+        .bind(display_name)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+
+        transaction.commit().await.map_err(log_repository_error)?;
+        Ok(())
+    }
 }
 
 fn log_repository_error(error: sqlx::Error) -> AuthRepositoryError {

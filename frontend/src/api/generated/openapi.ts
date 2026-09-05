@@ -678,6 +678,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 当前用户更新全局昵称；已绑定活动成员与 Snapshot revision 由 Repository 原子同步。 */
+        patch: operations["update_profile"];
+        trace?: never;
+    };
     "/api/notifications": {
         parameters: {
             query?: never;
@@ -971,6 +988,12 @@ export interface components {
         };
         DeletedExpenseEnvelope: {
             data: components["schemas"]["DeletedExpenseData"];
+        };
+        DisplayNameData: {
+            displayName: string;
+        };
+        DisplayNameEnvelope: {
+            data: components["schemas"]["DisplayNameData"];
         };
         ErrorBody: {
             code: string;
@@ -1367,6 +1390,9 @@ export interface components {
         UpdateAvatarPresetRequest: {
             /** Format: int32 */
             avatarPreset: number;
+        };
+        UpdateDisplayNameRequest: {
+            displayName: string;
         };
         UpdateExpenseRequest: components["schemas"]["ExpenseDraftRequest"] & {
             version: string;
@@ -4055,6 +4081,57 @@ export interface operations {
                 headers: {
                     /** @description 等待秒数 */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    update_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDisplayNameRequest"];
+            };
+        };
+        responses: {
+            /** @description 昵称已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisplayNameEnvelope"];
+                };
+            };
+            /** @description 昵称无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 校验失败 */
+            403: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

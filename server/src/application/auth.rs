@@ -102,6 +102,12 @@ pub trait AuthRepository: Send + Sync {
         user_id: Uuid,
         avatar_preset: i16,
     ) -> Result<(), AuthRepositoryError>;
+
+    async fn update_display_name(
+        &self,
+        user_id: Uuid,
+        display_name: &str,
+    ) -> Result<(), AuthRepositoryError>;
 }
 
 #[derive(Clone, Debug)]
@@ -230,6 +236,14 @@ pub enum UpdateAvatarPresetError {
     #[error("头像选项无效")]
     InvalidPreset,
     #[error("头像保存失败")]
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum UpdateDisplayNameError {
+    #[error("昵称无效")]
+    InvalidDisplayName,
+    #[error("昵称保存失败")]
     Unavailable,
 }
 
@@ -467,6 +481,30 @@ pub async fn update_avatar_preset(
         .map_err(|_| UpdateAvatarPresetError::Unavailable)
 }
 
+/// 保存账号昵称，并由 Repository 在同一事务内同步已绑定活动成员的展示名。
+///
+/// 昵称是面向其他成员的全局身份，不允许页面只更新 Session 而留下旧活动名称。
+/// 临时成员没有 `user_id`，因此不会被这次账号资料更新影响。
+///
+/// # Errors
+///
+/// 昵称 trim 后为空或超过 80 个字符时返回 `InvalidDisplayName`；Repository 写入失败时返回 `Unavailable`。
+pub async fn update_display_name(
+    repository: &dyn AuthRepository,
+    user_id: Uuid,
+    display_name: &str,
+) -> Result<String, UpdateDisplayNameError> {
+    let display_name = display_name.trim();
+    if !(1..=80).contains(&display_name.chars().count()) {
+        return Err(UpdateDisplayNameError::InvalidDisplayName);
+    }
+    repository
+        .update_display_name(user_id, display_name)
+        .await
+        .map_err(|_| UpdateDisplayNameError::Unavailable)?;
+    Ok(display_name.to_owned())
+}
+
 /// 按 Session token hash 撤销当前登录；找不到对应 Session 时保持幂等成功。
 ///
 /// # Errors
@@ -546,4 +584,120 @@ pub async fn change_password(
         .await
         .map_err(|_| ChangePasswordError::Unavailable)?;
     Ok(ChangePasswordOutput { session_token })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct RecordingAuthRepository {
+        updated_display_name: Arc<Mutex<Option<String>>>,
+    }
+
+    #[async_trait]
+    impl AuthRepository for RecordingAuthRepository {
+        async fn find_credentials(
+            &self,
+            _username: &str,
+        ) -> Result<Option<StoredCredentials>, AuthRepositoryError> {
+            Err(AuthRepositoryError)
+        }
+
+        async fn create_session(&self, _session: NewSession) -> Result<(), AuthRepositoryError> {
+            Err(AuthRepositoryError)
+        }
+
+        async fn find_session(
+            &self,
+            _token_hash: &[u8; 32],
+        ) -> Result<Option<StoredSession>, AuthRepositoryError> {
+            Err(AuthRepositoryError)
+        }
+
+        async fn refresh_session(
+            &self,
+            _session_id: Uuid,
+            _last_seen_at: OffsetDateTime,
+            _idle_expires_at: OffsetDateTime,
+        ) -> Result<(), AuthRepositoryError> {
+            Err(AuthRepositoryError)
+        }
+
+        async fn revoke_session(
+            &self,
+            _session_id: Uuid,
+            _revoked_at: OffsetDateTime,
+        ) -> Result<(), AuthRepositoryError> {
+            Err(AuthRepositoryError)
+        }
+
+        async fn rotate_password_and_session(
+            &self,
+            _rotation: PasswordRotation,
+        ) -> Result<(), AuthRepositoryError> {
+            Err(AuthRepositoryError)
+        }
+
+        async fn update_avatar_preset(
+            &self,
+            _user_id: Uuid,
+            _avatar_preset: i16,
+        ) -> Result<(), AuthRepositoryError> {
+            Err(AuthRepositoryError)
+        }
+
+        async fn update_display_name(
+            &self,
+            _user_id: Uuid,
+            display_name: &str,
+        ) -> Result<(), AuthRepositoryError> {
+            *self
+                .updated_display_name
+                .lock()
+                .expect("测试记录器不应 poisoned") = Some(display_name.to_owned());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn update_display_name_trims_before_persisting() {
+        let repository = RecordingAuthRepository::default();
+        let result = update_display_name(&repository, Uuid::new_v4(), "  新昵称  ")
+            .await
+            .expect("合法昵称应保存");
+
+        assert_eq!(result, "新昵称");
+        assert_eq!(
+            repository
+                .updated_display_name
+                .lock()
+                .expect("测试记录器不应 poisoned")
+                .as_deref(),
+            Some("新昵称")
+        );
+    }
+
+    #[tokio::test]
+    async fn update_display_name_rejects_empty_or_overlong_values_without_writing() {
+        for invalid in ["   ".to_owned(), "a".repeat(81), "界".repeat(81)] {
+            let repository = RecordingAuthRepository::default();
+            let error = update_display_name(&repository, Uuid::new_v4(), &invalid)
+                .await
+                .expect_err("无效昵称不应写入");
+
+            assert_eq!(error, UpdateDisplayNameError::InvalidDisplayName);
+            assert!(
+                repository
+                    .updated_display_name
+                    .lock()
+                    .expect("测试记录器不应 poisoned")
+                    .is_none()
+            );
+        }
+    }
 }

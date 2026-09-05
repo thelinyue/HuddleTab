@@ -113,6 +113,14 @@ async function updateAvatarPreset(avatarPreset: number): Promise<number> {
   return result.avatarPreset;
 }
 
+async function updateDisplayName(displayName: string): Promise<string> {
+  const result = unwrap(await apiClient.PATCH("/api/me/profile", {
+    body: { displayName },
+    headers: await mutationHeaders(),
+  })).data;
+  return result.displayName;
+}
+
 async function previewInvitation(token: string): Promise<InvitationPreview> {
   const result = await apiClient.GET("/api/invitations/{token}", {
     params: { path: { token } },
@@ -166,7 +174,7 @@ export function useLogoutMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: logout,
-    onSettled: () => queryClient.clear(),
+    onSuccess: () => queryClient.clear(),
   });
 }
 
@@ -183,6 +191,22 @@ export function useUpdateAvatarPresetMutation() {
       const current = queryClient.getQueryData<Session | null>(queryKeys.session);
       if (!current) return undefined;
       const next = { ...current, avatarPreset };
+      queryClient.setQueryData<Session | null>(queryKeys.session, next);
+      rememberOfflineSession(next);
+      return queryClient.invalidateQueries({ queryKey: ["users", current.userId] });
+    },
+  });
+}
+
+/** 保存昵称后同步当前 Session、离线身份和所有活动成员查询。 */
+export function useUpdateDisplayNameMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateDisplayName,
+    onSuccess: (displayName) => {
+      const current = queryClient.getQueryData<Session | null>(queryKeys.session);
+      if (!current) return undefined;
+      const next = { ...current, displayName };
       queryClient.setQueryData<Session | null>(queryKeys.session, next);
       rememberOfflineSession(next);
       return queryClient.invalidateQueries({ queryKey: ["users", current.userId] });

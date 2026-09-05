@@ -102,7 +102,7 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
   await saveChromiumSuccessScreenshot(page, testInfo);
 });
 
-test("通知、我的和管理入口沿用 v0.0.2 的紧凑分组层级", async ({ page }) => {
+test("通知与我的页覆盖主题、昵称和退出流程", async ({ page }, testInfo) => {
   await login(page);
   await page.goto("/notifications");
   await expect(page.getByRole("heading", { name: "通知", exact: true })).toBeVisible();
@@ -110,7 +110,36 @@ test("通知、我的和管理入口沿用 v0.0.2 的紧凑分组层级", async 
   await page.goto("/me");
   await expect(page.getByRole("heading", { name: "我的", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "账户与安全", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "主题：跟随系统" }).click();
+  const themeSheet = page.getByRole("dialog", { name: "主题" });
+  await expect(themeSheet.getByRole("radio")).toHaveCount(3);
+  await themeSheet.getByRole("radio", { name: "暗色" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("huddletab-theme"))).toBe("dark");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#0d1512");
+  await themeSheet.getByRole("button", { name: "关闭主题" }).click();
+
+  const displayName = `昵称-${testInfo.project.name}-${Date.now()}`;
+  await page.getByRole("button", { name: "修改昵称" }).click();
+  const nicknameSheet = page.getByRole("dialog", { name: "修改昵称" });
+  const nicknameInput = nicknameSheet.getByRole("textbox", { name: "昵称" });
+  await expect(nicknameInput).toBeFocused();
+  await nicknameInput.fill(`  ${displayName}  `);
+  const profileResponse = page.waitForResponse((response) =>
+    response.request().method() === "PATCH" && response.url().endsWith("/api/me/profile"),
+  );
+  await nicknameInput.press("Enter");
+  expect((await profileResponse).status()).toBe(200);
+  await expect(nicknameSheet).toHaveCount(0);
+  await expect(page.locator(".profile-identity-button strong")).toHaveText(displayName);
   await assertNoHorizontalOverflow(page);
+
+  const logoutResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && response.url().endsWith("/api/auth/logout"),
+  );
+  await page.getByRole("button", { name: "退出登录" }).click();
+  expect((await logoutResponse).status()).toBe(200);
+  await expect(page).toHaveURL(/\/login$/);
 });
 
 test("Chromium Mobile 首页入口 Sheet 贴底并按历史层级返回", async ({ page }, testInfo) => {

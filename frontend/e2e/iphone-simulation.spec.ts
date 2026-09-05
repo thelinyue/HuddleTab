@@ -76,3 +76,33 @@ test("生产页面锁定 viewport，并声明 standalone、图标和 Apple touch
     expect(response.status(), `${src} 不可访问`).toBe(200);
   }
 });
+
+test("iPhone WebKit 的主题、昵称和退出操作适配底部 Sheet", async ({ page }) => {
+  await login(page);
+  await page.goto("/me");
+  await expect(page.getByRole("heading", { name: "我的", exact: true })).toBeVisible();
+  await expect(page.locator(".profile-identity-button small")).not.toContainText("@");
+
+  const viewportHeight = await page.evaluate(() => window.innerHeight);
+  await page.getByRole("button", { name: "主题：跟随系统" }).click();
+  const themeSheet = page.getByRole("dialog", { name: "主题" });
+  await expect(themeSheet.getByRole("radio")).toHaveCount(3);
+  await expect.poll(() => themeSheet.evaluate((element) => Math.round(element.getBoundingClientRect().bottom)))
+    .toBe(viewportHeight);
+  await themeSheet.getByRole("radio", { name: "暗色" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#0d1512");
+  await themeSheet.getByRole("button", { name: "关闭主题" }).click();
+
+  await page.getByRole("button", { name: "修改昵称" }).click();
+  const nicknameSheet = page.getByRole("dialog", { name: "修改昵称" });
+  await expect(nicknameSheet.getByRole("textbox", { name: "昵称" })).toBeFocused();
+  await expect.poll(() => nicknameSheet.evaluate((element) => Math.round(element.getBoundingClientRect().bottom)))
+    .toBe(viewportHeight);
+  await assertNoHorizontalOverflow(page);
+  await nicknameSheet.getByRole("button", { name: "关闭修改昵称" }).click();
+
+  await page.getByRole("button", { name: "退出登录" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByLabel("用户名")).toBeVisible();
+});

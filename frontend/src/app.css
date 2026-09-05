@@ -218,6 +218,12 @@ h2 { font-size: 17px; line-height: 1.4; }
 small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
+/* 主题切换只过渡颜色和表面，避免把正在进行的 Sheet/拖拽位移动画一起改写。 */
+html.theme-transition,
+html.theme-transition body,
+html.theme-transition #root,
+html.theme-transition * { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+
 .brand { display: inline-flex; align-items: center; gap: 12px; width: fit-content; }
 .brand__mark { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 8px; color: var(--primary-foreground); background: var(--primary); font-size: 20px; font-weight: 800; }
 .brand strong, .brand small { display: block; }
@@ -448,14 +454,23 @@ button.settings-row:hover { background: var(--surface-muted); }
 .profile-avatar-button { display: grid; width: 64px; height: 64px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; padding: 0; background: transparent; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent); }
 .profile-avatar-button:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent); }
 .profile-avatar-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
-.profile-panel > div { display: grid; min-width: 0; }
-.profile-panel strong, .profile-panel small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-identity-button { display: grid; min-width: 0; flex: 1; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; }
+.profile-identity-button strong, .profile-identity-button small { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-identity-button > svg { grid-column: 2; grid-row: 1 / span 2; color: var(--primary); }
+.profile-identity-button:active { transform: scale(.985); }
 .account-settings { margin: 24px 0; }
 .account-settings h2 { margin-bottom: 8px; font-size: 15px; }
-.settings-link { display: flex; min-height: 56px; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 8px 4px; }
+.settings-link { display: flex; width: 100%; min-height: 56px; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--border); padding: 8px 4px; color: var(--foreground); background: transparent; text-align: left; }
 .settings-link:hover { background: var(--surface-muted); }
 .settings-link > svg { flex: 0 0 auto; color: var(--primary); }
 .settings-link > span { display: grid; min-width: 0; flex: 1; }
+.settings-link__value { display: block !important; flex: 0 1 auto !important; color: var(--muted-foreground); text-align: right; }
+.settings-link--danger { width: 100%; border: 0; color: var(--danger); background: transparent; text-align: left; }
+.settings-link--danger > svg { color: var(--danger); }
+.settings-link--danger > span { color: var(--danger); }
+.settings-link--danger small { color: var(--muted-foreground); }
+.settings-link--danger:active { transform: scale(.985); }
+.account-actions .notice { margin-top: 10px; }
 .me-subpage-header { display: grid; min-height: 52px; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; }
 .me-subpage-header h1 { font-size: 21px; text-align: center; }
 .password-form { display: grid; width: min(100%, 480px); gap: 16px; margin: 24px auto 0; }
@@ -481,6 +496,13 @@ button.settings-row:hover { background: var(--surface-muted); }
 .admin-system-metric dd { min-width: 0; overflow-wrap: anywhere; text-align: right; font-weight: 500; }
 .admin-system-metric dd.strong { font-weight: 700; }
 .settings-choice { display: flex; min-height: 44px; align-items: center; gap: 9px; }
+.nickname-form { padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+.theme-picker { display: grid; gap: 8px; padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+.theme-picker button { display: grid; min-height: 56px; grid-template-columns: 28px minmax(0, 1fr) 24px; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--foreground); background: var(--surface); text-align: left; }
+.theme-picker button > svg:first-child { color: var(--primary); }
+.theme-picker button > svg:last-child { color: var(--primary); }
+.theme-picker button[aria-checked="true"] { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); }
+.theme-picker button:active { transform: scale(.985); }
 .avatar--lg { width: 64px; height: 64px; }
 .avatar-picker { display: grid; min-width: 0; gap: 16px; }
 .avatar-picker__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -1067,6 +1089,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html.theme-transition, html.theme-transition body, html.theme-transition #root, html.theme-transition * { transition: none !important; }
   .form-overlay__header { cursor: default; }
   .notification-filters button, .notification-row, .notification-row__link { transition: none; }
 }
@@ -1076,6 +1099,19 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 @media (prefers-contrast: more) {
   .notification-filters, .notification-filters button[aria-pressed="true"] { border-color: var(--foreground); }
   .notification-row { border-bottom-color: var(--foreground); }
+}
+
+/* iOS 独立 PWA 会把长按站内链接解释成链接预览；站内菜单保持应用内触控语义，下载链接仍可长按处理。 */
+@media (display-mode: standalone) {
+  a[href^="/"]:not([href^="/api"]),
+  .product-bottom-nav,
+  button.settings-link,
+  button.icon-button {
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 /* 首页活动入口的移动 Sheet：标题栏负责手势，正文独立滚动，避免短内容像桌面小弹窗。 */

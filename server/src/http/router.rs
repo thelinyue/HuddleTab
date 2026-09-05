@@ -157,6 +157,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             axum::routing::patch(auth::update_avatar).fallback(api_method_not_allowed),
         )
         .route(
+            "/me/profile",
+            axum::routing::patch(auth::update_profile).fallback(api_method_not_allowed),
+        )
+        .route(
             "/admin/users",
             get(admin::users).fallback(api_method_not_allowed),
         )
