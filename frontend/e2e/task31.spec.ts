@@ -13,7 +13,21 @@ async function registerOpenUser(browser: Browser, testInfo: TestInfo): Promise<{
   const password = `${crypto.randomUUID()}Aa1!`;
   await page.locator("#register-password").fill(password);
   await page.locator("#register-confirm-password").fill(password);
-  await page.getByRole("button", { name: "注册", exact: true }).click();
+  const submitRegistration = async () => {
+    const responsePromise = page.waitForResponse((response) =>
+      response.request().method() === "POST" && response.url().endsWith("/api/auth/register"),
+    );
+    await page.getByRole("button", { name: "注册", exact: true }).click();
+    return responsePromise;
+  };
+  let response = await submitRegistration();
+  if (response.status() === 429) {
+    // 完整矩阵共用认证 IP 桶；尊重服务端 Retry-After，避免把限流误判为注册流程失败。
+    const retryAfter = Number.parseInt(response.headers()["retry-after"] ?? "60", 10);
+    await page.waitForTimeout((Number.isFinite(retryAfter) ? Math.max(1, Math.min(retryAfter, 90)) : 60) * 1_000 + 250);
+    response = await submitRegistration();
+  }
+  if (!response.ok()) throw new Error(`注册请求失败（HTTP ${response.status()}）。`);
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
   return { context, page };
 }
