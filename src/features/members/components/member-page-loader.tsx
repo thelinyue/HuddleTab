@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { MemberList } from "@/features/members/components/member-list";
 import { ActivityPageHeader } from "@/features/activities/components/activity-page-header";
 import type { SettlementPageContextDto } from "@/features/settlements/api";
+import { NavigationOverlay } from "@/components/ui/navigation-overlay";
 
 type Member = Parameters<typeof MemberList>[0]["members"][number];
 type ActivitySummary = {
@@ -37,6 +38,8 @@ export function MemberPageLoader({
     useState<SettlementPageContextDto | null>(null);
   const [summary, setSummary] = useState<ActivitySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 嵌入工作台时由 URL 控制；独立测试/复用场景没有回调时由本地状态兜底。
+  const [localEmbeddedOpen, setLocalEmbeddedOpen] = useState(true);
   const load = useCallback(() => {
     setError(null);
     setInviteStatusError(null);
@@ -123,14 +126,31 @@ export function MemberPageLoader({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
-  if (error)
+  const embeddedOpen = onOpenChange ? open : localEmbeddedOpen;
+  const handleEmbeddedOpenChange = (nextOpen: boolean) => {
+    if (!onOpenChange) setLocalEmbeddedOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
+  const loadingContent = error ? (
+    <p role="alert" className="py-8 text-destructive">
+      {error}
+    </p>
+  ) : (
+    <p className="py-8 text-muted-foreground">正在加载成员…</p>
+  );
+  if (error || !members || !inviteMode || !settlementContext || !summary) {
+    if (!embedded) return loadingContent;
     return (
-      <p role="alert" className="py-8 text-destructive">
-        {error}
-      </p>
+      <NavigationOverlay
+        open={embeddedOpen}
+        onOpenChange={handleEmbeddedOpenChange}
+        title="成员"
+        mobileFullScreen
+      >
+        {loadingContent}
+      </NavigationOverlay>
     );
-  if (!members || !inviteMode || !settlementContext || !summary)
-    return <p className="py-8 text-muted-foreground">正在加载成员…</p>;
+  }
   const request = async (url: string, init: RequestInit) => {
     const response = await fetch(url, init);
     if (response.ok) return;
@@ -232,8 +252,8 @@ export function MemberPageLoader({
           load();
         }}
         embedded={embedded}
-        embeddedOpen={open}
-        onEmbeddedOpenChange={onOpenChange}
+        embeddedOpen={embeddedOpen}
+        onEmbeddedOpenChange={embedded ? handleEmbeddedOpenChange : undefined}
       />
     </>
   );
