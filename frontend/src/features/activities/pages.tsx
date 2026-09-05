@@ -33,6 +33,7 @@ import {
 import {
   Link,
   Outlet,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
@@ -105,7 +106,20 @@ function localCalendarToday(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; children: ReactNode }) {
+/** 首页四种面板状态统一由 URL 驱动，便于系统返回和刷新后恢复可预测的入口层级。 */
+type ActivityPanel = "actions" | "create" | "join" | "deleted";
+
+function activityPanelFromSearch(value: string | null): ActivityPanel | null {
+  return value === "actions" || value === "create" || value === "join" || value === "deleted" ? value : null;
+}
+
+function activityPanelDepth(state: unknown): number | null {
+  if (!state || typeof state !== "object" || !("activityPanelDepth" in state)) return null;
+  const depth = (state as { activityPanelDepth?: unknown }).activityPanelDepth;
+  return depth === 1 || depth === 2 ? depth : null;
+}
+
+export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, className, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; className?: string; children: ReactNode }) {
   const titleId = useId();
   const { sheetRef, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
   const onCloseRef = useRef(onClose);
@@ -151,7 +165,7 @@ export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, chi
 
   if (!open) return null;
   return (
-    <div className="form-overlay" role="presentation">
+    <div className={["form-overlay", className].filter(Boolean).join(" ")} role="presentation">
       <button className="form-overlay__scrim" type="button" aria-hidden="true" tabIndex={-1} onClick={onClose} />
       <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="form-overlay__header" {...headerProps}>
@@ -288,8 +302,7 @@ function DeletedActivities({ activities, userId }: { activities: readonly Activi
     Boolean(activity.deletedAt && activity.purgeAfter && Date.parse(activity.purgeAfter) > Date.now()),
   );
   return (
-    <section className="activity-group deleted-activities" aria-labelledby="deleted-activities-heading">
-      <h2 id="deleted-activities-heading">已删除活动</h2>
+    <section className="activity-group deleted-activities" aria-label="可恢复的活动">
       {visible.length ? <ul className="deleted-activity-list">{visible.map((activity) => <DeletedActivityRow key={activity.activityId} activity={activity} userId={userId} />)}</ul> : <p className="muted-copy">当前没有可恢复的活动。</p>}
     </section>
   );
@@ -298,11 +311,12 @@ function DeletedActivities({ activities, userId }: { activities: readonly Activi
 export function ActivitiesPage() {
   const session = useSessionQuery();
   const activities = useActivitiesQuery(session.data?.userId ?? "");
-  const [deletedOpen, setDeletedOpen] = useState(false);
-  const deletedActivities = useDeletedActivitiesQuery(session.data?.userId ?? "", deletedOpen);
+  const routerLocation = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const panel = activityPanelFromSearch(searchParams.get("panel"));
+  const deletedActivities = useDeletedActivitiesQuery(session.data?.userId ?? "", panel === "deleted");
   const ledgers = useActivityLedgersQuery(session.data?.userId ?? "", activities.data ?? []);
   const create = useCreateActivityMutation(session.data?.userId ?? "");
-  const [actionView, setActionView] = useState<"actions" | "create" | "join" | null>(null);
   const [joinToken, setJoinToken] = useState("");
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -311,6 +325,33 @@ export function ActivitiesPage() {
   const [startDate, setStartDate] = useState(localCalendarToday);
   const [endDate, setEndDate] = useState("");
   const [createError, setCreateError] = useState<unknown>();
+
+  function openPanel(nextPanel: ActivityPanel) {
+    const next = new URLSearchParams(searchParams);
+    next.set("panel", nextPanel);
+    setSearchParams(next, { state: { activityPanelDepth: nextPanel === "create" || nextPanel === "join" ? 2 : 1 } });
+  }
+
+  function closePanel() {
+    const depth = activityPanelDepth(routerLocation.state);
+    if (depth !== null) {
+      navigate(-depth);
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("panel");
+    setSearchParams(next, { replace: true, state: null });
+  }
+
+  function backToActions() {
+    if (activityPanelDepth(routerLocation.state) === 2) {
+      navigate(-1);
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.set("panel", "actions");
+    setSearchParams(next, { replace: true, state: null });
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -328,7 +369,7 @@ export function ActivitiesPage() {
       setBaseCurrency("CNY");
       setStartDate(localCalendarToday());
       setEndDate("");
-      setActionView(null);
+      closePanel();
     } catch (error) {
       setCreateError(error);
     }
@@ -341,34 +382,48 @@ export function ActivitiesPage() {
   const active = items.filter((item) => item.status === "ACTIVE");
   const ended = items.filter((item) => item.status === "ENDED");
   const archived = items.filter((item) => item.status === "ARCHIVED");
-  const openCreate = () => setActionView("create");
+  function openChildPanel(nextPanel: "create" | "join") {
+    if (panel === "actions") {
+      openPanel(nextPanel);
+      return;
+    }
+    // 空活动首页的快捷按钮直接进入表单，但仍为系统返回保留“选择操作”这一历史层级。
+    const actions = new URLSearchParams(searchParams);
+    actions.set("panel", "actions");
+    navigate({ pathname: routerLocation.pathname, search: `?${actions.toString()}` }, { state: { activityPanelDepth: 1 } });
+    const create = new URLSearchParams(actions);
+    create.set("panel", nextPanel);
+    navigate({ pathname: routerLocation.pathname, search: `?${create.toString()}` }, { state: { activityPanelDepth: 2 } });
+  }
+  const openCreate = () => openChildPanel("create");
+  const openJoin = () => openChildPanel("join");
   return (
     <div className="top-level-page">
       <main className="app-frame app-frame--with-nav">
-        <header className="home-header"><h1>活动</h1><button className="home-add" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => setActionView("actions")}><Plus aria-hidden="true" size={18} /></button></header>
+        <header className="home-header"><h1>活动</h1><button className="home-add" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => openPanel("actions")}><Plus aria-hidden="true" size={18} /></button></header>
         {summaries.map(([currency, summary]) => (
           <dl className="home-summary" key={currency} aria-label={`${currency} 跨活动账务摘要`}>
             <div><dt>待支付</dt><dd><Money value={formatMoney(currency, summary.payable.toString())} tone="negative" /></dd></div>
             <div><dt>待收款</dt><dd><Money value={formatMoney(currency, summary.receivable.toString())} tone="positive" /></dd></div>
           </dl>
         ))}
-        {!items.length ? <EmptyState icon={<Plus size={28} />} title="还没有活动" description="创建第一个活动后，就可以开始记录消费。" action={<div className="empty-state__actions"><Button onClick={openCreate}>创建活动</Button><Button variant="secondary" onClick={() => setActionView("join")}>加入已有活动</Button></div>} /> : null}
+        {!items.length ? <EmptyState icon={<Plus size={28} />} title="还没有活动" description="创建第一个活动后，就可以开始记录消费。" action={<div className="empty-state__actions"><Button onClick={openCreate}>创建活动</Button><Button variant="secondary" onClick={openJoin}>加入已有活动</Button></div>} /> : null}
         <ActivityGroup title="进行中的活动" activities={active} allActivities={items} ledgers={ledgers} />
         <ActivityGroup title="最近结束" activities={ended} allActivities={items} ledgers={ledgers} />
         {archived.length ? <details className="activity-history"><summary>查看历史活动</summary><ActivityGroup title="已归档" activities={archived} allActivities={items} ledgers={ledgers} /></details> : null}
-        <button className="settings-link deleted-activities-entry" type="button" aria-label="已删除活动" onClick={() => setDeletedOpen(true)}>
+        <button className="settings-link deleted-activities-entry" type="button" aria-label="已删除活动" onClick={() => openPanel("deleted")}>
           <RotateCcw aria-hidden="true" size={18} />
           <span><strong>已删除活动</strong><small>查看恢复期限内可恢复的活动</small></span>
           <ChevronRight aria-hidden="true" size={18} />
         </button>
       </main>
       <ProductBottomNavigation />
-      <Overlay open={actionView !== null} title={actionView === "create" ? "创建活动" : actionView === "join" ? "加入活动" : "新建或加入活动"} onBack={actionView && actionView !== "actions" ? () => setActionView("actions") : undefined} backLabel="新建或加入活动" onClose={() => setActionView(null)}>
-        {actionView === "actions" ? <div className="overlay-action-list">
-          <button type="button" className="settings-row" onClick={openCreate}><Plus aria-hidden="true" size={20} /><span><strong>创建活动</strong><small>为旅行或聚会建立新的账本</small></span><ChevronRight aria-hidden="true" size={18} /></button>
-          <button type="button" className="settings-row" onClick={() => setActionView("join")}><LinkIcon aria-hidden="true" size={20} /><span><strong>加入活动</strong><small>粘贴活动所有者发送的邀请口令</small></span><ChevronRight aria-hidden="true" size={18} /></button>
+      <Overlay open={panel === "actions" || panel === "create" || panel === "join"} title={panel === "create" ? "创建活动" : panel === "join" ? "加入活动" : "新建或加入活动"} onBack={panel === "create" || panel === "join" ? backToActions : undefined} backLabel="新建或加入活动" onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay activity-actions-overlay">
+        {panel === "actions" ? <div className="overlay-action-list">
+          <button type="button" className="settings-row" data-overlay-initial-focus onClick={openCreate}><Plus aria-hidden="true" size={20} /><span><strong>创建活动</strong><small>为旅行或聚会建立新的账本</small></span><ChevronRight aria-hidden="true" size={18} /></button>
+          <button type="button" className="settings-row" onClick={openJoin}><LinkIcon aria-hidden="true" size={20} /><span><strong>加入活动</strong><small>粘贴活动所有者发送的邀请口令</small></span><ChevronRight aria-hidden="true" size={18} /></button>
         </div> : null}
-        {actionView === "create" ? <form className="form-stack" onSubmit={submit}>
+        {panel === "create" ? <form className="form-stack" onSubmit={submit}>
           <Field label="活动名称"><Input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></Field>
           <Field label="地点（可选）"><Input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} /></Field>
           <Field label="主币种"><Select value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field>
@@ -377,12 +432,12 @@ export function ActivitiesPage() {
           {createError ?? create.error ? <ErrorNotice error={createError ?? create.error} /> : null}
           <Button type="submit" busy={create.isPending}>创建活动</Button>
         </form> : null}
-        {actionView === "join" ? <form className="form-stack" onSubmit={(event) => { event.preventDefault(); const token = joinToken.trim(); if (token) navigate(`/join/${encodeURIComponent(token)}`); }}>
+        {panel === "join" ? <form className="form-stack" onSubmit={(event) => { event.preventDefault(); const token = joinToken.trim(); if (token) navigate(`/join/${encodeURIComponent(token)}`); }}>
           <Field label="邀请口令" hint="向活动所有者索取邀请口令后粘贴到这里。"><Input value={joinToken} onChange={(event) => setJoinToken(event.target.value)} autoComplete="off" autoFocus required /></Field>
           <Button type="submit">查看邀请 <ArrowRight aria-hidden="true" size={18} /></Button>
         </form> : null}
       </Overlay>
-      <Overlay open={deletedOpen} title="已删除活动" onClose={() => setDeletedOpen(false)}>
+      <Overlay open={panel === "deleted"} title="已删除活动" onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay deleted-activities-overlay">
         {deletedActivities.isPending ? <LoadingState label="正在读取已删除活动…" /> : null}
         {deletedActivities.error ? <ErrorNotice error={deletedActivities.error} /> : null}
         {!deletedActivities.isPending && !deletedActivities.error

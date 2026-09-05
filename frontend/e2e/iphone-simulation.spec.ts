@@ -57,7 +57,7 @@ test("生产页面锁定 viewport，并声明 standalone、图标和 Apple touch
   await login(page);
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
     "content",
-    "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+    "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
   );
   const manifest = await request.get("/manifest.webmanifest");
   expect(manifest.status()).toBe(200);

@@ -112,3 +112,49 @@ test("通知、我的和管理入口沿用 v0.0.2 的紧凑分组层级", async 
   await expect(page.getByRole("heading", { name: "账户与安全", exact: true })).toBeVisible();
   await assertNoHorizontalOverflow(page);
 });
+
+test("Chromium Mobile 首页入口 Sheet 贴底并按历史层级返回", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-ui-parity-mobile", "仅在 390×844 Chromium Mobile 检查首页 Sheet 几何。");
+
+  await login(page);
+  await page.goto("/activities");
+
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const actionTrigger = page.getByRole("button", { name: "新建或加入活动", exact: true });
+  await actionTrigger.click();
+  const actionDialog = page.getByRole("dialog", { name: "新建或加入活动" });
+  await expect(actionDialog).toBeVisible();
+  await expect.poll(() => actionDialog.evaluate((element) => Math.round(element.getBoundingClientRect().bottom))).toBe(viewport.height);
+  const actionGeometry = await actionDialog.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const firstAction = element.querySelector<HTMLElement>(".settings-row");
+    const title = firstAction?.querySelector("strong")?.getBoundingClientRect();
+    const description = firstAction?.querySelector("small")?.getBoundingClientRect();
+    return { left: Math.round(box.left), width: Math.round(box.width), titleBottom: title?.bottom ?? null, descriptionTop: description?.top ?? null };
+  });
+  expect(actionGeometry.left).toBe(0);
+  expect(actionGeometry.width).toBe(viewport.width);
+  expect(actionGeometry.titleBottom).not.toBeNull();
+  expect(actionGeometry.descriptionTop).toBeGreaterThanOrEqual(actionGeometry.titleBottom!);
+  await assertNoHorizontalOverflow(page);
+
+  await actionDialog.getByRole("button", { name: /^创建活动/ }).click();
+  await expect(page).toHaveURL(/\/activities\?panel=create$/);
+  await expect(page.getByLabel("活动名称")).toBeFocused();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/activities\?panel=actions$/);
+  await expect(page.getByRole("dialog", { name: "新建或加入活动" })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/activities$/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "已删除活动", exact: true }).click();
+  const deletedDialog = page.getByRole("dialog", { name: "已删除活动" });
+  await expect(deletedDialog).toBeVisible();
+  await expect.poll(() => deletedDialog.evaluate((element) => Math.round(element.getBoundingClientRect().bottom))).toBe(viewport.height);
+  expect(await deletedDialog.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(viewport.width);
+  await expect(deletedDialog.getByText("当前没有可恢复的活动。", { exact: true })).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await deletedDialog.getByRole("button", { name: "关闭已删除活动", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});

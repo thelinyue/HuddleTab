@@ -1077,3 +1077,26 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .notification-filters, .notification-filters button[aria-pressed="true"] { border-color: var(--foreground); }
   .notification-row { border-bottom-color: var(--foreground); }
 }
+
+/* 首页活动入口的移动 Sheet：标题栏负责手势，正文独立滚动，避免短内容像桌面小弹窗。 */
+.activity-home-overlay .form-overlay__header { position: relative; flex: 0 0 auto; }
+.activity-home-overlay .form-overlay__body { min-height: 0; overscroll-behavior: contain; }
+.overlay-action-list { display: grid; margin: -2px 0; }
+.overlay-action-list .settings-row { grid-template-columns: 28px minmax(0, 1fr) 20px; min-height: 72px; gap: 12px; padding: 12px 4px; }
+.overlay-action-list .settings-row > span { display: grid; min-width: 0; gap: 2px; color: var(--foreground); }
+.overlay-action-list .settings-row > span strong { font-size: 15px; line-height: 1.35; }
+.overlay-action-list .settings-row > span small { overflow-wrap: anywhere; }
+.overlay-action-list .settings-row > svg:first-child { width: 24px; height: 24px; }
+.overlay-action-list .settings-row > svg:last-child { color: var(--muted-foreground); }
+.deleted-activities-overlay .deleted-activities { margin-top: 0; }
+.deleted-activities-overlay .deleted-activity-list { margin-top: 0; }
+.deleted-activities-overlay .deleted-activity-row { min-height: 72px; padding-block: 12px; }
+
+@media (max-width: 639px) {
+  .activity-home-overlay .form-overlay__sheet { max-height: 92dvh; padding-bottom: env(safe-area-inset-bottom); }
+  .activity-home-overlay .form-overlay__header { min-height: 64px; padding-top: 16px; }
+  .activity-home-overlay .form-overlay__header::before { position: absolute; top: 8px; left: 50%; width: 36px; height: 4px; border-radius: 999px; background: var(--border); content: ""; transform: translateX(-50%); }
+  .activity-home-overlay .overlay-action-list .settings-row { min-height: 68px; }
+  .deleted-activities-overlay .deleted-activity-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .deleted-activities-overlay .deleted-activity-row > .button { width: auto; min-width: 80px; padding-inline: 12px; }
+}

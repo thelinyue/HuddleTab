@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const activityApiState = vi.hoisted(() => ({
@@ -150,8 +150,13 @@ function renderWorkspace(entry = "/activities/activity-1?panel=members") {
   );
 }
 
-function renderActivitiesPage() {
-  return render(<MemoryRouter initialEntries={["/activities"]}><ActivitiesPage /></MemoryRouter>);
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname}{location.search}</output>;
+}
+
+function renderActivitiesPage(entry = "/activities", includeLocation = false) {
+  return render(<MemoryRouter initialEntries={[entry]}><ActivitiesPage />{includeLocation ? <LocationProbe /> : null}</MemoryRouter>);
 }
 
 afterEach(() => {
@@ -454,6 +459,81 @@ describe("成员 Overlay", () => {
 });
 
 describe("创建活动 Overlay", () => {
+  it("从选择页进入创建页后按历史层级返回，并在子视图切换时聚焦表单", async () => {
+    renderActivitiesPage("/activities", true);
+    const trigger = screen.getByRole("button", { name: "新建或加入活动" });
+
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=actions");
+    const actions = screen.getByRole("dialog", { name: "新建或加入活动" });
+    expect(within(actions).getByRole("button", { name: /^创建活动/ })).toHaveFocus();
+    fireEvent.click(within(actions).getByRole("button", { name: /^创建活动/ }));
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=create");
+    expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveFocus();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "创建活动" })).getByRole("button", { name: "新建或加入活动" }));
+    expect(screen.getByRole("dialog", { name: "新建或加入活动" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=actions");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建或加入活动" })).not.toBeInTheDocument());
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities");
+  });
+
+  it("从创建子视图直接关闭后恢复首页入口焦点", async () => {
+    renderActivitiesPage();
+    const trigger = screen.getByRole("button", { name: "新建或加入活动" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole("button", { name: /^创建活动/ }));
+
+    fireEvent.click(within(screen.getByRole("dialog", { name: "创建活动" })).getByRole("button", { name: "关闭创建活动" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  it("空态直达创建仍保留创建/选择历史，并保留草稿", () => {
+    renderActivitiesPage("/activities", true);
+    fireEvent.click(screen.getAllByRole("button", { name: "创建活动" })[0]);
+    fireEvent.change(screen.getByRole("textbox", { name: "活动名称" }), { target: { value: "保留的活动" } });
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=create");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "创建活动" })).getByRole("button", { name: "新建或加入活动" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole("button", { name: /^创建活动/ }));
+    expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveValue("保留的活动");
+  });
+
+  it("空态直达加入仍保留创建/选择历史，并保留邀请口令草稿", () => {
+    renderActivitiesPage("/activities", true);
+    fireEvent.click(screen.getByRole("button", { name: "加入已有活动" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /邀请口令/ }), { target: { value: "draft-token" } });
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=join");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "加入活动" })).getByRole("button", { name: "新建或加入活动" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=actions");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "新建或加入活动" })).getByRole("button", { name: /^加入活动/ }));
+    expect(screen.getByRole("textbox", { name: /邀请口令/ })).toHaveValue("draft-token");
+  });
+
+  it("直接打开创建查询参数时返回和关闭不会离开活动首页", () => {
+    renderActivitiesPage("/activities?panel=create", true);
+    expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveFocus();
+
+    fireEvent.click(within(screen.getByRole("dialog", { name: "创建活动" })).getByRole("button", { name: "新建或加入活动" }));
+    expect(screen.getByRole("dialog", { name: "新建或加入活动" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=actions");
+    fireEvent.click(screen.getByRole("button", { name: "关闭新建或加入活动" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities");
+  });
+
+  it("无效 panel 按普通首页处理且不启用已删除活动查询", () => {
+    renderActivitiesPage("/activities?panel=unknown", true);
+
+    expect(screen.getByRole("heading", { name: /^活动$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(activityApiState.deletedQueryEnabled).toEqual([false]);
+  });
+
   it("提交完整 generated 请求，空白地点归一化为 null，并使用本地公历当天", async () => {
     renderActivitiesPage();
     fireEvent.click(screen.getAllByRole("button", { name: "创建活动" })[0]);
@@ -642,6 +722,19 @@ describe("活动管理 Overlay", () => {
 });
 
 describe("已删除活动", () => {
+  it("通过查询参数打开时只显示一个标题，并保留紧凑的右侧恢复操作", () => {
+    activityApiState.deletedActivities = [
+      { ...activityApiState.activity, activityId: "deleted-mobile", canDelete: false, canRestore: true, deletedAt: "2026-08-20T08:00:00Z", name: "移动端已删除活动", purgeAfter: "2999-09-20T08:00:00Z", status: "ENDED", version: "9" },
+    ];
+    renderActivitiesPage("/activities?panel=deleted", true);
+
+    expect(activityApiState.deletedQueryEnabled.at(-1)).toBe(true);
+    expect(screen.getAllByRole("heading", { name: "已删除活动" })).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "可恢复的活动" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "恢复移动端已删除活动" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=deleted");
+  });
+
   it("仅打开独立 Overlay 后查询，并显示期限、过滤过期缓存及按版本恢复", async () => {
     activityApiState.deletedActivities = [
       { ...activityApiState.activity, activityId: "deleted-valid", canDelete: false, canRestore: true, deletedAt: "2026-08-20T08:00:00Z", name: "可恢复活动", purgeAfter: "2999-09-20T08:00:00Z", status: "ENDED", version: "9" },
