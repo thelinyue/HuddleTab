@@ -80,6 +80,7 @@ pub struct ActivityMemberView {
     pub activity_id: Uuid,
     pub user_id: Option<Uuid>,
     pub display_name: String,
+    pub avatar_preset: Option<i16>,
     pub role: String,
     pub status: String,
     pub version: i64,

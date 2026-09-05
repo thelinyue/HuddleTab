@@ -105,6 +105,14 @@ async function changePassword(input: ChangePasswordInput): Promise<ChangePasswor
   return data;
 }
 
+async function updateAvatarPreset(avatarPreset: number): Promise<number> {
+  const result = unwrap(await apiClient.PATCH("/api/me/avatar", {
+    body: { avatarPreset },
+    headers: await mutationHeaders(),
+  })).data;
+  return result.avatarPreset;
+}
+
 async function previewInvitation(token: string): Promise<InvitationPreview> {
   const result = await apiClient.GET("/api/invitations/{token}", {
     params: { path: { token } },
@@ -164,6 +172,22 @@ export function useLogoutMutation() {
 
 export function useChangePasswordMutation() {
   return useMutation({ mutationFn: changePassword });
+}
+
+/** 保存后更新 Session，并让活动成员缓存重新读取同一份持久化头像。 */
+export function useUpdateAvatarPresetMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateAvatarPreset,
+    onSuccess: (avatarPreset) => {
+      const current = queryClient.getQueryData<Session | null>(queryKeys.session);
+      if (!current) return undefined;
+      const next = { ...current, avatarPreset };
+      queryClient.setQueryData<Session | null>(queryKeys.session, next);
+      rememberOfflineSession(next);
+      return queryClient.invalidateQueries({ queryKey: ["users", current.userId] });
+    },
+  });
 }
 
 export function useInvitationPreviewQuery(token: string) {

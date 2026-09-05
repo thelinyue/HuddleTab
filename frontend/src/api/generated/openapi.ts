@@ -645,6 +645,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 当前用户保存内置插画头像。CSRF 与 Session 校验完成后只更新头像字段。 */
+        patch: operations["update_avatar"];
+        trace?: never;
+    };
     "/api/me/password": {
         parameters: {
             query?: never;
@@ -772,6 +789,8 @@ export interface components {
         };
         ActivityMemberData: {
             activityId: string;
+            /** Format: int32 */
+            avatarPreset?: number | null;
             displayName: string;
             memberId: string;
             role: string;
@@ -835,6 +854,8 @@ export interface components {
             newPassword: string;
         };
         AdminUserData: {
+            /** Format: int32 */
+            avatarPreset: number;
             disabled: boolean;
             displayName: string;
             id: string;
@@ -848,6 +869,13 @@ export interface components {
         AttachmentBinary: string;
         AttachmentEnvelope: {
             data: components["schemas"]["ExpenseAttachmentData"];
+        };
+        AvatarPresetData: {
+            /** Format: int32 */
+            avatarPreset: number;
+        };
+        AvatarPresetEnvelope: {
+            data: components["schemas"]["AvatarPresetData"];
         };
         BalanceData: {
             memberId: string;
@@ -1137,6 +1165,8 @@ export interface components {
             data: components["schemas"]["LedgerData"];
         };
         LoginData: {
+            /** Format: int32 */
+            avatarPreset: number;
             displayName: string;
             isSystemAdmin: boolean;
             userId: string;
@@ -1196,6 +1226,8 @@ export interface components {
             receiverMemberId: string;
         };
         RegisterData: {
+            /** Format: int32 */
+            avatarPreset: number;
             displayName: string;
             isSystemAdmin: boolean;
             userId: string;
@@ -1229,6 +1261,8 @@ export interface components {
          */
         RegistrationPolicyValue: "INVITE_ONLY" | "OPEN";
         SessionData: {
+            /** Format: int32 */
+            avatarPreset: number;
             displayName: string;
             isSystemAdmin: boolean;
             userId: string;
@@ -1329,6 +1363,10 @@ export interface components {
             name?: string | null;
             startDate?: string | null;
             version: string;
+        };
+        UpdateAvatarPresetRequest: {
+            /** Format: int32 */
+            avatarPreset: number;
         };
         UpdateExpenseRequest: components["schemas"]["ExpenseDraftRequest"] & {
             version: string;
@@ -3903,6 +3941,57 @@ export interface operations {
             };
             /** @description 申请不存在 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    update_avatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAvatarPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description 头像已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvatarPresetEnvelope"];
+                };
+            };
+            /** @description 头像选项无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 校验失败 */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

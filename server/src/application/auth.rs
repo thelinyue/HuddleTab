@@ -23,6 +23,7 @@ pub struct StoredCredentials {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub password_hash: String,
     pub is_system_admin: bool,
 }
@@ -44,6 +45,7 @@ pub struct StoredSession {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub password_hash: String,
     pub created_at: OffsetDateTime,
     pub last_seen_at: OffsetDateTime,
@@ -93,6 +95,12 @@ pub trait AuthRepository: Send + Sync {
     async fn rotate_password_and_session(
         &self,
         rotation: PasswordRotation,
+    ) -> Result<(), AuthRepositoryError>;
+
+    async fn update_avatar_preset(
+        &self,
+        user_id: Uuid,
+        avatar_preset: i16,
     ) -> Result<(), AuthRepositoryError>;
 }
 
@@ -146,6 +154,7 @@ pub struct LoginOutput {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub session_token: SessionToken,
     pub is_system_admin: bool,
 }
@@ -175,6 +184,7 @@ pub struct RegisterOutput {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub session_token: SessionToken,
 }
 
@@ -203,6 +213,7 @@ pub struct CurrentSession {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub is_system_admin: bool,
 }
 
@@ -213,6 +224,16 @@ pub enum CurrentSessionError {
     #[error("Session 服务暂时不可用")]
     Unavailable,
 }
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum UpdateAvatarPresetError {
+    #[error("头像选项无效")]
+    InvalidPreset,
+    #[error("头像保存失败")]
+    Unavailable,
+}
+
+pub const DEFAULT_AVATAR_PRESET: i16 = 2;
 
 #[derive(Debug, Error)]
 #[error("注销服务暂时不可用")]
@@ -316,6 +337,7 @@ pub async fn register(
         user_id,
         username: username.as_str().to_owned(),
         display_name: display_name.to_owned(),
+        avatar_preset: DEFAULT_AVATAR_PRESET,
         session_token,
     })
 }
@@ -375,6 +397,7 @@ pub async fn login(
         user_id: credentials.user_id,
         username: credentials.username,
         display_name: credentials.display_name,
+        avatar_preset: credentials.avatar_preset,
         session_token,
         is_system_admin: credentials.is_system_admin,
     })
@@ -418,10 +441,30 @@ pub async fn current_session(
                 user_id: stored.user_id,
                 username: stored.username,
                 display_name: stored.display_name,
+                avatar_preset: stored.avatar_preset,
                 is_system_admin: stored.is_system_admin,
             })
         }
     }
+}
+
+/// 保存用户从内置插画中选择的头像；允许值与数据库约束保持一致。
+///
+/// # Errors
+///
+/// 超出六个内置头像时返回输入错误，数据库写入失败时返回稳定服务错误。
+pub async fn update_avatar_preset(
+    repository: &dyn AuthRepository,
+    user_id: Uuid,
+    avatar_preset: i16,
+) -> Result<(), UpdateAvatarPresetError> {
+    if !(1..=6).contains(&avatar_preset) {
+        return Err(UpdateAvatarPresetError::InvalidPreset);
+    }
+    repository
+        .update_avatar_preset(user_id, avatar_preset)
+        .await
+        .map_err(|_| UpdateAvatarPresetError::Unavailable)
 }
 
 /// 按 Session token hash 撤销当前登录；找不到对应 Session 时保持幂等成功。

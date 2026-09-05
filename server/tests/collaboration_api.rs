@@ -260,6 +260,7 @@ async fn register_named_invited_actor(
         .expect("应读取注册响应")
         .to_bytes();
     let json: Value = serde_json::from_slice(&body).expect("注册响应应为 JSON");
+    assert_eq!(json["data"]["avatarPreset"], 2, "新用户应获得默认插画头像");
     TestActor {
         user_id: Uuid::parse_str(
             json["data"]["userId"]

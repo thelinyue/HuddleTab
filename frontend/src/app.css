@@ -444,9 +444,12 @@ button.settings-row:hover { background: var(--surface-muted); }
 .management-danger { border-top: 1px solid var(--border); padding-top: 20px; }
 .management-danger .button { width: 100%; }
 .delete-confirmation { display: grid; gap: 16px; }
-.profile-panel { display: flex; align-items: center; gap: 14px; margin: 24px 0; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
-.profile-avatar { display: grid; width: 56px; height: 56px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--secondary); }
-.profile-panel > div { display: grid; }
+.profile-panel { display: flex; min-width: 0; align-items: center; gap: 14px; margin: 16px 0 24px; border-radius: 12px; padding: 16px; background: var(--secondary); }
+.profile-avatar-button { display: grid; width: 64px; height: 64px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; padding: 0; background: transparent; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent); }
+.profile-avatar-button:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent); }
+.profile-avatar-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.profile-panel > div { display: grid; min-width: 0; }
+.profile-panel strong, .profile-panel small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-settings { margin: 24px 0; }
 .account-settings h2 { margin-bottom: 8px; font-size: 15px; }
 .settings-link { display: flex; min-height: 56px; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 8px 4px; }
@@ -458,6 +461,7 @@ button.settings-row:hover { background: var(--surface-muted); }
 .password-form { display: grid; width: min(100%, 480px); gap: 16px; margin: 24px auto 0; }
 .password-form > .button { width: 100%; }
 .admin-entry-list { margin-top: 18px; }
+.admin-page, .admin-page__content { min-width: 0; }
 .admin-user-list { margin-top: 18px; border-top: 1px solid var(--border); }
 .admin-user-row { display: grid; gap: 10px; border-bottom: 1px solid var(--border); padding: 12px 4px; }
 .admin-user-row__identity { display: flex; min-width: 0; align-items: center; gap: 10px; }
@@ -477,6 +481,15 @@ button.settings-row:hover { background: var(--surface-muted); }
 .admin-system-metric dd { min-width: 0; overflow-wrap: anywhere; text-align: right; font-weight: 500; }
 .admin-system-metric dd.strong { font-weight: 700; }
 .settings-choice { display: flex; min-height: 44px; align-items: center; gap: 9px; }
+.avatar--lg { width: 64px; height: 64px; }
+.avatar-picker { display: grid; min-width: 0; gap: 16px; }
+.avatar-picker__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.avatar-picker__option { position: relative; display: grid; min-width: 0; min-height: 92px; place-items: center; border: 1px solid var(--border); border-radius: 12px; padding: 10px; background: var(--surface); }
+.avatar-picker__option:hover { background: var(--surface-muted); }
+.avatar-picker__option[aria-pressed="true"] { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent); }
+.avatar-picker__option > svg { position: absolute; top: 7px; right: 7px; color: transparent; }
+.avatar-picker__option[aria-pressed="true"] > svg { color: var(--primary); }
+.avatar-picker__save { width: 100%; }
 
 .notification-count { color: var(--muted-foreground); font-size: 13px; font-weight: 650; }
 .notification-filters { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 14px; scrollbar-width: none; }
@@ -690,6 +703,13 @@ button.settings-row:hover { background: var(--surface-muted); }
   .join-request-row { grid-template-columns: 1fr; }
   .join-request-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 48%) auto; }
+  .admin-user-row { gap: 12px; padding-block: 16px; }
+  .admin-user-row__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .admin-user-row__actions .button { min-width: 0; min-height: 44px; padding-inline: 8px; }
+  .admin-user-row__actions .button:last-child { grid-column: 1 / -1; }
+  .admin-system-metric { align-items: flex-start; flex-direction: column; gap: 4px; padding-block: 11px; }
+  .admin-system-metric dd { width: 100%; text-align: left; }
+  .admin-settings-card { padding: 14px; }
   .deleted-activity-row { grid-template-columns: 1fr; }
   .deleted-activity-row .button { width: 100%; }
   .quick-expense-trigger { right: 16px; bottom: calc(env(safe-area-inset-bottom) + 18px); }

@@ -22,7 +22,7 @@ export function ProductBottomNavigation() {
               to={to}
               aria-label={to === "/notifications" && unreadCount > 0 ? `${label}，${unreadCount} 条未读` : label}
               className={({ isActive }) =>
-                isActive || location.pathname.startsWith(`${to}/`) ? "active" : ""
+                isActive || location.pathname.startsWith(`${to}/`) || (to === "/me" && location.pathname.startsWith("/admin")) ? "active" : ""
               }
             >
               <span className="product-bottom-nav__icon"><Icon aria-hidden="true" size={20} />{to === "/notifications" && unreadCount > 0 ? <span className="product-bottom-nav__badge" aria-hidden="true" /> : null}</span>

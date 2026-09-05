@@ -12,6 +12,24 @@ fn document_contains_health_and_shared_envelopes() {
 }
 
 #[test]
+fn avatar_preset_contract_is_published_for_profile_and_member_views() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+
+    assert!(value["paths"]["/api/me/avatar"]["patch"].is_object());
+    assert!(
+        value["components"]["schemas"]["SessionData"]["properties"]["avatarPreset"].is_object()
+    );
+    assert!(
+        value["components"]["schemas"]["ActivityMemberData"]["properties"]["avatarPreset"]
+            .is_object()
+    );
+    assert!(
+        value["components"]["schemas"]["AdminUserData"]["properties"]["avatarPreset"].is_object()
+    );
+}
+
+#[test]
 fn setup_status_and_summary_publish_task30_contract() {
     let document = serde_json::to_value(huddletab_server::http::openapi::document())
         .expect("OpenAPI 应可序列化");

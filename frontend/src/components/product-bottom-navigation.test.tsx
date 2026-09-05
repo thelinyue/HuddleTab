@@ -21,4 +21,10 @@ describe("ProductBottomNavigation", () => {
     expect(link.querySelector(".product-bottom-nav__badge")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "主导航" }).querySelectorAll("a")).toHaveLength(3);
   });
+
+  it("系统管理属于我的层级并保持我的导航选中", () => {
+    render(<MemoryRouter initialEntries={["/admin/system"]}><ProductBottomNavigation /></MemoryRouter>);
+
+    expect(screen.getByRole("link", { name: "我的" })).toHaveClass("active");
+  });
 });

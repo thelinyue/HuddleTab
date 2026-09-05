@@ -3308,6 +3308,65 @@
         }
       }
     },
+    "/api/me/avatar": {
+      "patch": {
+        "tags": [],
+        "summary": "当前用户保存内置插画头像。CSRF 与 Session 校验完成后只更新头像字段。",
+        "operationId": "update_avatar",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAvatarPresetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "头像已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarPresetEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "头像选项无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me/password": {
       "put": {
         "tags": [],
@@ -3809,6 +3868,13 @@
           "activityId": {
             "type": "string"
           },
+          "avatarPreset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
           "displayName": {
             "type": "string"
           },
@@ -4069,10 +4135,15 @@
           "id",
           "username",
           "displayName",
+          "avatarPreset",
           "disabled",
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarPreset": {
+            "type": "integer",
+            "format": "int32"
+          },
           "disabled": {
             "type": "boolean"
           },
@@ -4116,6 +4187,29 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ExpenseAttachmentData"
+          }
+        }
+      },
+      "AvatarPresetData": {
+        "type": "object",
+        "required": [
+          "avatarPreset"
+        ],
+        "properties": {
+          "avatarPreset": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AvatarPresetEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AvatarPresetData"
           }
         }
       },
@@ -5276,9 +5370,14 @@
           "userId",
           "username",
           "displayName",
+          "avatarPreset",
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarPreset": {
+            "type": "integer",
+            "format": "int32"
+          },
           "displayName": {
             "type": "string"
           },
@@ -5512,9 +5611,14 @@
           "userId",
           "username",
           "displayName",
+          "avatarPreset",
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarPreset": {
+            "type": "integer",
+            "format": "int32"
+          },
           "displayName": {
             "type": "string"
           },
@@ -5622,9 +5726,14 @@
           "userId",
           "username",
           "displayName",
+          "avatarPreset",
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarPreset": {
+            "type": "integer",
+            "format": "int32"
+          },
           "displayName": {
             "type": "string"
           },
@@ -6005,6 +6114,18 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateAvatarPresetRequest": {
+        "type": "object",
+        "required": [
+          "avatarPreset"
+        ],
+        "properties": {
+          "avatarPreset": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

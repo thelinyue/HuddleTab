@@ -35,6 +35,7 @@ pub struct AdminUserData {
     pub id: String,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub disabled: bool,
     pub is_system_admin: bool,
 }
@@ -214,6 +215,7 @@ pub(crate) async fn users(
                 id: user.id.to_string(),
                 username: user.username,
                 display_name: user.display_name,
+                avatar_preset: user.avatar_preset,
                 disabled: user.disabled,
                 is_system_admin: user.is_system_admin,
             })

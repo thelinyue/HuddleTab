@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   online: true,
-  session: { userId: "admin-1", username: "admin", displayName: "管理员", isSystemAdmin: true },
-  users: [{ id: "admin-1", username: "admin", displayName: "管理员", disabled: false, isSystemAdmin: true }, { id: "user-1", username: "alice", displayName: "Alice", disabled: false, isSystemAdmin: false }],
+  session: { userId: "admin-1", username: "admin", displayName: "管理员", avatarPreset: 2, isSystemAdmin: true },
+  users: [{ id: "admin-1", username: "admin", displayName: "管理员", avatarPreset: 2, disabled: false, isSystemAdmin: true }, { id: "user-1", username: "alice", displayName: "Alice", avatarPreset: 5, disabled: false, isSystemAdmin: false }],
   status: { isPending: false, mutateAsync: vi.fn() },
   role: { isPending: false, mutateAsync: vi.fn() },
   reset: { isPending: false, mutateAsync: vi.fn(), variables: undefined },
@@ -28,7 +28,7 @@ vi.mock("./api", () => ({
   useUpdateRegistrationPolicyMutation: () => state.policyUpdate,
 }));
 
-import { AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "./pages";
+import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "./pages";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; });
 
@@ -36,9 +36,20 @@ describe("系统管理页面", () => {
   it("用户管理提供启用、管理员和重置密码操作", () => {
     render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
     expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Alice的头像" }).querySelector("img"))
+      .toHaveAttribute("src", "/member-avatars/avatar-05.webp");
     expect(screen.getByRole("button", { name: "设为管理员" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "重置密码" })[1]);
     expect(screen.getByRole("dialog", { name: "重置密码" })).toBeInTheDocument();
+  });
+
+  it("系统管理首页返回我的，二级页面返回系统管理", () => {
+    const home = render(<MemoryRouter><AdminHomePage /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "返回我的" })).toHaveAttribute("href", "/me");
+    home.unmount();
+
+    render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "返回系统管理" })).toHaveAttribute("href", "/admin");
   });
 
   it("重置密码失败保留草稿", async () => {

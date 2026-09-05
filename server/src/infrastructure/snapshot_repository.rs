@@ -92,9 +92,14 @@ impl SnapshotRepository for PostgresSnapshotRepository {
             });
         }
 
-        let members = sqlx::query_as::<_, (Uuid, Option<Uuid>, String, String, String, i64)>(
-            "SELECT id, user_id, display_name, role, status, version FROM activity_members \
-             WHERE activity_id = $1 ORDER BY CASE role WHEN 'OWNER' THEN 0 ELSE 1 END, joined_at, id",
+        let members = sqlx::query_as::<
+            _,
+            (Uuid, Option<Uuid>, String, String, String, i64, Option<i16>),
+        >(
+            "SELECT member.id, member.user_id, member.display_name, member.role, member.status, \
+             member.version, users.avatar_preset FROM activity_members member \
+             LEFT JOIN users ON users.id = member.user_id WHERE member.activity_id = $1 \
+             ORDER BY CASE member.role WHEN 'OWNER' THEN 0 ELSE 1 END, member.joined_at, member.id",
         )
         .bind(activity_id)
         .fetch_all(&mut *transaction)
@@ -109,6 +114,7 @@ impl SnapshotRepository for PostgresSnapshotRepository {
             role: row.3,
             status: row.4,
             version: row.5,
+            avatar_preset: row.6,
         })
         .collect::<Vec<_>>();
 

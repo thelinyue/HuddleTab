@@ -206,9 +206,14 @@ impl ActivityRepository for PostgresActivityRepository {
         if !is_member {
             return Err(ActivityRepositoryError::NotFound);
         }
-        let rows = sqlx::query_as::<_, (Uuid, Option<Uuid>, String, String, String, i64)>(
-            "SELECT id, user_id, display_name, role, status, version FROM activity_members \
-             WHERE activity_id = $1 ORDER BY CASE role WHEN 'OWNER' THEN 0 ELSE 1 END, joined_at, id",
+        let rows = sqlx::query_as::<
+            _,
+            (Uuid, Option<Uuid>, String, String, String, i64, Option<i16>),
+        >(
+            "SELECT member.id, member.user_id, member.display_name, member.role, member.status, \
+             member.version, users.avatar_preset FROM activity_members member \
+             LEFT JOIN users ON users.id = member.user_id WHERE member.activity_id = $1 \
+             ORDER BY CASE member.role WHEN 'OWNER' THEN 0 ELSE 1 END, member.joined_at, member.id",
         )
         .bind(activity_id)
         .fetch_all(&self.pool)
@@ -217,12 +222,21 @@ impl ActivityRepository for PostgresActivityRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(member_id, member_user_id, display_name, role, status, version)| {
+                |(
+                    member_id,
+                    member_user_id,
+                    display_name,
+                    role,
+                    status,
+                    version,
+                    avatar_preset,
+                )| {
                     ActivityMemberView {
                         member_id,
                         activity_id,
                         user_id: member_user_id,
                         display_name,
+                        avatar_preset,
                         role,
                         status,
                         version,

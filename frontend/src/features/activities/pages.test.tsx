@@ -75,6 +75,7 @@ const activityApiState = vi.hoisted(() => ({
   joinRequests: [] as Array<Record<string, unknown>>,
   createGuestBinding: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   decideJoinRequest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
+  avatar: { error: null as unknown, isPending: false, mutateAsync: vi.fn(), reset: vi.fn() },
 }));
 
 vi.mock("../accounting/api", () => ({
@@ -83,8 +84,9 @@ vi.mock("../accounting/api", () => ({
 
 vi.mock("../auth/api", () => ({
   useLogoutMutation: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useUpdateAvatarPresetMutation: () => activityApiState.avatar,
   useSessionQuery: () => ({
-    data: { displayName: "测试用户", userId: "user-1", username: "tester" },
+    data: { avatarPreset: 4, displayName: "测试用户", isSystemAdmin: true, userId: "user-1", username: "tester" },
     isPending: false,
   }),
 }));
@@ -194,6 +196,10 @@ afterEach(() => {
   activityApiState.decideJoinRequest.isPending = false;
   activityApiState.decideJoinRequest.mutateAsync.mockReset();
   activityApiState.decideJoinRequest.mutateAsync.mockResolvedValue(undefined);
+  activityApiState.avatar.error = null;
+  activityApiState.avatar.isPending = false;
+  activityApiState.avatar.mutateAsync.mockReset().mockResolvedValue(6);
+  activityApiState.avatar.reset.mockReset();
 });
 
 describe("MePage", () => {
@@ -203,6 +209,21 @@ describe("MePage", () => {
     expect(screen.getByRole("heading", { name: "账户与安全" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "修改密码" })).toHaveAttribute("href", "/me/password");
     expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
+  });
+
+  it("展示已保存头像并允许从六个内置插画中重新选择", async () => {
+    render(<MemoryRouter initialEntries={["/me"]}><MePage /></MemoryRouter>);
+
+    const avatarButton = screen.getByRole("button", { name: "选择头像" });
+    expect(avatarButton.querySelector("img")).toHaveAttribute("src", "/member-avatars/avatar-04.webp");
+    fireEvent.click(avatarButton);
+    const picker = screen.getByRole("dialog", { name: "选择头像" });
+    expect(within(picker).getAllByRole("button", { name: /^头像 / })).toHaveLength(6);
+    fireEvent.click(within(picker).getByRole("button", { name: "头像 6" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "保存头像" }));
+
+    await waitFor(() => expect(activityApiState.avatar.mutateAsync).toHaveBeenCalledWith(6));
+    expect(screen.queryByRole("dialog", { name: "选择头像" })).not.toBeInTheDocument();
   });
 });
 

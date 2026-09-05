@@ -11,8 +11,10 @@ use utoipa::ToSchema;
 use crate::{
     application::auth::{
         ChangePasswordError, ChangePasswordInput, CurrentSessionError, LoginError, LoginInput,
-        RegisterError, RegisterInput, change_password as change_user_password, current_session,
-        login as login_user, logout as logout_user, register as register_user,
+        RegisterError, RegisterInput, UpdateAvatarPresetError,
+        change_password as change_user_password, current_session, login as login_user,
+        logout as logout_user, register as register_user,
+        update_avatar_preset as save_avatar_preset,
     },
     infrastructure::{
         auth_repository::PostgresAuthRepository,
@@ -63,6 +65,7 @@ pub struct LoginData {
     pub user_id: String,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub is_system_admin: bool,
 }
 
@@ -86,6 +89,7 @@ pub struct RegisterData {
     pub user_id: String,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub is_system_admin: bool,
 }
 
@@ -100,6 +104,7 @@ pub struct SessionData {
     pub user_id: String,
     pub username: String,
     pub display_name: String,
+    pub avatar_preset: i16,
     pub is_system_admin: bool,
 }
 
@@ -129,6 +134,23 @@ pub struct ChangePasswordEnvelope {
 #[derive(Serialize, ToSchema)]
 pub struct ChangePasswordData {
     pub changed: bool,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAvatarPresetRequest {
+    pub avatar_preset: i16,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AvatarPresetEnvelope {
+    pub data: AvatarPresetData,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AvatarPresetData {
+    pub avatar_preset: i16,
 }
 
 /// 为未登录请求创建短期 pre-auth context，并返回只与该 context 匹配的 CSRF token。
@@ -268,6 +290,7 @@ pub(crate) async fn login(
                 user_id: result.user_id.to_string(),
                 username: result.username,
                 display_name: result.display_name,
+                avatar_preset: result.avatar_preset,
                 is_system_admin: result.is_system_admin,
             },
         }),
@@ -346,6 +369,7 @@ pub(crate) async fn register(
                 user_id: result.user_id.to_string(),
                 username: result.username,
                 display_name: result.display_name,
+                avatar_preset: result.avatar_preset,
                 is_system_admin: false,
             },
         }),
@@ -383,7 +407,50 @@ pub(crate) async fn session(
             user_id: current.user_id.to_string(),
             username: current.username,
             display_name: current.display_name,
+            avatar_preset: current.avatar_preset,
             is_system_admin: current.is_system_admin,
+        },
+    }))
+}
+
+/// 当前用户保存内置插画头像。CSRF 与 Session 校验完成后只更新头像字段。
+#[utoipa::path(
+    patch,
+    path = "/api/me/avatar",
+    request_body = UpdateAvatarPresetRequest,
+    responses(
+        (status = 200, description = "头像已更新", body = AvatarPresetEnvelope),
+        (status = 400, description = "头像选项无效", body = super::error::ErrorEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn update_avatar(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<UpdateAvatarPresetRequest>,
+) -> Result<Json<AvatarPresetEnvelope>, ApiError> {
+    let token = validate_session_csrf(&state, &jar, &headers, request_id.clone())?;
+    let repository = PostgresAuthRepository::new(state.pool);
+    let current = current_session(&repository, &SystemClock, &token)
+        .await
+        .map_err(|error| match error {
+            CurrentSessionError::Unauthenticated => ApiError::unauthenticated(request_id.clone()),
+            CurrentSessionError::Unavailable => ApiError::internal(request_id.clone()),
+        })?;
+    save_avatar_preset(&repository, current.user_id, request.avatar_preset)
+        .await
+        .map_err(|error| match error {
+            UpdateAvatarPresetError::InvalidPreset => {
+                ApiError::invalid_collaboration_input(request_id.clone())
+            }
+            UpdateAvatarPresetError::Unavailable => ApiError::internal(request_id.clone()),
+        })?;
+    Ok(Json(AvatarPresetEnvelope {
+        data: AvatarPresetData {
+            avatar_preset: request.avatar_preset,
         },
     }))
 }

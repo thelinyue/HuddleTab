@@ -1,7 +1,8 @@
-import { ArrowLeft, Database, HardDrive, KeyRound, Settings2, ShieldCheck, UserCog, UsersRound } from "lucide-react";
+import { ArrowLeft, ChevronRight, Database, HardDrive, KeyRound, Settings2, ShieldCheck, UsersRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../../api/error";
+import { MemberAvatar } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Button, ErrorNotice, Input, LoadingState } from "../../components/ui";
 import { Overlay } from "../activities/pages";
@@ -19,16 +20,16 @@ import {
   useUpdateRegistrationPolicyMutation,
 } from "./api";
 
-function AdminFrame({ title, children }: { title: string; children: React.ReactNode }) {
+function AdminFrame({ title, children, backTo = "/admin", backLabel = "返回系统管理" }: { title: string; children: React.ReactNode; backTo?: string; backLabel?: string }) {
   return (
     <div className="top-level-page">
-      <main className="app-frame app-frame--with-nav">
+      <main className="app-frame app-frame--with-nav admin-page">
         <header className="me-subpage-header">
-          <Link className="icon-button" to="/admin" aria-label="返回系统管理" title="返回系统管理"><ArrowLeft aria-hidden="true" size={20} /></Link>
+          <Link className="icon-button" to={backTo} aria-label={backLabel} title={backLabel}><ArrowLeft aria-hidden="true" size={20} /></Link>
           <h1>{title}</h1>
           <span aria-hidden="true" />
         </header>
-        {children}
+        <div className="admin-page__content">{children}</div>
       </main>
       <ProductBottomNavigation />
     </div>
@@ -37,19 +38,19 @@ function AdminFrame({ title, children }: { title: string; children: React.ReactN
 
 export function AdminHomePage() {
   return (
-    <AdminFrame title="系统管理">
+    <AdminFrame title="系统管理" backTo="/me" backLabel="返回我的">
       <div className="settings-list admin-entry-list">
         <Link className="settings-link" to="/admin/users" aria-label="用户管理">
           <UsersRound aria-hidden="true" size={18} />
-          <span><strong>用户管理</strong><small>管理用户状态与系统管理员权限</small></span><span aria-hidden="true">›</span>
+          <span><strong>用户管理</strong><small>管理用户状态与系统管理员权限</small></span><ChevronRight aria-hidden="true" size={18} />
         </Link>
         <Link className="settings-link" to="/admin/settings" aria-label="注册策略">
           <Settings2 aria-hidden="true" size={18} />
-          <span><strong>注册策略</strong><small>设置是否需要邀请才能创建账号</small></span><span aria-hidden="true">›</span>
+          <span><strong>注册策略</strong><small>设置是否需要邀请才能创建账号</small></span><ChevronRight aria-hidden="true" size={18} />
         </Link>
         <Link className="settings-link" to="/admin/system" aria-label="系统信息">
           <HardDrive aria-hidden="true" size={18} />
-          <span><strong>系统信息</strong><small>查看存储占用与运行版本</small></span><span aria-hidden="true">›</span>
+          <span><strong>系统信息</strong><small>查看存储占用与运行版本</small></span><ChevronRight aria-hidden="true" size={18} />
         </Link>
       </div>
     </AdminFrame>
@@ -86,7 +87,7 @@ export function AdminUsersPage() {
         {users.data.map((user) => (
           <li className="admin-user-row" key={user.id}>
             <div className="admin-user-row__identity">
-              <span className="profile-avatar" aria-hidden="true"><UserCog size={22} /></span>
+              <MemberAvatar memberId={user.id} displayName={user.displayName} avatarPreset={user.avatarPreset} />
               <span><strong>{user.displayName}</strong><small>@{user.username} · {user.disabled ? "已禁用" : "正常"}{user.isSystemAdmin ? " · 系统管理员" : ""}</small></span>
             </div>
             <div className="admin-user-row__actions">

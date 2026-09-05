@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Download,
   CalendarDays,
+  Check,
   KeyRound,
   Link as LinkIcon,
   MapPin,
@@ -15,7 +16,6 @@ import {
   ShieldCheck,
   Trash2,
   UserPlus,
-  UserRound,
   UserRoundCheck,
   UsersRound,
   X,
@@ -39,7 +39,7 @@ import {
 } from "react-router-dom";
 import { formatMoney } from "../../domain-preview/money";
 import { Button, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select } from "../../components/ui";
-import { MemberAvatar } from "../../components/member-avatar";
+import { AVATAR_PRESETS, DEFAULT_AVATAR_PRESET, MemberAvatar, type AvatarPreset } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { useSheetDrag } from "../../components/gesture-sheet";
 import { useActivityLedgersQuery } from "../accounting/api";
@@ -68,7 +68,7 @@ import {
   useTransferOwnershipMutation,
   useUpdateActivityMutation,
 } from "./api";
-import { type Session, useLogoutMutation, useSessionQuery } from "../auth/api";
+import { type Session, useLogoutMutation, useSessionQuery, useUpdateAvatarPresetMutation } from "../auth/api";
 import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
 import { inclusiveCalendarDays } from "../../lib/calendar-date";
 
@@ -590,7 +590,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
             return (
               <div className="member-entry" key={member.memberId}>
                 <div className="member-row">
-                  <MemberAvatar memberId={member.memberId} displayName={member.displayName} />
+                  <MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} />
                   <span>
                     <strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong>
                     <small>{member.userId ? "正式成员" : "临时成员"}</small>
@@ -858,13 +858,35 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
 export function MePage() {
   const session = useSessionQuery();
   const logout = useLogoutMutation();
+  const avatar = useUpdateAvatarPresetMutation();
   const navigate = useNavigate();
+  const currentAvatar = AVATAR_PRESETS.find((preset) => preset === session.data?.avatarPreset) ?? DEFAULT_AVATAR_PRESET;
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [selectedAvatar, setSelectedAvatar] = useState<AvatarPreset>(currentAvatar);
+
+  function openAvatarPicker() {
+    avatar.reset();
+    setSelectedAvatar(currentAvatar);
+    setAvatarOpen(true);
+  }
+
+  async function saveAvatar() {
+    try {
+      await avatar.mutateAsync(selectedAvatar);
+      setAvatarOpen(false);
+    } catch {
+      // mutation.error 由 Overlay 内的 ErrorNotice 就地展示，保留当前选择。
+    }
+  }
+
   return (
     <div className="top-level-page">
       <main className="app-frame app-frame--with-nav">
         <header className="home-header"><h1>我的</h1></header>
         <section className="profile-panel">
-          <span className="profile-avatar"><UserRound aria-hidden="true" size={30} /></span>
+          <button className="profile-avatar-button" type="button" aria-label="选择头像" onClick={openAvatarPicker}>
+            <MemberAvatar memberId={session.data?.userId ?? "current-user"} displayName={session.data?.displayName ?? "当前用户"} avatarPreset={currentAvatar} size="lg" decorative />
+          </button>
           <div><strong>{session.data?.displayName}</strong><small>@{session.data?.username}</small></div>
         </section>
         <section className="account-settings" aria-labelledby="account-security-heading">
@@ -890,6 +912,28 @@ export function MePage() {
         <Button variant="secondary" busy={logout.isPending} onClick={() => void logout.mutateAsync().then(() => navigate("/login", { replace: true }))}>退出登录</Button>
       </main>
       <ProductBottomNavigation />
+      <Overlay open={avatarOpen} title="选择头像" onClose={() => setAvatarOpen(false)} focusKey={String(selectedAvatar)}>
+        <div className="avatar-picker">
+          <div className="avatar-picker__grid" role="group" aria-label="默认头像">
+            {AVATAR_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                className="avatar-picker__option"
+                aria-label={`头像 ${preset}`}
+                aria-pressed={selectedAvatar === preset}
+                data-overlay-initial-focus={selectedAvatar === preset ? "" : undefined}
+                onClick={() => setSelectedAvatar(preset)}
+              >
+                <MemberAvatar memberId={`avatar-${preset}`} displayName={`头像 ${preset}`} avatarPreset={preset} size="lg" decorative />
+                <Check aria-hidden="true" size={18} />
+              </button>
+            ))}
+          </div>
+          {avatar.error ? <ErrorNotice error={avatar.error} /> : null}
+          <Button className="avatar-picker__save" busy={avatar.isPending} onClick={() => void saveAvatar()}>保存头像</Button>
+        </div>
+      </Overlay>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const client = vi.hoisted(() => ({
   GET: vi.fn(),
   POST: vi.fn(),
+  PATCH: vi.fn(),
   PUT: vi.fn(),
 }));
 const csrf = vi.hoisted(() => ({
@@ -30,6 +31,7 @@ import {
   useJoinRequestQuery,
   useLogoutMutation,
   useSessionQuery,
+  useUpdateAvatarPresetMutation,
 } from "./api";
 
 function wrapper({ children }: PropsWithChildren) {
@@ -129,6 +131,41 @@ describe("useChangePasswordMutation", () => {
     });
 
     expect(csrf.clearCsrfToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("useUpdateAvatarPresetMutation", () => {
+  it("使用 generated contract 保存头像并携带 CSRF token", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    queryClient.setQueryData(queryKeys.session, {
+      avatarPreset: 2,
+      displayName: "测试用户",
+      isSystemAdmin: false,
+      userId: "user-1",
+      username: "tester",
+    });
+    client.PATCH.mockResolvedValue({
+      data: { data: { avatarPreset: 6 } },
+      response: new Response(null, { status: 200 }),
+    });
+    const avatarWrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useUpdateAvatarPresetMutation(), { wrapper: avatarWrapper });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync(6)).resolves.toBe(6);
+    });
+
+    expect(client.PATCH).toHaveBeenCalledWith("/api/me/avatar", {
+      body: { avatarPreset: 6 },
+      headers: { "X-CSRF-Token": "csrf-token" },
+    });
+    expect(queryClient.getQueryData(queryKeys.session)).toMatchObject({ avatarPreset: 6 });
+    expect(JSON.parse(sessionStorage.getItem("huddletab:offline-session") ?? "null"))
+      .toMatchObject({ avatarPreset: 6, userId: "user-1" });
   });
 });
 
