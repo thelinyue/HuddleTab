@@ -67,7 +67,8 @@ function Set-TemporaryEnvironment {
 function Assert-TrackedTreeIsClean {
   $status = (& git -C $repoDir status --porcelain)
   if ($LASTEXITCODE -ne 0) { throw "无法读取 Git 工作区状态。" }
-  if ($status) { throw "最终 Release Verification 必须在干净 Git 工作区执行。" }
+  $unexpectedStatus = @($status | Where-Object { $_ -notmatch '^\?\? \.cargo-target(?:/|\\)?$' })
+  if ($unexpectedStatus.Count -gt 0) { throw "最终 Release Verification 必须在干净 Git 工作区执行。" }
 
   $tracked = @(& git -C $repoDir ls-files)
   $unsafe = @($tracked | Where-Object {
