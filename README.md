@@ -28,6 +28,7 @@ services:
       retries: 20
 
   app:
+    container_name: huddletab
     image: ghcr.io/thelinyue/huddletab:0.0.4
     restart: unless-stopped
     depends_on:
@@ -37,8 +38,8 @@ services:
       DATABASE_URL: postgresql://huddletab:huddletab@postgres:5432/huddletab
       APP_BASE_URL: http://localhost:5660
       DATA_DIR: /data
-      PUID: "10001"
-      PGID: "10001"
+      PUID: "1000"
+      PGID: "1000"
       TRUST_PROXY: "false"
       TZ: Asia/Shanghai
     ports:
@@ -60,7 +61,7 @@ docker compose ps
 docker compose logs -f app
 ```
 
-部署数据保存在 Compose 文件所在目录的 `./postgres` 和 `./data` 中。完成初始化后访问 <http://localhost:5660>。
+部署数据保存在 Compose 文件所在目录的 `./postgres` 和 `./data` 中。应用容器名称为 `huddletab`，可使用该名称进行 Docker 管理。完成初始化后访问 <http://localhost:5660>。
 
 Task 31 只提供管理员存储占用和系统信息读取；SMTP、邮件测试及应用级备份/还原不属于当前产品范围。宿主/NAS 数据保护责任见[数据保护与恢复](docs/deployment/data-protection.md)，活动软删除恢复仍是独立的业务功能。
 
