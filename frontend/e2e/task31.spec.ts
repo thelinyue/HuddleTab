@@ -9,7 +9,7 @@ async function registerOpenUser(browser: Browser, testInfo: TestInfo): Promise<{
   const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
   await page.goto("/register");
   await page.getByLabel("用户名").fill(`task31${suffix}`.slice(0, 32));
-  await page.getByLabel("显示名称").fill("Task31 普通用户");
+  await page.getByLabel("昵称").fill("Task31 普通用户");
   await page.locator('input[autocomplete="new-password"]').fill(`${crypto.randomUUID()}Aa1!`);
   await page.getByRole("button", { name: "注册并继续" }).click();
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();

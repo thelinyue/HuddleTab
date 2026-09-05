@@ -21,7 +21,7 @@ async function registerOpenUser(browser: Browser, testInfo: TestInfo): Promise<{
   const displayName = `Task29-${suffix.slice(0, 6)}`;
   await page.goto("/register");
   await page.getByLabel("用户名").fill(username);
-  await page.getByLabel("显示名称").fill(displayName);
+  await page.getByLabel("昵称").fill(displayName);
   await page.locator('input[autocomplete="new-password"]').fill(password);
   await page.getByRole("button", { name: "注册并继续" }).click();
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
@@ -85,7 +85,7 @@ test("系统管理员入口、账号管理和注册策略保持 v0.0.2 交互密
       const submitRejectedRegistration = async () => {
         await rejected.goto("/register");
         await rejected.getByLabel("用户名").fill(rejectedUsername);
-        await rejected.getByLabel("显示名称").fill("Blocked");
+        await rejected.getByLabel("昵称").fill("Blocked");
         await rejected.locator('input[autocomplete="new-password"]').fill(rejectedPassword);
         const responsePromise = rejected.waitForResponse((response) => response.url().includes("/api/auth/register") && response.request().method() === "POST");
         await rejected.getByRole("button", { name: "注册并继续" }).click();

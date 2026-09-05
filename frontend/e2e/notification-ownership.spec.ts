@@ -27,7 +27,7 @@ async function registerAndJoin(browser: Browser, testInfo: TestInfo, token: stri
   const submitRegistration = async () => {
     await page.goto(registrationUrl);
     await page.getByLabel("用户名").fill(username);
-    await page.getByLabel("显示名称").fill(displayName);
+    await page.getByLabel("昵称").fill(displayName);
     await page.locator('input[autocomplete="new-password"]').fill(password);
     const responsePromise = page.waitForResponse((response) =>
       response.request().method() === "POST" && response.url().endsWith("/api/auth/register"),
