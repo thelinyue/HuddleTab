@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { assertNoHorizontalOverflow, createActivity, credentials, installArtifactVisualRedaction, login, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertNoHorizontalOverflow, createActivity, credentials, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
 
 async function waitForSnapshotCache(page: Page, activityId: string): Promise<void> {
   await expect.poll(() => page.evaluate(async (targetActivityId) => {
@@ -28,11 +28,9 @@ async function waitForSnapshotCache(page: Page, activityId: string): Promise<voi
 }
 
 async function createExpense(page: Page, title: string, expectedStatus: string): Promise<void> {
-  await page.getByRole("button", { name: "快速记账" }).click();
-  const dialog = page.getByRole("dialog", { name: "记一笔消费" });
-  await dialog.locator(".amount-input input").fill("12.34");
-  await dialog.getByLabel("标题").fill(title);
-  await dialog.getByRole("button", { name: "保存账单", exact: true }).click();
+  const dialog = await openQuickExpense(page);
+  await fillQuickExpenseBasics(dialog, "12.34", title);
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.locator(".expense-row--pending").filter({ hasText: title })).toContainText(expectedStatus);
 }
 

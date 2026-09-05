@@ -45,6 +45,48 @@ async function openExpenseForm(
   await expect(page.getByRole("heading", { name: "记一笔" })).toBeVisible();
 }
 
+async function expectAmountCentered(page: Page) {
+  const dialog = page.getByRole("dialog", { name: "记一笔" });
+  const row = page.locator("[data-quick-expense-amount-row]");
+  const amount = page.getByLabel("金额", { exact: true });
+  const currency = page.getByRole("button", { name: "币种" });
+  const [dialogBox, rowBox, amountBox, currencyBox] = await Promise.all([
+    dialog.boundingBox(),
+    row.boundingBox(),
+    amount.boundingBox(),
+    currency.boundingBox(),
+  ]);
+
+  await expect(amount).toBeFocused();
+  expect(dialogBox, "记一笔 Overlay 没有可测量边界").not.toBeNull();
+  expect(rowBox, "金额行没有可测量边界").not.toBeNull();
+  expect(amountBox, "金额输入框没有可测量边界").not.toBeNull();
+  expect(currencyBox, "币种入口没有可测量边界").not.toBeNull();
+  const dialogCenter = dialogBox!.x + dialogBox!.width / 2;
+  const amountCenter = amountBox!.x + amountBox!.width / 2;
+  expect(
+    Math.abs(amountCenter - dialogCenter),
+    "金额输入框中心偏离 Sheet 中轴",
+  ).toBeLessThanOrEqual(2);
+  const overlaps =
+    currencyBox!.x < amountBox!.x + amountBox!.width &&
+    currencyBox!.x + currencyBox!.width > amountBox!.x &&
+    currencyBox!.y < amountBox!.y + amountBox!.height &&
+    currencyBox!.y + currencyBox!.height > amountBox!.y;
+  expect(overlaps, "币种入口与金额输入框重叠").toBe(false);
+  expect(rowBox!.width, "金额行宽度超出 Overlay").toBeLessThanOrEqual(
+    dialogBox!.width,
+  );
+  const widths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: Math.max(
+      document.documentElement.scrollWidth,
+      document.body.scrollWidth,
+    ),
+  }));
+  expect(widths.scroll, "页面出现横向溢出").toBeLessThanOrEqual(widths.client);
+}
+
 test("统一成员与付款面板在手机和桌面保持一致交互", async ({
   page,
 }, testInfo) => {
@@ -161,4 +203,39 @@ test("统一成员与付款面板在手机和桌面保持一致交互", async ({
     path: testInfo.outputPath("member-picker-1440x1000-dark.png"),
     animations: "disabled",
   });
+});
+
+test("金额输入框保持中轴并在极窄屏上下换行", async ({ page }) => {
+  await signInThroughUi(page);
+  const activityId = await createActivityThroughUi(
+    page,
+    `金额中轴验收 ${uniqueScenarioSuffix()}`,
+  );
+
+  await openExpenseForm(page, activityId, { width: 390, height: 844 }, "light");
+  await page
+    .getByLabel("金额", { exact: true })
+    .fill("12345678901234567890.12");
+  await expectAmountCentered(page);
+
+  await openExpenseForm(
+    page,
+    activityId,
+    { width: 1440, height: 1000 },
+    "light",
+  );
+  await expectAmountCentered(page);
+
+  await openExpenseForm(page, activityId, { width: 320, height: 844 }, "light");
+  const narrowCurrency = page.getByRole("button", { name: "币种" });
+  const narrowAmount = page.getByLabel("金额", { exact: true });
+  await narrowAmount.fill("12345678901234567890.12");
+  const [narrowCurrencyBox, narrowAmountBox] = await Promise.all([
+    narrowCurrency.boundingBox(),
+    narrowAmount.boundingBox(),
+  ]);
+  expect(narrowCurrencyBox).not.toBeNull();
+  expect(narrowAmountBox).not.toBeNull();
+  expect(narrowAmountBox!.y).toBeGreaterThan(narrowCurrencyBox!.y);
+  await expectAmountCentered(page);
 });

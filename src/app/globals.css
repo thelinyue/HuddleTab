@@ -239,6 +239,75 @@
   }
 }
 
+@layer components {
+  /* 快捷记账金额行用等宽侧栏锁定金额中轴，币种按钮不会再把金额推向右侧。 */
+  .quick-expense-amount-row {
+    display: grid;
+    min-width: 0;
+    min-height: 64px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 11rem) minmax(0, 1fr);
+    grid-template-rows: 64px;
+    align-items: center;
+    column-gap: 4px;
+  }
+
+  .quick-expense-amount-row__currency {
+    min-width: 44px;
+    max-width: 100%;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    overflow: hidden;
+  }
+
+  .quick-expense-amount-row__input {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: center;
+    overflow-x: auto;
+    padding-inline: 4px;
+    font-family: var(--font-money-family);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--text-display-amount--line-height);
+    white-space: nowrap;
+  }
+
+  .quick-expense-amount-row__balance {
+    min-width: 0;
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  @media (max-width: 359px) {
+    /* 极窄屏先放币种，再把金额放到第二行，仍让金额轨道保持中轴。 */
+    .quick-expense-amount-row {
+      min-height: 112px;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: 44px 64px;
+      row-gap: 4px;
+    }
+
+    .quick-expense-amount-row__currency {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    .quick-expense-amount-row__input {
+      width: min(100%, 11rem);
+      max-width: 100%;
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .quick-expense-amount-row__balance {
+      display: none;
+    }
+  }
+}
+
 @layer base {
   * {
     box-sizing: border-box;

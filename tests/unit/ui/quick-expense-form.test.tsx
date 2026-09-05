@@ -242,9 +242,17 @@ test("快捷录入按金额、用途、付款人、参与成员、分类和更�
   const category = screen.getByRole("button", { name: "分类" });
   const advanced = screen.getByRole("button", { name: "更多设置" });
   const save = screen.getByRole("button", { name: "保存" });
+  const amountRow = amount.closest("[data-quick-expense-amount-row]");
+  const currency = screen.getByRole("button", { name: "币种" });
 
   expect(amount.closest("form")).toHaveClass("h-full");
   expect(amount.closest("[data-quick-expense-step]")).toHaveClass("flex-1");
+  expect(amountRow).toHaveClass("quick-expense-amount-row");
+  expect(amount).toHaveClass("quick-expense-amount-row__input");
+  expect(currency).toHaveClass("quick-expense-amount-row__currency");
+  expect(
+    amountRow?.querySelector(".quick-expense-amount-row__balance"),
+  ).toBeInTheDocument();
   expect(amount).toHaveAttribute("placeholder", "0.00");
   expect(amount).toHaveClass(
     "font-amount",

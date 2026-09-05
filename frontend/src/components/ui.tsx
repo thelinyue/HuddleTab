@@ -1,5 +1,5 @@
 import { AlertCircle, LoaderCircle } from "lucide-react";
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { errorMessage } from "../api/error";
 
 function classes(...values: Array<string | false | null | undefined>): string {
@@ -42,9 +42,9 @@ export function Field({ label, hint, error, className, children }: { label: stri
   );
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={classes("input", props.className)} {...props} />;
-}
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...props }, ref) {
+  return <input ref={ref} className={classes("input", className)} {...props} />;
+});
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={classes("input", props.className)} {...props} />;

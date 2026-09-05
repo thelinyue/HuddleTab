@@ -95,13 +95,60 @@ export async function createActivity(page: Page, name: string): Promise<string> 
   return new URL(page.url()).pathname.split("/").at(-1)!;
 }
 
-/** 紧凑记账沿用 v0.0.2：需要日期、币种或附件时显式展开“更多设置”。 */
+export async function openQuickExpense(page: Page): Promise<Locator> {
+  await page.getByRole("button", { name: "记一笔", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "记一笔", exact: true });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+export async function fillQuickExpenseBasics(dialog: Locator, amount: string, title: string): Promise<void> {
+  await dialog.getByLabel("金额").fill(amount);
+  await dialog.getByLabel("用途").fill(title);
+}
+
+/** 快捷记账沿用 v0.0.2：需要日期、汇率或附件时显式展开“更多设置”。 */
 export async function openExpenseMoreSettings(dialog: Locator): Promise<void> {
   const toggle = dialog.getByRole("button", { name: "更多设置", exact: true });
   if (await toggle.count() === 0) return;
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+
+export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): Promise<void> {
+  const viewportHeight = await page.evaluate(() => window.innerHeight);
+  // 入场动画会暂时把移动 Sheet 放在视口下方；只在最终展示位置检查粘附栏，
+  // 避免把过渡中的 presentation value 当成布局错误。
+  await expect.poll(
+    () => dialog.evaluate((element) => element.getBoundingClientRect().bottom),
+    { timeout: 1000, message: "记一笔 Sheet 入场动画未在视口内完成。" },
+  ).toBeLessThanOrEqual(viewportHeight + 1);
+  const metrics = await dialog.evaluate((element, expectedViewportHeight) => {
+    const dialogBox = element.getBoundingClientRect();
+    const amountBox = element.querySelector<HTMLElement>(".quick-expense-amount__input")?.getBoundingClientRect();
+    const currencyBox = element.querySelector<HTMLElement>(".quick-expense-currency")?.getBoundingClientRect();
+    const titleBox = element.querySelector<HTMLElement>(".form-overlay__header h2")?.getBoundingClientRect();
+    const saveBox = element.querySelector<HTMLElement>(".quick-expense-submit")?.getBoundingClientRect();
+    return {
+      dialogCenter: dialogBox.left + dialogBox.width / 2,
+      amountCenter: amountBox ? amountBox.left + amountBox.width / 2 : null,
+      currencyRight: currencyBox ? currencyBox.right : null,
+      amountLeft: amountBox?.left ?? null,
+      titleCenter: titleBox ? titleBox.left + titleBox.width / 2 : null,
+      saveBottom: saveBox?.bottom ?? null,
+      viewportHeight: expectedViewportHeight,
+    };
+  }, viewportHeight);
+  expect(metrics.amountCenter).not.toBeNull();
+  expect(Math.abs(metrics.amountCenter! - metrics.dialogCenter), `金额输入未位于 Overlay 中轴：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
+  expect(metrics.titleCenter).not.toBeNull();
+  expect(Math.abs(metrics.titleCenter! - metrics.dialogCenter), `Header 标题未居中：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
+  expect(metrics.currencyRight).not.toBeNull();
+  expect(metrics.amountLeft).not.toBeNull();
+  expect(metrics.currencyRight!).toBeLessThanOrEqual(metrics.amountLeft! + 2);
+  expect(metrics.saveBottom).not.toBeNull();
+  expect(metrics.saveBottom!).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 }
 
 export async function assertNoHorizontalOverflow(page: Page): Promise<void> {

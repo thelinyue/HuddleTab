@@ -2,7 +2,10 @@ import { expect, test } from "@playwright/test";
 
 import {
   assertNoHorizontalOverflow,
+  assertQuickExpenseGeometry,
+  fillQuickExpenseBasics,
   login,
+  openQuickExpense,
   saveChromiumSuccessScreenshot,
 } from "./support/product";
 
@@ -41,13 +44,60 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
 
   const activityNavigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(activityNavigation.getByRole("link")).toHaveText(["流水", "结算"]);
-  await page.getByRole("button", { name: "快速记账" }).click();
-  const expenseDialog = page.getByRole("dialog", { name: "记一笔消费" });
-  await expect(expenseDialog.locator(".amount-input input")).toBeVisible();
-  await expect(expenseDialog.getByLabel("标题")).toBeVisible();
-  await expect(expenseDialog.getByRole("button", { name: "保存账单", exact: true })).toBeVisible();
-  await expenseDialog.getByRole("button", { name: "取消", exact: true }).click();
+  const expenseDialog = await openQuickExpense(page);
+  await expect(expenseDialog.locator(".quick-expense-amount__input")).toBeVisible();
+  await expect(expenseDialog.getByLabel("用途")).toBeVisible();
+  await expect(expenseDialog.getByRole("button", { name: "保存", exact: true })).toBeVisible();
+  await expect(expenseDialog.getByRole("button", { name: "谁付款", exact: true })).toBeVisible();
+  await expect(expenseDialog.getByRole("button", { name: "谁参与", exact: true })).toBeVisible();
+  await expect(expenseDialog.getByRole("button", { name: "分摊设置", exact: true })).toBeVisible();
+  await expect(expenseDialog.getByRole("button", { name: "分类", exact: true })).toBeVisible();
+  await assertQuickExpenseGeometry(page, expenseDialog);
+
+  await fillQuickExpenseBasics(expenseDialog, "10", "对照路径测试");
+  await expenseDialog.getByRole("button", { name: "谁付款", exact: true }).click();
+  const payerDialog = page.getByRole("dialog", { name: "谁付款" });
+  await expect(payerDialog.getByRole("button", { name: "单人付款", exact: true })).toBeVisible();
+  await payerDialog.getByRole("button", { name: "记一笔", exact: true }).click();
+  await expect(expenseDialog.getByRole("button", { name: "谁付款", exact: true })).toBeFocused();
+
+  await expenseDialog.getByRole("button", { name: "谁参与", exact: true }).click();
+  const participantDialog = page.getByRole("dialog", { name: "谁参与" });
+  await expect(participantDialog.getByRole("button", { name: "完成", exact: true })).toBeVisible();
+  await participantDialog.getByRole("button", { name: "记一笔", exact: true }).click();
+  await expect(expenseDialog.getByRole("button", { name: "谁参与", exact: true })).toBeFocused();
+
+  await expenseDialog.getByRole("button", { name: "分摊设置", exact: true }).click();
+  const splitDialog = page.getByRole("dialog", { name: "分摊设置" });
+  await expect(splitDialog.getByRole("radio", { name: "均摊", exact: true })).toHaveAttribute("aria-checked", "true");
+  await splitDialog.getByRole("button", { name: "记一笔", exact: true }).click();
+  await expect(expenseDialog.getByRole("button", { name: "分摊设置", exact: true })).toBeFocused();
+
+  await expenseDialog.getByRole("button", { name: "分类", exact: true }).click();
+  const categoryDialog = page.getByRole("dialog", { name: "分类" });
+  await categoryDialog.getByRole("radio", { name: "交通", exact: true }).click();
+  await expect(expenseDialog.getByRole("button", { name: "分类", exact: true })).toContainText("交通");
+  await expect(expenseDialog.getByRole("button", { name: "分类", exact: true })).toBeFocused();
+
+  await expenseDialog.getByRole("button", { name: "币种", exact: true }).click();
+  const currencyDialog = page.getByRole("dialog", { name: "选择币种" });
+  await currencyDialog.getByPlaceholder("搜索币种").fill("USD");
+  await currencyDialog.getByRole("button", { name: /USD/ }).click();
+  await expect(expenseDialog.getByRole("button", { name: "币种", exact: true })).toContainText("USD");
+  await expect(expenseDialog.getByRole("button", { name: "币种", exact: true })).toBeFocused();
+
+  const moreSettings = expenseDialog.getByRole("button", { name: "更多设置", exact: true });
+  await moreSettings.click();
+  await expect(moreSettings).toHaveAttribute("aria-expanded", "true");
+  await expect(expenseDialog.getByLabel(/汇率/)).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  const overlayPath = testInfo.outputPath("quick-expense-overlay.png");
+  await page.screenshot({ path: overlayPath });
+  await testInfo.attach("记一笔完整信息路径", { path: overlayPath, contentType: "image/png" });
+
+  await expenseDialog.getByRole("button", { name: "关闭记一笔", exact: true }).click();
   await expect(expenseDialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "记一笔", exact: true })).toBeFocused();
   await assertNoHorizontalOverflow(page);
   await saveChromiumSuccessScreenshot(page, testInfo);
 });

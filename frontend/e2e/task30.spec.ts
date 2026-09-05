@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { assertNoHorizontalOverflow, createActivity, installArtifactVisualRedaction, login, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertNoHorizontalOverflow, createActivity, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
 
 test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持 v0.0.2 交互密度", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
@@ -10,11 +10,9 @@ test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持 v0.0.2 交互�
 
   const activityName = `Task30 ${testInfo.project.name}-${Date.now()}`;
   const activityId = await createActivity(page, activityName);
-  await page.getByRole("button", { name: "快速记账" }).click();
-  const dialog = page.getByRole("dialog", { name: "记一笔消费" });
-  await dialog.locator(".amount-input input").fill("42");
-  await dialog.getByLabel("标题").fill("Task30 测试餐费");
-  await dialog.getByRole("button", { name: "保存账单", exact: true }).click();
+  const dialog = await openQuickExpense(page);
+  await fillQuickExpenseBasics(dialog, "42", "Task30 测试餐费");
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("link", { name: /Task30 测试餐费/ })).toBeVisible();
 
   await page.goto(`/share-summary/${activityId}`);

@@ -589,11 +589,15 @@ export function QuickExpenseForm({
                 <label htmlFor="quick-expense-amount" className="sr-only">
                   金额
                 </label>
-                <div className="flex min-h-11 items-center justify-center gap-1">
+                <div
+                  data-quick-expense-amount-row
+                  className="quick-expense-amount-row"
+                >
                   <CurrencyPickerTrigger
                     compact
                     value={values.currency}
                     label="币种"
+                    className="quick-expense-amount-row__currency"
                     onClick={() => onNavigationViewChange?.("currency")}
                   />
                   <input
@@ -601,7 +605,7 @@ export function QuickExpenseForm({
                     inputMode="decimal"
                     autoFocus
                     placeholder="0.00"
-                    className="font-amount type-display-amount min-h-11 w-44 max-w-3/4 bg-transparent text-center font-semibold text-primary outline-none placeholder:text-muted-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    className="quick-expense-amount-row__input font-amount type-display-amount min-h-11 bg-transparent text-center font-semibold text-primary outline-none placeholder:text-muted-foreground/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                     aria-invalid={Boolean(fieldErrors["quick-expense-amount"])}
                     aria-describedby={
                       fieldErrors["quick-expense-amount"]
@@ -609,6 +613,10 @@ export function QuickExpenseForm({
                         : undefined
                     }
                     {...form.register("amount")}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="quick-expense-amount-row__balance"
                   />
                 </div>
                 <p

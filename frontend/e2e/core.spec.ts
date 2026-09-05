@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { assertCredentialFieldsVisuallyMasked, assertNoHorizontalOverflow, createActivity, installArtifactVisualRedaction, login, openExpenseMoreSettings, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertCredentialFieldsVisuallyMasked, assertNoHorizontalOverflow, createActivity, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openExpenseMoreSettings, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -35,35 +35,38 @@ async function addGuest(page: Page, displayName: string): Promise<void> {
   await dialog.getByRole("button", { name: "关闭成员" }).click();
 }
 
-async function openQuickExpense(page: Page): Promise<Locator> {
-  await page.getByRole("button", { name: "快速记账" }).click();
-  return page.getByRole("dialog", { name: "记一笔消费" });
-}
-
 async function createEqualExpense(page: Page, title: string): Promise<void> {
   const dialog = await openQuickExpense(page);
-  await dialog.locator(".amount-input input").fill("100");
-  await dialog.getByLabel("标题").fill(title);
-  await dialog.getByRole("button", { name: "保存账单", exact: true }).click();
+  await fillQuickExpenseBasics(dialog, "100", title);
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("link", { name: new RegExp(title) })).toBeVisible();
 }
 
 async function createForeignExpense(page: Page, title: string): Promise<void> {
   const dialog = await openQuickExpense(page);
-  await dialog.locator(".amount-input input").fill("100");
+  await fillQuickExpenseBasics(dialog, "100", title);
+  await dialog.getByRole("button", { name: "币种", exact: true }).click();
+  const currencyDialog = page.getByRole("dialog", { name: "选择币种" });
+  await currencyDialog.getByPlaceholder("搜索币种").fill("USD");
+  await currencyDialog.getByRole("button", { name: /USD/ }).click();
   await openExpenseMoreSettings(dialog);
-  await dialog.getByLabel("币种").fill("USD");
   await dialog.getByLabel(/汇率/).fill("7");
-  await dialog.getByLabel("标题").fill(title);
-  const memberInputs = dialog.locator(".member-input-list");
-  const paymentInputs = memberInputs.nth(0).locator('input[inputmode="decimal"]');
+  await dialog.getByRole("button", { name: "谁付款", exact: true }).click();
+  const payerDialog = page.getByRole("dialog", { name: "谁付款" });
+  await payerDialog.getByRole("button", { name: "多人付款", exact: true }).click();
+  await payerDialog.getByRole("checkbox").nth(1).click();
+  const paymentInputs = payerDialog.locator('input[inputmode="decimal"]');
   await paymentInputs.nth(0).fill("60");
   await paymentInputs.nth(1).fill("40");
-  await dialog.getByRole("button", { name: "按金额" }).click();
-  const splitInputs = memberInputs.nth(1).locator('input[inputmode="decimal"]');
+  await payerDialog.getByRole("button", { name: "完成", exact: true }).click();
+  await dialog.getByRole("button", { name: "分摊设置", exact: true }).click();
+  const splitDialog = page.getByRole("dialog", { name: "分摊设置" });
+  await splitDialog.getByRole("radio", { name: "按金额", exact: true }).click();
+  const splitInputs = splitDialog.locator('input[inputmode="decimal"]');
   await splitInputs.nth(0).fill("30");
   await splitInputs.nth(1).fill("70");
-  await dialog.getByRole("button", { name: "保存账单", exact: true }).click();
+  await splitDialog.getByRole("button", { name: "完成", exact: true }).click();
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("link", { name: new RegExp(title) })).toBeVisible();
   await expect(page.getByLabel("消费摘要")).toContainText("US$100.00");
 }

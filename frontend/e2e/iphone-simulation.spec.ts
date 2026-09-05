@@ -3,8 +3,10 @@ import { expect, test } from "@playwright/test";
 import {
   assertNoHorizontalOverflow,
   createActivity,
+  fillQuickExpenseBasics,
   login,
   openExpenseMoreSettings,
+  openQuickExpense,
 } from "./support/product";
 
 const onePixelPng = Buffer.from(
@@ -22,10 +24,8 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   const navigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(navigation.getByRole("link")).toHaveText(["流水", "结算"]);
 
-  await page.getByRole("button", { name: "快速记账" }).click();
-  const dialog = page.getByRole("dialog", { name: "记一笔消费" });
-  await dialog.locator(".amount-input input").fill("12.34");
-  await dialog.getByLabel("标题").fill(expenseTitle);
+  const dialog = await openQuickExpense(page);
+  await fillQuickExpenseBasics(dialog, "12.34", expenseTitle);
   await openExpenseMoreSettings(dialog);
   const attachmentInput = dialog.getByLabel("附件（最多三张）");
   await attachmentInput.setInputFiles([
@@ -40,9 +40,9 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await dialog.getByRole("button", { name: "预览附件 iphone-receipt-b.png" }).click();
   await expect(page.getByRole("dialog", { name: "附件大图预览 iphone-receipt-b.png" })).toBeVisible();
   await page.getByRole("button", { name: "关闭附件预览" }).click();
-  await expect(dialog.getByRole("button", { name: "保存账单" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
   // WebKit 不提供 Chromium 的 Service Worker 能力，持久化和同步由 Chromium Mobile 专项覆盖。
-  await dialog.getByRole("button", { name: "取消" }).click();
+  await dialog.getByRole("button", { name: "关闭记一笔", exact: true }).click();
   await expect(dialog).toHaveCount(0);
 
   await navigation.getByRole("link", { name: "结算" }).click();
