@@ -155,7 +155,7 @@ try {
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
-  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.5" } else { "dev" }
+  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.6" } else { "dev" }
   $env:PUID = "10001"
   $env:PGID = "10001"
   $env:TRUST_PROXY = "false"
@@ -229,7 +229,7 @@ try {
   } elseif ($Task31Only) {
     "Task 31 Chromium Desktop/Mobile 系统信息矩阵"
   } elseif ($ReleaseVerification) {
-    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.5）"
+    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.6）"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {

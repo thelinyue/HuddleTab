@@ -51,10 +51,10 @@ if (releaseMode) {
   });
   if (!systemResponse.ok) throw new Error("重启后无法读取候选镜像系统信息。");
   const system = (await systemResponse.json()).data;
-  if (system.appVersion !== "0.0.5" || system.pwaVersion !== "0.0.5") {
-    throw new Error("候选镜像重启后应用与 PWA 版本不是 0.0.5。");
+  if (system.appVersion !== "0.0.6" || system.pwaVersion !== "0.0.6") {
+    throw new Error("候选镜像重启后应用与 PWA 版本不是 0.0.6。");
   }
-  console.log("重启持久性检查通过：候选版本 0.0.5 与测试数据仍可读取。");
+  console.log("重启持久性检查通过：候选版本 0.0.6 与测试数据仍可读取。");
 } else if (task29Mode) {
   const usersResponse = await fetch(`${baseUrl}/api/admin/users`, {
     headers: { cookie: sessionCookie },
