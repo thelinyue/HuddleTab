@@ -30,7 +30,7 @@ async function registerOpenUser(browser: Browser, testInfo: TestInfo): Promise<{
 }
 
 test("系统管理员入口、账号管理和注册策略保持 v0.0.2 交互密度", async ({ page, browser }, testInfo) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
   const admin = credentials();
   await login(page);
 
@@ -66,7 +66,14 @@ test("系统管理员入口、账号管理和注册策略保持 v0.0.2 交互密
     await expect(newUser.page).toHaveURL(/\/login$/);
     await newUser.page.getByLabel("用户名").fill(newUser.username);
     await newUser.page.locator('input[autocomplete="current-password"]').fill(replacement);
+    const loginResponsePromise = newUser.page.waitForResponse((response) => response.url().endsWith("/api/auth/login") && response.request().method() === "POST");
     await newUser.page.getByRole("button", { name: "登录" }).click();
+    const loginResponse = await loginResponsePromise;
+    if (loginResponse.status() === 429) {
+      const retryAfter = Number(loginResponse.headers()["retry-after"] ?? "60");
+      await newUser.page.waitForTimeout(Math.max(1, Math.min(retryAfter, 60)) * 1_000 + 500);
+      await newUser.page.getByRole("button", { name: "登录" }).click();
+    }
     await expect(newUser.page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
 
     // 只有一个管理员时，禁用自己必须被事务不变量拒绝，页面保留用户列表。
