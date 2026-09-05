@@ -214,7 +214,7 @@ try {
   if ($setupExitCode -ne 0) { throw "网页初始化表单浏览器检查失败，脱敏后的报告已留在 frontend/artifacts。" }
   $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
   if ($ReleaseVerification) {
-    if ([int] $migration.Output.Trim() -ne 9) { throw "候选镜像 fresh migration 数量不是预期的 9 条。" }
+    if ([int] $migration.Output.Trim() -ne 10) { throw "候选镜像 fresh migration 数量不是预期的 10 条。" }
   } elseif ([int] $migration.Output.Trim() -lt 3) { throw "fresh migration 未完整应用。" }
   $matrixLabel = if ($Phase2Only) {
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
