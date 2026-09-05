@@ -10,8 +10,10 @@ async function registerOpenUser(browser: Browser, testInfo: TestInfo): Promise<{
   await page.goto("/register");
   await page.getByLabel("用户名").fill(`task31${suffix}`.slice(0, 32));
   await page.getByLabel("昵称").fill("Task31 普通用户");
-  await page.locator('input[autocomplete="new-password"]').fill(`${crypto.randomUUID()}Aa1!`);
-  await page.getByRole("button", { name: "注册并继续" }).click();
+  const password = `${crypto.randomUUID()}Aa1!`;
+  await page.locator("#register-password").fill(password);
+  await page.locator("#register-confirm-password").fill(password);
+  await page.getByRole("button", { name: "注册", exact: true }).click();
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
   return { context, page };
 }

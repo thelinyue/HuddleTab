@@ -28,11 +28,12 @@ async function registerAndJoin(browser: Browser, testInfo: TestInfo, token: stri
     await page.goto(registrationUrl);
     await page.getByLabel("用户名").fill(username);
     await page.getByLabel("昵称").fill(displayName);
-    await page.locator('input[autocomplete="new-password"]').fill(password);
+    await page.locator("#register-password").fill(password);
+    await page.locator("#register-confirm-password").fill(password);
     const responsePromise = page.waitForResponse((response) =>
       response.request().method() === "POST" && response.url().endsWith("/api/auth/register"),
     );
-    await page.getByRole("button", { name: "注册并继续" }).click();
+    await page.getByRole("button", { name: "注册", exact: true }).click();
     return responsePromise;
   };
   let response = await submitRegistration();
