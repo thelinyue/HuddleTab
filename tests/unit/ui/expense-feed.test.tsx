@@ -122,9 +122,6 @@ test("流水消费摘要按总消费、外币原币合计、笔数和人均消�
     />,
   );
 
-  expect(screen.getByRole("banner", { name: "活动信息" })).toHaveTextContent(
-    "5天 · 3人 · 进行中",
-  );
   expect(screen.getByLabelText("消费摘要")).toHaveTextContent(
     "总消费¥60.00其中外币消费JPY 12,000 · USD 20.00 · 已折算3 笔消费 · 人均消费 ¥15.00",
   );

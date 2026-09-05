@@ -27,7 +27,7 @@ trap cleanup EXIT INT TERM
 
 if [ -z "${HUDDLETAB_TEST_IMAGE:-}" ]; then
   owns_image=true
-  docker build --tag "$test_image" --build-arg APP_VERSION=0.0.4 "$repo_dir"
+  docker build --tag "$test_image" --build-arg APP_VERSION=0.0.5 "$repo_dir"
 fi
 
 assert_stat() {

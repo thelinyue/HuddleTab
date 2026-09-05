@@ -24,7 +24,7 @@ it("两个 Compose 配置将数据库和应用持久化目录分开挂载", asyn
   );
   expect(releaseCompose).toContain("- ./huddletab-data/app:/data");
   expect(releaseCompose).not.toContain("- ./huddletab-data:/data");
-  expect(releaseCompose).toContain("ghcr.io/thelinyue/huddletab:0.0.4");
+  expect(releaseCompose).toContain("ghcr.io/thelinyue/huddletab:0.0.5");
   expect(releaseCompose).toContain("PUID: ${PUID:-10001}");
   expect(releaseCompose).toContain("PGID: ${PGID:-10001}");
   expect(releaseCompose).not.toContain('"node"');

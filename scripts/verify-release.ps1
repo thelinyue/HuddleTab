@@ -1,6 +1,6 @@
 <##
   HuddleTab Rust 新栈最终自动化发布门禁。
-  该入口故意不接受 Compose 文件、测试路径或版本参数；它只验证固定的 0.0.4 候选，
+  该入口故意不接受 Compose 文件、测试路径或版本参数；它只验证固定的 0.0.5 候选，
   不创建 Git tag、不登录 GHCR、不推送镜像。真机 iPhone 验收仍需部署者单独完成。
 ##>
 [CmdletBinding()]
@@ -159,7 +159,7 @@ try {
   Invoke-Checked "完整候选镜像与浏览器矩阵" { & (Join-Path $frontendDir "e2e/run-phase1e.ps1") -ReleaseVerification }
   Invoke-Checked "Git diff whitespace 检查" { git -C $repoDir diff --check }
 
-  Write-Host "[release] 自动化门禁通过：0.0.4 候选镜像已完成 Rust、PostgreSQL、Frontend、Compose 与浏览器验收。"
+  Write-Host "[release] 自动化门禁通过：0.0.5 候选镜像已完成 Rust、PostgreSQL、Frontend、Compose 与浏览器验收。"
   Write-Host "[release] 真实 iPhone Safari/Home Screen PWA 验收未执行，已记录为本次发布例外；本次未创建 tag、未推送 GHCR。"
 } finally {
   try { Stop-DisposablePostgres } catch { Write-Error $_ }
