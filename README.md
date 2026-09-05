@@ -6,6 +6,62 @@ HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作�
 
 正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.4`，对应 Git tag `v0.0.4`。该版本使用 Rust/Axum 运行栈。
 
+## Compose 直接部署
+
+不需要创建 `.env` 文件。将下面的内容复制保存为 `compose.yaml`，并在该文件所在目录执行命令：
+
+```yaml
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: huddletab
+      POSTGRES_USER: huddletab
+      POSTGRES_PASSWORD: huddletab
+    volumes:
+      - ./postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: ghcr.io/thelinyue/huddletab:0.0.4
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://huddletab:huddletab@postgres:5432/huddletab
+      APP_BASE_URL: http://localhost:5660
+      DATA_DIR: /data
+      PUID: "10001"
+      PGID: "10001"
+      TRUST_PROXY: "false"
+      TZ: Asia/Shanghai
+    ports:
+      - "5660:5660"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "exec gosu \"$$PUID:$$PGID\" curl --fail --silent http://127.0.0.1:5660/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+```
+
+首次部署前请修改配置中的 `POSTGRES_PASSWORD`，并同步修改 `DATABASE_URL` 中的数据库密码。然后执行：
+
+```bash
+docker compose up -d
+docker compose ps
+docker compose logs -f app
+```
+
+部署数据保存在 Compose 文件所在目录的 `./postgres` 和 `./data` 中。完成初始化后访问 <http://localhost:5660>。
+
 Task 31 只提供管理员存储占用和系统信息读取；SMTP、邮件测试及应用级备份/还原不属于当前产品范围。宿主/NAS 数据保护责任见[数据保护与恢复](docs/deployment/data-protection.md)，活动软删除恢复仍是独立的业务功能。
 
 系统信息中的应用与 PWA 版本共用 `APP_VERSION`，未设置时显示 `dev`；这不是正式版本号。
@@ -18,7 +74,7 @@ docker compose up -d --wait
 docker compose ps
 ```
 
-默认数据库密码是 `huddletab`，仅适合本机或受控网络。开放公网前，必须通过 `.env` 修改 `POSTGRES_PASSWORD`；仓库 Compose 会使用同一个变量构造 `DATABASE_URL`。公开访问地址通过 `APP_BASE_URL` 设置；HTTPS 和可信代理边界见[HTTPS 与反向代理](docs/deployment/https.md)。
+默认数据库密码是 `huddletab`，仅适合本机或受控网络。开放公网前，必须修改 Compose 配置中的 `POSTGRES_PASSWORD`，并同步修改 `DATABASE_URL` 中的数据库密码。公开访问地址通过 `APP_BASE_URL` 设置；HTTPS 和可信代理边界见[HTTPS 与反向代理](docs/deployment/https.md)。
 
 首次空数据库打开网页会进入独立的管理员初始化页，按“管理员昵称、用户名、密码、确认密码”的顺序填写并点击“完成初始化”。成功后页面会自动登录并进入活动列表；失败时表单草稿会保留。初始化请求使用同源 CSRF/Origin 校验、认证限流和数据库事务锁，首个成功提交者成为系统管理员。
 
