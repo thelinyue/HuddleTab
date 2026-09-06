@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import {
   assertExpenseEditorScrollBoundary,
+  assertActivityChrome,
   assertNoHorizontalOverflow,
   assertQuickExpenseGeometry,
   createActivity,
@@ -54,6 +55,14 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   const activityId = await createActivity(page, activityName);
   const navigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(navigation.getByRole("link")).toHaveText(["流水", "结算"]);
+  await assertActivityChrome(page, { themeColor: "#f6f8f7", backgroundColor: "rgb(246, 248, 247)" });
+  await page.evaluate(() => localStorage.setItem("huddletab-theme", "dark"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: activityName, exact: true })).toBeVisible();
+  await assertActivityChrome(page, { themeColor: "#0d1512", backgroundColor: "rgb(13, 21, 18)" });
+  await page.evaluate(() => localStorage.setItem("huddletab-theme", "light"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: activityName, exact: true })).toBeVisible();
 
   const initialViewportHeight = await page.evaluate(() => window.innerHeight);
   await simulateKeyboardViewport(page, 0, initialViewportHeight);
@@ -160,11 +169,15 @@ test("生产页面锁定 viewport，并声明 standalone、图标和 Apple touch
     name?: string;
     short_name?: string;
     display?: string;
+    theme_color?: string;
+    background_color?: string;
     icons?: Array<{ src?: string }>;
   };
   expect(data.name).toBe("HuddleTab / 伙记");
   expect(data.short_name).toBe("伙记");
   expect(data.display).toBe("standalone");
+  expect(data.theme_color).toBe("#f6f8f7");
+  expect(data.background_color).toBe("#f6f8f7");
   for (const src of ["/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/apple-touch-icon.png"]) {
     const response = await request.get(src);
     expect(response.status(), `${src} 不可访问`).toBe(200);

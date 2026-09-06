@@ -66,6 +66,14 @@ describe("ThemeProvider", () => {
     expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#0d1512");
   });
 
+  it("默认亮色与活动页面画布使用同一 theme-color", () => {
+    render(<ThemeProvider><ThemeProbe /></ThemeProvider>);
+
+    expect(screen.getByTestId("resolved")).toHaveTextContent("light");
+    expect(document.documentElement).not.toHaveClass("dark");
+    expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#f6f8f7");
+  });
+
   it("手动切换立即持久化并应用三态颜色", () => {
     render(<ThemeProvider><ThemeProbe /></ThemeProvider>);
     fireEvent.click(screen.getByRole("button", { name: "DARK" }));

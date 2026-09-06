@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { assertNoHorizontalOverflow, createActivity, credentials, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertActivityChrome, assertNoHorizontalOverflow, createActivity, credentials, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
 
 async function waitForSnapshotCache(page: Page, activityId: string): Promise<void> {
   await expect.poll(() => page.evaluate(async (targetActivityId) => {
@@ -58,6 +58,14 @@ test("Phase 2 离线工作台、幂等重放、REJECTED 修正与 Snapshot 条�
   await loginAfterRateLimit(page);
   const activityId = await createActivity(page, `Phase 1E Phase 2 ${testInfo.project.name}-${Date.now()}`);
   await expect(page.getByRole("navigation", { name: "活动导航" }).getByRole("link")).toHaveText(["流水", "结算"]);
+  await assertActivityChrome(page, { themeColor: "#f6f8f7", backgroundColor: "rgb(246, 248, 247)" });
+  await page.evaluate(() => localStorage.setItem("huddletab-theme", "dark"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: /Phase 1E Phase 2/ })).toBeVisible();
+  await assertActivityChrome(page, { themeColor: "#0d1512", backgroundColor: "rgb(13, 21, 18)" });
+  await page.evaluate(() => localStorage.setItem("huddletab-theme", "light"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: /Phase 1E Phase 2/ })).toBeVisible();
 
   // 首次在线加载必须落下完整 Snapshot，之后断网只允许使用当前用户缓存。
   await waitForSnapshotCache(page, activityId);

@@ -10,7 +10,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "prompt",
-      includeAssets: ["apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png"],
+      includeAssets: ["apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "illustrations/activity-list-empty.webp"],
       workbox: {
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api(?:\/|$)/],
@@ -20,8 +20,8 @@ export default defineConfig({
         name: "HuddleTab / 伙记",
         short_name: "伙记",
         description: "一起花，清楚分。",
-        theme_color: "#087f73",
-        background_color: "#f7faf9",
+        theme_color: "#f6f8f7",
+        background_color: "#f6f8f7",
         display: "standalone",
         start_url: "/",
         icons: [

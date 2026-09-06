@@ -576,6 +576,59 @@ describe("成员 Overlay", () => {
   });
 });
 
+describe("活动列表空状态", () => {
+  it("还原 v0.0.2 的场景插画和主次操作层级", () => {
+    const { container } = renderActivitiesPage();
+
+    const illustration = container.querySelector<HTMLImageElement>(
+      'img[src="/illustrations/activity-list-empty.webp"]',
+    );
+    expect(illustration).toHaveAttribute("alt", "");
+    expect(illustration).toHaveAttribute("aria-hidden", "true");
+    expect(illustration).toHaveAttribute("width", "960");
+    expect(illustration).toHaveAttribute("height", "640");
+    expect(illustration).toHaveAttribute("loading", "eager");
+    expect(illustration).toHaveAttribute(
+      "sizes",
+      "(max-width: 351px) calc(100vw - 32px), 320px",
+    );
+    expect(container.querySelector(".empty-state__icon")).not.toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "创建活动" })).toHaveClass(
+      "button--primary",
+      "activity-empty-create",
+    );
+    expect(screen.getByRole("button", { name: "加入已有活动" })).toHaveClass(
+      "button--ghost",
+      "activity-empty-join",
+    );
+  });
+
+  it("把恢复入口放在标题文字右侧，并保留最右侧的新建入口", () => {
+    const { container } = renderActivitiesPage();
+    const heading = screen.getByRole("heading", { name: "活动" });
+    const deletedButton = screen.getByRole("button", { name: "已删除活动" });
+    const actionButton = screen.getByRole("button", { name: "新建或加入活动" });
+
+    expect(heading.parentElement).toHaveClass("home-header__title");
+    expect(heading.nextElementSibling).toBe(deletedButton);
+    expect(heading.parentElement?.parentElement?.lastElementChild).toBe(actionButton);
+    expect(deletedButton).toHaveAttribute("title", "已删除活动");
+    expect(deletedButton.querySelector(".lucide-trash-2")).toBeInTheDocument();
+    expect(deletedButton.querySelector(".lucide-rotate-ccw")).not.toBeInTheDocument();
+    expect(container.querySelector(".deleted-activities-entry")).not.toBeInTheDocument();
+  });
+
+  it("已有活动时不显示空状态插画", () => {
+    activityApiState.activities = [activityApiState.activity];
+    const { container } = renderActivitiesPage();
+
+    expect(
+      container.querySelector('img[src="/illustrations/activity-list-empty.webp"]'),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("创建活动 Overlay", () => {
   it("从选择页进入创建页后按历史层级返回，并在子视图切换时聚焦表单", async () => {
     renderActivitiesPage("/activities", true);

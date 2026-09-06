@@ -310,13 +310,20 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .empty-state h2 { color: var(--foreground); }
 .empty-state p { max-width: 42ch; }
 .empty-state__icon { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--secondary); }
+.empty-state--illustrated { gap: 0; padding-inline: 0; }
+.empty-state--illustrated p { margin-top: 4px; }
+.activity-empty-illustration { display: block; width: min(100%, 320px); height: auto; margin: 0 auto 20px; object-fit: contain; }
+.empty-state--illustrated .empty-state__actions { margin-top: 16px; gap: 4px; }
+.empty-state--illustrated .activity-empty-create { width: 100%; min-height: 48px; }
+.activity-empty-join { width: 100%; min-height: 44px; color: var(--primary); }
+.activity-empty-join:hover { color: var(--primary); }
 .page-state { display: flex; min-height: 240px; align-items: center; justify-content: center; gap: 10px; color: var(--muted-foreground); }
 .notice { display: flex; align-items: start; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 11px 12px; background: var(--surface-muted); }
 .notice--error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); background: var(--danger-soft); }
 .notice--success { color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, var(--border)); background: color-mix(in srgb, var(--success) 8%, var(--surface)); }
 
-.workspace { min-height: 100dvh; background: var(--workspace); }
-.workspace-header { position: sticky; top: 0; z-index: 20; width: min(100%, 800px); margin-inline: auto; border-bottom: 1px solid var(--border); padding: env(safe-area-inset-top) 16px 0; background: color-mix(in srgb, var(--surface) 97%, transparent); backdrop-filter: blur(10px); }
+.workspace { min-height: 100dvh; background: var(--background); }
+.workspace-header { position: sticky; top: 0; z-index: 20; width: min(100%, 800px); margin-inline: auto; border-bottom: 1px solid var(--border); padding: env(safe-area-inset-top) 16px 0; background: var(--background); }
 .workspace-header__inner { display: grid; width: min(100%, 800px); min-height: 56px; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; margin-inline: auto; padding-inline: 12px; }
 .workspace-header__title { display: grid; min-width: 0; justify-items: center; }
 .workspace-header__title strong, .workspace-header__title small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -337,6 +344,8 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .top-level-page { min-height: 100dvh; background: var(--surface); }
 .app-frame--with-nav { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 .home-header { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 16px; }
+.home-header__title { display: flex; min-width: 0; align-items: center; gap: 2px; }
+.home-header__title .icon-button { border-radius: 50%; }
 .home-header h1 { font-size: 21px; }
 .home-add { display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 50%; color: var(--primary-foreground); background: var(--primary); }
 .home-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
@@ -374,7 +383,17 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .expense-summary > .money { display: block; margin-top: 2px; font-size: 24px; }
 .expense-summary__foreign, .expense-summary__meta { margin-top: 10px; color: var(--muted-foreground); font-size: 12px; }
 .expense-summary__meta { display: flex; align-items: center; gap: 4px; }
+.expense-summary__meta > span { min-width: 0; }
 .expense-summary__meta strong { color: var(--foreground); }
+.expense-summary__info-trigger { position: relative; display: inline-grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border: 0; border-radius: 999px; padding: 0; color: var(--muted-foreground); background: transparent; transition: background-color 120ms ease, color 120ms ease, transform 120ms ease; }
+.expense-summary__info-trigger::before { position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); content: ""; }
+.expense-summary__info-trigger:hover, .expense-summary__info-trigger[data-state="open"] { color: var(--foreground); background: var(--surface-muted); }
+.expense-summary__info-trigger:active { transform: scale(.96); }
+.expense-summary__info-popover { z-index: 70; width: min(280px, calc(100vw - 32px)); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--foreground); background: color-mix(in srgb, var(--surface) 96%, transparent); box-shadow: var(--shadow-overlay); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; transform-origin: var(--radix-popover-content-transform-origin); animation: expense-info-popover-in 140ms ease-out both; }
+.expense-summary__info-arrow { fill: var(--surface); stroke: var(--border); stroke-width: 1; }
+@keyframes expense-info-popover-in { from { opacity: 0; transform: scale(.96) translateY(2px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .expense-summary__info-trigger { transition: none; } .expense-summary__info-popover { animation: none; } }
+@media (prefers-reduced-transparency: reduce) { .expense-summary__info-popover { background: var(--surface); } }
 .expense-feed-section { margin-top: 24px; }
 .expense-feed-section > header, .settlement-section > header { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; }
 .expense-feed-section > header h2, .settlement-section h2 { font-size: 16px; }
@@ -535,7 +554,7 @@ button.settings-row:hover { background: var(--surface-muted); }
 .expense-row:hover { background: var(--surface-muted); }
 .expense-row--pending { background: var(--surface-muted); color: var(--muted-foreground); }
 .expense-row--pending:hover { background: var(--surface-muted); }
-.category-illustration { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 8px; background: var(--secondary); }
+.category-illustration { display: grid; width: 44px; height: 44px; place-items: center; }
 .category-illustration img { width: 38px; height: 38px; object-fit: contain; }
 .expense-row__content, .expense-row__amount { display: grid; min-width: 0; }
 .expense-row__content strong { overflow-wrap: anywhere; }
@@ -889,8 +908,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .product-bottom-nav a { min-height: 58px; }
 
 /* 工作台页头和流水/结算保持旧版的连续表面；Sheet 采用半透明 scrim。 */
-.workspace { background: var(--workspace); }
-.workspace-header { padding-inline: 16px; border-bottom-color: rgb(220 229 224 / 80%); background: rgb(255 255 255 / 84%); backdrop-filter: blur(16px) saturate(140%); }
+.workspace { background: var(--background); }
+.workspace-header { padding-inline: 16px; border-bottom-color: var(--border); background: var(--background); }
 .workspace-header__identity { padding-top: 4px; }
 .workspace-header__identity h1 { font-size: 20px; font-weight: 750; }
 .workspace-nav a { min-height: 44px; font-size: 14px; transition: transform 100ms ease-out, color 160ms ease, border-color 160ms ease; }
@@ -1053,7 +1072,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disabled):active, .icon-button:not(:disabled):active, .settings-link:active, .settings-row:active, .activity-list-item:active, .workspace-nav a:active, .balance-entry:active, .settlement-recommendations button:active, .member-row:active { transform: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .product-bottom-nav, .workspace-header { background: var(--surface); backdrop-filter: none; }
+  .product-bottom-nav { background: var(--surface); backdrop-filter: none; }
+  .workspace-header { background: var(--background); backdrop-filter: none; }
   .form-overlay__scrim { backdrop-filter: none; }
   .quick-expense-submit-bar, .quick-expense-subview__footer { background: var(--surface); box-shadow: 0 -1px 0 var(--border); backdrop-filter: none; }
 }
@@ -1168,6 +1188,54 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
     -webkit-user-select: none;
     user-select: none;
   }
+
+  /* 主导航悬浮在内容上方：安全区留给 Home Indicator，玻璃材质只承担导航层级。 */
+  .app-frame--with-nav { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+  .product-bottom-nav {
+    right: 12px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    left: 12px;
+    width: auto;
+    max-width: 320px;
+    border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    border-radius: 999px;
+    padding: 4px;
+    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 68%, transparent);
+    box-shadow: 0 12px 32px rgb(13 21 18 / 18%), inset 0 1px 0 rgb(255 255 255 / 38%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+  }
+  .product-bottom-nav ul { gap: 2px; }
+  .product-bottom-nav a {
+    min-height: 52px;
+    border-bottom: 0;
+    border-radius: 999px;
+    background: transparent;
+    touch-action: manipulation;
+    transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 90ms ease-out;
+  }
+  .product-bottom-nav a.active {
+    border-bottom-color: transparent;
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent), inset 0 1px 0 rgb(255 255 255 / 28%);
+  }
+  .product-bottom-nav a:active { transform: scale(.97); }
+  .product-bottom-nav__badge { border-color: color-mix(in srgb, var(--surface) 80%, transparent); }
+}
+
+/* 辅助功能偏好优先于玻璃效果，仍保留清晰的当前位置反馈。 */
+@media (display-mode: standalone) and (prefers-reduced-motion: reduce) {
+  .product-bottom-nav a { transition: none; }
+  .product-bottom-nav a:active { transform: none; }
+}
+@media (display-mode: standalone) and (prefers-reduced-transparency: reduce) {
+  .product-bottom-nav { background: var(--surface); box-shadow: 0 8px 24px rgb(13 21 18 / 16%); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .product-bottom-nav a.active { background: var(--secondary); box-shadow: none; }
+}
+@media (display-mode: standalone) and (prefers-contrast: more) {
+  .product-bottom-nav { border-color: var(--foreground); background: var(--surface); }
+  .product-bottom-nav a.active { box-shadow: inset 0 0 0 1px var(--primary); }
 }
 
 /* 首页活动入口的移动 Sheet：标题栏负责手势，正文独立滚动，避免短内容像桌面小弹窗。 */

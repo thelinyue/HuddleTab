@@ -105,6 +105,17 @@ export async function createActivity(page: Page, name: string): Promise<string> 
   return new URL(page.url()).pathname.split("/").at(-1)!;
 }
 
+export async function assertActivityChrome(page: Page, expected: { themeColor: string; backgroundColor: string }): Promise<void> {
+  const colors = await page.evaluate(() => ({
+    themeColor: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content,
+    workspace: getComputedStyle(document.querySelector<HTMLElement>(".workspace")!).backgroundColor,
+    header: getComputedStyle(document.querySelector<HTMLElement>(".workspace-header")!).backgroundColor,
+  }));
+  expect(colors.themeColor).toBe(expected.themeColor);
+  expect(colors.workspace).toBe(expected.backgroundColor);
+  expect(colors.header).toBe(expected.backgroundColor);
+}
+
 export async function openQuickExpense(page: Page): Promise<Locator> {
   await page.getByRole("button", { name: "记一笔", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "记一笔", exact: true });

@@ -72,10 +72,14 @@ export function LoadingState({ label = "正在加载…" }: { label?: string }) 
   );
 }
 
-export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) {
+/**
+ * 通用空状态保留默认图标，同时允许特定页面提供装饰性场景图。
+ * 视觉内容不会改变标题、说明和恢复操作的语义层级。
+ */
+export function EmptyState({ icon, visual, title, description, action }: { icon: ReactNode; visual?: ReactNode; title: string; description: string; action?: ReactNode }) {
   return (
-    <div className="empty-state">
-      <span className="empty-state__icon" aria-hidden="true">{icon}</span>
+    <div className={`empty-state${visual ? " empty-state--illustrated" : ""}`}>
+      {visual ?? <span className="empty-state__icon" aria-hidden="true">{icon}</span>}
       <h2>{title}</h2>
       <p>{description}</p>
       {action}

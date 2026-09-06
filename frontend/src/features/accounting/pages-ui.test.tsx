@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -219,6 +220,39 @@ describe("Expense 参考汇率", () => {
     expect(screen.getByPlaceholderText("0.00")).toHaveValue("123");
     expect(screen.getByRole("button", { name: "币种" })).toHaveTextContent("JPY");
     expect(screen.getByPlaceholderText("例如 7.25")).toHaveValue("0.041");
+  });
+});
+
+describe("人均消费说明", () => {
+  const message = "人均消费仅为统计平均值，不代表任何成员实际应承担金额。";
+
+  it("点击后显示完整说明，Escape 关闭并恢复触发器焦点", async () => {
+    renderPage(<ExpenseFeedPage />);
+    const trigger = screen.getByRole("button", { name: "人均消费说明" });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(message)).toBeVisible();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("支持使用 Enter 键打开说明", async () => {
+    const user = userEvent.setup();
+    renderPage(<ExpenseFeedPage />);
+    const trigger = screen.getByRole("button", { name: "人均消费说明" });
+    trigger.focus();
+
+    await user.keyboard("{Enter}");
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(message)).toBeVisible();
   });
 });
 

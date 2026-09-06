@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Filter, ImageDown, ImagePlus, Info, Plus, ReceiptText, Trash2, UsersRound, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Popover } from "radix-ui";
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
@@ -392,7 +393,22 @@ export function ExpenseFeedPage() {
         <p>总消费</p>
         <Money value={formatMoney(activity.baseCurrency, total.toString())} />
         {[...foreignTotals].length ? <p className="expense-summary__foreign">其中外币消费 {[...foreignTotals].map(([currencyCode, amount]) => formatMoney(currencyCode, amount.toString())).join(" · ")} · 已折算</p> : null}
-        <p className="expense-summary__meta">{allExpenses.length} 笔消费 · 人均消费 <strong>{formatMoney(activity.baseCurrency, average.toString())}</strong> <Info aria-label="人均消费仅为统计平均值" size={14} /></p>
+        <p className="expense-summary__meta">
+          <span>{allExpenses.length} 笔消费 · 人均消费 <strong>{formatMoney(activity.baseCurrency, average.toString())}</strong></span>
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button className="expense-summary__info-trigger" type="button" aria-label="人均消费说明">
+                <Info aria-hidden="true" size={14} />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content className="expense-summary__info-popover" side="top" align="end" sideOffset={8}>
+                <p>人均消费仅为统计平均值，不代表任何成员实际应承担金额。</p>
+                <Popover.Arrow className="expense-summary__info-arrow" />
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        </p>
       </section>
 
       <section className="expense-feed-section" aria-labelledby="expense-feed-heading">

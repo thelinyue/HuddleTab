@@ -407,22 +407,31 @@ export function ActivitiesPage() {
   return (
     <div className="top-level-page">
       <main className="app-frame app-frame--with-nav">
-        <header className="home-header"><h1>活动</h1><button className="home-add" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => openPanel("actions")}><Plus aria-hidden="true" size={18} /></button></header>
+        <header className="home-header">
+          <div className="home-header__title">
+            <h1>活动</h1>
+            <button className="icon-button" type="button" aria-label="已删除活动" title="已删除活动" onClick={() => openPanel("deleted")}>
+              <Trash2 aria-hidden="true" size={18} />
+            </button>
+          </div>
+          <button className="home-add" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => openPanel("actions")}><Plus aria-hidden="true" size={18} /></button>
+        </header>
         {summaries.map(([currency, summary]) => (
           <dl className="home-summary" key={currency} aria-label={`${currency} 跨活动账务摘要`}>
             <div><dt>待支付</dt><dd><Money value={formatMoney(currency, summary.payable.toString())} tone="negative" /></dd></div>
             <div><dt>待收款</dt><dd><Money value={formatMoney(currency, summary.receivable.toString())} tone="positive" /></dd></div>
           </dl>
         ))}
-        {!items.length ? <EmptyState icon={<Plus size={28} />} title="还没有活动" description="创建第一个活动后，就可以开始记录消费。" action={<div className="empty-state__actions"><Button onClick={openCreate}>创建活动</Button><Button variant="secondary" onClick={openJoin}>加入已有活动</Button></div>} /> : null}
+        {!items.length ? <EmptyState
+          icon={<Plus size={28} />}
+          visual={<img className="activity-empty-illustration" src="/illustrations/activity-list-empty.webp" alt="" aria-hidden="true" width={960} height={640} loading="eager" sizes="(max-width: 351px) calc(100vw - 32px), 320px" />}
+          title="还没有活动"
+          description="创建第一个活动后，就可以开始记录消费。"
+          action={<div className="empty-state__actions"><Button className="activity-empty-create" onClick={openCreate}>创建活动</Button><Button className="activity-empty-join" variant="ghost" onClick={openJoin}>加入已有活动</Button></div>}
+        /> : null}
         <ActivityGroup title="进行中的活动" activities={active} allActivities={items} ledgers={ledgers} />
         <ActivityGroup title="最近结束" activities={ended} allActivities={items} ledgers={ledgers} />
         {archived.length ? <details className="activity-history"><summary>查看历史活动</summary><ActivityGroup title="已归档" activities={archived} allActivities={items} ledgers={ledgers} /></details> : null}
-        <button className="settings-link deleted-activities-entry" type="button" aria-label="已删除活动" onClick={() => openPanel("deleted")}>
-          <RotateCcw aria-hidden="true" size={18} />
-          <span><strong>已删除活动</strong><small>查看恢复期限内可恢复的活动</small></span>
-          <ChevronRight aria-hidden="true" size={18} />
-        </button>
       </main>
       <ProductBottomNavigation />
       <Overlay open={panel === "actions" || panel === "create" || panel === "join"} title={panel === "create" ? "创建活动" : panel === "join" ? "加入活动" : "新建或加入活动"} onBack={panel === "create" || panel === "join" ? backToActions : undefined} backLabel="新建或加入活动" onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay activity-actions-overlay">
