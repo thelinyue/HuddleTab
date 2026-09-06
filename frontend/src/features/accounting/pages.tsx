@@ -1,11 +1,11 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Filter, ImageDown, ImagePlus, Info, Plus, ReceiptText, Trash2, UsersRound, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Popover } from "radix-ui";
-import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
-import { useSheetDrag } from "../../components/gesture-sheet";
+import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select, Textarea } from "../../components/ui";
 import { amountToMinor, decimalToHundredths, formatMoney, minorToInput, normalizeCurrency } from "../../domain-preview/money";
 import { type ActivityMember, useCreateGuestMutation, useMembersQuery } from "../activities/api";
@@ -253,65 +253,6 @@ export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZ
   return [...groups].map(([date, groupedExpenses]) => ({ date, expenses: groupedExpenses }));
 }
 
-function AccountingOverlay({ open, title, onClose, onBack, backLabel = "返回", leadingAction, focusKey, children, className = "" }: { open: boolean; title: string; onClose: () => void; onBack?: () => void; backLabel?: string; leadingAction?: ReactNode; focusKey?: string; children: ReactNode; className?: string }) {
-  const titleId = useId();
-  const { sheetRef, overlayStyle, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // 视图切换会重建焦点陷阱，但关闭时始终回到最初打开 Overlay 的 FAB/触发器。
-    // 这样从任意子视图 Back 或 Close 都不会把焦点遗留在已卸载的控件上。
-    return () => {
-      if (previous?.isConnected) previous.focus();
-    };
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const sheet = sheetRef.current;
-    const focusableSelector = "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
-    // 显式焦点标记优先于 Header 控件，保证子视图返回时焦点回到原触发入口。
-    const initial = sheet?.querySelector<HTMLElement>("[data-overlay-initial-focus]")
-      ?? sheet?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)");
-    initial?.focus();
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab" || !sheet) return;
-      const focusable = [...sheet.querySelectorAll<HTMLElement>(focusableSelector)];
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [focusKey, open, sheetRef]);
-  if (!open) return null;
-  return (
-    <div className={`form-overlay ${className}`} style={overlayStyle} role="presentation">
-      <button type="button" className="form-overlay__scrim" aria-label={`关闭${title}`} onClick={onClose} />
-      <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header className="form-overlay__header" {...headerProps}>
-          <div className="form-overlay__header-main">
-            {onBack ? <button className="icon-button" type="button" aria-label={backLabel} onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : leadingAction}
-            <h2 id={titleId}>{title}</h2>
-          </div>
-          <button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><X aria-hidden="true" size={20} /></button>
-        </header>
-        <div className="form-overlay__body">{children}</div>
-      </section>
-    </div>
-  );
-}
-
 function dateHeading(date: string): string {
   const [year, month, day] = date.split("-").map(Number);
   return `${year}年${month}月${day}日`;
@@ -432,7 +373,7 @@ export function ExpenseFeedPage() {
                 return (
                   <div key={record.id} className="expense-row expense-row--pending">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => { setRejectedView("entry"); setRejectedDraft(record); }}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => setDiscardTarget({ mutationId: record.id, activityId: record.activityId })}>丢弃本地记录</Button></span> : null}</span>
+                    <span className="expense-row__content"><strong>{record.payload.title}</strong>{record.payload.note ? <span className="expense-row__note">{record.payload.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => { setRejectedView("entry"); setRejectedDraft(record); }}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => setDiscardTarget({ mutationId: record.id, activityId: record.activityId })}>丢弃本地记录</Button></span> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(record.payload.originalCurrency, record.payload.originalAmountMinor)} /><small>{new Date(record.payload.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </div>
                 );
@@ -465,7 +406,7 @@ export function ExpenseFeedPage() {
                 return (
                   <Link key={expense.expenseId} to={rowUrl} state={existingExpenseWritable ? { expenseOverlay: true } : undefined} className="expense-row">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{expense.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shares.length}人</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
+                    <span className="expense-row__content"><strong>{expense.title}</strong>{expense.note ? <span className="expense-row__note">{expense.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shares.length}人</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} /><small>{new Date(expense.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </Link>
                 );
@@ -476,22 +417,21 @@ export function ExpenseFeedPage() {
       </section>
 
       {expenseWritable ? <button className="quick-expense-trigger" type="button" aria-label="记一笔" onClick={() => { setQuickView("entry"); setEntryOpen(true); }}><Plus aria-hidden="true" size={24} /></button> : null}
-      <AccountingOverlay
+      <Overlay
         open={expenseWritable && entryOpen}
         title={quickExpenseViewTitle(quickView)}
-        onBack={quickView === "entry" ? undefined : () => setQuickView(parentQuickExpenseView(quickView))}
-        backLabel={quickExpenseBackLabel(quickView)}
+        onBack={quickView === "entry" ? undefined : { label: quickExpenseBackLabel(quickView), onClick: () => setQuickView(parentQuickExpenseView(quickView)) }}
         focusKey={quickView}
         onClose={() => { setQuickView("entry"); setEntryOpen(false); }}
          className="quick-expense-overlay quick-expense-overlay--entry"
       >
         <UnifiedExpenseEditor view={quickView} onViewChange={setQuickView} onSaved={() => { setQuickView("entry"); setEntryOpen(false); }} />
-      </AccountingOverlay>
-      <AccountingOverlay open={Boolean(rejectedDraft)} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : () => setRejectedView(parentQuickExpenseView(rejectedView))} backLabel="修改被拒账单" focusKey={rejectedView} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className="quick-expense-overlay quick-expense-overlay--entry"><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></AccountingOverlay>
+      </Overlay>
+      <Overlay open={Boolean(rejectedDraft)} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : { label: "修改被拒账单", onClick: () => setRejectedView(parentQuickExpenseView(rejectedView)) }} focusKey={rejectedView} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className="quick-expense-overlay quick-expense-overlay--entry"><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></Overlay>
       {editExpenseId ? <ExpenseEditOverlay expenseId={editExpenseId} onClose={closeEditExpense} /> : null}
-      <AccountingOverlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
+      <Overlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
         <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
-      </AccountingOverlay>
+      </Overlay>
       <ConfirmDialog open={Boolean(discardTarget)} title="丢弃本地记录" message="丢弃后无法恢复这条本地离线消费，也不会影响服务器上的账单。确定继续吗？" confirmLabel="确认丢弃" busy={discardPending.isPending} onConfirm={() => void confirmDiscard()} onCancel={() => setDiscardTarget(undefined)} />
     </div>
   );
@@ -596,11 +536,10 @@ function ExpenseEditOverlay({ expenseId, onClose }: { expenseId: string; onClose
   ) : undefined;
 
   return (
-    <AccountingOverlay
+    <Overlay
       open
       title={title}
-      onBack={view === "entry" ? undefined : () => setView(parentQuickExpenseView(view))}
-      backLabel={quickExpenseBackLabel(view, "修改账单")}
+      onBack={view === "entry" ? undefined : { label: quickExpenseBackLabel(view, "修改账单"), onClick: () => setView(parentQuickExpenseView(view)) }}
       leadingAction={deleteAction}
       focusKey={`${expenseId}-${view}`}
       onClose={onClose}
@@ -611,7 +550,7 @@ function ExpenseEditOverlay({ expenseId, onClose }: { expenseId: string; onClose
       {remove.error ? <ErrorNotice error={remove.error} /> : null}
       {expense.data ? <UnifiedExpenseEditor initial={expense.data} view={view} onViewChange={setView} onSaved={onClose} /> : null}
       <ConfirmDialog open={deleteOpen} title="删除账单" message="删除后账本会立即重新计算，这笔账单无法恢复。确定继续吗？" confirmLabel="确认删除" busy={remove.isPending} onConfirm={() => void confirmDelete()} onCancel={() => setDeleteOpen(false)} />
-    </AccountingOverlay>
+    </Overlay>
   );
 }
 
@@ -1096,9 +1035,9 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
                <motion.div
                  id="expense-more-settings"
                  className="quick-expense-advanced-motion"
-                 initial={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
-                 animate={reducedMotion ? { opacity: 1 } : { height: "auto", opacity: 1 }}
-                 exit={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                 initial={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0, overflow: "clip" }}
+                 animate={reducedMotion ? { opacity: 1, overflow: "visible" } : { height: "auto", opacity: 1, transitionEnd: { overflow: "visible" } }}
+                 exit={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0, overflow: "clip" }}
                  transition={reducedMotion ? { duration: 0.16 } : { type: "spring", bounce: 0, duration: 0.32 }}
                >
                  <div className="quick-expense-advanced">
@@ -1281,11 +1220,11 @@ export function SettlementsPage() {
 
        <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{settlementWritable && !fullySettled ? <Button variant="ghost" onClick={() => openForm()}>补记结算</Button> : null}</header>{settlementsData?.length ? <div className="settlement-list">{settlementsData.map((settlement) => <SettlementRow key={settlement.settlementId} settlement={settlement} members={memberData} writable={settlementWritable} />)}</div> : <EmptyState icon={<UsersRound size={26} />} title="还没有结算记录" description="账本产生应收应付后，可按建议记录成员间付款。" />}</section>
 
-       <AccountingOverlay open={balanceOpen} title="成员余额" onClose={() => setBalanceOpen(false)}>
+       <Overlay open={balanceOpen} title="成员余额" onClose={() => setBalanceOpen(false)}>
          <div className="settlement-balance-list">{balances.map((balance) => { const balanceMember = memberData.find((member) => member.memberId === balance.memberId); const net = BigInt(balance.netMinor); return <div className="balance-row" key={balance.memberId}><MemberAvatar memberId={balance.memberId} displayName={balanceMember?.displayName ?? "未知成员"} avatarPreset={balanceMember?.avatarPreset} /><span><strong>{balanceMember?.displayName ?? "未知成员"}</strong></span><span>{net > 0n ? "应收" : net < 0n ? "应付" : "已结清"}{net !== 0n ? <Money value={formatMoney(activity.baseCurrency, (net < 0n ? -net : net).toString())} tone={net > 0n ? "positive" : "negative"} /> : null}</span></div>; })}</div>
-      </AccountingOverlay>
+      </Overlay>
 
-      <AccountingOverlay open={settlementWritable && formOpen} title="记录结算" onClose={() => setFormOpen(false)} className="settlement-form-overlay">
+      <Overlay open={settlementWritable && formOpen} title="记录结算" onClose={() => setFormOpen(false)} className="settlement-form-overlay">
         <form className="form-stack" onSubmit={submit}>
           <Field label="付款人"><Select value={payerMemberId} onChange={(event) => setPayer(event.target.value)} required><option value="">请选择</option>{memberData.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>
           <Field label="收款人"><Select value={receiverMemberId} onChange={(event) => setReceiver(event.target.value)} required><option value="">请选择</option>{memberData.filter((member) => member.status === "ACTIVE").map((member) => <option value={member.memberId} key={member.memberId}>{member.displayName}</option>)}</Select></Field>
@@ -1293,7 +1232,7 @@ export function SettlementsPage() {
           {localError ? <div className="notice notice--error" role="alert">{localError}</div> : null}{create.error ? <ErrorNotice error={create.error} /> : null}
           <Button type="submit" busy={create.isPending}>记录结算</Button>
         </form>
-      </AccountingOverlay>
+      </Overlay>
     </div>
   );
 }

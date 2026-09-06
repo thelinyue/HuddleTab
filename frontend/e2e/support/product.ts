@@ -105,15 +105,25 @@ export async function createActivity(page: Page, name: string): Promise<string> 
   return new URL(page.url()).pathname.split("/").at(-1)!;
 }
 
-export async function assertActivityChrome(page: Page, expected: { themeColor: string; backgroundColor: string }): Promise<void> {
+export async function assertActivityChrome(page: Page, expected: { themeColor: string; backgroundColor: string; translucentHeader?: boolean }): Promise<void> {
   const colors = await page.evaluate(() => ({
     themeColor: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content,
     workspace: getComputedStyle(document.querySelector<HTMLElement>(".workspace")!).backgroundColor,
     header: getComputedStyle(document.querySelector<HTMLElement>(".workspace-header")!).backgroundColor,
+    headerFilter: getComputedStyle(document.querySelector<HTMLElement>(".workspace-header")!).backdropFilter
+      || getComputedStyle(document.querySelector<HTMLElement>(".workspace-header")!).getPropertyValue("-webkit-backdrop-filter"),
   }));
   expect(colors.themeColor).toBe(expected.themeColor);
   expect(colors.workspace).toBe(expected.backgroundColor);
-  expect(colors.header).toBe(expected.backgroundColor);
+  if (expected.translucentHeader) {
+    expect(colors.header).not.toBe("rgba(0, 0, 0, 0)");
+    expect(colors.headerFilter).toContain("blur");
+  } else if (expected.translucentHeader === false) {
+    expect(colors.header).not.toBe("rgba(0, 0, 0, 0)");
+    expect(colors.headerFilter).toBe("none");
+  } else {
+    expect(colors.header).toBe(expected.backgroundColor);
+  }
 }
 
 export async function openQuickExpense(page: Page): Promise<Locator> {

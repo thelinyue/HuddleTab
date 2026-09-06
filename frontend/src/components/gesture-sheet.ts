@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 
 type SheetDragOptions = {
   open: boolean;
@@ -6,8 +15,10 @@ type SheetDragOptions = {
 };
 
 type SheetDragResult = {
+  present: boolean;
   sheetRef: RefObject<HTMLElement | null>;
   overlayStyle: CSSProperties;
+  requestClose: () => void;
   headerProps: {
     onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
     onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void;
@@ -16,6 +27,10 @@ type SheetDragResult = {
   };
   style: CSSProperties;
 };
+
+type AnimationPhase = "closed" | "opening" | "idle" | "dragging" | "settling" | "closing";
+
+export const SHEET_SPRING = { stiffness: 420, damping: 42, mass: 1 } as const;
 
 /** Apple 风格 Sheet 手势的可测试物理函数，集中处理边界阻尼和释放投影。 */
 export function rubberbandOffset(distance: number, dimension: number, constant = 0.55): number {
@@ -32,51 +47,185 @@ let openSheetCount = 0;
 let previousBodyOverflow: string | undefined;
 
 /**
- * 移动端 Sheet 的轻量物理手势：标题栏起手、10px 方向迟滞、Pointer Capture 和
- * 释放速度投影都在这里完成。内容滚动不会抢走下拉手势，回弹使用当前展示位置开始，
- * 因此中途反向拖动不会出现跳变；桌面端同样保留可访问的显式关闭按钮和 Escape。
+ * Sheet 以当前展示偏移作为每次抓取的起点，并将释放速度交给同一组弹簧参数。
+ * 外部关闭和手势关闭都会先完成可见退场，再释放背景锁定和调用业务 onClose。
  */
 export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResult {
   const sheetRef = useRef<HTMLElement | null>(null);
-  const pointer = useRef<{ id: number; startY: number; lastY: number; lastTime: number; velocity: number; locked: boolean } | undefined>(undefined);
+  const pointer = useRef<{
+    id: number;
+    startY: number;
+    startOffset: number;
+    lastY: number;
+    lastTime: number;
+    velocity: number;
+    locked: boolean;
+  } | undefined>(undefined);
   const frame = useRef<number | undefined>(undefined);
+  const phase = useRef<AnimationPhase>("closed");
   const offsetRef = useRef(0);
-  const reducedMotion = useRef(false);
+  const opacityRef = useRef(open ? 0 : 1);
+  const animationVelocity = useRef(0);
+  const onCloseRef = useRef(onClose);
+  const reducedMotion = useRef(
+    typeof window !== "undefined"
+      && typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const [present, setPresent] = useState(open);
   const [offset, setOffset] = useState(0);
+  const [opacity, setOpacity] = useState(open ? 0 : 1);
   const [dragging, setDragging] = useState(false);
   const [overlayStyle, setOverlayStyle] = useState<CSSProperties>({});
+  onCloseRef.current = onClose;
 
-  const setOffsetValue = (value: number) => {
+  const cancelAnimation = useCallback(() => {
+    if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+    frame.current = undefined;
+  }, []);
+
+  const setOffsetValue = useCallback((value: number) => {
     offsetRef.current = value;
     setOffset(value);
-  };
+  }, []);
 
-  useEffect(() => {
-    if (!open) {
-      setOffsetValue(0);
-      setDragging(false);
-      pointer.current = undefined;
-      return;
-    }
-    if (typeof document !== "undefined") {
-      if (openSheetCount === 0) previousBodyOverflow = document.body.style.overflow;
-      openSheetCount += 1;
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      if (frame.current !== undefined) cancelAnimationFrame(frame.current);
-      if (typeof document !== "undefined") {
-        openSheetCount = Math.max(0, openSheetCount - 1);
-        if (openSheetCount === 0 && previousBodyOverflow !== undefined) {
-          document.body.style.overflow = previousBodyOverflow;
-          previousBodyOverflow = undefined;
-        }
+  const setOpacityValue = useCallback((value: number) => {
+    opacityRef.current = value;
+    setOpacity(value);
+  }, []);
+
+  const animateOpacity = useCallback((target: number, onComplete: () => void) => {
+    cancelAnimation();
+    const start = opacityRef.current;
+    const startedAt = performance.now();
+    const duration = 140 * Math.max(Math.abs(target - start), 0.2);
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - (1 - progress) ** 3;
+      setOpacityValue(start + (target - start) * eased);
+      if (progress < 1) frame.current = requestAnimationFrame(tick);
+      else {
+        frame.current = undefined;
+        setOpacityValue(target);
+        onComplete();
       }
     };
-  }, [open]);
+    frame.current = requestAnimationFrame(tick);
+  }, [cancelAnimation, setOpacityValue]);
+
+  const animateSpring = useCallback((target: number, initialVelocity: number, onComplete: () => void) => {
+    cancelAnimation();
+    let position = offsetRef.current;
+    let velocity = initialVelocity;
+    let previousTime = performance.now();
+    animationVelocity.current = velocity;
+    const tick = (now: number) => {
+      const elapsed = Math.min(Math.max(now - previousTime, 1), 32);
+      previousTime = now;
+      const steps = Math.max(1, Math.ceil(elapsed / 8));
+      const delta = elapsed / steps / 1000;
+      for (let index = 0; index < steps; index += 1) {
+        const acceleration = (
+          -SHEET_SPRING.stiffness * (position - target)
+          - SHEET_SPRING.damping * velocity
+        ) / SHEET_SPRING.mass;
+        velocity += acceleration * delta;
+        position += velocity * delta;
+      }
+      animationVelocity.current = velocity;
+      setOffsetValue(position);
+      if (Math.abs(position - target) > 0.5 || Math.abs(velocity) > 5) {
+        frame.current = requestAnimationFrame(tick);
+      } else {
+        frame.current = undefined;
+        animationVelocity.current = 0;
+        setOffsetValue(target);
+        onComplete();
+      }
+    };
+    frame.current = requestAnimationFrame(tick);
+  }, [cancelAnimation, setOffsetValue]);
+
+  const finishClose = useCallback((notify: boolean) => {
+    phase.current = "closed";
+    pointer.current = undefined;
+    setDragging(false);
+    setPresent(false);
+    if (notify) onCloseRef.current();
+  }, []);
+
+  const startClose = useCallback((notify: boolean, initialVelocity = animationVelocity.current) => {
+    if (!present || phase.current === "closing") return;
+    phase.current = "closing";
+    setDragging(false);
+    if (reducedMotion.current) {
+      setOffsetValue(0);
+      animateOpacity(0, () => finishClose(notify));
+      return;
+    }
+    setOpacityValue(1);
+    const height = sheetRef.current?.getBoundingClientRect().height ?? 0;
+    if (height <= 0) {
+      setOffsetValue(0);
+      finishClose(notify);
+      return;
+    }
+    animateSpring(height, initialVelocity, () => finishClose(notify));
+  }, [animateOpacity, animateSpring, finishClose, present, setOffsetValue, setOpacityValue]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      if (present && phase.current !== "closing") startClose(false);
+      return;
+    }
+    if (!present) {
+      setPresent(true);
+      return;
+    }
+    if (phase.current !== "closed" && phase.current !== "closing") return;
+
+    const openingFromClosed = phase.current === "closed";
+    phase.current = "opening";
+    if (reducedMotion.current) {
+      setOffsetValue(0);
+      if (openingFromClosed) setOpacityValue(0);
+      animateOpacity(1, () => { phase.current = "idle"; });
+      return;
+    }
+    setOpacityValue(1);
+    if (openingFromClosed) {
+      const height = sheetRef.current?.getBoundingClientRect().height ?? 0;
+      if (height <= 0) {
+        setOffsetValue(0);
+        phase.current = "idle";
+        return;
+      }
+      setOffsetValue(height);
+      animationVelocity.current = 0;
+    }
+    frame.current = requestAnimationFrame(() => {
+      frame.current = undefined;
+      animateSpring(0, animationVelocity.current, () => { phase.current = "idle"; });
+    });
+  }, [animateOpacity, animateSpring, open, present, setOffsetValue, setOpacityValue, startClose]);
 
   useEffect(() => {
-    if (!open) {
+    if (!present) return;
+    if (openSheetCount === 0) previousBodyOverflow = document.body.style.overflow;
+    openSheetCount += 1;
+    document.body.style.overflow = "hidden";
+    return () => {
+      cancelAnimation();
+      openSheetCount = Math.max(0, openSheetCount - 1);
+      if (openSheetCount === 0 && previousBodyOverflow !== undefined) {
+        document.body.style.overflow = previousBodyOverflow;
+        previousBodyOverflow = undefined;
+      }
+    };
+  }, [cancelAnimation, present]);
+
+  useEffect(() => {
+    if (!present) {
       setOverlayStyle({});
       return;
     }
@@ -98,69 +247,68 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
       viewport.removeEventListener("resize", updateViewport);
       viewport.removeEventListener("scroll", updateViewport);
     };
-  }, [open]);
+  }, [present]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    if (typeof window.matchMedia !== "function") return;
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    reducedMotion.current = media.matches;
     const update = () => { reducedMotion.current = media.matches; };
+    update();
     media.addEventListener?.("change", update);
     return () => media.removeEventListener?.("change", update);
   }, []);
 
   const rubberband = (distance: number) => {
-    const dimension = Math.max(sheetRef.current?.getBoundingClientRect().height ?? 640, 1);
+    const dimension = sheetRef.current?.getBoundingClientRect().height || window.innerHeight || 640;
     return rubberbandOffset(distance, dimension);
   };
 
   const settle = (initialVelocity: number) => {
-    if (frame.current !== undefined) cancelAnimationFrame(frame.current);
-    const start = offsetRef.current;
-    if (reducedMotion.current || Math.abs(start) < 0.5) {
+    phase.current = "settling";
+    if (reducedMotion.current) {
       setOffsetValue(0);
+      phase.current = "idle";
       return;
     }
-    const startedAt = performance.now();
-    const duration = 300;
-    const tick = (now: number) => {
-      const progress = Math.min(1, (now - startedAt) / duration);
-      // 临界阻尼近似：默认回弹不抖动，快速甩动仍继承一小段初速度。
-      const eased = 1 - Math.exp(-7 * progress) * (1 + (initialVelocity / 1200) * (1 - progress));
-      setOffsetValue(start * (1 - eased));
-      if (progress < 1) frame.current = requestAnimationFrame(tick);
-      else setOffsetValue(0);
-    };
-    frame.current = requestAnimationFrame(tick);
+    animateSpring(0, initialVelocity, () => { phase.current = "idle"; });
   };
 
   const finish = (event: ReactPointerEvent<HTMLElement>) => {
     const current = pointer.current;
     if (!current || current.id !== event.pointerId) return;
     const element = event.currentTarget;
-    if (typeof element.hasPointerCapture === "function" && element.hasPointerCapture(event.pointerId) && typeof element.releasePointerCapture === "function") element.releasePointerCapture(event.pointerId);
+    if (
+      typeof element.hasPointerCapture === "function"
+      && element.hasPointerCapture(event.pointerId)
+      && typeof element.releasePointerCapture === "function"
+    ) element.releasePointerCapture(event.pointerId);
     pointer.current = undefined;
     setDragging(false);
-    const height = sheetRef.current?.getBoundingClientRect().height ?? window.innerHeight;
+    const height = sheetRef.current?.getBoundingClientRect().height || window.innerHeight || 640;
     const projected = projectSheetOffset(offsetRef.current, current.velocity);
-    if (projected > height * 0.28 || current.velocity > 900) {
-      onClose();
-      setOffsetValue(0);
-      return;
-    }
-    settle(current.velocity);
+    if (projected > height * 0.28 || current.velocity > 900) startClose(true, current.velocity);
+    else settle(current.velocity);
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    // 标题栏上的返回/关闭等按钮拥有自己的点击语义，不能被拖拽识别器吞掉。
-    // 图标按钮的实际 target 可能是 SVGElement；统一按 Element 检查，避免点到图标时
-    // 被误识别为拖拽起点并吞掉按钮 click。
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("button, a, input, select, textarea")) return;
-    if (frame.current !== undefined) cancelAnimationFrame(frame.current);
-    if (typeof event.currentTarget.setPointerCapture === "function") event.currentTarget.setPointerCapture(event.pointerId);
-    pointer.current = { id: event.pointerId, startY: event.clientY, lastY: event.clientY, lastTime: performance.now(), velocity: 0, locked: false };
+    const inheritedVelocity = animationVelocity.current;
+    cancelAnimation();
+    phase.current = "dragging";
+    if (typeof event.currentTarget.setPointerCapture === "function") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    pointer.current = {
+      id: event.pointerId,
+      startY: event.clientY,
+      startOffset: offsetRef.current,
+      lastY: event.clientY,
+      lastTime: performance.now(),
+      velocity: inheritedVelocity,
+      locked: false,
+    };
     setDragging(true);
   };
 
@@ -171,18 +319,23 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
     const dy = event.clientY - current.startY;
     if (!current.locked && Math.abs(dy) < 10) return;
     current.locked = true;
-    const dt = Math.max(1, now - current.lastTime);
-    current.velocity = ((event.clientY - current.lastY) / dt) * 1000;
+    const delta = Math.max(1, now - current.lastTime);
+    current.velocity = ((event.clientY - current.lastY) / delta) * 1000;
     current.lastY = event.clientY;
     current.lastTime = now;
-    setOffsetValue(dy >= 0 ? dy : rubberband(dy));
+    const next = current.startOffset + dy;
+    setOffsetValue(next >= 0 ? next : rubberband(next));
     event.preventDefault();
   };
 
   return {
+    present,
     sheetRef,
     overlayStyle,
+    requestClose: () => startClose(true),
     headerProps: { onPointerDown, onPointerMove, onPointerUp: finish, onPointerCancel: finish },
-    style: { transform: `translate3d(0, ${offset}px, 0)`, transition: dragging ? "none" : undefined, willChange: "transform" },
+    style: reducedMotion.current
+      ? { opacity, transform: "none", willChange: "opacity" }
+      : { opacity: 1, transform: `translate3d(0, ${offset}px, 0)`, transition: dragging ? "none" : undefined, willChange: "transform" },
   };
 }

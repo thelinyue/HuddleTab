@@ -5,7 +5,7 @@ import { errorMessage } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Button, ErrorNotice, Input, LoadingState } from "../../components/ui";
-import { Overlay } from "../activities/pages";
+import { Overlay } from "../../components/overlay";
 import { useOnlineStatus } from "../activities/offline-workspace";
 import { useSessionQuery } from "../auth/api";
 import {
@@ -119,7 +119,7 @@ function ResetPasswordOverlay({ user, onClose, mutation }: { user: AdminUser | n
     } catch (reason) { setError(errorMessage(reason)); }
   }
   return (
-    <Overlay open title="重置密码" backLabel="返回用户管理" onBack={onClose} onClose={onClose} focusKey={target.id}>
+    <Overlay open title="重置密码" onBack={{ label: "返回用户管理", onClick: onClose }} onClose={onClose} focusKey={target.id}>
       <form className="form-stack" onSubmit={(event) => void submit(event)}>
         <p className="form-hint">将撤销该用户的全部登录 Session。密码不会显示给其他人。</p>
         <div className="field">

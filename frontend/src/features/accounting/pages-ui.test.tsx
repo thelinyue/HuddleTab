@@ -582,6 +582,38 @@ describe("流水内修改账单 Sheet", () => {
   });
 });
 
+describe("流水备注摘要", () => {
+  it("在正式流水标题下显示最多两行的备注摘要", () => {
+    const originalNote = expense.expense.note;
+    const longNote = "这是一段用于验证流水列表两行摘要样式的长备注内容".repeat(6);
+    expense.expense.note = longNote;
+
+    try {
+      renderPage(<ExpenseFeedPage />);
+
+      const note = screen.getByText(longNote);
+      expect(note).toHaveClass("expense-row__note");
+      expect(note.previousElementSibling).toHaveTextContent("午餐");
+      expect(note.nextElementSibling).toHaveTextContent("甲 付款 · 2人");
+    } finally {
+      expense.expense.note = originalNote;
+    }
+  });
+
+  it("无备注时不渲染摘要占位", () => {
+    const originalNote = expense.expense.note;
+    expense.expense.note = "";
+
+    try {
+      const { container } = renderPage(<ExpenseFeedPage />);
+
+      expect(container.querySelector(".expense-row__note")).not.toBeInTheDocument();
+    } finally {
+      expense.expense.note = originalNote;
+    }
+  });
+});
+
 describe("Expense 附件选择与私有预览", () => {
   it("新建模式限制为三张受支持图片，编辑模式不再选择附件", () => {
     const create = renderPage(<NewExpensePage />);
@@ -804,6 +836,7 @@ describe("Expense pending 流水隔离", () => {
         clientMutationId: "pending-1",
         exchangeRate: "1",
         exchangeRateKind: "IDENTITY",
+        note: "清晨出发前购买",
         occurredAt: "2026-09-01T10:00:00Z",
         originalAmountMinor: "200",
         originalCurrency: "CNY",
@@ -819,6 +852,7 @@ describe("Expense pending 流水隔离", () => {
     renderPage(<ExpenseFeedPage />);
 
     expect(screen.getByText("离线早餐")).toBeInTheDocument();
+    expect(screen.getByText("清晨出发前购买")).toHaveClass("expense-row__note");
     expect(screen.getByText(/等待同步/)).toBeInTheDocument();
     expect(screen.getByText(/1 笔消费/)).toBeInTheDocument();
     expect(screen.getByLabelText("消费摘要")).toHaveTextContent("¥10.00");

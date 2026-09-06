@@ -24,7 +24,6 @@ import {
   UserPlus,
   UserRoundCheck,
   UsersRound,
-  X,
 } from "lucide-react";
 import {
   createContext,
@@ -32,8 +31,6 @@ import {
   type ReactNode,
   useContext,
   useEffect,
-  useId,
-  useRef,
   useState,
 } from "react";
 import {
@@ -48,7 +45,7 @@ import { formatMoney } from "../../domain-preview/money";
 import { Button, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select } from "../../components/ui";
 import { AVATAR_PRESETS, DEFAULT_AVATAR_PRESET, MemberAvatar, type AvatarPreset } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
-import { useSheetDrag } from "../../components/gesture-sheet";
+import { Overlay } from "../../components/overlay";
 import { useActivityLedgersQuery } from "../accounting/api";
 import {
   type Activity,
@@ -124,68 +121,6 @@ function activityPanelDepth(state: unknown): number | null {
   if (!state || typeof state !== "object" || !("activityPanelDepth" in state)) return null;
   const depth = (state as { activityPanelDepth?: unknown }).activityPanelDepth;
   return depth === 1 || depth === 2 ? depth : null;
-}
-
-export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, className, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; className?: string; children: ReactNode }) {
-  const titleId = useId();
-  const { sheetRef, overlayStyle, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    if (!open) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const sheet = sheetRef.current;
-    const focusableSelector = "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
-    const initialFocus = sheet?.querySelector<HTMLElement>("[data-overlay-initial-focus]")
-      ?? sheet?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")
-      ?? sheet?.querySelector<HTMLElement>(focusableSelector);
-    initialFocus?.focus();
-
-    // Overlay 自行维持 Escape、Tab 循环和焦点回还，URL 驱动的面板也能得到一致键盘行为。
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab" || !sheet) return;
-      const focusable = [...sheet.querySelectorAll<HTMLElement>(focusableSelector)];
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      if (previousFocus?.isConnected) previousFocus.focus();
-    };
-  }, [focusKey, open]);
-
-  if (!open) return null;
-  return (
-    <div className={["form-overlay", className].filter(Boolean).join(" ")} style={overlayStyle} role="presentation">
-      <button className="form-overlay__scrim" type="button" aria-hidden="true" tabIndex={-1} onClick={onClose} />
-      <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header className="form-overlay__header" {...headerProps}>
-          <div className="form-overlay__header-main">
-            {onBack ? <button className="icon-button" type="button" aria-label={backLabel ?? "返回"} onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : null}
-            <h2 id={titleId}>{title}</h2>
-          </div>
-          <button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><X aria-hidden="true" size={20} /></button>
-        </header>
-        <div className="form-overlay__body">{children}</div>
-      </section>
-    </div>
-  );
 }
 
 function tabUrl(activityId: string, tab: "feed" | "settlement", panel?: "members" | "manage") {
@@ -434,7 +369,7 @@ export function ActivitiesPage() {
         {archived.length ? <details className="activity-history"><summary>查看历史活动</summary><ActivityGroup title="已归档" activities={archived} allActivities={items} ledgers={ledgers} /></details> : null}
       </main>
       <ProductBottomNavigation />
-      <Overlay open={panel === "actions" || panel === "create" || panel === "join"} title={panel === "create" ? "创建活动" : panel === "join" ? "加入活动" : "新建或加入活动"} onBack={panel === "create" || panel === "join" ? backToActions : undefined} backLabel="新建或加入活动" onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay activity-actions-overlay">
+      <Overlay open={panel === "actions" || panel === "create" || panel === "join"} title={panel === "create" ? "创建活动" : panel === "join" ? "加入活动" : "新建或加入活动"} onBack={panel === "create" || panel === "join" ? { label: "新建或加入活动", onClick: backToActions } : undefined} onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay activity-actions-overlay">
         {panel === "actions" ? <div className="overlay-action-list">
           <button type="button" className="settings-row" data-overlay-initial-focus onClick={openCreate}><Plus aria-hidden="true" size={20} /><span><strong>创建活动</strong><small>为旅行或聚会建立新的账本</small></span><ChevronRight aria-hidden="true" size={18} /></button>
           <button type="button" className="settings-row" onClick={openJoin}><LinkIcon aria-hidden="true" size={20} /><span><strong>加入活动</strong><small>粘贴活动所有者发送的邀请口令</small></span><ChevronRight aria-hidden="true" size={18} /></button>
@@ -470,8 +405,7 @@ function MembersOverlay({ onClose }: { onClose: () => void }) {
     <Overlay
       open
       title={view === "list" ? "成员" : "邀请成员"}
-      backLabel="返回成员"
-      onBack={view === "invite" ? () => setView("list") : undefined}
+      onBack={view === "invite" ? { label: "返回成员", onClick: () => setView("list") } : undefined}
       onClose={onClose}
     >
       <MembersPage key={view} view={view} onInvite={() => setView("invite")} />
@@ -910,7 +844,7 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
 
   const title = view === "root" ? "活动管理" : view === "delete" ? "确认删除活动" : view === "ownership" ? "转让所有权" : activityFieldLabels[view];
   return (
-    <Overlay open title={title} backLabel="返回活动管理" onBack={view === "root" ? undefined : () => setView("root")} onClose={onClose} focusKey={view}>
+    <Overlay open title={title} onBack={view === "root" ? undefined : { label: "返回活动管理", onClick: () => setView("root") }} onClose={onClose} focusKey={view}>
       {view === "root" ? warnings.map((warning) => (
         <div className="notice" key={warning} role="status">
           {warning === "EXPENSE_BEFORE_ACTIVITY_START"
