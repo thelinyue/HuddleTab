@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Filter, ImageDown, ImagePlus, Info, Plus, ReceiptText, Trash2, UsersRound, X } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
@@ -326,6 +327,7 @@ export function ExpenseFeedPage() {
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const [entryOpen, setEntryOpen] = useState(false);
   const [quickView, setQuickView] = useState<QuickExpenseView>("entry");
+  const [rejectedView, setRejectedView] = useState<QuickExpenseView>("entry");
   const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
@@ -400,7 +402,7 @@ export function ExpenseFeedPage() {
                 return (
                   <div key={record.id} className="expense-row expense-row--pending">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => setRejectedDraft(record)}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => setDiscardTarget({ mutationId: record.id, activityId: record.activityId })}>丢弃本地记录</Button></span> : null}</span>
+                    <span className="expense-row__content"><strong>{record.payload.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => { setRejectedView("entry"); setRejectedDraft(record); }}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => setDiscardTarget({ mutationId: record.id, activityId: record.activityId })}>丢弃本地记录</Button></span> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(record.payload.originalCurrency, record.payload.originalAmountMinor)} /><small>{new Date(record.payload.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </div>
                 );
@@ -447,9 +449,9 @@ export function ExpenseFeedPage() {
         onClose={() => { setQuickView("entry"); setEntryOpen(false); }}
          className="quick-expense-overlay quick-expense-overlay--entry"
       >
-        <ExpenseEditor compact quickView={quickView} onQuickViewChange={setQuickView} onSaved={() => { setQuickView("entry"); setEntryOpen(false); }} />
+        <UnifiedExpenseEditor view={quickView} onViewChange={setQuickView} onSaved={() => { setQuickView("entry"); setEntryOpen(false); }} />
       </AccountingOverlay>
-      <AccountingOverlay open={Boolean(rejectedDraft)} title="修改被拒账单" onClose={() => setRejectedDraft(undefined)} className="quick-expense-overlay"><ExpenseEditor rejected={rejectedDraft} onSaved={() => setRejectedDraft(undefined)} onCancel={() => setRejectedDraft(undefined)} compact /></AccountingOverlay>
+      <AccountingOverlay open={Boolean(rejectedDraft)} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : () => setRejectedView(parentQuickExpenseView(rejectedView))} backLabel="修改被拒账单" focusKey={rejectedView} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className="quick-expense-overlay quick-expense-overlay--entry"><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></AccountingOverlay>
       <AccountingOverlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
         <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
       </AccountingOverlay>
@@ -502,17 +504,24 @@ type ExpenseEditorProps = {
   initial?: ExpenseAggregate;
   rejected?: PendingExpenseDraft;
   onSaved?: () => void;
-  onCancel?: () => void;
-  compact?: boolean;
-  quickView?: QuickExpenseView;
-  onQuickViewChange?: (view: QuickExpenseView) => void;
 };
 
-export function ExpenseEditor(props: ExpenseEditorProps) {
-  if (props.compact && !props.initial && !props.rejected && props.quickView && props.onQuickViewChange) {
-    return <QuickExpenseEditor onSaved={props.onSaved} view={props.quickView} onViewChange={props.onQuickViewChange} />;
-  }
-  return <FullExpenseEditor {...props} />;
+function RoutedExpenseEditor(props: ExpenseEditorProps) {
+  const [view, setView] = useState<QuickExpenseView>("entry");
+  const rootTitle = props.initial ? "修改账单" : props.rejected ? "修改被拒账单" : "记一笔";
+  const title = view === "entry" ? rootTitle : quickExpenseViewTitle(view);
+  return (
+    <section className="routed-expense-editor" aria-labelledby="routed-expense-editor-title">
+      <header className="routed-expense-editor__header">
+        {view !== "entry" ? <button className="icon-button" type="button" aria-label={`返回${rootTitle}`} onClick={() => setView(parentQuickExpenseView(view))}><ArrowLeft aria-hidden="true" size={20} /></button> : <span aria-hidden="true" />}
+        <h2 id="routed-expense-editor-title">{title}</h2>
+        <span aria-hidden="true" />
+      </header>
+      <div className="routed-expense-editor__body">
+        <UnifiedExpenseEditor {...props} view={view} onViewChange={setView} />
+      </div>
+    </section>
+  );
 }
 
 type QuickSplitAllocation = { memberId: string; amountMinor: bigint };
@@ -667,37 +676,75 @@ function QuickMemberChoiceList({ members, mode, selectedIds, onToggle, paymentVa
   );
 }
 
-function QuickExpenseEditor({ view, onViewChange, onSaved }: { view: QuickExpenseView; onViewChange: (view: QuickExpenseView) => void; onSaved?: () => void }) {
+/**
+ * 所有可写账单入口共用这一套编辑器。外层只决定它展示在 Sheet 还是路由页，
+ * 字段顺序、子视图、校验和提交语义保持一致，避免同一笔账在不同入口表现不同。
+ */
+function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }: ExpenseEditorProps & { view: QuickExpenseView; onViewChange: (view: QuickExpenseView) => void }) {
   const { session, activity, members: cachedMembers, offline } = useWorkspace();
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
+  const navigate = useNavigate();
   const create = useCreateExpenseMutation(session.userId, activity.activityId);
+  const reviseRejected = useReviseRejectedExpenseMutation(session.userId);
+  const update = useUpdateExpenseMutation(session.userId, activity.activityId, initial?.expense.expenseId ?? "");
+  const deleteAttachment = useDeleteAttachmentMutation(session.userId, activity.activityId, initial?.expense.expenseId ?? "");
   const createGuest = useCreateGuestMutation(session.userId, activity.activityId);
   const rateSuggestion = useExchangeRateSuggestionMutation(activity.activityId);
+  const reducedMotion = useReducedMotion();
+  const pendingPayload = rejected?.payload;
+  const initialPayload = initial?.expense;
+  const initialPayments = initial?.payments ?? [];
+  const initialParticipants = initial?.shares.map((share) => share.memberId)
+    ?? pendingPayload?.split.members
+    ?? pendingPayload?.split.entries?.map((entry) => entry.memberId)
+    ?? [];
+  const initialPaymentIds = initial
+    ? initialPayments.map((payment) => payment.memberId)
+    : pendingPayload?.payments.map((payment) => payment.memberId) ?? [];
+  const initialPaymentValues = Object.fromEntries(
+    initial ? initial.payments.map((payment) => [payment.memberId, minorToInput(payment.originalAmountMinor, initial.expense.originalCurrency)])
+      : pendingPayload?.payments.map((payment) => [payment.memberId, minorToInput(payment.amountMinor, pendingPayload.originalCurrency)]) ?? [],
+  );
   const [createdMembers, setCreatedMembers] = useState<ActivityMember[]>([]);
-  const [initialized, setInitialized] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<(typeof categories)[number][0]>("FOOD");
-  const [currency, setCurrency] = useState(activity.baseCurrency);
+  const [initialized, setInitialized] = useState(Boolean(initial || rejected));
+  const [amount, setAmount] = useState(() => initialPayload
+    ? minorToInput(initialPayload.originalAmountMinor, initialPayload.originalCurrency)
+    : pendingPayload ? minorToInput(pendingPayload.originalAmountMinor, pendingPayload.originalCurrency) : "");
+  const [title, setTitle] = useState(initialPayload?.title ?? pendingPayload?.title ?? "");
+  const [category, setCategory] = useState<(typeof categories)[number][0]>((initialPayload?.category ?? pendingPayload?.category ?? "FOOD") as (typeof categories)[number][0]);
+  const [currency, setCurrency] = useState(initialPayload?.originalCurrency ?? pendingPayload?.originalCurrency ?? activity.baseCurrency);
   const [currencySearchDraft, setCurrencySearchDraft] = useState("");
-  const [occurredAt, setOccurredAt] = useState(localDateTime());
-  const [note, setNote] = useState("");
-  const [exchangeRate, setExchangeRate] = useState(activity.baseCurrency ? "1" : "");
-  const [exchangeRateKind, setExchangeRateKind] = useState("IDENTITY");
-  const [exchangeRateReferenceDate, setExchangeRateReferenceDate] = useState<string | null>(null);
-  const [exchangeRateProvider, setExchangeRateProvider] = useState<string | null>(null);
+  const [occurredAt, setOccurredAt] = useState(localDateTime(initialPayload?.occurredAt ?? pendingPayload?.occurredAt));
+  const [note, setNote] = useState(initialPayload?.note ?? pendingPayload?.note ?? "");
+  const [exchangeRate, setExchangeRate] = useState(initialPayload?.exchangeRate ?? pendingPayload?.exchangeRate ?? (activity.baseCurrency ? "1" : ""));
+  const [exchangeRateKind, setExchangeRateKind] = useState(initialPayload?.exchangeRateKind ?? pendingPayload?.exchangeRateKind ?? "IDENTITY");
+  const [exchangeRateReferenceDate, setExchangeRateReferenceDate] = useState<string | null>(initialPayload?.exchangeRateReferenceDate ?? pendingPayload?.exchangeRateReferenceDate ?? null);
+  const [exchangeRateProvider, setExchangeRateProvider] = useState<string | null>(initialPayload?.exchangeRateProvider ?? pendingPayload?.exchangeRateProvider ?? null);
   const [moreSettingsOpen, setMoreSettingsOpen] = useState(false);
-  const [payerMode, setPayerMode] = useState<PayerMode>("single");
-  const [payerIds, setPayerIds] = useState<string[]>([]);
-  const [paymentValues, setPaymentValues] = useState<Record<string, string>>({});
-  const [payerDraftMode, setPayerDraftMode] = useState<PayerMode>("single");
-  const [payerDraftIds, setPayerDraftIds] = useState<string[]>([]);
-  const [payerDraftValues, setPayerDraftValues] = useState<Record<string, string>>({});
-  const [participantIds, setParticipantIds] = useState<string[]>([]);
-  const [participantDraft, setParticipantDraft] = useState<string[]>([]);
-  const [splitMode, setSplitMode] = useState<SplitMode>("EQUAL");
-  const [splitValues, setSplitValues] = useState<Record<string, string>>({});
-  const [selectedAttachments, setSelectedAttachments] = useState<SelectedLocalAttachment[]>([]);
+  const initialPayerMode: PayerMode = initialPaymentIds.length > 1 ? "multiple" : "single";
+  const [payerMode, setPayerMode] = useState<PayerMode>(initialPayerMode);
+  const [payerIds, setPayerIds] = useState<string[]>(initialPaymentIds);
+  const [paymentValues, setPaymentValues] = useState<Record<string, string>>(initialPaymentValues);
+  const [payerDraftMode, setPayerDraftMode] = useState<PayerMode>(initialPayerMode);
+  const [payerDraftIds, setPayerDraftIds] = useState<string[]>(initialPaymentIds);
+  const [payerDraftValues, setPayerDraftValues] = useState<Record<string, string>>(initialPaymentValues);
+  const [participantIds, setParticipantIds] = useState<string[]>(initialParticipants);
+  const [participantDraft, setParticipantDraft] = useState<string[]>(initialParticipants);
+  // 服务端事实只保留最终金额，编辑时使用 EXACT 才能无损回填；被拒草稿仍保留原始模式。
+  const [splitMode, setSplitMode] = useState<SplitMode>(initial ? "EXACT" : (pendingPayload?.split.mode as SplitMode | undefined) ?? "EQUAL");
+  const [splitValues, setSplitValues] = useState<Record<string, string>>(() => Object.fromEntries(
+    initial ? initial.shares.map((share) => [share.memberId, minorToInput(share.originalAmountMinor, initial.expense.originalCurrency)])
+      : pendingPayload?.split.entries?.map((entry) => [entry.memberId, entry.value]) ?? [],
+  ));
+  const [selectedAttachments, setSelectedAttachments] = useState<SelectedLocalAttachment[]>(() => rejected?.attachments.map((attachment) => ({
+    id: attachment.id,
+    clientAttachmentId: attachment.clientAttachmentId,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    blob: attachment.blob,
+    file: new File([attachment.blob], attachment.fileName, { type: attachment.mimeType }),
+  })) ?? []);
+  const [attachmentToDelete, setAttachmentToDelete] = useState<string>();
   const [guestName, setGuestName] = useState("");
   const [guestError, setGuestError] = useState<string>();
   const [quickError, setQuickError] = useState<string>();
@@ -710,6 +757,7 @@ function QuickExpenseEditor({ view, onViewChange, onSaved }: { view: QuickExpens
   const canAddGuest = activity.status === "ACTIVE" && activity.currentMemberRole === "OWNER";
   const totalMinor = (() => { try { return amount.trim() ? BigInt(amountToMinor(amount, currency)) : null; } catch { return null; } })();
   const splitPreview = previewQuickSplit(totalMinor, currency, participantIds, splitMode, splitValues);
+  const mutation = rejected ? reviseRejected : initial ? update : create;
 
   useEffect(() => {
     if (initialized || activeMembers.length === 0) return;
@@ -890,7 +938,7 @@ function QuickExpenseEditor({ view, onViewChange, onSaved }: { view: QuickExpens
         return;
       }
       const draft: ExpenseDraft = {
-        title: title.trim(), category, note: note.trim() || null, occurredAt: new Date(occurredAt).toISOString(), clientMutationId: crypto.randomUUID(),
+        title: title.trim(), category, note: note.trim() || null, occurredAt: new Date(occurredAt).toISOString(), clientMutationId: initialPayload?.clientMutationId ?? pendingPayload?.clientMutationId ?? crypto.randomUUID(),
         originalCurrency: normalizedCurrency, originalAmountMinor: total,
         exchangeRateKind: normalizedCurrency === activity.baseCurrency ? "IDENTITY" : exchangeRateKind,
         exchangeRate: normalizedCurrency === activity.baseCurrency ? "1" : exchangeRate.trim(),
@@ -899,8 +947,19 @@ function QuickExpenseEditor({ view, onViewChange, onSaved }: { view: QuickExpens
         payments: payments.payments,
         split: splitMode === "EQUAL" ? { mode: splitMode, members: participantIds } : { mode: splitMode, entries: participantIds.map((memberId) => ({ memberId, value: splitMode === "EXACT" ? amountToMinor(splitValues[memberId] ?? "", normalizedCurrency) : splitMode === "WEIGHT" ? decimalToHundredths(splitValues[memberId] ?? "", "份数") : (splitValues[memberId] ?? "").trim() })) },
       };
-      await create.mutateAsync({ input: draft, files: selectedAttachments.map(({ file }) => file) });
-      onSaved?.();
+      if (initial) {
+        await update.mutateAsync({ ...draft, version: initial.expense.version });
+      } else if (rejected) {
+        await reviseRejected.mutateAsync({
+          mutationId: rejected.id,
+          payload: draft,
+          attachments: selectedAttachments.map(({ file, ...attachment }) => ({ ...attachment, blob: file })),
+        });
+      } else {
+        await create.mutateAsync({ input: draft, files: selectedAttachments.map(({ file }) => file) });
+      }
+      if (onSaved) onSaved();
+      else navigate(`/activities/${activity.activityId}`);
     } catch (error) {
       if (error instanceof ApiRequestError) return;
       setQuickError(error instanceof Error ? error.message : "账单输入不正确。");
@@ -940,15 +999,31 @@ function QuickExpenseEditor({ view, onViewChange, onSaved }: { view: QuickExpens
            <div className="quick-expense-participants"><QuickSelectionRow label="谁参与" value={participantIds.length ? `${participantIds.length} 人` : "请选择"} initialFocus={entryFocusTarget === "participants"} onClick={openParticipants}><span className="quick-expense-avatar-stack" aria-hidden="true">{participantIds.slice(0, 3).map((id) => <MemberAvatar key={id} memberId={id} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickSelectionRow>{fieldErrors.participants ? <small className="quick-expense-error">{fieldErrors.participants}</small> : null}</div>
            <QuickSelectionRow label="分摊设置" value={selectedSplitLabel} initialFocus={entryFocusTarget === "split"} onClick={() => { setEntryFocusTarget("split"); onViewChange("split"); }} />
            <QuickSelectionRow label="分类" value={selectedCategory[1]} initialFocus={entryFocusTarget === "category"} onClick={() => { setEntryFocusTarget("category"); onViewChange("category"); }}><span className="quick-expense-category-icon" aria-hidden="true"><img src={`/expense-categories/${selectedCategory[2]}.webp`} width={36} height={36} alt="" /></span></QuickSelectionRow>
-          <button type="button" className="quick-expense-more" aria-expanded={moreSettingsOpen} onClick={() => setMoreSettingsOpen((current) => !current)}><span>更多设置</span><ChevronRight aria-hidden="true" size={17} /></button>
-           {moreSettingsOpen ? <div className="quick-expense-advanced">
-             <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} required /></Field>
-             {currency !== activity.baseCurrency ? <Field label={`汇率（1 ${currency} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input inputMode="decimal" value={exchangeRate} onChange={(event) => { setQuickError(undefined); setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} placeholder="例如 7.25" required /><Button type="button" variant="secondary" disabled={rateSuggestion.isPending} onClick={() => void requestReferenceRate()}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : "参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field> : null}
-             <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
-             <Field label="附件（最多三张）"><div className="quick-expense-attachment"><input id="quick-expense-attachments" className="quick-expense-attachment__input" aria-label="附件（最多三张）" type="file" accept={attachmentAccept} multiple disabled={selectedAttachments.length >= 3} onChange={(event) => { const files = Array.from(event.target.files ?? []); const error = validateAttachments([...selectedAttachments.map(({ file }) => file), ...files]); if (error) { setQuickError(error); return; } setSelectedAttachments((current) => [...current, ...files.map((file) => ({ id: crypto.randomUUID(), clientAttachmentId: crypto.randomUUID(), fileName: file.name, mimeType: file.type, blob: file, file }))]); event.target.value = ""; }} /><span className="quick-expense-attachment__surface"><ImagePlus aria-hidden="true" size={18} /><strong>选择图片</strong><small>{selectedAttachments.length ? `已选择 ${selectedAttachments.length}/3` : "未选择图片"}</small></span></div><SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field>
-           </div> : null}
-          {create.error ? <ErrorNotice error={create.error} /> : null}
-           <div className="quick-expense-submit-bar"><Button type="submit" className="quick-expense-submit" busy={create.isPending}>保存</Button></div>
+           <button type="button" className="quick-expense-more" aria-expanded={moreSettingsOpen} aria-controls="expense-more-settings" onClick={() => setMoreSettingsOpen((current) => !current)}><span>更多设置</span><ChevronRight aria-hidden="true" size={17} /></button>
+           <AnimatePresence initial={false}>
+             {moreSettingsOpen ? (
+               <motion.div
+                 id="expense-more-settings"
+                 className="quick-expense-advanced-motion"
+                 initial={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                 animate={reducedMotion ? { opacity: 1 } : { height: "auto", opacity: 1 }}
+                 exit={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                 transition={reducedMotion ? { duration: 0.16 } : { type: "spring", bounce: 0, duration: 0.32 }}
+               >
+                 <div className="quick-expense-advanced">
+                   <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); if (exchangeRateKind === "PROVIDER" || exchangeRateKind === "CACHE") { setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); } }} required /></Field>
+                   {currency !== activity.baseCurrency ? <Field label={`汇率（1 ${currency} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input inputMode="decimal" value={exchangeRate} onChange={(event) => { setQuickError(undefined); setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} placeholder="例如 7.25" required /><Button type="button" variant="secondary" disabled={rateSuggestion.isPending} onClick={() => void requestReferenceRate()}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field> : null}
+                   <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
+                   {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={setAttachmentToDelete} /> : <Field label="附件（最多三张）"><div className="quick-expense-attachment"><input id="quick-expense-attachments" className="quick-expense-attachment__input" aria-label="附件（最多三张）" type="file" accept={attachmentAccept} multiple disabled={selectedAttachments.length >= 3} onChange={(event) => { const files = Array.from(event.target.files ?? []); const error = validateAttachments([...selectedAttachments.map(({ file }) => file), ...files]); if (error) { setQuickError(error); return; } setSelectedAttachments((current) => [...current, ...files.map((file) => ({ id: crypto.randomUUID(), clientAttachmentId: crypto.randomUUID(), fileName: file.name, mimeType: file.type, blob: file, file }))]); event.target.value = ""; }} /><span className="quick-expense-attachment__surface"><ImagePlus aria-hidden="true" size={18} /><strong>选择图片</strong><small>{selectedAttachments.length ? `已选择 ${selectedAttachments.length}/3` : "未选择图片"}</small></span></div><SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field>}
+                   {deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}
+                 </div>
+               </motion.div>
+             ) : null}
+           </AnimatePresence>
+           <ConfirmDialog open={Boolean(attachmentToDelete)} title="删除附件" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} />
+           {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
+           {mutation.error instanceof ApiRequestError && mutation.error.status === 409 ? <div className="notice">服务器版本已更新。当前表单仍保留，请返回查看最新账单后再决定。</div> : null}
+           <div className="quick-expense-submit-bar"><Button type="submit" className="quick-expense-submit" busy={mutation.isPending}>{rejected ? "修改后重试" : "保存"}</Button></div>
         </div>
       ) : view === "payer" ? <div className="quick-expense-subview" data-quick-expense-view="payer">{renderMemberPicker(payerDraftMode)}</div>
         : view === "participants" ? <div className="quick-expense-subview" data-quick-expense-view="participants"><QuickMemberChoiceList members={activeMembers} mode="multiple" selectedIds={participantDraft} onToggle={(id) => { setQuickError(undefined); setParticipantDraft((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }} canAddGuest={canAddGuest} online={!offline} onAddGuest={() => { setGuestError(undefined); onViewChange("participants-add-guest"); }} /><div className="quick-expense-subview__footer"><Button type="button" disabled={!participantDraft.length} onClick={commitParticipants}>完成</Button></div></div>
@@ -968,227 +1043,12 @@ function CurrencyQuickList({ value, search, onSelect }: { value: string; search:
   return <div className="quick-currency-list">{renderGroup("常用", common)}{renderGroup("全部币种", all)}{!common.length && !all.length ? <p className="quick-expense-muted">未找到匹配的币种</p> : null}</div>;
 }
 
-function FullExpenseEditor({ initial, rejected, onSaved, onCancel, compact = false }: ExpenseEditorProps) {
-  const { session, activity, members: cachedMembers, offline } = useWorkspace();
-  const members = useMembersQuery(session.userId, activity.activityId, !offline);
-  const navigate = useNavigate();
-  const expenseId = initial?.expense.expenseId;
-  const create = useCreateExpenseMutation(session.userId, activity.activityId);
-  const reviseRejected = useReviseRejectedExpenseMutation(session.userId);
-  const update = useUpdateExpenseMutation(session.userId, activity.activityId, expenseId ?? "");
-  const deleteAttachment = useDeleteAttachmentMutation(session.userId, activity.activityId, expenseId ?? "");
-  const rateSuggestion = useExchangeRateSuggestionMutation(activity.activityId);
-  const pendingPayload = rejected?.payload;
-  const initialPayload = initial?.expense;
-  const [title, setTitle] = useState(initialPayload?.title ?? pendingPayload?.title ?? "");
-  const [category, setCategory] = useState(initialPayload?.category ?? pendingPayload?.category ?? "FOOD");
-  const [note, setNote] = useState(initialPayload?.note ?? pendingPayload?.note ?? "");
-  const [occurredAt, setOccurredAt] = useState(localDateTime(initialPayload?.occurredAt ?? pendingPayload?.occurredAt));
-  const [currency, setCurrency] = useState(initialPayload?.originalCurrency ?? pendingPayload?.originalCurrency ?? activity.baseCurrency);
-  const [amount, setAmount] = useState(initialPayload ? minorToInput(initialPayload.originalAmountMinor, initialPayload.originalCurrency) : pendingPayload ? minorToInput(pendingPayload.originalAmountMinor, pendingPayload.originalCurrency) : "");
-  const [exchangeRate, setExchangeRate] = useState(initialPayload?.exchangeRate ?? pendingPayload?.exchangeRate ?? "");
-  const [exchangeRateKind, setExchangeRateKind] = useState(initialPayload?.exchangeRateKind ?? pendingPayload?.exchangeRateKind ?? (currency === activity.baseCurrency ? "IDENTITY" : "MANUAL"));
-  const [exchangeRateReferenceDate, setExchangeRateReferenceDate] = useState(initialPayload?.exchangeRateReferenceDate ?? pendingPayload?.exchangeRateReferenceDate ?? null);
-  const [exchangeRateProvider, setExchangeRateProvider] = useState(initialPayload?.exchangeRateProvider ?? pendingPayload?.exchangeRateProvider ?? null);
-  const [splitMode, setSplitMode] = useState<SplitMode>(initial ? "EXACT" : (pendingPayload?.split.mode as SplitMode | undefined) ?? "EQUAL");
-  const [selectedMembers, setSelectedMembers] = useState<Record<string, boolean>>(() => Object.fromEntries(initial?.shares?.map((share) => [share.memberId, true]) ?? pendingPayload?.split.members?.map((memberId) => [memberId, true]) ?? pendingPayload?.split.entries?.map((entry) => [entry.memberId, true]) ?? []));
-  const [splitValues, setSplitValues] = useState<Record<string, string>>(() => Object.fromEntries(initial?.shares?.map((share) => [share.memberId, minorToInput(share.originalAmountMinor, initial.expense.originalCurrency)]) ?? pendingPayload?.split.entries?.map((entry) => [entry.memberId, entry.value]) ?? []));
-  const [paymentValues, setPaymentValues] = useState<Record<string, string>>(() => Object.fromEntries(initial?.payments?.map((payment) => [payment.memberId, minorToInput(payment.originalAmountMinor, initial.expense.originalCurrency)]) ?? pendingPayload?.payments.map((payment) => [payment.memberId, minorToInput(payment.amountMinor, pendingPayload.originalCurrency)]) ?? []));
-  const [selectedAttachments, setSelectedAttachments] = useState<SelectedLocalAttachment[]>(() => rejected?.attachments.map((attachment) => ({
-    id: attachment.id,
-    clientAttachmentId: attachment.clientAttachmentId,
-    fileName: attachment.fileName,
-    mimeType: attachment.mimeType,
-    blob: attachment.blob,
-    file: new File([attachment.blob], attachment.fileName, { type: attachment.mimeType }),
-  })) ?? []);
-  // 紧凑记账沿用 v0.0.2：常用字段先呈现，日期/币种/备注/附件放在“更多设置”内。
-  // 独立编辑页不折叠高级字段，避免影响既有完整编辑路径。
-  const [moreSettingsOpen, setMoreSettingsOpen] = useState(!compact || Boolean(rejected));
-  const [localError, setLocalError] = useState<string>();
-  const [attachmentToDelete, setAttachmentToDelete] = useState<string>();
-  const mutation = rejected ? reviseRejected : expenseId ? update : create;
-
-  const memberData = members.data ?? cachedMembers ?? [];
-  const activeMembers = memberData.filter((member) => member.status === "ACTIVE");
-  const selectedIds = activeMembers.filter((member) => selectedMembers[member.memberId] ?? (!initial && !rejected)).map((member) => member.memberId);
-
-  function updateRecord(setter: React.Dispatch<React.SetStateAction<Record<string, string>>>, id: string, value: string) {
-    setter((current) => ({ ...current, [id]: value }));
-  }
-
-  function selectAttachments(nextFiles: FileList | null) {
-    const selected = Array.from(nextFiles ?? []);
-    const error = validateAttachments([
-      ...selectedAttachments.map(({ file }) => file),
-      ...selected,
-    ]);
-    if (error) {
-      setLocalError(error);
-      return;
-    }
-    setLocalError(undefined);
-    setSelectedAttachments((current) => [
-      ...current,
-      ...selected.map((file) => ({
-        id: crypto.randomUUID(),
-        clientAttachmentId: crypto.randomUUID(),
-        fileName: file.name,
-        mimeType: file.type,
-        blob: file,
-        file,
-      })),
-    ]);
-  }
-
-  function clearAutomaticRate(keepValue: boolean) {
-    if (exchangeRateKind !== "PROVIDER" && exchangeRateKind !== "CACHE") return;
-    if (!keepValue) setExchangeRate("");
-    setExchangeRateKind("MANUAL");
-    setExchangeRateReferenceDate(null);
-    setExchangeRateProvider(null);
-  }
-
-  async function requestReferenceRate() {
-    setLocalError(undefined);
-    if (!navigator.onLine) {
-      setLocalError("当前处于离线状态，请手动输入汇率。");
-      return;
-    }
-    try {
-      const suggestion = await rateSuggestion.mutateAsync({
-        from: normalizeCurrency(currency),
-        date: new Date(occurredAt).toISOString().slice(0, 10),
-      });
-      setExchangeRate(suggestion.rate);
-      setExchangeRateKind(suggestion.source);
-      setExchangeRateReferenceDate(suggestion.referenceDate);
-      setExchangeRateProvider(suggestion.provider);
-    } catch {
-      setLocalError("暂时无法获取参考汇率，请手动输入。");
-    }
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setLocalError(undefined);
-    try {
-      const normalizedCurrency = normalizeCurrency(currency);
-      const totalMinor = amountToMinor(amount, normalizedCurrency);
-      const paymentEntries = activeMembers.flatMap((member) => {
-        const value = paymentValues[member.memberId]?.trim();
-        return value ? [{ memberId: member.memberId, amountMinor: amountToMinor(value, normalizedCurrency) }] : [];
-      });
-      const payments = paymentEntries.length ? paymentEntries : [{ memberId: activity.currentMemberId, amountMinor: totalMinor }];
-      const split = splitMode === "EQUAL"
-        ? { mode: splitMode, members: selectedIds }
-        : {
-            mode: splitMode,
-            entries: selectedIds.map((memberId) => ({
-              memberId,
-              value: splitMode === "EXACT" ? amountToMinor(splitValues[memberId] ?? "", normalizedCurrency) : (splitValues[memberId] ?? "").trim(),
-            })),
-          };
-      const draft: ExpenseDraft = {
-        title,
-        category,
-        note: note.trim() || null,
-        occurredAt: new Date(occurredAt).toISOString(),
-        clientMutationId: initial?.expense.clientMutationId ?? pendingPayload?.clientMutationId ?? crypto.randomUUID(),
-        originalCurrency: normalizedCurrency,
-        originalAmountMinor: totalMinor,
-        exchangeRateKind: normalizedCurrency === activity.baseCurrency ? "IDENTITY" : exchangeRateKind,
-        exchangeRate: normalizedCurrency === activity.baseCurrency ? "1" : exchangeRate.trim(),
-        exchangeRateReferenceDate: normalizedCurrency === activity.baseCurrency ? null : exchangeRateReferenceDate,
-        exchangeRateProvider: normalizedCurrency === activity.baseCurrency ? null : exchangeRateProvider,
-        payments,
-        split,
-      };
-      if (initial) {
-        await update.mutateAsync({ ...draft, version: initial.expense.version });
-      } else if (rejected) {
-        await reviseRejected.mutateAsync({
-          mutationId: rejected.id,
-          payload: draft,
-          attachments: selectedAttachments.map(({ file, ...attachment }) => ({
-            ...attachment,
-            blob: file,
-          })),
-        });
-      } else {
-        await create.mutateAsync({ input: draft, files: selectedAttachments.map(({ file }) => file) });
-      }
-      if (onSaved) onSaved();
-      else navigate(`/activities/${activity.activityId}`);
-    } catch (error) {
-      if (error instanceof ApiRequestError) return;
-      setLocalError(error instanceof Error ? error.message : "账单输入不正确。");
-    }
-  }
-
-  if (members.isPending && memberData.length === 0) return <LoadingState label="正在准备账单…" />;
-  if (members.error && memberData.length === 0) return <ErrorNotice error={members.error} />;
-
-  return (
-    <form className={`expense-editor${compact ? " expense-editor--compact" : ""}`} onSubmit={submit}>
-      <section className={`${compact ? "" : "panel "}form-section expense-basics`}>
-        <header className="panel__header"><div><p className="eyebrow">基本信息</p><h2>{initial ? "修改账单" : rejected ? "修改被拒账单" : "记一笔支出"}</h2></div></header>
-        <div className="form-grid form-grid--two">
-          <Field className="expense-field--amount" label="金额"><div className="amount-input"><span>{currency}</span><Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required autoFocus /></div></Field>
-          <Field className="expense-field--title" label="标题"><Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required /></Field>
-          <Field className="expense-field--category" label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field>
-          {compact ? <button type="button" className="expense-more-settings-toggle" aria-expanded={moreSettingsOpen} onClick={() => setMoreSettingsOpen((current) => !current)}><span>更多设置</span><ChevronRight aria-hidden="true" size={17} /></button> : null}
-          {(!compact || moreSettingsOpen) ? <div className={`expense-more-settings${moreSettingsOpen ? " expense-more-settings--open" : ""}`} data-open={moreSettingsOpen ? "true" : "false"}>
-            <Field className="expense-field--currency" label="币种"><Input value={currency} onChange={(event) => { setCurrency(event.target.value.toUpperCase()); setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} maxLength={3} required /></Field>
-            {currency.trim().toUpperCase() !== activity.baseCurrency ? <Field className="expense-field--rate" label={`汇率（1 ${currency || "原币"} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input inputMode="decimal" value={exchangeRate} onChange={(event) => { setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} required placeholder="例如 7.25" /><Button type="button" variant="secondary" onClick={() => void requestReferenceRate()} disabled={rateSuggestion.isPending}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : "Frankfurter 参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field> : null}
-            <Field className="expense-field--occurred" label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); clearAutomaticRate(false); }} required /></Field>
-            <Field className="expense-field--note" label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
-            {!initial ? <Field className="expense-field--attachments" label="附件（最多三张）"><input className="input attachment-input" type="file" accept={attachmentAccept} multiple onChange={(event) => { selectAttachments(event.target.files); event.target.value = ""; }} />{selectedAttachments.length ? <small className="attachment-selection">已选择 {selectedAttachments.length} 张</small> : null}<SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field> : null}
-          </div> : null}
-        </div>
-      </section>
-
-      {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={(attachmentId) => setAttachmentToDelete(attachmentId)} /> : null}
-      {deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}
-      <ConfirmDialog open={Boolean(attachmentToDelete)} title="删除附件" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} />
-
-      <section className={`${compact ? "" : "panel "}form-section expense-payments`}>
-        <header className="panel__header"><div><p className="eyebrow">付款事实</p><h2>谁先付了钱</h2><p>留空时默认由你支付全部金额；多人付款可分别填写。</p></div></header>
-        <div className="member-input-list">
-          {activeMembers.map((member) => <label key={member.memberId}><MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="sm" /><span>{member.displayName}</span><Input inputMode="decimal" value={paymentValues[member.memberId] ?? ""} onChange={(event) => updateRecord(setPaymentValues, member.memberId, event.target.value)} placeholder="0" aria-label={`${member.displayName}支付金额`} /></label>)}
-        </div>
-      </section>
-
-      <section className={`${compact ? "" : "panel "}form-section expense-splits`}>
-        <header className="panel__header"><div><p className="eyebrow">分摊方式</p><h2>这笔钱该怎么分</h2></div></header>
-        <div className="segmented segmented--four" role="group" aria-label="分摊方式">{splitModes.map(([value, label]) => <button type="button" key={value} aria-pressed={splitMode === value} onClick={() => setSplitMode(value)}>{label}</button>)}</div>
-        <div className="member-input-list">
-          {activeMembers.map((member) => {
-            const selected = selectedMembers[member.memberId] ?? (!initial && !rejected);
-            return (
-              <div className="split-row" key={member.memberId}>
-                <label className="member-check"><input type="checkbox" checked={selected} onChange={(event) => setSelectedMembers((current) => ({ ...current, [member.memberId]: event.target.checked }))} /><MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="sm" /><span>{member.displayName}</span></label>
-                {splitMode !== "EQUAL" && selected ? <Input inputMode="decimal" value={splitValues[member.memberId] ?? ""} onChange={(event) => updateRecord(setSplitValues, member.memberId, event.target.value)} placeholder={splitMode === "EXACT" ? "金额" : splitMode === "PERCENTAGE" ? "百分比" : "权重"} aria-label={`${member.displayName}${splitModes.find(([value]) => value === splitMode)?.[1]}`} /> : null}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {localError ? <div className="notice notice--error" role="alert">{localError}</div> : null}
-      {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
-      {mutation.error instanceof ApiRequestError && mutation.error.status === 409 ? <div className="notice">服务器版本已更新。当前表单仍保留，请返回查看最新账单后再决定。</div> : null}
-      <div className="sticky-actions">{onCancel ? <Button variant="secondary" type="button" onClick={onCancel}>取消</Button> : <Link className="button button--secondary" to={`/activities/${activity.activityId}`}>取消</Link>}<Button type="submit" busy={mutation.isPending}><Check aria-hidden="true" size={18} /> {rejected ? "修改后重试" : "保存账单"}</Button></div>
-    </form>
-  );
-}
-
 export function NewExpensePage() {
   const { activity } = useWorkspace();
   if (activity.status !== "ACTIVE") {
     return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><div className="notice"><Info aria-hidden="true" size={18} /><span>活动已结束或归档，当前不能新增账单；已有账单仍可只读查看。</span></div></div>;
   }
-  return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><ExpenseEditor /></div>;
+  return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><RoutedExpenseEditor /></div>;
 }
 
 export function ExpenseDetailPage() {
@@ -1233,7 +1093,7 @@ export function ExpenseDetailPage() {
       <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
       {remove.error ? <ErrorNotice error={remove.error} /> : null}
       <ConfirmDialog open={deleteOpen} title="删除账单" message="删除后账本会立即重新计算，这笔账单无法恢复。确定继续吗？" confirmLabel="确认删除" busy={remove.isPending} onConfirm={() => { void remove.mutateAsync(expense.data!.expense.version).then(() => { setDeleteOpen(false); navigate(`/activities/${activity.activityId}`); }).catch(() => undefined); }} onCancel={() => setDeleteOpen(false)} />
-      <ExpenseEditor initial={aggregate} />
+      <RoutedExpenseEditor initial={aggregate} />
     </div>
   );
 }

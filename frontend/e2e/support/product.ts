@@ -161,6 +161,72 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
   expect(metrics.saveBottom!).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 }
 
+/**
+ * PWA 账单编辑器只允许内容区纵向滚动。逐层检查实际布局宽度，再用横向滚轮
+ * 验证浏览器不会产生可见位移；有足够内容时同时确认纵向滚动仍然可用。
+ */
+export async function assertExpenseEditorScrollBoundary(page: Page, editor: Locator): Promise<void> {
+  const body = editor.locator(".form-overlay__body, .routed-expense-editor__body").first();
+  const view = editor.locator("[data-quick-expense-view]").first();
+  await expect(view).toBeVisible();
+  const before = await body.evaluate((element) => {
+    const bodyBox = element.getBoundingClientRect();
+    const nodes = [
+      element,
+      element.querySelector<HTMLElement>(".quick-expense-form"),
+      element.querySelector<HTMLElement>("[data-quick-expense-view]"),
+      element.querySelector<HTMLElement>(".quick-member-picker, .quick-currency-list, .quick-split-list, .quick-expense-advanced"),
+    ].filter((node): node is HTMLElement => Boolean(node));
+    return {
+      bodyLeft: bodyBox.left,
+      bodyRight: bodyBox.right,
+      bodyScrollLeft: element.scrollLeft,
+      pageScrollX: window.scrollX,
+      overflowY: getComputedStyle(element).overflowY,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      nodes: nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        return { className: node.className, clientWidth: node.clientWidth, scrollWidth: node.scrollWidth, left: box.left, right: box.right };
+      }),
+    };
+  });
+  expect(before.overflowY).toBe("auto");
+  for (const node of before.nodes) {
+    expect(node.scrollWidth, `编辑器节点横向溢出：${JSON.stringify(node)}`).toBeLessThanOrEqual(node.clientWidth + 1);
+    expect(node.left, `编辑器节点越过内容区左边界：${JSON.stringify(node)}`).toBeGreaterThanOrEqual(before.bodyLeft - 1);
+    expect(node.right, `编辑器节点越过内容区右边界：${JSON.stringify(node)}`).toBeLessThanOrEqual(before.bodyRight + 1);
+  }
+
+  const horizontal = await body.evaluate((element) => {
+    const activeView = element.querySelector<HTMLElement>("[data-quick-expense-view]");
+    if (!activeView) throw new Error("账单编辑器当前视图不存在。");
+    const box = activeView.getBoundingClientRect();
+    const startX = box.left + box.width * 0.75;
+    const y = box.top + Math.min(box.height / 2, 180);
+    for (const [type, clientX, buttons] of [
+      ["pointerdown", startX, 1],
+      ["pointermove", startX - 120, 1],
+      ["pointerup", startX - 120, 0],
+    ] as const) {
+      activeView.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX, clientY: y, buttons, pointerId: 1, pointerType: "touch" }));
+    }
+    element.scrollLeft = 240;
+    return { bodyScrollLeft: element.scrollLeft, pageScrollX: window.scrollX, viewLeft: activeView.getBoundingClientRect().left };
+  });
+  expect(horizontal.bodyScrollLeft).toBe(before.bodyScrollLeft);
+  expect(horizontal.pageScrollX).toBe(before.pageScrollX);
+  expect(horizontal.viewLeft).toBe(before.nodes[2]?.left);
+
+  if (before.scrollHeight > before.clientHeight + 1) {
+    const scrollTop = await body.evaluate((element) => {
+      element.scrollTop += 160;
+      return element.scrollTop;
+    });
+    expect(scrollTop).toBeGreaterThan(0);
+  }
+}
+
 export async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,

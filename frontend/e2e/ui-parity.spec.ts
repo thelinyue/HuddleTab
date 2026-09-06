@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  assertExpenseEditorScrollBoundary,
   assertNoHorizontalOverflow,
   assertQuickExpenseGeometry,
   fillQuickExpenseBasics,
@@ -53,22 +54,26 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
   await expect(expenseDialog.getByRole("button", { name: "分摊设置", exact: true })).toBeVisible();
   await expect(expenseDialog.getByRole("button", { name: "分类", exact: true })).toBeVisible();
   await assertQuickExpenseGeometry(page, expenseDialog);
+  await assertExpenseEditorScrollBoundary(page, expenseDialog);
 
   await fillQuickExpenseBasics(expenseDialog, "10", "对照路径测试");
   await expenseDialog.getByRole("button", { name: "谁付款", exact: true }).click();
   const payerDialog = page.getByRole("dialog", { name: "谁付款" });
+  await assertExpenseEditorScrollBoundary(page, payerDialog);
   await expect(payerDialog.getByRole("button", { name: "单人付款", exact: true })).toBeVisible();
   await payerDialog.getByRole("button", { name: "记一笔", exact: true }).click();
   await expect(expenseDialog.getByRole("button", { name: "谁付款", exact: true })).toBeFocused();
 
   await expenseDialog.getByRole("button", { name: "谁参与", exact: true }).click();
   const participantDialog = page.getByRole("dialog", { name: "谁参与" });
+  await assertExpenseEditorScrollBoundary(page, participantDialog);
   await expect(participantDialog.getByRole("button", { name: "完成", exact: true })).toBeVisible();
   await participantDialog.getByRole("button", { name: "记一笔", exact: true }).click();
   await expect(expenseDialog.getByRole("button", { name: "谁参与", exact: true })).toBeFocused();
 
   await expenseDialog.getByRole("button", { name: "分摊设置", exact: true }).click();
   const splitDialog = page.getByRole("dialog", { name: "分摊设置" });
+  await assertExpenseEditorScrollBoundary(page, splitDialog);
   await expect(splitDialog.getByRole("radio", { name: "均摊", exact: true })).toHaveAttribute("aria-checked", "true");
   await splitDialog.getByRole("button", { name: "记一笔", exact: true }).click();
   await expect(expenseDialog.getByRole("button", { name: "分摊设置", exact: true })).toBeFocused();
@@ -81,6 +86,7 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
 
   await expenseDialog.getByRole("button", { name: "币种", exact: true }).click();
   const currencyDialog = page.getByRole("dialog", { name: "选择币种" });
+  await assertExpenseEditorScrollBoundary(page, currencyDialog);
   await currencyDialog.getByPlaceholder("搜索币种").fill("USD");
   await currencyDialog.getByRole("button", { name: /USD/ }).click();
   await expect(expenseDialog.getByRole("button", { name: "币种", exact: true })).toContainText("USD");
@@ -90,6 +96,7 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
   await moreSettings.click();
   await expect(moreSettings).toHaveAttribute("aria-expanded", "true");
   await expect(expenseDialog.getByLabel(/汇率/)).toBeVisible();
+  await assertExpenseEditorScrollBoundary(page, expenseDialog);
   await assertNoHorizontalOverflow(page);
   const overlayPath = testInfo.outputPath("quick-expense-overlay.png");
   await page.screenshot({ path: overlayPath });

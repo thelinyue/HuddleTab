@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { assertCredentialFieldsVisuallyMasked, assertNoHorizontalOverflow, createActivity, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openExpenseMoreSettings, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertCredentialFieldsVisuallyMasked, assertExpenseEditorScrollBoundary, assertNoHorizontalOverflow, createActivity, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openExpenseMoreSettings, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -85,21 +85,28 @@ async function expenseConflict(browser: Browser, testInfo: TestInfo, storageStat
     await Promise.all([pages.first.goto(expenseUrl), pages.second.goto(expenseUrl)]);
     await assertProjectViewport(pages.first, pages.second, testInfo);
     await Promise.all([
-      expect(pages.first.getByLabel("标题")).toHaveValue(originalTitle),
-      expect(pages.second.getByLabel("标题")).toHaveValue(originalTitle),
+      assertExpenseEditorScrollBoundary(pages.first, pages.first.locator(".routed-expense-editor")),
+      assertExpenseEditorScrollBoundary(pages.second, pages.second.locator(".routed-expense-editor")),
+    ]);
+    const editPath = testInfo.outputPath("expense-edit.png");
+    await pages.second.screenshot({ path: editPath });
+    await testInfo.attach("修改账单统一编辑器", { path: editPath, contentType: "image/png" });
+    await Promise.all([
+      expect(pages.first.getByLabel("用途")).toHaveValue(originalTitle),
+      expect(pages.second.getByLabel("用途")).toHaveValue(originalTitle),
     ]);
     await Promise.all([
-      pages.first.getByLabel("标题").fill(firstTitle),
-      pages.second.getByLabel("标题").fill(draftTitle),
+      pages.first.getByLabel("用途").fill(firstTitle),
+      pages.second.getByLabel("用途").fill(draftTitle),
     ]);
-    await pages.first.getByRole("button", { name: "保存账单" }).click();
+    await pages.first.getByRole("button", { name: "保存", exact: true }).click();
     await expect(pages.first.getByRole("link", { name: new RegExp(firstTitle) })).toBeVisible();
     const conflictResponsePromise = pages.second.waitForResponse((response) => response.request().method() === "PUT" && response.url().includes("/expenses/"));
-    await pages.second.getByRole("button", { name: "保存账单" }).click();
+    await pages.second.getByRole("button", { name: "保存", exact: true }).click();
     const conflictResponse = await conflictResponsePromise;
     expect(conflictResponse.status()).toBe(409);
     await expect(pages.second.getByText("当前表单仍保留")).toBeVisible();
-    await expect(pages.second.getByLabel("标题")).toHaveValue(draftTitle);
+    await expect(pages.second.getByLabel("用途")).toHaveValue(draftTitle);
   } finally {
     await pages.close();
   }

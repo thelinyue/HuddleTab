@@ -140,7 +140,7 @@ test("Phase 2 离线工作台、幂等重放、REJECTED 修正与 Snapshot 条�
   await rejectedRow.getByRole("button", { name: "修改后重试" }).click();
   const rejectedDialog = page.getByRole("dialog", { name: "修改被拒账单" });
   const correctedTitle = `${rejectedTitle}-已修正`;
-  await rejectedDialog.getByLabel("标题").fill(correctedTitle);
+  await rejectedDialog.getByLabel("用途").fill(correctedTitle);
   await rejectedDialog.getByRole("button", { name: "修改后重试" }).click();
   await expect(page.getByRole("link", { name: new RegExp(correctedTitle) })).toBeVisible({ timeout: 20_000 });
   const expensesAfterCorrection = await (await page.request.get(`/api/activities/${activityId}/expenses`)).json();

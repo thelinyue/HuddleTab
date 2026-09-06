@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  assertExpenseEditorScrollBoundary,
   assertNoHorizontalOverflow,
   createActivity,
   fillQuickExpenseBasics,
@@ -49,6 +50,10 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   const expenseLink = page.getByRole("link", { name: new RegExp(title) });
   await expect(expenseLink).toBeVisible();
   await expenseLink.click();
+  const editor = page.locator(".routed-expense-editor");
+  await expect(editor.getByRole("heading", { name: "修改账单" })).toBeVisible();
+  await openExpenseMoreSettings(editor);
+  await assertExpenseEditorScrollBoundary(page, editor);
   const previews = page.getByRole("img", { name: /^附件 \d+$/ });
   await expect(previews).toHaveCount(2);
   const href = await page.getByRole("link", { name: "查看附件 1" }).getAttribute("href");

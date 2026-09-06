@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiRequestError } from "../../api/error";
+
 const activity = vi.hoisted(() => ({
   activityId: "activity-1",
   allowedLifecycleActions: [],
@@ -68,6 +70,12 @@ const reviseMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue(undefined),
 }));
+const updateMutation = vi.hoisted(() => ({
+  error: null as unknown,
+  isPending: false,
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+}));
 const discardMutation = vi.hoisted(() => ({
   error: null,
   isPending: false,
@@ -128,7 +136,7 @@ vi.mock("./api", () => ({
   useLedgerQuery: () => ({ data: { balances: [{ memberId: "member-1", netMinor: "-500" }, { memberId: "member-2", netMinor: "500" }] }, isPending: false }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
   useSettlementsQuery: () => ({ data: [settlement], isPending: false }),
-  useUpdateExpenseMutation: mutation,
+  useUpdateExpenseMutation: () => updateMutation,
   useUpdateSettlementMutation: mutation,
   useVoidSettlementMutation: mutation,
 }));
@@ -147,6 +155,17 @@ function renderPage(node: ReactNode) {
   return render(<MemoryRouter>{node}</MemoryRouter>);
 }
 
+function openMoreSettings(container: HTMLElement = document.body) {
+  const toggle = within(container).getByRole("button", { name: "更多设置" });
+  if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
+  return toggle;
+}
+
+function chooseCurrency(code: string) {
+  fireEvent.click(screen.getByRole("button", { name: "币种" }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${code}`) }));
+}
+
 afterEach(() => {
   cleanup();
   activity.status = "ACTIVE";
@@ -154,6 +173,9 @@ afterEach(() => {
   workspaceState.offline = false;
   createMutation.mutateAsync.mockClear();
   reviseMutation.mutateAsync.mockClear();
+  updateMutation.error = null;
+  updateMutation.mutateAsync.mockReset();
+  updateMutation.mutateAsync.mockResolvedValue(undefined);
   discardMutation.mutateAsync.mockClear();
   deleteAttachmentMutation.mutateAsync.mockClear();
   rateMutation.mutateAsync.mockClear();
@@ -164,7 +186,8 @@ afterEach(() => {
 describe("Expense 参考汇率", () => {
   it("只在点击后填入建议，手工修改立即清除自动来源", async () => {
     renderPage(<NewExpensePage />);
-    fireEvent.change(screen.getByLabelText("币种"), { target: { value: "JPY" } });
+    chooseCurrency("JPY");
+    openMoreSettings();
     fireEvent.click(screen.getByRole("button", { name: "获取参考汇率" }));
 
     await waitFor(() => expect(rateMutation.mutateAsync).toHaveBeenCalledTimes(1));
@@ -179,13 +202,14 @@ describe("Expense 参考汇率", () => {
     rateMutation.mutateAsync.mockRejectedValueOnce(new Error("upstream"));
     renderPage(<NewExpensePage />);
     fireEvent.change(screen.getByPlaceholderText("0.00"), { target: { value: "123" } });
-    fireEvent.change(screen.getByLabelText("币种"), { target: { value: "JPY" } });
+    chooseCurrency("JPY");
+    openMoreSettings();
     fireEvent.change(screen.getByPlaceholderText("例如 7.25"), { target: { value: "0.041" } });
     fireEvent.click(screen.getByRole("button", { name: "获取参考汇率" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("暂时无法获取参考汇率，请手动输入。");
     expect(screen.getByPlaceholderText("0.00")).toHaveValue("123");
-    expect(screen.getByLabelText("币种")).toHaveValue("JPY");
+    expect(screen.getByRole("button", { name: "币种" })).toHaveTextContent("JPY");
     expect(screen.getByPlaceholderText("例如 7.25")).toHaveValue("0.041");
   });
 });
@@ -382,9 +406,82 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   });
 });
 
+describe("统一账单编辑器", () => {
+  it("修改页沿用新增字段顺序，并从付款与分摊事实无损回填", () => {
+    renderPage(<ExpenseDetailPage />);
+
+    expect(screen.getByRole("heading", { name: "修改账单" })).toBeInTheDocument();
+    expect([...document.querySelectorAll(".quick-expense-selection__label")]
+      .map((element) => element.textContent))
+      .toEqual(["谁付款", "谁参与", "分摊设置", "分类"]);
+    expect(screen.getByLabelText("金额")).toHaveValue("10.00");
+    expect(screen.getByLabelText("用途")).toHaveValue("午餐");
+    expect(screen.getByRole("button", { name: "谁付款" })).toHaveTextContent("甲");
+    expect(screen.getByRole("button", { name: "谁参与" })).toHaveTextContent("2 人");
+    expect(screen.getByRole("button", { name: "分摊设置" })).toHaveTextContent("按金额");
+
+    fireEvent.click(screen.getByRole("button", { name: "谁付款" }));
+    expect(screen.getByRole("radio", { name: "甲" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("button", { name: "返回修改账单" }));
+    fireEvent.click(screen.getByRole("button", { name: "谁参与" }));
+    expect(screen.getByRole("checkbox", { name: "甲" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: "乙" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("button", { name: "返回修改账单" }));
+    fireEvent.click(screen.getByRole("button", { name: "分摊设置" }));
+    expect(screen.getByRole("radio", { name: "按金额" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("甲按金额")).toHaveValue("5.00");
+    expect(screen.getByLabelText("乙按金额")).toHaveValue("5.00");
+  });
+
+  it("未改动事实时保存携带原版本、mutation id、付款与精确分摊", async () => {
+    renderPage(<ExpenseDetailPage />);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(updateMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      version: "3",
+      clientMutationId: "mutation-1",
+      originalAmountMinor: "1000",
+      payments: [{ memberId: "member-1", amountMinor: "1000" }],
+      split: {
+        mode: "EXACT",
+        entries: [
+          { memberId: "member-1", value: "500" },
+          { memberId: "member-2", value: "500" },
+        ],
+      },
+    })));
+  });
+
+  it("更多设置折叠后保留输入", () => {
+    renderPage(<NewExpensePage />);
+    const toggle = openMoreSettings();
+    fireEvent.change(screen.getByLabelText("备注"), { target: { value: "保留这段备注" } });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText("备注")).toHaveValue("保留这段备注");
+  });
+
+  it("409 冲突显示保留提示且不清空当前草稿", async () => {
+    const conflict = new ApiRequestError(409, {
+      error: { code: "VERSION_CONFLICT", details: {}, fieldErrors: {}, message: "账单版本冲突。", requestId: "request-409" },
+    });
+    updateMutation.error = conflict;
+    updateMutation.mutateAsync.mockRejectedValue(conflict);
+    renderPage(<ExpenseDetailPage />);
+    fireEvent.change(screen.getByLabelText("用途"), { target: { value: "仍保留的午餐草稿" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(updateMutation.mutateAsync).toHaveBeenCalled());
+    expect(screen.getByText(/当前表单仍保留/)).toBeInTheDocument();
+    expect(screen.getByLabelText("用途")).toHaveValue("仍保留的午餐草稿");
+  });
+});
+
 describe("Expense 附件选择与私有预览", () => {
   it("新建模式限制为三张受支持图片，编辑模式不再选择附件", () => {
     const create = renderPage(<NewExpensePage />);
+    openMoreSettings();
     const input = screen.getByLabelText("附件（最多三张）");
     expect(input).toHaveAttribute(
       "accept",
@@ -393,6 +490,7 @@ describe("Expense 附件选择与私有预览", () => {
     create.unmount();
 
     renderPage(<ExpenseDetailPage />);
+    openMoreSettings();
     expect(screen.queryByLabelText("附件（最多三张）")).not.toBeInTheDocument();
   });
 
@@ -417,7 +515,8 @@ describe("Expense 附件选择与私有预览", () => {
     },
   ])("无效附件保留已填表单并显示 $message", ({ files, message }) => {
     renderPage(<NewExpensePage />);
-    const title = screen.getByLabelText("标题");
+    openMoreSettings();
+    const title = screen.getByLabelText("用途");
     const amount = screen.getByPlaceholderText("0.00");
     fireEvent.change(title, { target: { value: "保留的午餐" } });
     fireEvent.change(amount, { target: { value: "12.34" } });
@@ -437,6 +536,7 @@ describe("Expense 附件选择与私有预览", () => {
       .mockReturnValueOnce("blob:receipt-b");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     renderPage(<NewExpensePage />);
+    openMoreSettings();
     const files = [
       new File(["a"], "receipt-a.png", { type: "image/png" }),
       new File(["b"], "receipt-b.webp", { type: "image/webp" }),
@@ -473,6 +573,7 @@ describe("Expense 附件选择与私有预览", () => {
       .mockReturnValueOnce("blob:receipt-b-next");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     renderPage(<NewExpensePage />);
+    openMoreSettings();
     const first = new File(["a"], "receipt-a.png", { type: "image/png" });
     const second = new File(["b"], "receipt-b.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
@@ -490,10 +591,10 @@ describe("Expense 附件选择与私有预览", () => {
     fireEvent.change(screen.getByPlaceholderText("0.00"), {
       target: { value: "10" },
     });
-    fireEvent.change(screen.getByLabelText("标题"), {
+    fireEvent.change(screen.getByLabelText("用途"), {
       target: { value: "保留一张附件" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存账单" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalled());
     expect(createMutation.mutateAsync).toHaveBeenCalledWith({
@@ -507,6 +608,7 @@ describe("Expense 附件选择与私有预览", () => {
     const revoke = vi.spyOn(URL, "revokeObjectURL")
       .mockImplementation(() => undefined);
     renderPage(<NewExpensePage />);
+    openMoreSettings();
     fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
       target: {
         files: [new File(["receipt"], "receipt.png", { type: "image/png" })],
@@ -522,20 +624,21 @@ describe("Expense 附件选择与私有预览", () => {
 
   it("保存时把同一 File[] 与账单输入一起交给创建 mutation", async () => {
     renderPage(<NewExpensePage />);
+    openMoreSettings();
     const file = new File(["receipt"], "receipt.png", {
       type: "image/png",
     });
     fireEvent.change(screen.getByPlaceholderText("0.00"), {
       target: { value: "10" },
     });
-    fireEvent.change(screen.getByLabelText("标题"), {
+    fireEvent.change(screen.getByLabelText("用途"), {
       target: { value: "午餐附件" },
     });
     fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
       target: { files: [file] },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "保存账单" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalled());
     expect(createMutation.mutateAsync).toHaveBeenCalledWith({
@@ -549,6 +652,7 @@ describe("Expense 附件选择与私有预览", () => {
     (status) => {
       activity.status = status;
       renderPage(<ExpenseDetailPage />);
+      if (status === "ACTIVE") openMoreSettings();
 
       const link = screen.getByRole("link", { name: "查看附件 1" });
       expect(link).toHaveAttribute(
@@ -571,6 +675,7 @@ describe("Expense 附件选择与私有预览", () => {
 
   it("ACTIVE 编辑页确认后立即删除指定已有附件", async () => {
     renderPage(<ExpenseDetailPage />);
+    openMoreSettings();
 
     fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
     expect(screen.getByRole("alertdialog", { name: "删除附件" })).toBeInTheDocument();
@@ -690,10 +795,11 @@ describe("Expense pending 流水隔离", () => {
     fireEvent.click(screen.getByRole("button", { name: "修改后重试" }));
     const dialog = screen.getByRole("dialog", { name: "修改被拒账单" });
     expect(dialog).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("标题")).toHaveValue("被拒早餐");
+    expect(within(dialog).getByLabelText("用途")).toHaveValue("被拒早餐");
+    openMoreSettings(dialog);
     expect(within(dialog).getByLabelText("备注")).toHaveValue("原始备注");
 
-    fireEvent.change(within(dialog).getByLabelText("标题"), { target: { value: "修正早餐" } });
+    fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "修正早餐" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "修改后重试" }));
 
     await waitFor(() => expect(reviseMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({

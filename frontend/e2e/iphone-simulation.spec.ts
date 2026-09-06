@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  assertExpenseEditorScrollBoundary,
   assertNoHorizontalOverflow,
   createActivity,
   fillQuickExpenseBasics,
@@ -25,8 +26,17 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await expect(navigation.getByRole("link")).toHaveText(["流水", "结算"]);
 
   const dialog = await openQuickExpense(page);
+  await assertExpenseEditorScrollBoundary(page, dialog);
   await fillQuickExpenseBasics(dialog, "12.34", expenseTitle);
+  for (const view of ["谁付款", "谁参与", "分摊设置", "币种"] as const) {
+    await dialog.getByRole("button", { name: view, exact: true }).click();
+    const title = view === "币种" ? "选择币种" : view;
+    const subview = page.getByRole("dialog", { name: title, exact: true });
+    await assertExpenseEditorScrollBoundary(page, subview);
+    await subview.getByRole("button", { name: "记一笔", exact: true }).click();
+  }
   await openExpenseMoreSettings(dialog);
+  await assertExpenseEditorScrollBoundary(page, dialog);
   const attachmentInput = dialog.getByLabel("附件（最多三张）");
   await attachmentInput.setInputFiles([
     { name: "iphone-receipt-a.png", mimeType: "image/png", buffer: onePixelPng },
