@@ -801,7 +801,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .activity-list { gap: 8px; margin-top: 10px; }
 .activity-list-item { min-height: 76px; border-radius: 12px; border-color: rgb(220 229 224 / 80%); padding: 8px 10px; box-shadow: 0 1px 2px rgb(23 33 29 / 4%); transition: transform 100ms ease-out, border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease; }
 .activity-list-item > img { width: 72px; height: 58px; border-radius: 8px; }
-.product-bottom-nav { border-top: 1px solid rgb(220 229 224 / 80%); background: rgb(255 255 255 / 82%); box-shadow: 0 -6px 20px rgb(23 33 29 / 5%); backdrop-filter: blur(16px) saturate(140%); }
+.product-bottom-nav { border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent); background: color-mix(in srgb, var(--surface) 82%, transparent); box-shadow: 0 -6px 20px rgb(23 33 29 / 5%); backdrop-filter: blur(16px) saturate(140%); }
 .product-bottom-nav a { min-height: 58px; }
 
 /* 工作台页头和流水/结算保持旧版的连续表面；Sheet 采用半透明 scrim。 */

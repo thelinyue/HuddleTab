@@ -119,11 +119,22 @@ test("通知与我的页覆盖主题、昵称和退出流程", async ({ page }, 
   await expect(page.getByRole("heading", { name: "账户与安全", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "主题：跟随系统" }).click();
   const themeSheet = page.getByRole("dialog", { name: "主题" });
+  const productNavigation = page.getByRole("navigation", { name: "主导航" });
   await expect(themeSheet.getByRole("radio")).toHaveCount(3);
+  await themeSheet.getByRole("radio", { name: "亮色" }).click();
+  const lightNavigationBackground = await productNavigation.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
   await themeSheet.getByRole("radio", { name: "暗色" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("huddletab-theme"))).toBe("dark");
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#0d1512");
+  await expect.poll(() => productNavigation.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )).not.toBe(lightNavigationBackground);
+  await expect.poll(() => productNavigation.evaluate(
+    (element) => Math.round(element.getBoundingClientRect().bottom),
+  )).toBe(await page.evaluate(() => window.innerHeight));
   await themeSheet.getByRole("button", { name: "关闭主题" }).click();
 
   const displayName = `昵称-${testInfo.project.name}-${Date.now()}`;

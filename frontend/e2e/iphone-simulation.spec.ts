@@ -96,12 +96,23 @@ test("iPhone WebKit 的主题、昵称和退出操作适配底部 Sheet", async 
   const viewportHeight = await page.evaluate(() => window.innerHeight);
   await page.getByRole("button", { name: "主题：跟随系统" }).click();
   const themeSheet = page.getByRole("dialog", { name: "主题" });
+  const productNavigation = page.getByRole("navigation", { name: "主导航" });
   await expect(themeSheet.getByRole("radio")).toHaveCount(3);
   await expect.poll(() => themeSheet.evaluate((element) => Math.round(element.getBoundingClientRect().bottom)))
     .toBe(viewportHeight);
+  await themeSheet.getByRole("radio", { name: "亮色" }).click();
+  const lightNavigationBackground = await productNavigation.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
   await themeSheet.getByRole("radio", { name: "暗色" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#0d1512");
+  await expect.poll(() => productNavigation.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )).not.toBe(lightNavigationBackground);
+  await expect.poll(() => productNavigation.evaluate(
+    (element) => Math.round(element.getBoundingClientRect().bottom),
+  )).toBe(viewportHeight);
   await themeSheet.getByRole("button", { name: "关闭主题" }).click();
 
   await page.getByRole("button", { name: "修改昵称" }).click();
