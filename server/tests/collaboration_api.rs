@@ -1789,3 +1789,491 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(joined["error"]["code"], "INVALID_INVITATION");
 }
+
+// 通过真实外键写入最小账务事实，分别验证付款和分摊都会阻止 Guest 的物理删除。
+async fn insert_guest_expense_reference(
+    pool: &PgPool,
+    activity_id: Uuid,
+    owner_user_id: Uuid,
+    guest_member_id: Uuid,
+    reference: &str,
+) {
+    let now = OffsetDateTime::now_utc();
+    let expense_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO expenses (id, activity_id, created_by_user_id, client_mutation_id, title,
+         category, occurred_at, original_currency, original_amount_minor, base_currency,
+         base_amount_minor, exchange_rate_kind, exchange_rate, split_mode, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 'Guest removal reference', 'OTHER', $5, 'CNY', 100,
+                 'CNY', 100, 'IDENTITY', 1, 'EXACT', $5, $5)",
+    )
+    .bind(expense_id)
+    .bind(activity_id)
+    .bind(owner_user_id)
+    .bind(Uuid::new_v4())
+    .bind(now)
+    .execute(pool)
+    .await
+    .expect("应插入引用 Expense");
+
+    if reference == "PAYMENT" {
+        sqlx::query(
+            "INSERT INTO expense_payments (id, activity_id, expense_id, payer_member_id,
+             original_currency, original_amount_minor, base_currency, base_amount_minor)
+             VALUES ($1, $2, $3, $4, 'CNY', 100, 'CNY', 100)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(activity_id)
+        .bind(expense_id)
+        .bind(guest_member_id)
+        .execute(pool)
+        .await
+        .expect("应插入 Guest 付款引用");
+    } else {
+        sqlx::query(
+            "INSERT INTO expense_shares (id, activity_id, expense_id, member_id,
+             original_currency, original_amount_minor, base_currency, base_amount_minor)
+             VALUES ($1, $2, $3, $4, 'CNY', 100, 'CNY', 100)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(activity_id)
+        .bind(expense_id)
+        .bind(guest_member_id)
+        .execute(pool)
+        .await
+        .expect("应插入 Guest 分摊引用");
+    }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 无引用时物理删除 Guest，并将删除事实、活动 revision 与审计放在同一事务中。
+async fn remove_guest_hard_deletes_unreferenced_guest_and_records_audit() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
+
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{guest_member_id}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["memberId"], guest_member_id.to_string());
+    assert_eq!(body["data"]["result"], "DELETED");
+    assert_eq!(body["data"]["revision"], "3");
+
+    let member_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM activity_members WHERE activity_id = $1 AND id = $2",
+    )
+    .bind(activity_id)
+    .bind(guest_member_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取物理删除结果");
+    assert_eq!(member_count, 0);
+    let audit = sqlx::query_as::<_, (String, i64, Uuid, Option<Uuid>)>(
+        "SELECT action, activity_revision, resource_id, actor_member_id
+         FROM activity_audit_logs WHERE activity_id = $1
+         ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取 Guest 删除审计");
+    assert_eq!(audit.0, "MEMBER_GUEST_REMOVED");
+    assert_eq!(audit.1, 3);
+    assert_eq!(audit.2, guest_member_id);
+    assert!(audit.3.is_some());
+
+    let (repeat_status, repeat) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{guest_member_id}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(repeat_status, StatusCode::NOT_FOUND);
+    assert_eq!(repeat["error"]["code"], "GUEST_NOT_FOUND");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 任意账务或绑定邀请引用都会保留成员；有效绑定邀请同时在事务内撤销。
+#[allow(clippy::too_many_lines)]
+async fn remove_guest_marks_referenced_members_left_and_revokes_binding_invites() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let (activity_id, owner_member_id) = seed_activity(&pool, &owner).await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let payment_guest = create_binding_guest(&app, &owner, activity_id).await;
+    let share_guest = create_binding_guest(&app, &owner, activity_id).await;
+    let settlement_guest = create_binding_guest(&app, &owner, activity_id).await;
+    let invitation_guest = create_binding_guest(&app, &owner, activity_id).await;
+    let invitation_id = {
+        let token = create_binding_token(
+            &app,
+            &owner,
+            activity_id,
+            invitation_guest,
+            r#"{"targetUsername":"pending-user"}"#,
+        )
+        .await;
+        let invitation_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM activity_invites WHERE activity_id = $1 AND guest_member_id = $2",
+        )
+        .bind(activity_id)
+        .bind(invitation_guest)
+        .fetch_one(&pool)
+        .await
+        .expect("应读取绑定邀请");
+        assert!(!token.is_empty());
+        invitation_id
+    };
+    insert_guest_expense_reference(&pool, activity_id, owner.user_id, payment_guest, "PAYMENT")
+        .await;
+    insert_guest_expense_reference(&pool, activity_id, owner.user_id, share_guest, "SHARE").await;
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO settlements (id, activity_id, created_by_user_id, client_mutation_id,
+         payer_member_id, receiver_member_id, currency, amount_minor, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'CNY', 20, $7, $7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(activity_id)
+    .bind(owner.user_id)
+    .bind(Uuid::new_v4())
+    .bind(settlement_guest)
+    .bind(owner_member_id)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .expect("应插入 Guest 结算引用");
+
+    for (guest_member_id, expected_revision) in [
+        (payment_guest, "7"),
+        (share_guest, "8"),
+        (settlement_guest, "9"),
+        (invitation_guest, "10"),
+    ] {
+        let (status, body) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "DELETE",
+                format!("/api/activities/{activity_id}/members/{guest_member_id}"),
+                "{}",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["data"]["memberId"], guest_member_id.to_string());
+        assert_eq!(body["data"]["result"], "LEFT");
+        assert_eq!(body["data"]["revision"], expected_revision);
+    }
+
+    let state = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+        "SELECT
+         count(*) FILTER (WHERE status = 'LEFT'),
+         count(*) FILTER (WHERE status = 'LEFT' AND version = 2),
+         count(*) FILTER (WHERE status = 'LEFT' AND left_at IS NOT NULL),
+         (SELECT revision FROM activities WHERE id = $1)
+         FROM activity_members WHERE activity_id = $1 AND id <> $2",
+    )
+    .bind(activity_id)
+    .bind(owner_member_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取 Guest LEFT 状态");
+    assert_eq!(state, (4, 4, 4, 10));
+    let invite_state = sqlx::query_as::<_, (Option<OffsetDateTime>, i64)>(
+        "SELECT revoked_at, version FROM activity_invites WHERE id = $1",
+    )
+    .bind(invitation_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取绑定邀请撤销状态");
+    assert!(invite_state.0.is_some());
+    assert_eq!(invite_state.1, 2);
+    let removal_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM activity_audit_logs
+         WHERE activity_id = $1 AND action = 'MEMBER_GUEST_REMOVED'",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取删除审计数量");
+    assert_eq!(removal_audits, 4);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 覆盖认证、Owner、目标类型、跨活动和生命周期边界，所有非法目标统一返回 GUEST_NOT_FOUND。
+#[allow(clippy::too_many_lines)]
+async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let outsider = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let bound_actor = seed_actor(&pool, &secret, "carol", "Carol").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let formal_member_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at)
+         VALUES ($1, $2, $3, 'Bob', 'MEMBER', $4)",
+    )
+    .bind(formal_member_id)
+    .bind(activity_id)
+    .bind(outsider.user_id)
+    .bind(OffsetDateTime::now_utc())
+    .execute(&pool)
+    .await
+    .expect("应插入正式成员");
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            secret.clone(),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+    let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
+
+    let mut no_csrf = authenticated_request(
+        &owner,
+        "DELETE",
+        format!("/api/activities/{activity_id}/members/{guest_member_id}"),
+        "{}",
+    );
+    no_csrf.headers_mut().remove("x-csrf-token");
+    let (status, body) = json_response(&app, no_csrf).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "CSRF_INVALID");
+
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &outsider,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{guest_member_id}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "FORBIDDEN");
+
+    let (status, body) = json_response(
+        &app,
+        Request::builder()
+            .method("DELETE")
+            .uri(format!(
+                "/api/activities/{activity_id}/members/{guest_member_id}"
+            ))
+            .body(Body::empty())
+            .expect("匿名删除请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "UNAUTHENTICATED");
+
+    for target_member_id in [formal_member_id, Uuid::new_v4()] {
+        let (status, body) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "DELETE",
+                format!("/api/activities/{activity_id}/members/{target_member_id}"),
+                "{}",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
+    }
+
+    let bound_guest = create_binding_guest(&app, &owner, activity_id).await;
+    sqlx::query("UPDATE activity_members SET user_id = $1 WHERE id = $2")
+        .bind(bound_actor.user_id)
+        .bind(bound_guest)
+        .execute(&pool)
+        .await
+        .expect("应建立已绑定 Guest");
+    let left_guest = create_binding_guest(&app, &owner, activity_id).await;
+    sqlx::query("UPDATE activity_members SET status = 'LEFT', left_at = $1 WHERE id = $2")
+        .bind(OffsetDateTime::now_utc())
+        .bind(left_guest)
+        .execute(&pool)
+        .await
+        .expect("应建立已移除 Guest");
+    for target_member_id in [bound_guest, left_guest] {
+        let (status, body) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "DELETE",
+                format!("/api/activities/{activity_id}/members/{target_member_id}"),
+                "{}",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
+    }
+
+    let (other_activity_id, _) = seed_activity(&pool, &owner).await;
+    let cross_activity_guest = create_binding_guest(&app, &owner, other_activity_id).await;
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{cross_activity_guest}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
+
+    let ended_guest = create_binding_guest(&app, &owner, activity_id).await;
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应结束活动");
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{ended_guest}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 删除和绑定同时到达时，成员行锁保证只有一个操作成功，另一方读取到最终状态并失败。
+async fn remove_guest_and_binding_race_has_one_successful_operation() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let target = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            secret.clone(),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+    let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
+    let token = create_binding_token(
+        &app,
+        &owner,
+        activity_id,
+        guest_member_id,
+        r#"{"targetUsername":"bob"}"#,
+    )
+    .await;
+    let delete_request = authenticated_request(
+        &owner,
+        "DELETE",
+        format!("/api/activities/{activity_id}/members/{guest_member_id}"),
+        "{}",
+    );
+    let bind_request = authenticated_request(
+        &target,
+        "POST",
+        format!("/api/invitations/{token}/join"),
+        "{}",
+    );
+
+    let (deleted, bound) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            json_response(&app, delete_request),
+            json_response(&app, bind_request)
+        )
+    })
+    .await
+    .expect("绑定和删除不应死锁");
+    assert_eq!(
+        [deleted.0, bound.0]
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        [deleted.0, bound.0]
+            .iter()
+            .filter(|status| **status == StatusCode::NOT_FOUND)
+            .count(),
+        1
+    );
+    if deleted.0 == StatusCode::OK {
+        assert_eq!(deleted.1["data"]["result"], "LEFT");
+        assert_eq!(bound.1["error"]["code"], "INVALID_INVITATION");
+    } else {
+        assert_eq!(deleted.1["error"]["code"], "GUEST_NOT_FOUND");
+        assert_eq!(bound.1["data"]["status"], "BOUND");
+    }
+    let revision: i64 = sqlx::query_scalar("SELECT revision FROM activities WHERE id = $1")
+        .bind(activity_id)
+        .fetch_one(&pool)
+        .await
+        .expect("应读取竞态后的活动 revision");
+    assert_eq!(revision, 4);
+}

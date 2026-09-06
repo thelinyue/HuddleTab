@@ -28,6 +28,7 @@ struct NotificationRow {
     target_type: String,
     target_id: Uuid,
     activity_id: Uuid,
+    activity_deleted: bool,
     payload: Value,
     read_at: Option<OffsetDateTime>,
     created_at: OffsetDateTime,
@@ -40,10 +41,16 @@ impl NotificationRepository for PostgresNotificationRepository {
         recipient_user_id: Uuid,
     ) -> Result<(Vec<NotificationView>, usize), NotificationRepositoryError> {
         let rows = sqlx::query_as::<_, NotificationRow>(
-            "SELECT id, recipient_user_id, type AS kind, target_type, target_id, activity_id,
-                    payload, read_at, created_at
-             FROM notifications WHERE recipient_user_id = $1
-             ORDER BY (read_at IS NOT NULL), created_at DESC, id
+            "SELECT notifications.id, notifications.recipient_user_id,
+                    notifications.type AS kind, notifications.target_type,
+                    notifications.target_id, notifications.activity_id,
+                    activity.deleted_at IS NOT NULL AS activity_deleted,
+                    notifications.payload, notifications.read_at, notifications.created_at
+             FROM notifications
+             JOIN activities activity ON activity.id = notifications.activity_id
+             WHERE notifications.recipient_user_id = $1
+             ORDER BY (notifications.read_at IS NOT NULL), notifications.created_at DESC,
+                      notifications.id
              LIMIT 50",
         )
         .bind(recipient_user_id)
@@ -70,33 +77,33 @@ impl NotificationRepository for PostgresNotificationRepository {
         now: OffsetDateTime,
     ) -> Result<NotificationView, NotificationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let updated = sqlx::query_as::<_, NotificationRow>(
+        sqlx::query(
             "UPDATE notifications SET read_at = $3
-             WHERE id = $1 AND recipient_user_id = $2 AND read_at IS NULL
-             RETURNING id, recipient_user_id, type AS kind, target_type, target_id, activity_id,
-                       payload, read_at, created_at",
+             WHERE id = $1 AND recipient_user_id = $2 AND read_at IS NULL",
         )
         .bind(notification_id)
         .bind(recipient_user_id)
         .bind(now)
-        .fetch_optional(&mut *transaction)
+        .execute(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
-        let row = if let Some(row) = updated {
-            row
-        } else {
-            sqlx::query_as::<_, NotificationRow>(
-                "SELECT id, recipient_user_id, type AS kind, target_type, target_id, activity_id,
-                        payload, read_at, created_at
-                 FROM notifications WHERE id = $1 AND recipient_user_id = $2",
-            )
-            .bind(notification_id)
-            .bind(recipient_user_id)
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(log_repository_error)?
-            .ok_or(NotificationRepositoryError::NotFound)?
-        };
+        // 已读更新和活动删除状态在同一事务内读取，避免响应继续暴露可跳转的旧状态。
+        let row = sqlx::query_as::<_, NotificationRow>(
+            "SELECT notification.id, notification.recipient_user_id,
+                    notification.type AS kind, notification.target_type,
+                    notification.target_id, notification.activity_id,
+                    activity.deleted_at IS NOT NULL AS activity_deleted,
+                    notification.payload, notification.read_at, notification.created_at
+             FROM notifications notification
+             JOIN activities activity ON activity.id = notification.activity_id
+             WHERE notification.id = $1 AND notification.recipient_user_id = $2",
+        )
+        .bind(notification_id)
+        .bind(recipient_user_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .ok_or(NotificationRepositoryError::NotFound)?;
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(notification_from_row(row))
     }
@@ -110,6 +117,7 @@ fn notification_from_row(row: NotificationRow) -> NotificationView {
         target_type: row.target_type,
         target_id: row.target_id,
         activity_id: row.activity_id,
+        activity_deleted: row.activity_deleted,
         payload: row.payload,
         read_at: row.read_at,
         created_at: row.created_at,

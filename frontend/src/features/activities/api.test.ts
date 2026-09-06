@@ -196,7 +196,10 @@ describe("Activity mutation adapter", () => {
       { queryKey: Reflect.get(queryKeys, "activitySnapshot")("user-1", "activity-1") },
       { queryKey: Reflect.get(queryKeys, "activitiesCurrent")("user-1") },
       ...(invalidatesDeleted
-        ? [{ queryKey: Reflect.get(queryKeys, "activitiesDeleted")("user-1") }]
+        ? [
+            { queryKey: Reflect.get(queryKeys, "activitiesDeleted")("user-1") },
+            { queryKey: Reflect.get(queryKeys, "notifications")("user-1") },
+          ]
         : []),
     ];
     expect(invalidate.mock.calls.map(([options]) => options)).toEqual(expectedInvalidations);
@@ -220,6 +223,41 @@ describe("Activity mutation adapter", () => {
     });
 
     expect(response).toEqual(envelope);
+  });
+
+  it("删除临时成员使用 DELETE、携带 CSRF，并失效成员相关全部读模型", async () => {
+    client.DELETE.mockResolvedValue(successful({ memberId: "guest-1", result: "LEFT", revision: "9" }));
+    const { queryClient, wrapper } = setupQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(
+      () => activityApi.useRemoveGuestMutation("user-1", "activity-1"),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync("guest-1");
+    });
+
+    expect(client.DELETE).toHaveBeenCalledWith(
+      "/api/activities/{activity_id}/members/{member_id}",
+      {
+        params: {
+          header: { "x-csrf-token": "csrf-token" },
+          path: { activity_id: "activity-1", member_id: "guest-1" },
+        },
+      },
+    );
+    expect(invalidate.mock.calls.map(([options]) => options?.queryKey)).toEqual([
+      queryKeys.members("user-1", "activity-1"),
+      queryKeys.invitations("user-1", "activity-1"),
+      queryKeys.activityDetail("user-1", "activity-1"),
+      queryKeys.activitySnapshot("user-1", "activity-1"),
+      queryKeys.activitiesCurrent("user-1"),
+      queryKeys.ledger("user-1", "activity-1"),
+      queryKeys.recommendations("user-1", "activity-1"),
+      queryKeys.settlements("user-1", "activity-1"),
+      queryKeys.activitySummary("user-1", "activity-1"),
+    ]);
   });
 });
 

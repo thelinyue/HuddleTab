@@ -16,6 +16,7 @@ import { useDecideNotificationJoinRequestMutation, useMarkNotificationReadMutati
 
 const unread = {
   activityId: "activity-1",
+  activityDeleted: false,
   createdAt: "2026-09-01T10:00:00Z",
   kind: "JOIN_APPROVAL_RESOLVED",
   notificationId: "notification-1",

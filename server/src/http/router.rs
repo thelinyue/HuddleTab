@@ -228,6 +228,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             axum::routing::post(collaboration::create_guest).fallback(api_method_not_allowed),
         )
         .route(
+            "/activities/{activity_id}/members/{member_id}",
+            axum::routing::delete(collaboration::remove_guest).fallback(api_method_not_allowed),
+        )
+        .route(
             "/activities/{activity_id}/members/{member_id}/binding-invitations",
             axum::routing::post(collaboration::create_guest_binding_invitation)
                 .fallback(api_method_not_allowed),

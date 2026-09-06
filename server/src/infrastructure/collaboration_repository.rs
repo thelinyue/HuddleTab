@@ -4,9 +4,9 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::application::collaboration::{
-    CollaborationRepository, CollaborationRepositoryError, GuestMember, Invitation, InvitationKind,
-    InvitationPreview, JoinInvitationInput, JoinRequestView, JoinStatus, JoinedInvitation,
-    NewGuest, NewInvitation,
+    CollaborationRepository, CollaborationRepositoryError, GuestMember, GuestRemovalResult,
+    Invitation, InvitationKind, InvitationPreview, JoinInvitationInput, JoinRequestView,
+    JoinStatus, JoinedInvitation, NewGuest, NewInvitation, RemovedGuest,
 };
 use crate::domain::{
     activity::InviteMode,
@@ -66,6 +66,119 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             activity_id: guest.activity_id,
             display_name: guest.display_name,
             version: 1,
+            revision,
+        })
+    }
+
+    async fn remove_guest(
+        &self,
+        activity_id: Uuid,
+        member_id: Uuid,
+        actor_user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<RemovedGuest, CollaborationRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        let actor_member_id = authorize_owner(&mut transaction, activity_id, actor_user_id).await?;
+        let member = sqlx::query_as::<_, (Option<Uuid>, String, String)>(
+            "SELECT user_id, role, status FROM activity_members
+             WHERE id = $1 AND activity_id = $2 FOR UPDATE",
+        )
+        .bind(member_id)
+        .bind(activity_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .filter(|(user_id, role, status)| {
+            user_id.is_none() && role == "MEMBER" && status == "ACTIVE"
+        })
+        .ok_or(CollaborationRepositoryError::GuestNotFound)?;
+
+        // 账务、邀请和审计外键都属于成员历史的一部分；任一引用存在时只能标记 LEFT。
+        let has_references = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM expense_payments
+                 WHERE activity_id = $1 AND payer_member_id = $2
+                UNION ALL
+                SELECT 1 FROM expense_shares
+                 WHERE activity_id = $1 AND member_id = $2
+                UNION ALL
+                SELECT 1 FROM settlements
+                 WHERE activity_id = $1 AND (payer_member_id = $2 OR receiver_member_id = $2)
+                UNION ALL
+                SELECT 1 FROM activity_invites
+                 WHERE activity_id = $1 AND (created_by_member_id = $2 OR guest_member_id = $2)
+                UNION ALL
+                SELECT 1 FROM activity_join_requests
+                 WHERE activity_id = $1 AND decided_by_member_id = $2
+                UNION ALL
+                SELECT 1 FROM activity_audit_logs
+                 WHERE activity_id = $1 AND actor_member_id = $2
+            )",
+        )
+        .bind(activity_id)
+        .bind(member_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+
+        let result = if has_references {
+            sqlx::query(
+                "UPDATE activity_members
+                 SET status = 'LEFT', left_at = $1, version = version + 1
+                 WHERE id = $2 AND activity_id = $3",
+            )
+            .bind(now)
+            .bind(member_id)
+            .bind(activity_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+            GuestRemovalResult::Left
+        } else {
+            sqlx::query("DELETE FROM activity_members WHERE id = $1 AND activity_id = $2")
+                .bind(member_id)
+                .bind(activity_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(log_repository_error)?;
+            GuestRemovalResult::Deleted
+        };
+
+        if result == GuestRemovalResult::Left {
+            sqlx::query(
+                "UPDATE activity_invites
+                 SET revoked_at = $1, version = version + 1
+                 WHERE activity_id = $2 AND guest_member_id = $3
+                   AND revoked_at IS NULL
+                   AND (max_uses IS NULL OR use_count < max_uses)
+                   AND expires_at > $1",
+            )
+            .bind(now)
+            .bind(activity_id)
+            .bind(member_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+        }
+
+        let revision = revise_and_audit(
+            &mut transaction,
+            AuditEntry {
+                activity_id,
+                actor_user_id,
+                actor_member_id: Some(actor_member_id),
+                action: "MEMBER_GUEST_REMOVED",
+                resource_type: "ACTIVITY_MEMBER",
+                resource_id: member_id,
+                now,
+            },
+        )
+        .await?;
+        transaction.commit().await.map_err(log_repository_error)?;
+        drop(member);
+        Ok(RemovedGuest {
+            member_id,
+            result,
             revision,
         })
     }
@@ -284,7 +397,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
              LEFT JOIN activity_members guest \
                ON guest.activity_id = i.activity_id AND guest.id = i.guest_member_id \
-             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
+             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $3 \
                AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
                AND (i.guest_member_id IS NULL \
                     OR (guest.user_id IS NULL AND guest.status = 'ACTIVE')) \
@@ -324,6 +437,22 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         input: JoinInvitationInput,
     ) -> Result<JoinedInvitation, CollaborationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        // 绑定竞态统一遵循“活动 -> 邀请 -> 成员”的锁序；删除路径持有活动锁后才能继续，避免反向等待。
+        let activity_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT a.id
+             FROM activity_invites i JOIN activities a ON a.id = i.activity_id
+             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2
+               AND (i.guest_member_id IS NOT NULL
+                    OR i.max_uses IS NULL OR i.use_count < i.max_uses)
+               AND a.status = 'ACTIVE' AND a.deleted_at IS NULL
+             FOR UPDATE OF a",
+        )
+        .bind(input.token_hash.as_slice())
+        .bind(input.now)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .ok_or(CollaborationRepositoryError::NotFound)?;
         let invitation = sqlx::query_as::<
             _,
             (
@@ -339,13 +468,15 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             "SELECT i.id, i.activity_id, i.kind, i.target_username, a.invite_mode, \
                     i.guest_member_id, i.use_count \
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
-             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
+             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $3 \
                AND (i.guest_member_id IS NOT NULL \
                     OR i.max_uses IS NULL OR i.use_count < i.max_uses) \
                AND a.status = 'ACTIVE' AND a.deleted_at IS NULL \
-             FOR UPDATE OF i, a",
+               AND i.activity_id = $2 \
+             FOR UPDATE OF i",
         )
         .bind(input.token_hash.as_slice())
+        .bind(activity_id)
         .bind(input.now)
         .fetch_optional(&mut *transaction)
         .await

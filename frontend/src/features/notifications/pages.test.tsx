@@ -23,11 +23,13 @@ vi.mock("./api", () => ({
   }),
 }));
 
-import { NotificationsPage } from "./pages";
+import { notificationDestination, NotificationsPage } from "./pages";
+import type { Notification } from "./api";
 
-function notification(overrides: Record<string, unknown> = {}) {
+function notification(overrides: Partial<Notification> = {}): Notification {
   return {
     activityId: "activity-safe",
+    activityDeleted: false,
     createdAt: "2026-09-01T10:00:00Z",
     kind: "JOIN_APPROVAL_REQUESTED",
     notificationId: "notification-1",
@@ -52,6 +54,37 @@ afterEach(() => {
 });
 
 describe("NotificationsPage", () => {
+  it.each([
+    "JOIN_APPROVAL_REQUESTED",
+    "JOIN_APPROVAL_RESOLVED",
+    "MEMBER_JOINED",
+    "PARTICIPATING_EXPENSE_CHANGED",
+    "PARTICIPATING_EXPENSE_DELETED",
+    "SETTLEMENT_RECEIVED",
+    "ACTIVITY_STATUS_CHANGED",
+    "OWNERSHIP_CHANGED",
+  ] as Notification["kind"][]) ("已删除活动的 %s 通知不可跳转", (kind) => {
+    const current = notification({
+      activityDeleted: true,
+      kind,
+      payload: kind === "JOIN_APPROVAL_REQUESTED"
+        ? { displayName: "Bob", requestId: "request-1" }
+        : { activityName: "旅行", status: "ENDED" },
+    });
+    state.notifications.items = [current];
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+
+    const row = screen.getByTestId("notification-notification-1");
+    expect(notificationDestination(current)).toBeUndefined();
+    expect(row.querySelector("a")).toBeNull();
+    expect(row).toHaveTextContent("活动已删除，无法打开");
+    expect(row.querySelector("button[aria-label='标记通知为已读']")).toBeInTheDocument();
+    if (kind === "JOIN_APPROVAL_REQUESTED") {
+      expect(screen.queryByRole("button", { name: "通过" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
+    }
+  });
+
   it("通知链接只使用受控 activityId，不信任 payload URL", () => {
     state.notifications.items = [notification()];
     render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
@@ -64,6 +97,16 @@ describe("NotificationsPage", () => {
       "href",
       "/untrusted",
     );
+  });
+
+  it("活动恢复后删除状态通知重新生成活动链接", () => {
+    const restored = notification({
+      activityDeleted: false,
+      kind: "ACTIVITY_STATUS_CHANGED",
+      payload: { activityName: "旅行", status: "DELETED" },
+    });
+
+    expect(notificationDestination(restored)).toBe("/activities/activity-safe");
   });
 
   it("已读失败保留未读外观并显示错误", async () => {

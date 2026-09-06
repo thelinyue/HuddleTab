@@ -42,6 +42,7 @@ function notificationSummary(notification: Notification): string | undefined {
 
 /** 深链只由服务端枚举和受控 ID 组合，不读取 payload 中可能出现的 URL。 */
 export function notificationDestination(notification: Notification): string | undefined {
+  if (notification.activityDeleted) return undefined;
   const activity = `/activities/${encodeURIComponent(notification.activityId)}`;
   switch (notification.kind) {
     case "JOIN_APPROVAL_REQUESTED": return `${activity}?panel=members`;
@@ -51,7 +52,7 @@ export function notificationDestination(notification: Notification): string | un
     case "SETTLEMENT_RECEIVED": return `${activity}?tab=settlement`;
     case "MEMBER_JOINED":
     case "ACTIVITY_STATUS_CHANGED":
-    case "OWNERSHIP_CHANGED": return notification.payload.status === "DELETED" ? undefined : activity;
+    case "OWNERSHIP_CHANGED": return activity;
   }
 }
 
@@ -136,9 +137,9 @@ export function NotificationsPage() {
         <div className="notification-list">{groupItems.map((notification) => {
           const destination = notificationDestination(notification);
           const summary = notificationSummary(notification);
-          const content = <><span className="notification-row__icon">{notificationIcon(notification)}</span><span className="notification-row__content"><strong>{notificationTitle(notification)}</strong>{summary ? <span>{summary}</span> : null}<small>{new Date(notification.createdAt).toLocaleString("zh-CN", { timeZone })}</small></span></>;
-          const actionable = notification.kind === "JOIN_APPROVAL_REQUESTED" && notification.readAt === null && !notification.payload.status && notification.payload.requestId;
-          return <article className="notification-row" data-testid={`notification-${notification.notificationId}`} data-kind={notification.kind} data-unread={notification.readAt === null} key={notification.notificationId}>
+          const content = <><span className="notification-row__icon">{notificationIcon(notification)}</span><span className="notification-row__content"><strong>{notificationTitle(notification)}</strong>{summary ? <span>{summary}</span> : null}{notification.activityDeleted ? <span className="notification-row__status">活动已删除，无法打开</span> : null}<small>{new Date(notification.createdAt).toLocaleString("zh-CN", { timeZone })}</small></span></>;
+          const actionable = notification.kind === "JOIN_APPROVAL_REQUESTED" && !notification.activityDeleted && notification.readAt === null && !notification.payload.status && notification.payload.requestId;
+          return <article className="notification-row" data-testid={`notification-${notification.notificationId}`} data-kind={notification.kind} data-activity-deleted={notification.activityDeleted} data-unread={notification.readAt === null} key={notification.notificationId}>
             {destination ? <Link className="notification-row__link" to={destination}>{content}</Link> : <div className="notification-row__link">{content}</div>}
             <div className="notification-row__actions">{actionable ? <><Button variant="ghost" busy={decide.isPending} onClick={() => void decideRequest(notification, "REJECT")}>拒绝</Button><Button busy={decide.isPending} onClick={() => void decideRequest(notification, "APPROVE")}>通过</Button></> : null}{notification.readAt === null && !actionable ? <Button className="notification-read-button" variant="ghost" busy={markRead.isPending} aria-label="标记通知为已读" title="标记通知为已读" onClick={() => void read(notification.notificationId)}><Check aria-hidden="true" size={18} /></Button> : null}</div>
           </article>;

@@ -62,7 +62,7 @@ async function changeInviteModeToApproval(page: Page): Promise<void> {
 }
 
 test("通知筛选、加入审批和所有权转让保持同一活动交互层级", async ({ page, browser }, testInfo) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   const activityName = `Phase 1E 通知-${Date.now()}`;
   await login(page);
   const activityId = await createActivity(page, activityName);
@@ -94,6 +94,29 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
       await applicant.page.goto("/notifications");
       await expect(applicant.page.getByText("加入申请已批准")).toBeVisible();
 
+      await page.goto(`/activities/${activityId}?panel=manage`);
+      const deleteManagement = page.getByRole("dialog", { name: "活动管理" });
+      await deleteManagement.getByRole("button", { name: "删除活动" }).click();
+      await page.getByRole("dialog", { name: "确认删除活动" }).getByRole("button", { name: "确认删除活动", exact: true }).click();
+      await expect(page).toHaveURL(/\/activities$/);
+
+      await applicant.page.goto("/notifications");
+      const deletedNotification = applicant.page.locator(".notification-row").filter({ hasText: "加入申请已批准" });
+      await expect(deletedNotification).toBeVisible();
+      await expect(deletedNotification.locator("a")).toHaveCount(0);
+      await expect(deletedNotification).toContainText("活动已删除，无法打开");
+      await expect(deletedNotification.getByRole("button", { name: "标记通知为已读" })).toBeVisible();
+
+      await page.getByRole("button", { name: "已删除活动" }).click();
+      const deletedActivities = page.getByRole("dialog", { name: "已删除活动" });
+      await deletedActivities.getByRole("button", { name: `恢复${activityName}` }).click();
+      await expect(deletedActivities.getByText(activityName)).toBeHidden();
+
+      await applicant.page.reload();
+      const restoredNotification = applicant.page.locator(".notification-row").filter({ hasText: "加入申请已批准" });
+      await expect(restoredNotification.locator("a")).toHaveAttribute("href", `/activities/${activityId}`);
+
+      await page.goto("/notifications");
       await page.getByRole("button", { name: "全部已读" }).click();
       await expect(page.getByRole("button", { name: "全部已读" })).toBeHidden();
       await page.getByRole("button", { name: "未读" }).click();

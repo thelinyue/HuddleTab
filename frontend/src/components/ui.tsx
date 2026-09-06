@@ -95,6 +95,7 @@ export function ConfirmDialog({
   open,
   title,
   message,
+  error,
   confirmLabel = "确认",
   busy = false,
   onConfirm,
@@ -102,13 +103,15 @@ export function ConfirmDialog({
 }: {
   open: boolean;
   title: string;
-  message: string;
+  message: ReactNode;
+  error?: ReactNode;
   confirmLabel?: string;
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const titleId = useId();
+  const descriptionId = useId();
   const dialogRef = useRef<HTMLElement | null>(null);
   const onCancelRef = useRef(onCancel);
   onCancelRef.current = onCancel;
@@ -153,9 +156,10 @@ export function ConfirmDialog({
   return (
     <div className="confirm-overlay" role="presentation">
       <button className="confirm-overlay__scrim" type="button" tabIndex={-1} aria-label={`取消${title}`} onClick={onCancel} />
-      <section ref={dialogRef} className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={titleId}>
+      <section ref={dialogRef} className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <h2 id={titleId}>{title}</h2>
-        <p>{message}</p>
+        <div id={descriptionId} className="confirm-dialog__message">{message}</div>
+        {error ? <div className="confirm-dialog__error">{error}</div> : null}
         <div className="confirm-dialog__actions">
           <Button variant="secondary" type="button" onClick={onCancel}>取消</Button>
           <Button variant="danger" type="button" busy={busy} onClick={onConfirm}>{confirmLabel}</Button>

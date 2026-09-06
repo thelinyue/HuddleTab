@@ -246,6 +246,8 @@ html.theme-transition * { transition: background-color 160ms ease, border-color 
 .button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .48; }
 .icon-button { display: inline-grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; border: 0; border-radius: 8px; color: var(--muted-foreground); background: transparent; }
 .icon-button:hover { color: var(--foreground); background: var(--surface-muted); }
+.member-row__remove { color: var(--danger); }
+.member-row__remove:hover { color: var(--danger); background: var(--danger-soft); }
 .spinner { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -448,7 +450,8 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .member-entry { border-bottom: 1px solid var(--border); }
 .member-entry:last-child { border-bottom: 0; }
 .member-entry .member-row { border-bottom: 0; }
-.member-row__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.member-row__actions { display: flex; min-width: 0; max-width: 100%; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.member-row__actions > .button { min-height: 44px; white-space: nowrap; }
 .guest-binding-form { display: grid; gap: 12px; border-top: 1px solid var(--border); padding: 14px 0 18px 52px; }
 .guest-binding-form > .button { justify-self: end; }
 .guest-binding-form .issued-invite { margin-top: 0; }
@@ -597,6 +600,7 @@ button.settings-row:hover { background: var(--surface-muted); }
 .avatar--mint { background: #d9efe8; } .avatar--blue { background: #dce9f6; } .avatar--orange { background: #f8e7d0; }
 .avatar--rose { background: #f4dfe3; } .avatar--violet { background: #e7e0f5; } .avatar--leaf { background: #e3ebdc; }
 .tag { border-radius: 999px; padding: 2px 8px; color: var(--primary); background: var(--secondary); font-size: 11px; font-weight: 700; }
+.tag--muted { color: var(--muted-foreground); background: var(--surface-muted); }
 
 .management-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .issued-invite { display: grid; gap: 8px; margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px; }
@@ -814,7 +818,8 @@ body:has(.quick-expense-trigger) .update-prompt { bottom: calc(var(--safe-area-b
   .activity-list-item { grid-template-columns: 64px minmax(0, 1fr) auto; padding-inline: 8px; }
   .activity-list-item > img { width: 64px; height: 52px; }
   .member-actions { grid-template-columns: 1fr; }
-  .member-row__actions { align-items: flex-end; flex-direction: column; }
+  /* 操作区允许横向排列和换行，避免纵向按钮超出成员行后覆盖下一位成员。 */
+  .member-row__actions { align-items: center; justify-content: flex-end; flex-direction: row; flex-wrap: wrap; row-gap: 4px; }
   .guest-binding-form { padding-left: 0; }
   .join-request-row { grid-template-columns: 1fr; }
   .join-request-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1115,7 +1120,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .confirm-overlay__scrim { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgb(8 20 15 / 46%); }
 .confirm-dialog { position: relative; display: grid; width: min(100%, 384px); gap: 14px; border: 1px solid var(--border); border-radius: 16px; padding: 20px; color: var(--foreground); background: var(--surface); box-shadow: var(--shadow-overlay); }
 .confirm-dialog h2 { font-size: 17px; font-weight: 750; }
-.confirm-dialog p { color: var(--muted-foreground); font-size: 14px; line-height: 1.5; }
+.confirm-dialog__message { color: var(--muted-foreground); font-size: 14px; line-height: 1.5; }
+.confirm-dialog__error { display: grid; gap: 8px; }
 .confirm-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 520px) {
   .confirm-overlay { align-items: end; padding: 12px; }
@@ -1145,6 +1151,9 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .notification-row[data-kind="SETTLEMENT_RECEIVED"] .notification-row__icon, .notification-row[data-kind="ACTIVITY_STATUS_CHANGED"] .notification-row__icon { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, var(--surface)); }
 .notification-row[data-kind="MEMBER_JOINED"] .notification-row__icon { color: #1976a8; background: color-mix(in srgb, #1976a8 10%, var(--surface)); }
 .notification-row[data-kind="OWNERSHIP_CHANGED"] .notification-row__icon { color: var(--muted-foreground); background: var(--surface-muted); }
+.notification-row[data-activity-deleted="true"] .notification-row__link { cursor: default; }
+.notification-row[data-activity-deleted="true"] .notification-row__icon { color: var(--muted-foreground); background: var(--surface-muted); }
+.notification-row__status { color: var(--muted-foreground); font-size: 12px; font-weight: 650; }
 .notification-row__content { gap: 3px; }
 .notification-row__content strong { font-size: 14px; font-weight: 700; }
 .notification-row__content > span { font-size: 13px; line-height: 1.4; }

@@ -18,7 +18,8 @@ use crate::{
             create_invitation as issue_invitation, decide_join_request as decide_request,
             get_join_request as load_join_request, join_invitation as accept_invitation,
             list_invitations as load_invitations, list_join_requests as load_join_requests,
-            preview_invitation as load_invitation_preview, revoke_invitation as cancel_invitation,
+            preview_invitation as load_invitation_preview, remove_guest as remove_guest_member,
+            revoke_invitation as cancel_invitation,
         },
     },
     infrastructure::{
@@ -46,6 +47,26 @@ pub struct CreateGuestRequest {
 #[derive(Serialize, ToSchema)]
 pub struct GuestEnvelope {
     pub data: GuestData,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct GuestRemovalEnvelope {
+    pub data: GuestRemovalData,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum GuestRemovalResultData {
+    Deleted,
+    Left,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GuestRemovalData {
+    pub member_id: String,
+    pub result: GuestRemovalResultData,
+    pub revision: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -232,6 +253,57 @@ pub(crate) async fn create_guest(
             },
         }),
     ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/activities/{activity_id}/members/{member_id}",
+    params(
+        ("activity_id" = String, Path, description = "活动 UUID"),
+        ("member_id" = String, Path, description = "临时成员 UUID"),
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    responses(
+        (status = 200, description = "临时成员已移除", body = GuestRemovalEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无权限", body = super::error::ErrorEnvelope),
+        (status = 404, description = "临时成员不存在、已移除或已绑定账号", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn remove_guest(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path((activity_id, member_id)): Path<(String, String)>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<GuestRemovalEnvelope>, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    let activity_id = parse_uuid(&activity_id, request_id.clone())?;
+    let member_id = parse_uuid(&member_id, request_id.clone())?;
+    let repository = PostgresCollaborationRepository::new(state.pool);
+    let removed = remove_guest_member(
+        &repository,
+        &SystemClock,
+        activity_id,
+        member_id,
+        actor.user_id,
+    )
+    .await
+    .map_err(|error| map_error(error, request_id))?;
+    Ok(Json(GuestRemovalEnvelope {
+        data: GuestRemovalData {
+            member_id: removed.member_id.to_string(),
+            result: match removed.result {
+                crate::application::collaboration::GuestRemovalResult::Deleted => {
+                    GuestRemovalResultData::Deleted
+                }
+                crate::application::collaboration::GuestRemovalResult::Left => {
+                    GuestRemovalResultData::Left
+                }
+            },
+            revision: removed.revision.to_string(),
+        },
+    }))
 }
 
 #[utoipa::path(

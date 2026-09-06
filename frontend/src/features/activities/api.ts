@@ -14,6 +14,7 @@ export type ActivityLifecycleInput = components["schemas"]["ActivityLifecycleReq
 export type TransferOwnershipInput = components["schemas"]["TransferOwnershipRequest"];
 export type Invitation = components["schemas"]["InvitationData"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationData"];
+export type GuestRemoval = components["schemas"]["GuestRemovalData"];
 export type CreateInvitationInput = components["schemas"]["CreateInvitationRequest"];
 export type InvitationIntent =
   | { mode: "link" }
@@ -126,6 +127,18 @@ async function createGuest(activityId: string, displayName: string) {
       params: { path: { activity_id: activityId } },
       body: { displayName },
       headers: await mutationHeaders(),
+    }),
+  ).data;
+}
+
+async function removeGuest(activityId: string, memberId: string): Promise<GuestRemoval> {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.DELETE("/api/activities/{activity_id}/members/{member_id}", {
+      params: {
+        header: { "x-csrf-token": headers["X-CSRF-Token"] },
+        path: { activity_id: activityId, member_id: memberId },
+      },
     }),
   ).data;
 }
@@ -244,7 +257,7 @@ export function useCreateActivityMutation(userId: string) {
   });
 }
 
-/** 只有删除域操作会改变 deleted list；普通资料和状态更新不应触发 Owner-only 查询。 */
+/** 删除域操作同时改变已删除列表和通知深链状态；普通资料和状态更新不触发这两类查询。 */
 function useActivityManagementInvalidation(userId: string, activityId: string, includeDeleted: boolean) {
   const queryClient = useQueryClient();
   return () => Promise.all([
@@ -252,7 +265,10 @@ function useActivityManagementInvalidation(userId: string, activityId: string, i
       queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
       ...(includeDeleted
-        ? [queryClient.invalidateQueries({ queryKey: queryKeys.activitiesDeleted(userId) })]
+        ? [
+            queryClient.invalidateQueries({ queryKey: queryKeys.activitiesDeleted(userId) }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
+          ]
         : []),
     ]);
 }
@@ -318,6 +334,24 @@ export function useCreateGuestMutation(userId: string, activityId: string) {
     mutationFn: (displayName: string) => createGuest(activityId, displayName),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.members(userId, activityId) }),
+  });
+}
+
+export function useRemoveGuestMutation(userId: string, activityId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (memberId: string) => removeGuest(activityId, memberId),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.members(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.ledger(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.recommendations(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.settlements(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activitySummary(userId, activityId) }),
+    ]),
   });
 }
 

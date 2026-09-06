@@ -14,6 +14,8 @@ pub struct NotificationView {
     pub target_type: String,
     pub target_id: Uuid,
     pub activity_id: Uuid,
+    /// 活动软删除状态；通知保留为历史记录，但客户端不得再生成活动深链。
+    pub activity_deleted: bool,
     pub payload: Value,
     pub read_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,

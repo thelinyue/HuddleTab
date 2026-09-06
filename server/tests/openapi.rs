@@ -487,6 +487,52 @@ fn guest_binding_contract_is_explicit() {
 }
 
 #[test]
+fn guest_removal_contract_is_explicit() {
+    let document = huddletab_server::http::openapi::document();
+    let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
+    let operation = &value["paths"]["/api/activities/{activity_id}/members/{member_id}"]["delete"];
+
+    assert!(operation.is_object(), "contract 缺少 Guest 删除路由");
+    let csrf = operation["parameters"]
+        .as_array()
+        .and_then(|parameters| {
+            parameters
+                .iter()
+                .find(|parameter| parameter["name"] == "x-csrf-token")
+        })
+        .expect("Guest 删除应声明 CSRF header");
+    assert_eq!(csrf["in"], "header");
+    assert_eq!(csrf["required"], true);
+
+    for status in ["200", "401", "403", "404"] {
+        assert!(
+            operation["responses"][status].is_object(),
+            "Guest 删除路由缺少 {status} 响应",
+        );
+    }
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/GuestRemovalEnvelope"
+    );
+
+    let data = &value["components"]["schemas"]["GuestRemovalData"];
+    for field in ["memberId", "result", "revision"] {
+        assert!(
+            data["properties"][field].is_object(),
+            "GuestRemovalData 缺少 {field}"
+        );
+    }
+    assert_eq!(
+        data["required"],
+        serde_json::json!(["memberId", "result", "revision"])
+    );
+    assert_eq!(
+        value["components"]["schemas"]["GuestRemovalResultData"]["enum"],
+        serde_json::json!(["DELETED", "LEFT"])
+    );
+}
+
+#[test]
 // 合同测试集中核对同一 OpenAPI 文档的路径、查询参数和 schema，保持断言上下文连续。
 #[allow(clippy::too_many_lines)]
 fn document_contains_phase1_auth_and_activity_routes() {

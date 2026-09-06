@@ -260,6 +260,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/members/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_guest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/members/{member_id}/binding-invitations": {
         parameters: {
             query?: never;
@@ -1111,6 +1127,16 @@ export interface components {
         GuestEnvelope: {
             data: components["schemas"]["GuestData"];
         };
+        GuestRemovalData: {
+            memberId: string;
+            result: components["schemas"]["GuestRemovalResultData"];
+            revision: string;
+        };
+        GuestRemovalEnvelope: {
+            data: components["schemas"]["GuestRemovalData"];
+        };
+        /** @enum {string} */
+        GuestRemovalResultData: "DELETED" | "LEFT";
         HealthData: {
             status: string;
         };
@@ -1209,6 +1235,8 @@ export interface components {
             data: components["schemas"]["LogoutData"];
         };
         NotificationData: {
+            /** @description 当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。 */
+            activityDeleted: boolean;
             activityId: string;
             createdAt: string;
             kind: components["schemas"]["NotificationKindData"];
@@ -2630,6 +2658,61 @@ export interface operations {
             };
             /** @description 无权限 */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    remove_guest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+                /** @description 临时成员 UUID */
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 临时成员已移除 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestRemovalEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无权限 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 临时成员不存在、已移除或已绑定账号 */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

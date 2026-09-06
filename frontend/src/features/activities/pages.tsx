@@ -41,8 +41,9 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import { ApiRequestError } from "../../api/error";
 import { formatMoney } from "../../domain-preview/money";
-import { Button, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select } from "../../components/ui";
+import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, LoadingState, Money, Select } from "../../components/ui";
 import { AVATAR_PRESETS, DEFAULT_AVATAR_PRESET, MemberAvatar, type AvatarPreset } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Overlay } from "../../components/overlay";
@@ -67,6 +68,7 @@ import {
   useJoinRequestsQuery,
   useMembersQuery,
   useDecideJoinRequestMutation,
+  useRemoveGuestMutation,
   useRevokeInvitationMutation,
   useRestoreActivityMutation,
   useTransferOwnershipMutation,
@@ -131,6 +133,11 @@ function tabUrl(activityId: string, tab: "feed" | "settlement", panel?: "members
   return `/activities/${encodeURIComponent(activityId)}${suffix ? `?${suffix}` : ""}`;
 }
 
+/** 服务端明确拒绝活动访问时，旧 Snapshot 不能覆盖当前事实。 */
+function isDefinitiveActivityError(error: unknown): error is ApiRequestError {
+  return error instanceof ApiRequestError && error.status >= 400 && error.status < 500;
+}
+
 export function ActivityWorkspace() {
   const { activityId = "" } = useParams();
   const session = useSessionQuery();
@@ -142,7 +149,8 @@ export function ActivityWorkspace() {
   const navigate = useNavigate();
 
   if (session.isPending || (online ? activity.isPending : snapshot.isPending)) return <LoadingState label="正在打开活动…" />;
-  if (session.error || (activity.error && !snapshot.data) || snapshot.error && !online) return <ErrorNotice error={session.error ?? activity.error ?? snapshot.error} />;
+  const definitiveError = [activity.error, snapshot.error].find(isDefinitiveActivityError);
+  if (session.error || definitiveError || (activity.error && !snapshot.data) || snapshot.error && !online) return <ErrorNotice error={session.error ?? definitiveError ?? activity.error ?? snapshot.error} />;
   if (!session.data) return null;
   const activityData = activity.data ?? snapshot.data?.snapshot.activity;
   const membersData = members.data ?? snapshot.data?.snapshot.members ?? [];
@@ -507,6 +515,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
     session.userId,
     activity.activityId,
   );
+  const removeGuest = useRemoveGuestMutation(session.userId, activity.activityId);
   const revokeInvitation = useRevokeInvitationMutation(session.userId, activity.activityId);
   const [guestName, setGuestName] = useState("");
   const [bindingMemberId, setBindingMemberId] = useState<string>();
@@ -514,6 +523,9 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
   const [bindingToken, setBindingToken] = useState<string>();
   const [bindingError, setBindingError] = useState<unknown>();
   const [decisionError, setDecisionError] = useState<unknown>();
+  const [removalMemberId, setRemovalMemberId] = useState<string>();
+  const [removalError, setRemovalError] = useState<unknown>();
+  const [removalSubmitting, setRemovalSubmitting] = useState(false);
 
   async function createBindingInvitation(memberId: string) {
     setBindingError(undefined);
@@ -536,6 +548,33 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
     } catch (reason) {
       setDecisionError(reason);
     }
+  }
+
+  const removalMember = memberData?.find((member) => member.memberId === removalMemberId);
+
+  async function confirmGuestRemoval() {
+    if (!removalMember || removeGuest.isPending || removalSubmitting) return;
+    setRemovalError(undefined);
+    setRemovalSubmitting(true);
+    try {
+      await removeGuest.mutateAsync(removalMember.memberId);
+      setRemovalMemberId(undefined);
+    } catch (reason) {
+      setRemovalError(reason);
+    } finally {
+      setRemovalSubmitting(false);
+    }
+  }
+
+  function openGuestRemoval(memberId: string) {
+    setRemovalError(undefined);
+    setRemovalMemberId(memberId);
+  }
+
+  function cancelGuestRemoval() {
+    if (removeGuest.isPending || removalSubmitting) return;
+    setRemovalError(undefined);
+    setRemovalMemberId(undefined);
   }
 
   if (members.isPending && !memberData) return <LoadingState label="正在读取成员…" />;
@@ -587,21 +626,31 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
       ) : null}
       {decisionError ? <ErrorNotice error={decisionError} /> : null}
       <section className="member-section">
-        <h2>活动成员 · {memberData?.length ?? 0}人</h2>
+        {(() => {
+          const activeMemberCount = memberData?.filter((member) => member.status === "ACTIVE").length ?? 0;
+          const removedMemberCount = memberData?.filter((member) => member.status === "LEFT").length ?? 0;
+          return <h2>活动成员 · {activeMemberCount}人{removedMemberCount ? ` · 已移除 ${removedMemberCount}人` : ""}</h2>;
+        })()}
         <div className="member-list">
           {memberData?.map((member) => {
             const canBind = canManage && member.status === "ACTIVE" && member.userId == null;
+            const canRemove = canManage
+              && member.status === "ACTIVE"
+              && member.role === "MEMBER"
+              && member.userId == null;
             const editorOpen = bindingMemberId === member.memberId;
+            const removed = member.status === "LEFT";
             return (
               <div className="member-entry" key={member.memberId}>
                 <div className="member-row">
                   <MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} />
                   <span>
                     <strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong>
-                    <small>{member.userId ? "正式成员" : "临时成员"}</small>
+                    <small>{member.userId ? "正式成员" : removed ? "临时成员 · 已移除" : "临时成员"}</small>
                   </span>
                   <div className="member-row__actions">
                     <span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : "成员"}</span>
+                    {removed ? <span className="tag tag--muted">已移除</span> : null}
                     {canBind ? (
                       <Button
                         variant="ghost"
@@ -615,6 +664,18 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
                       >
                         <UserRoundCheck aria-hidden="true" size={17} />绑定账号
                       </Button>
+                    ) : null}
+                    {canRemove ? (
+                      <button
+                        className="icon-button member-row__remove"
+                        type="button"
+                        aria-label={`删除临时成员 ${member.displayName}`}
+                        title={`删除临时成员 ${member.displayName}`}
+                        onClick={() => openGuestRemoval(member.memberId)}
+                        disabled={removeGuest.isPending || removalSubmitting}
+                      >
+                        <Trash2 aria-hidden="true" size={18} />
+                      </button>
                     ) : null}
                   </div>
                 </div>
@@ -655,6 +716,16 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
           : invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入";
         return <div key={invite.invitationId}><span><strong>{label}</strong><small>已使用 {invite.useCount}{invite.maxUses ? ` / ${invite.maxUses}` : ""}</small></span><Button variant="ghost" busy={revokeInvitation.isPending} onClick={() => revokeInvitation.mutate(invite.invitationId)}>撤销</Button></div>;
       })}</div></section> : null}
+      <ConfirmDialog
+        open={Boolean(removalMember)}
+        title={removalMember ? `确认删除临时成员「${removalMember.displayName}」` : "确认删除临时成员"}
+        message="成员将不能再参与新账单或结算，已有账务会保留；无历史记录时会彻底删除。"
+        error={removalError ? <ErrorNotice error={removalError} /> : undefined}
+        confirmLabel="删除成员"
+        busy={removeGuest.isPending || removalSubmitting}
+        onConfirm={() => void confirmGuestRemoval()}
+        onCancel={cancelGuestRemoval}
+      />
     </div>
   );
 }

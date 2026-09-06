@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../../components/theme-provider";
+import { ApiRequestError } from "../../api/error";
 
 const activityApiState = vi.hoisted(() => ({
   activity: {
@@ -26,15 +27,19 @@ const activityApiState = vi.hoisted(() => ({
     status: "ACTIVE",
     version: "7",
   },
+  activityError: null as unknown,
   activities: [] as Array<Record<string, unknown>>,
   deletedActivities: [] as Array<Record<string, unknown>>,
   deletedQueryEnabled: [] as boolean[],
   deletedQueryError: null as unknown,
   deletedQueryPending: false,
+  snapshotData: undefined as unknown,
+  snapshotError: null as unknown,
   create: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   update: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   lifecycle: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   remove: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
+  removeGuest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   restore: { error: null as unknown, isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() },
   transfer: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   invitationQueryEnabled: [] as boolean[],
@@ -101,7 +106,7 @@ vi.mock("../notifications/api", () => ({
 
 vi.mock("./offline-workspace", () => ({
   useOnlineStatus: () => true,
-  useActivitySnapshotQuery: () => ({ data: undefined, error: null, isPending: false }),
+  useActivitySnapshotQuery: () => ({ data: activityApiState.snapshotData, error: activityApiState.snapshotError, isPending: false }),
 }));
 
 vi.mock("./api", async (importOriginal) => {
@@ -117,11 +122,12 @@ vi.mock("./api", async (importOriginal) => {
         isPending: activityApiState.deletedQueryPending,
       };
     },
-    useActivityQuery: () => ({ data: activityApiState.activity, isPending: false }),
+    useActivityQuery: () => ({ data: activityApiState.activity, error: activityApiState.activityError, isPending: false }),
     useCreateActivityMutation: () => activityApiState.create,
     useUpdateActivityMutation: () => activityApiState.update,
     useActivityLifecycleMutation: () => activityApiState.lifecycle,
     useDeleteActivityMutation: () => activityApiState.remove,
+    useRemoveGuestMutation: () => activityApiState.removeGuest,
     useRestoreActivityMutation: () => activityApiState.restore,
     useTransferOwnershipMutation: () => activityApiState.transfer,
     useMembersQuery: () => ({ data: activityApiState.members, isPending: false }),
@@ -175,16 +181,20 @@ afterEach(() => {
   activityApiState.activity.hasAccountingRecords = true;
   activityApiState.activity.location = "杭州";
   activityApiState.activities = [];
+  activityApiState.activityError = null;
   activityApiState.deletedActivities = [];
   activityApiState.deletedQueryEnabled.length = 0;
   activityApiState.deletedQueryError = null;
   activityApiState.deletedQueryPending = false;
-  for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.restore, activityApiState.transfer]) {
+  activityApiState.snapshotData = undefined;
+  activityApiState.snapshotError = null;
+  for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.removeGuest, activityApiState.restore, activityApiState.transfer]) {
     mutation.error = null;
     mutation.isPending = false;
     mutation.mutateAsync.mockReset();
     mutation.mutateAsync.mockResolvedValue(activityApiState.activity);
   }
+  activityApiState.removeGuest.mutateAsync.mockResolvedValue({ data: { memberId: "guest-1", result: "DELETED", revision: "2" } });
   activityApiState.update.mutateAsync.mockResolvedValue({ data: activityApiState.activity, warnings: [] });
   activityApiState.restore.mutate.mockReset();
   activityApiState.invitationQueryEnabled.length = 0;
@@ -464,6 +474,102 @@ describe("成员 Overlay", () => {
       memberId: "guest-1",
       targetUsername: "alice",
     });
+  });
+
+  it("仅 ACTIVE Owner 对未绑定临时成员显示带昵称的删除按钮", () => {
+    renderWorkspace();
+
+    const removeButton = screen.getByRole("button", { name: "删除临时成员 临时成员" });
+    expect(removeButton).toHaveAttribute("title", "删除临时成员 临时成员");
+    expect(removeButton).toHaveClass("member-row__remove");
+
+    activityApiState.activity.currentMemberRole = "MEMBER";
+    cleanup();
+    renderWorkspace();
+    expect(screen.queryByRole("button", { name: "删除临时成员 临时成员" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["ENDED", null],
+    ["ACTIVE", "user-2"],
+    ["ACTIVE", null, "LEFT"],
+  ])("状态 %s、userId %s 或已移除成员不显示删除入口", (status, userId, memberStatus = "ACTIVE") => {
+    activityApiState.activity.status = status;
+    activityApiState.members[1] = { ...activityApiState.members[1], status: memberStatus, userId };
+    renderWorkspace();
+
+    expect(screen.queryByRole("button", { name: /删除临时成员/ })).not.toBeInTheDocument();
+  });
+
+  it("确认删除时显示说明、支持焦点恢复并只提交一次", async () => {
+    const mutateAsync = activityApiState.removeGuest.mutateAsync.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ data: { memberId: "guest-1", result: "DELETED", revision: "2" } }), 0)),
+    );
+    renderWorkspace();
+
+    const trigger = screen.getByRole("button", { name: "删除临时成员 临时成员" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("alertdialog", { name: "确认删除临时成员「临时成员」" });
+    expect(within(dialog).getByText(/不能再参与新账单或结算/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/已有账务会保留/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除成员" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除成员" }));
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(within(dialog).getByRole("button", { name: "删除成员" })).toBeDisabled();
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+
+  it("删除失败时保留确认弹层并显示服务端中文错误", async () => {
+    activityApiState.removeGuest.mutateAsync.mockRejectedValue(new Error("成员已被其他操作修改。"));
+    renderWorkspace();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除临时成员 临时成员" }));
+    const dialog = screen.getByRole("alertdialog", { name: "确认删除临时成员「临时成员」" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除成员" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("成员已被其他操作修改。");
+    expect(screen.getByRole("alertdialog", { name: "确认删除临时成员「临时成员」" })).toBeInTheDocument();
+  });
+
+  it("硬删除后成员消失，软删除后保留原位并标记只读状态", async () => {
+    activityApiState.removeGuest.mutateAsync.mockImplementationOnce(async () => {
+      activityApiState.members.splice(1, 1);
+      return { data: { memberId: "guest-1", result: "DELETED", revision: "2" } };
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByRole("button", { name: "删除临时成员 临时成员" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除成员" }));
+
+    await waitFor(() => expect(screen.queryByText("临时成员")).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "活动成员 · 1人" })).toBeInTheDocument();
+
+    cleanup();
+    activityApiState.members[1] = {
+      activityId: "activity-1",
+      displayName: "临时成员",
+      memberId: "guest-1",
+      role: "MEMBER",
+      status: "ACTIVE",
+      userId: null,
+      version: "1",
+    };
+    activityApiState.removeGuest.mutateAsync.mockImplementationOnce(async () => {
+      activityApiState.members[1] = { ...activityApiState.members[1], status: "LEFT", version: "2" };
+      return { data: { memberId: "guest-1", result: "LEFT", revision: "3" } };
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByRole("button", { name: "删除临时成员 临时成员" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除成员" }));
+
+    await waitFor(() => expect(screen.getByText("临时成员 · 已移除")).toBeInTheDocument());
+    expect(screen.getByText("已移除")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "活动成员 · 1人 · 已移除 1人" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /删除临时成员/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "绑定账号" })).not.toBeInTheDocument();
   });
 
   it("有效绑定邀请显示 Guest 与目标账号", () => {
@@ -889,6 +995,21 @@ describe("活动管理 Overlay", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
     expect(screen.getByRole("navigation", { name: "活动导航" }).querySelectorAll("a")).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: /^(流水|结算)$/ }).map((link) => link.textContent)).toEqual(["流水", "结算"]);
+  });
+});
+
+describe("活动工作台访问边界", () => {
+  it("在线收到服务端 404 时不使用已有 Snapshot 渲染旧活动", () => {
+    activityApiState.activityError = new ApiRequestError(404);
+    activityApiState.snapshotData = {
+      fromCache: true,
+      snapshot: { activity: activityApiState.activity, members: activityApiState.members },
+    };
+
+    renderWorkspace("/activities/activity-1");
+
+    expect(screen.getByRole("alert")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "测试活动" })).not.toBeInTheDocument();
   });
 });
 

@@ -1603,6 +1603,83 @@
         }
       }
     },
+    "/api/activities/{activity_id}/members/{member_id}": {
+      "delete": {
+        "tags": [],
+        "operationId": "remove_guest",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "临时成员 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "临时成员已移除",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestRemovalEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "临时成员不存在、已移除或已绑定账号",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/members/{member_id}/binding-invitations": {
       "post": {
         "tags": [],
@@ -5137,6 +5214,43 @@
           }
         }
       },
+      "GuestRemovalData": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "result",
+          "revision"
+        ],
+        "properties": {
+          "memberId": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GuestRemovalResultData"
+          },
+          "revision": {
+            "type": "string"
+          }
+        }
+      },
+      "GuestRemovalEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GuestRemovalData"
+          }
+        }
+      },
+      "GuestRemovalResultData": {
+        "type": "string",
+        "enum": [
+          "DELETED",
+          "LEFT"
+        ]
+      },
       "HealthData": {
         "type": "object",
         "required": [
@@ -5529,10 +5643,15 @@
           "targetType",
           "targetId",
           "activityId",
+          "activityDeleted",
           "payload",
           "createdAt"
         ],
         "properties": {
+          "activityDeleted": {
+            "type": "boolean",
+            "description": "当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。"
+          },
           "activityId": {
             "type": "string"
           },

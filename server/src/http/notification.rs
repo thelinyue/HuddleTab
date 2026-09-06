@@ -50,6 +50,8 @@ pub struct NotificationData {
     pub target_type: NotificationTargetTypeData,
     pub target_id: String,
     pub activity_id: String,
+    /// 当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。
+    pub activity_deleted: bool,
     pub payload: BTreeMap<String, String>,
     pub read_at: Option<String>,
     pub created_at: String,
@@ -167,6 +169,7 @@ fn notification_data(
             .ok_or_else(|| ApiError::internal(request_id.clone()))?,
         target_id: notification.target_id.to_string(),
         activity_id: notification.activity_id.to_string(),
+        activity_deleted: notification.activity_deleted,
         payload,
         read_at: notification
             .read_at

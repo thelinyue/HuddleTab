@@ -95,6 +95,29 @@ pub struct GuestMember {
     pub revision: i64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GuestRemovalResult {
+    Deleted,
+    Left,
+}
+
+impl GuestRemovalResult {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Deleted => "DELETED",
+            Self::Left => "LEFT",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RemovedGuest {
+    pub member_id: Uuid,
+    pub result: GuestRemovalResult,
+    pub revision: i64,
+}
+
 #[derive(Clone, Debug)]
 pub struct NewInvitation {
     pub id: Uuid,
@@ -227,6 +250,14 @@ pub trait CollaborationRepository: Send + Sync {
         &self,
         guest: NewGuest,
     ) -> Result<GuestMember, CollaborationRepositoryError>;
+
+    async fn remove_guest(
+        &self,
+        activity_id: Uuid,
+        member_id: Uuid,
+        actor_user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<RemovedGuest, CollaborationRepositoryError>;
 
     async fn create_invitation(
         &self,
@@ -372,6 +403,24 @@ pub async fn create_guest(
             display_name: display_name.to_owned(),
             now: clock.now(),
         })
+        .await
+        .map_err(map_repository_error)
+}
+
+/// 删除 ACTIVE、未绑定账号的临时成员；已有引用的成员只退出后续协作并保留账务历史。
+///
+/// # Errors
+///
+/// 操作者无权限、目标不是可删除的临时成员或存储失败时返回对应协作错误。
+pub async fn remove_guest(
+    repository: &dyn CollaborationRepository,
+    clock: &dyn Clock,
+    activity_id: Uuid,
+    member_id: Uuid,
+    actor_user_id: Uuid,
+) -> Result<RemovedGuest, CollaborationError> {
+    repository
+        .remove_guest(activity_id, member_id, actor_user_id, clock.now())
         .await
         .map_err(map_repository_error)
 }
