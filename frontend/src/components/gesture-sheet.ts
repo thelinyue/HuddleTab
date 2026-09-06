@@ -7,6 +7,7 @@ type SheetDragOptions = {
 
 type SheetDragResult = {
   sheetRef: RefObject<HTMLElement | null>;
+  overlayStyle: CSSProperties;
   headerProps: {
     onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
     onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void;
@@ -43,6 +44,7 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
   const reducedMotion = useRef(false);
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [overlayStyle, setOverlayStyle] = useState<CSSProperties>({});
 
   const setOffsetValue = (value: number) => {
     offsetRef.current = value;
@@ -70,6 +72,31 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
           previousBodyOverflow = undefined;
         }
       }
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setOverlayStyle({});
+      return;
+    }
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    // iOS 键盘只缩小 visualViewport；Overlay 必须跟随可见区域，否则底部 Sheet 会留在键盘后方。
+    const updateViewport = () => {
+      setOverlayStyle({
+        top: `${Math.max(0, viewport.offsetTop)}px`,
+        bottom: "auto",
+        height: `${Math.max(0, viewport.height)}px`,
+      });
+    };
+    updateViewport();
+    viewport.addEventListener("resize", updateViewport);
+    viewport.addEventListener("scroll", updateViewport);
+    return () => {
+      viewport.removeEventListener("resize", updateViewport);
+      viewport.removeEventListener("scroll", updateViewport);
     };
   }, [open]);
 
@@ -154,6 +181,7 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
 
   return {
     sheetRef,
+    overlayStyle,
     headerProps: { onPointerDown, onPointerMove, onPointerUp: finish, onPointerCancel: finish },
     style: { transform: `translate3d(0, ${offset}px, 0)`, transition: dragging ? "none" : undefined, willChange: "transform" },
   };

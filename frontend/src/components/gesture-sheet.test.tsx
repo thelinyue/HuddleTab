@@ -1,12 +1,18 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useSheetDrag, projectSheetOffset, rubberbandOffset } from "./gesture-sheet";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-afterEach(cleanup);
+const originalVisualViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
+
+afterEach(() => {
+  cleanup();
+  if (originalVisualViewport) Object.defineProperty(window, "visualViewport", originalVisualViewport);
+  else Reflect.deleteProperty(window, "visualViewport");
+});
 
 function Harness({ open = true, onClose = vi.fn() }: { open?: boolean; onClose?: () => void }) {
-  const { sheetRef, headerProps, style } = useSheetDrag({ open, onClose });
-  return <section ref={sheetRef} style={style}><header {...headerProps}><span>拖拽标题</span><button type="button">关闭</button></header></section>;
+  const { sheetRef, overlayStyle, headerProps, style } = useSheetDrag({ open, onClose });
+  return <div data-testid="overlay" style={overlayStyle}><section ref={sheetRef} style={style}><header {...headerProps}><span>拖拽标题</span><button type="button">关闭</button></header></section></div>;
 }
 
 describe("useSheetDrag", () => {
@@ -38,5 +44,37 @@ describe("useSheetDrag", () => {
     expect(document.body.style.overflow).toBe("hidden");
     unmount();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("跟随 visualViewport 更新 Overlay，并在关闭时清理监听", () => {
+    const listeners = new Map<string, EventListener>();
+    const viewport = {
+      height: 500,
+      offsetTop: 120,
+      addEventListener: vi.fn((type: string, listener: EventListener) => listeners.set(type, listener)),
+      removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+    } as unknown as VisualViewport;
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+
+    const { rerender } = render(<Harness />);
+    expect(screen.getByTestId("overlay")).toHaveStyle({ top: "120px", bottom: "auto", height: "500px" });
+
+    Object.defineProperties(viewport, {
+      height: { configurable: true, value: 420 },
+      offsetTop: { configurable: true, value: 80 },
+    });
+    act(() => listeners.get("resize")?.(new Event("resize")));
+    expect(screen.getByTestId("overlay")).toHaveStyle({ top: "80px", height: "420px" });
+
+    rerender(<Harness open={false} />);
+    expect(viewport.removeEventListener).toHaveBeenCalledWith("resize", expect.any(Function));
+    expect(viewport.removeEventListener).toHaveBeenCalledWith("scroll", expect.any(Function));
+    expect(screen.getByTestId("overlay")).not.toHaveStyle({ top: "80px", height: "420px" });
+  });
+
+  it("不支持 visualViewport 时保留原有 CSS 视口布局", () => {
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: undefined });
+    render(<Harness />);
+    expect(screen.getByTestId("overlay")).not.toHaveAttribute("style");
   });
 });

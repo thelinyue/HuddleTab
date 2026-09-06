@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   assertExpenseEditorScrollBoundary,
   assertNoHorizontalOverflow,
+  assertQuickExpenseGeometry,
   createActivity,
   fillQuickExpenseBasics,
   login,
@@ -15,6 +16,35 @@ const onePixelPng = Buffer.from(
   "base64",
 );
 
+/** Playwright 无法唤起真机软键盘；用同形的 visualViewport 验证 Sheet 的布局响应。 */
+async function simulateKeyboardViewport(page: import("@playwright/test").Page, offsetTop: number, height: number): Promise<void> {
+  await page.evaluate(({ top, visibleHeight }) => {
+    const viewport = new EventTarget();
+    Object.defineProperties(viewport, {
+      offsetTop: { configurable: true, writable: true, value: top },
+      height: { configurable: true, writable: true, value: visibleHeight },
+    });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+  }, { top: offsetTop, visibleHeight: height });
+}
+
+async function resizeSimulatedViewport(page: import("@playwright/test").Page, offsetTop: number, height: number): Promise<void> {
+  await page.evaluate(({ top, visibleHeight }) => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    Object.defineProperties(viewport, {
+      offsetTop: { configurable: true, writable: true, value: top },
+      height: { configurable: true, writable: true, value: visibleHeight },
+    });
+    viewport.dispatchEvent(new Event("resize"));
+  }, { top: offsetTop, visibleHeight: height });
+}
+
+async function dismissSimulatedKeyboard(page: import("@playwright/test").Page): Promise<void> {
+  const height = await page.evaluate(() => window.innerHeight);
+  await resizeSimulatedViewport(page, 0, height);
+}
+
 test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async ({ page }) => {
   const suffix = `WebKit iPhone-${Date.now()}`;
   const activityName = `iPhone 模拟 ${suffix}`;
@@ -25,7 +55,17 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   const navigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(navigation.getByRole("link")).toHaveText(["流水", "结算"]);
 
+  const initialViewportHeight = await page.evaluate(() => window.innerHeight);
+  await simulateKeyboardViewport(page, 0, initialViewportHeight);
   const dialog = await openQuickExpense(page);
+  await openExpenseMoreSettings(dialog);
+  await resizeSimulatedViewport(page, 80, 360);
+  await assertQuickExpenseGeometry(page, dialog);
+  const keyboardContent = dialog.locator(".quick-expense-entry");
+  await expect(keyboardContent).toHaveCSS("overflow-y", "auto");
+  await expect.poll(() => keyboardContent.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(0);
+  await dismissSimulatedKeyboard(page);
   await assertExpenseEditorScrollBoundary(page, dialog);
   await fillQuickExpenseBasics(dialog, "12.34", expenseTitle);
   for (const view of ["谁付款", "谁参与", "分摊设置", "币种"] as const) {
@@ -35,7 +75,6 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
     await assertExpenseEditorScrollBoundary(page, subview);
     await subview.getByRole("button", { name: "记一笔", exact: true }).click();
   }
-  await openExpenseMoreSettings(dialog);
   await assertExpenseEditorScrollBoundary(page, dialog);
   const attachmentInput = dialog.getByLabel("附件（最多三张）");
   await attachmentInput.setInputFiles([
@@ -115,11 +154,21 @@ test("iPhone WebKit 的主题、昵称和退出操作适配底部 Sheet", async 
   )).toBe(viewportHeight);
   await themeSheet.getByRole("button", { name: "关闭主题" }).click();
 
+  await simulateKeyboardViewport(page, 100, 420);
   await page.getByRole("button", { name: "修改昵称" }).click();
   const nicknameSheet = page.getByRole("dialog", { name: "修改昵称" });
-  await expect(nicknameSheet.getByRole("textbox", { name: "昵称" })).toBeFocused();
+  const nicknameInput = nicknameSheet.getByRole("textbox", { name: "昵称" });
+  await expect(nicknameInput).toBeFocused();
   await expect.poll(() => nicknameSheet.evaluate((element) => Math.round(element.getBoundingClientRect().bottom)))
-    .toBe(viewportHeight);
+    .toBe(520);
+  const nicknameGeometry = await nicknameSheet.evaluate((element) => {
+    const input = element.querySelector<HTMLInputElement>("input")!.getBoundingClientRect();
+    const save = element.querySelector<HTMLButtonElement>('button[type="submit"]')!.getBoundingClientRect();
+    return { inputTop: input.top, inputBottom: input.bottom, saveBottom: save.bottom };
+  });
+  expect(nicknameGeometry.inputTop).toBeGreaterThanOrEqual(100);
+  expect(nicknameGeometry.inputBottom).toBeLessThanOrEqual(520);
+  expect(nicknameGeometry.saveBottom).toBeLessThanOrEqual(520);
   await assertNoHorizontalOverflow(page);
   await nicknameSheet.getByRole("button", { name: "关闭修改昵称" }).click();
 

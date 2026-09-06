@@ -127,13 +127,15 @@ export async function openExpenseMoreSettings(dialog: Locator): Promise<void> {
 }
 
 export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): Promise<void> {
-  const viewportHeight = await page.evaluate(() => window.innerHeight);
+  const viewportBottom = await page.evaluate(() => window.visualViewport
+    ? window.visualViewport.offsetTop + window.visualViewport.height
+    : window.innerHeight);
   // 入场动画会暂时把移动 Sheet 放在视口下方；只在最终展示位置检查粘附栏，
   // 避免把过渡中的 presentation value 当成布局错误。
   await expect.poll(
     () => dialog.evaluate((element) => element.getBoundingClientRect().bottom),
     { timeout: 1000, message: "记一笔 Sheet 入场动画未在视口内完成。" },
-  ).toBeLessThanOrEqual(viewportHeight + 1);
+  ).toBeLessThanOrEqual(viewportBottom + 1);
   const metrics = await dialog.evaluate((element, expectedViewportHeight) => {
     const dialogBox = element.getBoundingClientRect();
     const amountBox = element.querySelector<HTMLElement>(".quick-expense-amount__input")?.getBoundingClientRect();
@@ -149,7 +151,7 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
       saveBottom: saveBox?.bottom ?? null,
       viewportHeight: expectedViewportHeight,
     };
-  }, viewportHeight);
+  }, viewportBottom);
   expect(metrics.amountCenter).not.toBeNull();
   expect(Math.abs(metrics.amountCenter! - metrics.dialogCenter), `金额输入未位于 Overlay 中轴：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
   expect(metrics.titleCenter).not.toBeNull();

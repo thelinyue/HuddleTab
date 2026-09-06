@@ -254,7 +254,7 @@ export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZ
 
 function AccountingOverlay({ open, title, onClose, onBack, backLabel = "返回", focusKey, children, className = "" }: { open: boolean; title: string; onClose: () => void; onBack?: () => void; backLabel?: string; focusKey?: string; children: ReactNode; className?: string }) {
   const titleId = useId();
-  const { sheetRef, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
+  const { sheetRef, overlayStyle, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -295,7 +295,7 @@ function AccountingOverlay({ open, title, onClose, onBack, backLabel = "返回",
   }, [focusKey, open, sheetRef]);
   if (!open) return null;
   return (
-    <div className={`form-overlay ${className}`} role="presentation">
+    <div className={`form-overlay ${className}`} style={overlayStyle} role="presentation">
       <button type="button" className="form-overlay__scrim" aria-label={`关闭${title}`} onClick={onClose} />
       <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="form-overlay__header" {...headerProps}>

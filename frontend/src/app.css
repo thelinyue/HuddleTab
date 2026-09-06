@@ -844,6 +844,11 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .routed-expense-editor__body { display: flex; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; padding: 0 20px 20px; }
 .quick-expense-form { display: flex; width: 100%; max-width: 100%; min-width: 0; min-height: 100%; flex: 1 1 auto; flex-direction: column; overflow-x: hidden; }
 .quick-expense-entry { display: flex; width: 100%; max-width: 100%; min-width: 0; min-height: 100%; flex: 1 1 auto; flex-direction: column; gap: 0; overflow-x: hidden; padding: 4px 0 0; scroll-padding-bottom: 88px; }
+.quick-expense-overlay .quick-expense-form,
+.quick-expense-overlay .quick-expense-entry,
+.quick-expense-overlay .quick-expense-subview { min-height: 0; }
+.quick-expense-overlay .quick-expense-entry,
+.quick-expense-overlay .quick-expense-subview { overflow-y: auto; }
 .quick-expense-amount { position: relative; display: grid; min-width: 0; min-height: 104px; grid-template-columns: minmax(56px, 1fr) minmax(0, 220px) minmax(56px, 1fr); grid-template-rows: minmax(68px, auto) auto auto; align-items: center; column-gap: 4px; padding: 8px 0 6px; }
 .quick-expense-currency { display: inline-flex; min-width: 44px; max-width: 100%; min-height: 44px; grid-column: 1; grid-row: 1; align-items: center; justify-self: start; gap: 2px; border: 0; border-radius: 10px; padding: 6px 4px; color: var(--muted-foreground); background: transparent; font-family: var(--font-money-family); font-size: 14px; font-weight: 700; touch-action: manipulation; }
 .quick-expense-currency:hover { color: var(--foreground); background: var(--surface-muted); }
@@ -975,8 +980,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 }
 @media (max-width: 639px) {
   .form-overlay { align-items: end; padding: 0; }
-  .form-overlay__sheet { width: 100%; max-height: 92dvh; border-width: 1px 0 0; border-radius: 16px 16px 0 0; padding-bottom: env(safe-area-inset-bottom); animation-name: sheet-enter; }
-  .quick-expense-overlay--entry .form-overlay__sheet { width: 100%; max-height: 100dvh; min-height: 100dvh; border-radius: 16px 16px 0 0; }
+  .form-overlay__sheet { width: 100%; max-height: 92%; border-width: 1px 0 0; border-radius: 16px 16px 0 0; padding-bottom: env(safe-area-inset-bottom); animation-name: sheet-enter; }
+  .quick-expense-overlay--entry .form-overlay__sheet { width: 100%; max-height: 100%; min-height: 100%; border-radius: 16px 16px 0 0; }
   .quick-expense-overlay--entry .form-overlay__body { padding-inline: 16px; }
   @keyframes sheet-enter { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: translateY(0); } }
 }
@@ -1092,7 +1097,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .deleted-activities-overlay .deleted-activity-row { min-height: 72px; padding-block: 12px; }
 
 @media (max-width: 639px) {
-  .activity-home-overlay .form-overlay__sheet { max-height: 92dvh; padding-bottom: env(safe-area-inset-bottom); }
+  .activity-home-overlay .form-overlay__sheet { max-height: 92%; padding-bottom: env(safe-area-inset-bottom); }
   .activity-home-overlay .form-overlay__header { min-height: 64px; padding-top: 16px; }
   .activity-home-overlay .form-overlay__header::before { position: absolute; top: 8px; left: 50%; width: 36px; height: 4px; border-radius: 999px; background: var(--border); content: ""; transform: translateX(-50%); }
   .activity-home-overlay .overlay-action-list .settings-row { min-height: 68px; }

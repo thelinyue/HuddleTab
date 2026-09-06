@@ -128,7 +128,7 @@ function activityPanelDepth(state: unknown): number | null {
 
 export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, className, children }: { open: boolean; title: string; backLabel?: string; onBack?: () => void; onClose: () => void; focusKey?: string; className?: string; children: ReactNode }) {
   const titleId = useId();
-  const { sheetRef, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
+  const { sheetRef, overlayStyle, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -172,7 +172,7 @@ export function Overlay({ open, title, backLabel, onBack, onClose, focusKey, cla
 
   if (!open) return null;
   return (
-    <div className={["form-overlay", className].filter(Boolean).join(" ")} role="presentation">
+    <div className={["form-overlay", className].filter(Boolean).join(" ")} style={overlayStyle} role="presentation">
       <button className="form-overlay__scrim" type="button" aria-hidden="true" tabIndex={-1} onClick={onClose} />
       <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="form-overlay__header" {...headerProps}>
