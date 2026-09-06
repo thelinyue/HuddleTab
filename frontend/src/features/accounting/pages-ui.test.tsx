@@ -852,6 +852,8 @@ describe("Activity 生命周期写权限", () => {
     renderPage(<SettlementsPage />);
 
     expect(screen.getByRole("link", { name: "生成分享摘要" })).toHaveAttribute("href", "/share-summary/activity-1");
+    expect(screen.getByRole("button", { name: "成员余额" })).toBeVisible();
+    expect(screen.queryByText("查看 Rust 账本计算的全员余额")).not.toBeInTheDocument();
   });
 
   it("ENDED 隐藏 Expense 新建、编辑和删除，直接新建只显示只读说明", () => {

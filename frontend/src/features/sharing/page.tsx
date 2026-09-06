@@ -1,5 +1,5 @@
 import { ArrowLeft, Check, Copy, ImageDown, Share2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button, LoadingState, Money } from "../../components/ui";
 import { formatMoney } from "../../domain-preview/money";
@@ -45,12 +45,34 @@ export function ShareSummaryPage() {
   const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [actionError, setActionError] = useState<string>();
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>();
+  const imagePreviewUrlRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => () => {
+    if (imagePreviewUrlRef.current) URL.revokeObjectURL(imagePreviewUrlRef.current);
+  }, []);
+
+  function replaceImagePreview(nextUrl?: string) {
+    if (imagePreviewUrlRef.current && imagePreviewUrlRef.current !== nextUrl) URL.revokeObjectURL(imagePreviewUrlRef.current);
+    imagePreviewUrlRef.current = nextUrl;
+    setImagePreviewUrl(nextUrl);
+  }
 
   async function downloadImage() {
     setActionError(undefined);
+    setNotice(undefined);
     setExporting(true);
     try {
-      await exportSummaryCard();
+      const result = await exportSummaryCard();
+      if (result.kind === "cancelled") return;
+      if (result.kind === "preview") {
+        replaceImagePreview(result.url);
+        setNotice("PNG 已生成，请长按下方图片保存。");
+        if (result.shareFailed) setActionError("系统分享未能打开，已改为显示 PNG 原图。");
+        return;
+      }
+      replaceImagePreview();
+      setNotice(result.kind === "shared" ? "PNG 已交给系统分享。" : "PNG 已开始下载。");
     } catch (error) {
       setActionError(error instanceof Error ? `导出图片失败：${error.message}` : "导出图片失败，请刷新页面后重试。");
     } finally {
@@ -97,10 +119,11 @@ export function ShareSummaryPage() {
         {summary.data.originalCurrencyTotals.length ? <div><strong>原币种汇总</strong><ul>{summary.data.originalCurrencyTotals.map((item) => <li key={item.currency}>{item.currency}<Money value={formatMoney(item.currency, item.amountMinor)} /></li>)}</ul></div> : null}
         {summary.data.categoryTotals.length ? <div><strong>分类汇总</strong><ul>{summary.data.categoryTotals.map((item) => <li key={item.category}>{categoryLabels[item.category] ?? item.category}<Money value={formatMoney(summary.data.currency, item.amountMinor)} /></li>)}</ul></div> : null}
       </section>
-      <section className="share-summary-preview" aria-label="结算摘要预览"><ShareSummaryCard summary={summary.data} /></section>
+      <section className="share-summary-preview" aria-label="结算摘要预览"><ShareSummaryCard id="share-summary-preview-card" summary={summary.data} /></section>
       {notice ? <p className="notice notice--success" role="status"><Check aria-hidden="true" size={17} />{notice}</p> : null}
       <div className="share-summary-actions"><Button variant="secondary" onClick={() => void copySummary()}><Copy aria-hidden="true" size={18} />复制摘要</Button><Button variant="secondary" onClick={() => void shareSummary()}><Share2 aria-hidden="true" size={18} />系统分享</Button><Button busy={exporting} onClick={() => void downloadImage()}><ImageDown aria-hidden="true" size={18} />{exporting ? "正在生成图片…" : "下载 PNG"}</Button></div>
       {actionError ? <p className="notice notice--error" role="alert">{actionError}</p> : null}
+      {imagePreviewUrl ? <section className="share-summary-save-preview" aria-labelledby="share-summary-save-preview-title"><h2 id="share-summary-save-preview-title">保存 PNG</h2><p>长按图片即可保存；也可以打开原图后使用浏览器的分享或存储操作。</p><img src={imagePreviewUrl} alt={`${summary.data.activityName}结算摘要 PNG 预览`} /><a className="button button--secondary" href={imagePreviewUrl} target="_blank" rel="noreferrer">打开原图</a></section> : null}
       <div className="share-summary-export-canvas" aria-hidden="true"><ShareSummaryCard id="share-summary-card" summary={summary.data} /></div>
     </main>
   );

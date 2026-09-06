@@ -96,6 +96,42 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
 
   await navigation.getByRole("link", { name: "结算" }).click();
   await expect(page.getByRole("heading", { name: "推荐转账" })).toBeVisible();
+  await page.getByRole("link", { name: "生成分享摘要" }).click();
+  await expect(page.getByRole("heading", { name: "结算分享摘要" })).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: (data: ShareData) => data.files?.[0]?.type === "image/png" });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async (data: ShareData) => {
+        const file = data.files?.[0];
+        if (!file) throw new Error("缺少 PNG 文件");
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        (window as typeof window & { __sharedPng?: { name: string; type: string; signature: number[] } }).__sharedPng = {
+          name: file.name,
+          type: file.type,
+          signature: [...bytes.slice(0, 8)],
+        };
+      },
+    });
+  });
+  await page.getByRole("button", { name: "下载 PNG" }).click();
+  await expect(page.getByRole("status")).toHaveText("PNG 已交给系统分享。");
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __sharedPng?: unknown }).__sharedPng)).toEqual({
+    name: "huddletab-settlement-summary.png",
+    type: "image/png",
+    signature: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  });
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "share", { configurable: true, value: async () => { throw new Error("share unavailable"); } });
+  });
+  await page.getByRole("button", { name: "下载 PNG" }).click();
+  await expect(page.getByRole("alert")).toHaveText("系统分享未能打开，已改为显示 PNG 原图。");
+  await expect(page.getByRole("img", { name: /PNG 预览/ })).toHaveAttribute("src", /^blob:/);
+  await expect(page.getByRole("link", { name: "打开原图" })).toHaveAttribute("href", /^blob:/);
+  await assertNoHorizontalOverflow(page);
+
+  await page.getByRole("link", { name: "返回结算" }).click();
   await navigation.getByRole("link", { name: "流水" }).click();
   await expect(page.getByRole("heading", { name: "全部流水" })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/activities/${activityId}`));

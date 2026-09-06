@@ -1184,7 +1184,7 @@ export function SettlementsPage() {
 
       <Link className="button button--secondary settlement-share-entry" to={`/share-summary/${encodeURIComponent(activity.activityId)}`}><ImageDown aria-hidden="true" size={18} />生成分享摘要</Link>
 
-      <button className="balance-entry" type="button" aria-expanded={balanceOpen} onClick={() => setBalanceOpen(true)}><span><strong>成员余额</strong><small>查看 Rust 账本计算的全员余额</small></span><ChevronRight aria-hidden="true" size={18} /></button>
+      <button className="balance-entry" type="button" aria-expanded={balanceOpen} onClick={() => setBalanceOpen(true)}><strong>成员余额</strong><ChevronRight aria-hidden="true" size={18} /></button>
 
       {settlementWritable && !fullySettled ? <Button className="settlement-primary-action" onClick={() => openForm()}>记录结算</Button> : fullySettled ? <div className="settlement-complete"><Check aria-hidden="true" size={19} /> 全部已结清</div> : null}
 
