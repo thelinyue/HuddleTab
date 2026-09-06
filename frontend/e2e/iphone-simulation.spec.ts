@@ -61,10 +61,19 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await openExpenseMoreSettings(dialog);
   await resizeSimulatedViewport(page, 80, 360);
   await assertQuickExpenseGeometry(page, dialog);
-  const keyboardContent = dialog.locator(".quick-expense-entry");
+  const keyboardContent = dialog.locator(".form-overlay__body");
   await expect(keyboardContent).toHaveCSS("overflow-y", "auto");
+  await expect(keyboardContent).toHaveCSS("touch-action", "pan-y");
+  await expect(dialog.locator(".quick-expense-entry")).toHaveCSS("overflow-y", "visible");
   await expect.poll(() => keyboardContent.evaluate((element) => element.scrollHeight - element.clientHeight))
     .toBeGreaterThan(0);
+  const keyboardScrollTop = await keyboardContent.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    return element.scrollTop;
+  });
+  expect(keyboardScrollTop).toBeGreaterThan(0);
+  await expect(dialog.getByLabel("备注")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeVisible();
   await dismissSimulatedKeyboard(page);
   await assertExpenseEditorScrollBoundary(page, dialog);
   await fillQuickExpenseBasics(dialog, "12.34", expenseTitle);

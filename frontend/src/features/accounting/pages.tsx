@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Filter, ImageDown, ImagePlus, Info, Plus, ReceiptText, Trash2, UsersRound, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
 import { useSheetDrag } from "../../components/gesture-sheet";
@@ -252,7 +252,7 @@ export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZ
   return [...groups].map(([date, groupedExpenses]) => ({ date, expenses: groupedExpenses }));
 }
 
-function AccountingOverlay({ open, title, onClose, onBack, backLabel = "返回", focusKey, children, className = "" }: { open: boolean; title: string; onClose: () => void; onBack?: () => void; backLabel?: string; focusKey?: string; children: ReactNode; className?: string }) {
+function AccountingOverlay({ open, title, onClose, onBack, backLabel = "返回", leadingAction, focusKey, children, className = "" }: { open: boolean; title: string; onClose: () => void; onBack?: () => void; backLabel?: string; leadingAction?: ReactNode; focusKey?: string; children: ReactNode; className?: string }) {
   const titleId = useId();
   const { sheetRef, overlayStyle, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
   const onCloseRef = useRef(onClose);
@@ -300,7 +300,7 @@ function AccountingOverlay({ open, title, onClose, onBack, backLabel = "返回",
       <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="form-overlay__header" {...headerProps}>
           <div className="form-overlay__header-main">
-            {onBack ? <button className="icon-button" type="button" aria-label={backLabel} onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : null}
+            {onBack ? <button className="icon-button" type="button" aria-label={backLabel} onClick={onBack}><ArrowLeft aria-hidden="true" size={20} /></button> : leadingAction}
             <h2 id={titleId}>{title}</h2>
           </div>
           <button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><X aria-hidden="true" size={20} /></button>
@@ -318,6 +318,9 @@ function dateHeading(date: string): string {
 
 export function ExpenseFeedPage() {
   const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const expenses = useExpensesQuery(session.userId, activity.activityId, !offline);
   const pendingExpenses = usePendingExpenseMutations(
     session.userId,
@@ -366,6 +369,17 @@ export function ExpenseFeedPage() {
   const foreignTotals = new Map<string, bigint>();
   // 生命周期只约束本领域写面：结束后账单只读，但不会反推活动管理权限。
   const expenseWritable = activity.status === "ACTIVE";
+  const existingExpenseWritable = expenseWritable && !offline;
+  const editExpenseId = existingExpenseWritable ? searchParams.get("editExpense") ?? "" : "";
+  const closeEditExpense = () => {
+    if ((location.state as { expenseOverlay?: boolean } | null)?.expenseOverlay) {
+      navigate(-1);
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("editExpense");
+    navigate({ pathname: location.pathname, search: next.toString() ? `?${next.toString()}` : "" }, { replace: true });
+  };
   for (const item of allExpenses) {
     if (item.expense.originalCurrency === activity.baseCurrency) continue;
     foreignTotals.set(item.expense.originalCurrency, (foreignTotals.get(item.expense.originalCurrency) ?? 0n) + BigInt(item.expense.originalAmountMinor));
@@ -426,8 +440,14 @@ export function ExpenseFeedPage() {
                 )?.lastError?.message ?? (local?.attachments.some((attachment) =>
                   ["PENDING", "SYNCING", "RETRYABLE"].includes(attachment.status)
                 ) ? "附件等待同步" : undefined);
+                const detailUrl = `/activities/${activity.activityId}/expenses/${expense.expenseId}`;
+                const editQuery = new URLSearchParams(searchParams);
+                editQuery.set("editExpense", expense.expenseId);
+                const rowUrl = existingExpenseWritable
+                  ? { pathname: `/activities/${activity.activityId}`, search: `?${editQuery.toString()}` }
+                  : detailUrl;
                 return (
-                  <Link key={expense.expenseId} to={`/activities/${activity.activityId}/expenses/${expense.expenseId}`} className="expense-row">
+                  <Link key={expense.expenseId} to={rowUrl} state={existingExpenseWritable ? { expenseOverlay: true } : undefined} className="expense-row">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
                     <span className="expense-row__content"><strong>{expense.title}</strong><small>{payerNames || "未知付款人"} 付款 · {shares.length}人</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} /><small>{new Date(expense.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
@@ -452,6 +472,7 @@ export function ExpenseFeedPage() {
         <UnifiedExpenseEditor view={quickView} onViewChange={setQuickView} onSaved={() => { setQuickView("entry"); setEntryOpen(false); }} />
       </AccountingOverlay>
       <AccountingOverlay open={Boolean(rejectedDraft)} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : () => setRejectedView(parentQuickExpenseView(rejectedView))} backLabel="修改被拒账单" focusKey={rejectedView} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className="quick-expense-overlay quick-expense-overlay--entry"><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></AccountingOverlay>
+      {editExpenseId ? <ExpenseEditOverlay expenseId={editExpenseId} onClose={closeEditExpense} /> : null}
       <AccountingOverlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
         <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
       </AccountingOverlay>
@@ -494,10 +515,10 @@ function parentQuickExpenseView(view: QuickExpenseView): QuickExpenseView {
   return "entry";
 }
 
-function quickExpenseBackLabel(view: QuickExpenseView): string {
+function quickExpenseBackLabel(view: QuickExpenseView, rootLabel = "记一笔"): string {
   if (view === "payer-add-guest") return "谁付款";
   if (view === "participants-add-guest") return "谁参与";
-  return "记一笔";
+  return rootLabel;
 }
 
 type ExpenseEditorProps = {
@@ -521,6 +542,60 @@ function RoutedExpenseEditor(props: ExpenseEditorProps) {
         <UnifiedExpenseEditor {...props} view={view} onViewChange={setView} />
       </div>
     </section>
+  );
+}
+
+/**
+ * 流水内编辑保留列表、筛选与滚动上下文；独立深链仍由 ExpenseDetailPage 承担。
+ * Sheet 内部只切换编辑器子视图，URL 仅表示整个修改任务是否打开。
+ */
+function ExpenseEditOverlay({ expenseId, onClose }: { expenseId: string; onClose: () => void }) {
+  const { session, activity } = useWorkspace();
+  const expense = useExpenseQuery(session.userId, activity.activityId, expenseId);
+  const remove = useDeleteExpenseMutation(session.userId, activity.activityId, expenseId);
+  const [view, setView] = useState<QuickExpenseView>("entry");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const title = view === "entry" ? "修改账单" : quickExpenseViewTitle(view);
+
+  useEffect(() => {
+    setView("entry");
+    setDeleteOpen(false);
+  }, [expenseId]);
+
+  async function confirmDelete() {
+    if (!expense.data) return;
+    try {
+      await remove.mutateAsync(expense.data.expense.version);
+      setDeleteOpen(false);
+      onClose();
+    } catch {
+      // 删除错误留在当前 Sheet 中展示，避免关闭后丢失可重试入口。
+    }
+  }
+
+  const deleteAction = view === "entry" && expense.data ? (
+    <button className="icon-button expense-editor-delete" type="button" aria-label="删除账单" title="删除账单" onClick={() => setDeleteOpen(true)}>
+      <Trash2 aria-hidden="true" size={19} />
+    </button>
+  ) : undefined;
+
+  return (
+    <AccountingOverlay
+      open
+      title={title}
+      onBack={view === "entry" ? undefined : () => setView(parentQuickExpenseView(view))}
+      backLabel={quickExpenseBackLabel(view, "修改账单")}
+      leadingAction={deleteAction}
+      focusKey={`${expenseId}-${view}`}
+      onClose={onClose}
+      className="quick-expense-overlay quick-expense-overlay--entry"
+    >
+      {expense.isPending ? <LoadingState label="正在读取账单…" /> : null}
+      {expense.error ? <ErrorNotice error={expense.error} /> : null}
+      {remove.error ? <ErrorNotice error={remove.error} /> : null}
+      {expense.data ? <UnifiedExpenseEditor initial={expense.data} view={view} onViewChange={setView} onSaved={onClose} /> : null}
+      <ConfirmDialog open={deleteOpen} title="删除账单" message="删除后账本会立即重新计算，这笔账单无法恢复。确定继续吗？" confirmLabel="确认删除" busy={remove.isPending} onConfirm={() => void confirmDelete()} onCancel={() => setDeleteOpen(false)} />
+    </AccountingOverlay>
   );
 }
 

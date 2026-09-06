@@ -50,7 +50,7 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   const expenseLink = page.getByRole("link", { name: new RegExp(title) });
   await expect(expenseLink).toBeVisible();
   await expenseLink.click();
-  const editor = page.locator(".routed-expense-editor");
+  const editor = page.getByRole("dialog", { name: "修改账单" });
   await expect(editor.getByRole("heading", { name: "修改账单" })).toBeVisible();
   await openExpenseMoreSettings(editor);
   await assertExpenseEditorScrollBoundary(page, editor);

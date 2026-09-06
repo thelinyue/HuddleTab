@@ -931,8 +931,12 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .quick-expense-overlay .quick-expense-form,
 .quick-expense-overlay .quick-expense-entry,
 .quick-expense-overlay .quick-expense-subview { min-height: 0; }
+/* iOS PWA 只保留 Overlay body 这一层纵向滚动，避免嵌套 overflow 吞掉手指滑动。 */
+.quick-expense-overlay .form-overlay__body { overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+.quick-expense-overlay .quick-expense-form { min-height: 100%; overflow: visible; }
 .quick-expense-overlay .quick-expense-entry,
-.quick-expense-overlay .quick-expense-subview { overflow-y: auto; }
+.quick-expense-overlay .quick-expense-subview { min-height: 100%; overflow: visible; }
+.expense-editor-delete { color: var(--danger); }
 .quick-expense-amount { position: relative; display: grid; min-width: 0; min-height: 104px; grid-template-columns: minmax(56px, 1fr) minmax(0, 220px) minmax(56px, 1fr); grid-template-rows: minmax(68px, auto) auto auto; align-items: center; column-gap: 4px; padding: 8px 0 6px; }
 .quick-expense-currency { display: inline-flex; min-width: 44px; max-width: 100%; min-height: 44px; grid-column: 1; grid-row: 1; align-items: center; justify-self: start; gap: 2px; border: 0; border-radius: 10px; padding: 6px 4px; color: var(--muted-foreground); background: transparent; font-family: var(--font-money-family); font-size: 14px; font-weight: 700; touch-action: manipulation; }
 .quick-expense-currency:hover { color: var(--foreground); background: var(--surface-muted); }

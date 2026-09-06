@@ -162,10 +162,21 @@ test("Chromium 核心账务矩阵覆盖冲突、导出、导航与响应式布�
   await createForeignExpense(page, foreignTitle);
   await assertNoHorizontalOverflow(page);
 
-  const expenseUrl = await page.getByRole("link", { name: new RegExp(equalTitle) }).getAttribute("href");
-  expect(expenseUrl).toBeTruthy();
+  const expenseLink = page.getByRole("link", { name: new RegExp(equalTitle) });
+  const overlayUrl = await expenseLink.getAttribute("href");
+  expect(overlayUrl).toBeTruthy();
+  const expenseId = new URL(overlayUrl!, page.url()).searchParams.get("editExpense");
+  expect(expenseId).toBeTruthy();
+  await expenseLink.click();
+  const editDialog = page.getByRole("dialog", { name: "修改账单" });
+  await expect(editDialog).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`editExpense=${expenseId}`));
+  await page.goBack();
+  await expect(editDialog).toHaveCount(0);
+  await expect(expenseLink).toBeFocused();
+  const expenseUrl = `/activities/${activityId}/expenses/${expenseId}`;
   const storageState = await page.context().storageState();
-  await expenseConflict(browser, testInfo, storageState, expenseUrl!, equalTitle, `${equalTitle}-已保存`, `${equalTitle}-未保存草稿`);
+  await expenseConflict(browser, testInfo, storageState, expenseUrl, equalTitle, `${equalTitle}-已保存`, `${equalTitle}-未保存草稿`);
 
   await page.goto(`/activities/${activityId}?tab=settlement`);
   await expect(page.getByRole("heading", { name: "推荐转账" })).toBeVisible();

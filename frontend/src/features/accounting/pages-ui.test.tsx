@@ -76,6 +76,11 @@ const updateMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue(undefined),
 }));
+const deleteExpenseMutation = vi.hoisted(() => ({
+  error: null as unknown,
+  isPending: false,
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+}));
 const discardMutation = vi.hoisted(() => ({
   error: null,
   isPending: false,
@@ -128,7 +133,7 @@ vi.mock("./api", () => ({
   useReviseRejectedExpenseMutation: () => reviseMutation,
   useDiscardPendingExpenseMutation: () => discardMutation,
   useCreateSettlementMutation: mutation,
-  useDeleteExpenseMutation: mutation,
+  useDeleteExpenseMutation: () => deleteExpenseMutation,
   useDeleteAttachmentMutation: () => deleteAttachmentMutation,
   useExpenseQuery: () => ({ data: expense, isPending: false }),
   useExchangeRateSuggestionMutation: () => rateMutation,
@@ -151,8 +156,8 @@ vi.mock("./expense-queue-sync", () => ({
 
 import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "./pages";
 
-function renderPage(node: ReactNode) {
-  return render(<MemoryRouter>{node}</MemoryRouter>);
+function renderPage(node: ReactNode, initialEntries?: string[]) {
+  return render(<MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>);
 }
 
 function openMoreSettings(container: HTMLElement = document.body) {
@@ -176,6 +181,9 @@ afterEach(() => {
   updateMutation.error = null;
   updateMutation.mutateAsync.mockReset();
   updateMutation.mutateAsync.mockResolvedValue(undefined);
+  deleteExpenseMutation.error = null;
+  deleteExpenseMutation.mutateAsync.mockReset();
+  deleteExpenseMutation.mutateAsync.mockResolvedValue(undefined);
   discardMutation.mutateAsync.mockClear();
   deleteAttachmentMutation.mutateAsync.mockClear();
   rateMutation.mutateAsync.mockClear();
@@ -475,6 +483,68 @@ describe("统一账单编辑器", () => {
     await waitFor(() => expect(updateMutation.mutateAsync).toHaveBeenCalled());
     expect(screen.getByText(/当前表单仍保留/)).toBeInTheDocument();
     expect(screen.getByLabelText("用途")).toHaveValue("仍保留的午餐草稿");
+  });
+});
+
+describe("流水内修改账单 Sheet", () => {
+  function openExpenseEditor() {
+    renderPage(<ExpenseFeedPage />, ["/activities/activity-1"]);
+    const expenseLink = screen.getByRole("link", { name: /午餐/ });
+    expenseLink.focus();
+    fireEvent.click(expenseLink);
+    return { expenseLink, dialog: screen.getByRole("dialog", { name: "修改账单" }) };
+  }
+
+  it("保留流水上下文、复用完整表单，并从子视图返回修改任务", async () => {
+    const { expenseLink, dialog } = openExpenseEditor();
+
+    expect(screen.getByRole("heading", { name: "全部流水" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("金额")).toHaveValue("10.00");
+    expect(within(dialog).getByLabelText("用途")).toHaveValue("午餐");
+    expect(within(dialog).getByRole("button", { name: "删除账单" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "谁付款" }));
+    const payerDialog = screen.getByRole("dialog", { name: "谁付款" });
+    fireEvent.click(within(payerDialog).getByRole("button", { name: "修改账单" }));
+    expect(screen.getByRole("dialog", { name: "修改账单" })).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByRole("dialog", { name: "修改账单" })).getByRole("button", { name: "关闭修改账单" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "修改账单" })).not.toBeInTheDocument());
+    expect(expenseLink).toHaveFocus();
+  });
+
+  it("保存成功后关闭 Sheet 并沿用原账单版本", async () => {
+    const { dialog } = openExpenseEditor();
+    fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "修改后的午餐" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(updateMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      title: "修改后的午餐",
+      version: "3",
+    })));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "修改账单" })).not.toBeInTheDocument());
+  });
+
+  it("删除继续二次确认，成功后关闭 Sheet", async () => {
+    const { dialog } = openExpenseEditor();
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除账单" }));
+    const confirmation = screen.getByRole("alertdialog", { name: "删除账单" });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => expect(deleteExpenseMutation.mutateAsync).toHaveBeenCalledWith("3"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "修改账单" })).not.toBeInTheDocument());
+  });
+
+  it("离线与非活动状态继续使用独立账单深链", () => {
+    workspaceState.offline = true;
+    const offline = renderPage(<ExpenseFeedPage />, ["/activities/activity-1"]);
+    expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1");
+    offline.unmount();
+
+    workspaceState.offline = false;
+    activity.status = "ENDED";
+    renderPage(<ExpenseFeedPage />, ["/activities/activity-1"]);
+    expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1");
   });
 });
 
