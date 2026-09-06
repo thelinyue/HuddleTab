@@ -7,8 +7,20 @@ async function openRegistrationPolicy(page: Page, policy: "开放注册" | "仅�
   const settings = page.getByRole("main");
   // 管理页面使用整页 Sheet 风格，等待当前策略读取后再点击，避免把刷新竞态当成保存成功。
   await expect(settings.getByLabel(policy)).toBeVisible();
-  await settings.getByLabel(policy, { exact: true }).click();
-  await expect(settings.getByLabel(policy, { exact: true })).toBeChecked();
+  const option = settings.getByLabel(policy, { exact: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const responsePromise = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().endsWith("/api/admin/registration-policy"));
+    await option.click();
+    const response = await responsePromise;
+    if (response.status() !== 429) {
+      await expect(option).toBeChecked();
+      return;
+    }
+    // 完整矩阵共用管理员敏感操作限流桶；尊重服务端 Retry-After 后重试，不改变生产限流规则。
+    const retryAfter = Number.parseInt(response.headers()["retry-after"] ?? "60", 10);
+    await page.waitForTimeout((Number.isFinite(retryAfter) ? Math.max(1, Math.min(retryAfter, 90)) : 60) * 1_000 + 250);
+  }
+  throw new Error("注册策略更新连续受到限流，已等待 Retry-After 后仍未成功。");
 }
 
 async function registerOpenUser(browser: Browser, testInfo: TestInfo): Promise<{ context: BrowserContext; page: Page; username: string; password: string; displayName: string }> {
