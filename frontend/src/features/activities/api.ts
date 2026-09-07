@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../../api/client";
 import { mutationHeaders } from "../../api/csrf";
-import { unwrap } from "../../api/error";
+import { ApiRequestError, unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
 
@@ -278,6 +278,9 @@ export function useUpdateActivityMutation(userId: string, activityId: string) {
   return useMutation({
     mutationFn: (input: UpdateActivityInput) => updateActivity(activityId, input),
     onSuccess: invalidate,
+    onError: (error) => {
+      if (error instanceof ApiRequestError && error.status === 409) return invalidate();
+    },
   });
 }
 

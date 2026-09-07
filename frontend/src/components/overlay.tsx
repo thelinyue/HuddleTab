@@ -7,6 +7,7 @@ export type OverlayProps = {
   open: boolean;
   title: string;
   onClose: () => void;
+  onBeforeClose?: () => boolean;
   onBack?: { label: string; onClick: () => void };
   leadingAction?: ReactNode;
   focusKey?: string;
@@ -22,6 +23,7 @@ export function Overlay({
   open,
   title,
   onClose,
+  onBeforeClose,
   onBack,
   leadingAction,
   focusKey,
@@ -29,7 +31,7 @@ export function Overlay({
   children,
 }: OverlayProps) {
   const titleId = useId();
-  const { present, sheetRef, overlayStyle, requestClose, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose });
+  const { present, sheetRef, overlayStyle, requestClose, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose, canClose: onBeforeClose });
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
 

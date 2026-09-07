@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApplicationRouter } from "./router";
@@ -11,7 +11,7 @@ const authState = vi.hoisted((): {
 } => ({
   data: { userId: "user-1", username: "tester", displayName: "测试用户" },
 }));
-const setupState = vi.hoisted(() => ({ setupRequired: false, error: null as unknown }));
+const setupState = vi.hoisted(() => ({ isPending: false, setupRequired: false, error: null as unknown }));
 
 vi.mock("../features/auth/api", () => ({
   useSessionQuery: () => ({ isPending: false, data: authState.data }),
@@ -26,7 +26,7 @@ vi.mock("../features/auth/pages", () => ({
 }));
 
 vi.mock("../features/setup/api", () => ({
-  useSetupStatusQuery: () => ({ isPending: false, error: setupState.error, data: { setupRequired: setupState.setupRequired }, refetch: vi.fn() }),
+  useSetupStatusQuery: () => ({ isPending: setupState.isPending, error: setupState.error, data: { setupRequired: setupState.setupRequired }, refetch: vi.fn() }),
 }));
 
 vi.mock("../features/setup/pages", () => ({
@@ -62,15 +62,21 @@ function renderRoute(path: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const renderApplication = () => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}><ApplicationRouter /></MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const result = render(renderApplication());
+  return Object.assign(result, {
+    rerenderApplication: () => result.rerender(renderApplication()),
+  });
 }
 
 afterEach(() => {
   cleanup();
+  document.documentElement.classList.remove("pwa-standalone");
+  setupState.isPending = false;
   authState.data = { userId: "user-1", username: "tester", displayName: "测试用户" };
   setupState.setupRequired = false;
   setupState.error = null;
@@ -123,5 +129,40 @@ describe("ApplicationRouter", () => {
     renderRoute("/activities");
     expect(await screen.findByText("初始化页")).toBeInTheDocument();
     expect(screen.queryByText("活动列表")).not.toBeInTheDocument();
+  });
+
+  it("独立 PWA 等待初始化状态时显示品牌启动层", () => {
+    document.documentElement.classList.add("pwa-standalone");
+    setupState.isPending = true;
+
+    renderRoute("/activities");
+
+    expect(screen.getByRole("status", { name: "正在准备伙记" })).toBeInTheDocument();
+    expect(screen.queryByText("正在确认初始化状态…")).not.toBeInTheDocument();
+  });
+
+  it("普通浏览器等待初始化状态时保留原有加载提示", () => {
+    setupState.isPending = true;
+
+    renderRoute("/activities");
+
+    expect(screen.getByText("正在确认初始化状态…")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "正在准备伙记" })).not.toBeInTheDocument();
+  });
+
+  it("同一文档后续重新等待初始化状态时不重复播放启动层", async () => {
+    document.documentElement.classList.add("pwa-standalone");
+    setupState.isPending = true;
+    const rendered = renderRoute("/activities");
+
+    expect(screen.getByRole("status", { name: "正在准备伙记" })).toBeInTheDocument();
+
+    setupState.isPending = false;
+    act(() => rendered.rerenderApplication());
+    await waitFor(() => expect(screen.queryByRole("status", { name: "正在准备伙记" })).not.toBeInTheDocument());
+
+    setupState.isPending = true;
+    act(() => rendered.rerenderApplication());
+    expect(screen.queryByRole("status", { name: "正在准备伙记" })).not.toBeInTheDocument();
   });
 });

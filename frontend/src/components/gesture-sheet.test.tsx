@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { useState } from "react";
 import { useSheetDrag, projectSheetOffset, rubberbandOffset } from "./gesture-sheet";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -76,6 +77,28 @@ describe("useSheetDrag", () => {
     expect(document.body.style.overflow).toBe("hidden");
     unmount();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("StrictMode 重放副作用时仍能完成打开动画", () => {
+    const animation = mockAnimationFrame();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 320,
+      height: 400,
+      top: 0,
+      right: 320,
+      bottom: 400,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    });
+
+    render(<StrictMode><Harness /></StrictMode>);
+    act(() => animation.flush());
+
+    expect(screen.getByText("拖拽标题").parentElement?.parentElement).toHaveStyle({
+      transform: "translate3d(0, 0px, 0)",
+    });
   });
 
   it("跟随 visualViewport 更新 Overlay，并在关闭时清理监听", () => {

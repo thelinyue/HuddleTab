@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::application::notification::{
-    NotificationRepository, NotificationRepositoryError, NotificationView,
+    NotificationFilter, NotificationRepository, NotificationRepositoryError, NotificationView,
 };
 
 #[derive(Clone, Debug)]
@@ -107,6 +107,73 @@ impl NotificationRepository for PostgresNotificationRepository {
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(notification_from_row(row))
     }
+
+    async fn mark_all_read(
+        &self,
+        recipient_user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<(), NotificationRepositoryError> {
+        sqlx::query(
+            "UPDATE notifications
+             SET read_at = $2
+             WHERE recipient_user_id = $1 AND read_at IS NULL",
+        )
+        .bind(recipient_user_id)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(log_repository_error)?;
+        Ok(())
+    }
+
+    async fn clear(
+        &self,
+        recipient_user_id: Uuid,
+        filter: NotificationFilter,
+    ) -> Result<(), NotificationRepositoryError> {
+        sqlx::query(
+            "DELETE FROM notifications
+             WHERE recipient_user_id = $1
+               AND (
+                    $2 = 'ALL'
+                    OR ($2 = 'UNREAD' AND read_at IS NULL)
+                    OR ($2 = 'INVITATION' AND type IN (
+                        'JOIN_APPROVAL_REQUESTED', 'JOIN_APPROVAL_RESOLVED', 'MEMBER_JOINED'
+                    ))
+                    OR ($2 = 'SETTLEMENT' AND type = 'SETTLEMENT_RECEIVED')
+                    OR ($2 = 'SYSTEM' AND type NOT IN (
+                        'JOIN_APPROVAL_REQUESTED', 'JOIN_APPROVAL_RESOLVED', 'MEMBER_JOINED',
+                        'SETTLEMENT_RECEIVED'
+                    ))
+               )",
+        )
+        .bind(recipient_user_id)
+        .bind(filter.as_database_value())
+        .execute(&self.pool)
+        .await
+        .map_err(log_repository_error)?;
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        notification_id: Uuid,
+        recipient_user_id: Uuid,
+    ) -> Result<(), NotificationRepositoryError> {
+        let result = sqlx::query(
+            "DELETE FROM notifications
+             WHERE id = $1 AND recipient_user_id = $2",
+        )
+        .bind(notification_id)
+        .bind(recipient_user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(log_repository_error)?;
+        if result.rows_affected() == 0 {
+            return Err(NotificationRepositoryError::NotFound);
+        }
+        Ok(())
+    }
 }
 
 fn notification_from_row(row: NotificationRow) -> NotificationView {
@@ -125,7 +192,7 @@ fn notification_from_row(row: NotificationRow) -> NotificationView {
 }
 
 fn log_repository_error(error: sqlx::Error) -> NotificationRepositoryError {
-    tracing::error!(%error, "读取或更新通知失败");
+    tracing::error!(%error, "读取或修改通知失败");
     drop(error);
     NotificationRepositoryError::Unavailable
 }

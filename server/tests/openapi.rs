@@ -336,6 +336,9 @@ fn join_approval_and_notification_contract_is_complete() {
         ),
         ("/api/join-requests/{join_request_id}", "get"),
         ("/api/notifications", "get"),
+        ("/api/notifications", "delete"),
+        ("/api/notifications/read-all", "post"),
+        ("/api/notifications/{notification_id}", "delete"),
         ("/api/notifications/{notification_id}/read", "post"),
     ] {
         assert!(
@@ -350,6 +353,8 @@ fn join_approval_and_notification_contract_is_complete() {
         "DecideJoinRequestRequest",
         "NotificationData",
         "NotificationEnvelope",
+        "ClearNotificationsRequest",
+        "NotificationFilterData",
         "NotificationListData",
         "NotificationListEnvelope",
     ] {
@@ -372,14 +377,16 @@ fn join_approval_and_notification_contract_is_complete() {
             .any(|field| field == "memberId" || field == "requestId")
     );
 
-    for (path, error_status) in [
+    for (path, error_status, method) in [
         (
             "/api/activities/{activity_id}/join-requests/{join_request_id}",
             "409",
+            "post",
         ),
-        ("/api/notifications/{notification_id}/read", "404"),
+        ("/api/notifications/{notification_id}/read", "404", "post"),
+        ("/api/notifications/{notification_id}", "404", "delete"),
     ] {
-        let operation = &value["paths"][path]["post"];
+        let operation = &value["paths"][path][method];
         let csrf = operation["parameters"]
             .as_array()
             .and_then(|parameters| {
@@ -395,6 +402,41 @@ fn join_approval_and_notification_contract_is_complete() {
             "#/components/schemas/ErrorEnvelope"
         );
     }
+
+    for path in [
+        "/api/notifications",
+        "/api/notifications/read-all",
+        "/api/notifications/{notification_id}",
+    ] {
+        let method = if path == "/api/notifications/read-all" {
+            "post"
+        } else {
+            "delete"
+        };
+        let operation = &value["paths"][path][method];
+        let csrf = operation["parameters"]
+            .as_array()
+            .and_then(|parameters| {
+                parameters
+                    .iter()
+                    .find(|parameter| parameter["name"] == "x-csrf-token")
+            })
+            .expect("通知写操作应发布 CSRF header");
+        assert_eq!(csrf["in"], "header");
+        assert_eq!(csrf["required"], true);
+    }
+    let filter = &value["components"]["schemas"]["NotificationFilterData"];
+    assert_eq!(
+        filter["enum"],
+        serde_json::json!(["ALL", "UNREAD", "INVITATION", "SETTLEMENT", "SYSTEM"])
+    );
+    assert!(
+        value["components"]["schemas"]["ClearNotificationsRequest"]["required"]
+            .as_array()
+            .expect("清理请求应声明 required")
+            .iter()
+            .any(|field| field == "filter")
+    );
 }
 
 #[test]

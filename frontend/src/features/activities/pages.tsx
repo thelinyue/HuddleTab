@@ -1,8 +1,12 @@
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
   ChevronRight,
   CircleDollarSign,
+  CircleStop,
   Download,
   CalendarDays,
   Check,
@@ -737,196 +741,285 @@ const lifecycleLabels: Record<string, string> = {
   UNARCHIVE: "取消归档",
 };
 
-type ActivityField = keyof Activity["fieldPermissions"];
-
-const activityFieldLabels: Record<ActivityField, string> = {
-  name: "活动名称",
-  location: "地点",
-  baseCurrency: "主币种",
-  startDate: "开始日期",
-  endDate: "结束日期",
-  inviteMode: "加入方式",
+const lifecycleDescriptions: Record<string, string> = {
+  END: "结束后将停止新增账单、成员和邀请，可重新开启。",
+  REOPEN: "重新开启后，活动成员可以继续记录账单。",
+  ARCHIVE: "归档后活动完全只读，可在历史活动中查看。",
+  UNARCHIVE: "取消归档后恢复活动的可用状态。",
 };
 
-/** 单字段编辑器确保一次保存只提交当前字段与 version，避免无意覆盖其他并发修改。 */
-function ActivityFieldEditor({ field, onSaved }: { field: ActivityField; onSaved: (warnings: string[]) => void }) {
-  const { session, activity } = useWorkspace();
-  const update = useUpdateActivityMutation(session.userId, activity.activityId);
-  const initialValue = field === "location"
-    ? activity.location ?? ""
-    : field === "endDate"
-      ? activity.endDate ?? ""
-      : String(activity[field]);
-  const [value, setValue] = useState(initialValue);
-  const [error, setError] = useState<unknown>();
+const currencyOptions = [
+  ["CNY", "人民币"],
+  ["USD", "美元"],
+  ["EUR", "欧元"],
+  ["JPY", "日元"],
+] as const;
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setError(undefined);
-    const input: UpdateActivityInput = { version: activity.version };
+const inviteModeLabels: Record<string, string> = {
+  DIRECT_JOIN: "直接加入",
+  REQUIRE_APPROVAL: "需要审批",
+};
+
+type ActivityField = keyof Activity["fieldPermissions"];
+
+/**
+ * 活动管理使用单层 Sheet：资料直接编辑，复杂操作在原位置展开。
+ * 每次资料更新只提交一个字段和 version，避免覆盖其他成员的并发修改。
+ */
+export function MorePage({ onClose, closeAfterSave = false, onStateChange }: {
+  onClose: () => void;
+  closeAfterSave?: boolean;
+  onStateChange?: (state: { busy: boolean; hasError: boolean }) => void;
+}) {
+  const { session, activity, offline } = useWorkspace();
+  const update = useUpdateActivityMutation(session.userId, activity.activityId);
+  const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
+  const remove = useDeleteActivityMutation(session.userId, activity.activityId);
+  const transfer = useTransferOwnershipMutation(session.userId, activity.activityId);
+  const navigate = useNavigate();
+  const [draft, setDraft] = useState(() => ({
+    name: activity.name,
+    location: activity.location ?? "",
+    baseCurrency: activity.baseCurrency,
+    startDate: activity.startDate,
+    endDate: activity.endDate ?? "",
+    inviteMode: activity.inviteMode,
+  }));
+  const [version, setVersion] = useState(activity.version);
+  const [savingField, setSavingField] = useState<ActivityField | null>(null);
+  const [lastSavedField, setLastSavedField] = useState<ActivityField | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ActivityField, unknown>>>({});
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const [ownershipOpen, setOwnershipOpen] = useState(false);
+  const [memberId, setMemberId] = useState("");
+  const [transferError, setTransferError] = useState<unknown>();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<unknown>();
+  const members = useMembersQuery(session.userId, activity.activityId, ownershipOpen);
+
+  const canEdit = (field: ActivityField) =>
+    !offline
+    && activity.fieldPermissions[field]
+    && (field !== "baseCurrency" || !activity.hasAccountingRecords);
+  const editingBusy = savingField !== null || update.isPending;
+  const actionBusy = editingBusy || lifecycle.isPending || transfer.isPending || remove.isPending;
+  const hasError = Object.values(fieldErrors).some(Boolean)
+    || Boolean(lifecycle.error || transferError || transfer.error || deleteError || remove.error);
+
+  useEffect(() => {
+    setVersion(activity.version);
+  }, [activity.version]);
+
+  useEffect(() => {
+    onStateChange?.({ busy: actionBusy, hasError });
+  }, [actionBusy, hasError, onStateChange]);
+
+  function setDraftValue(field: ActivityField, value: string) {
+    setDraft((current) => ({ ...current, [field]: value }));
+    setLastSavedField(null);
+    setFieldErrors((current) => ({ ...current, [field]: undefined }));
+  }
+
+  function normalizeFieldValue(field: ActivityField, value: string): string {
+    return field === "location" ? value.trim() : value;
+  }
+
+  function currentFieldValue(field: ActivityField): string {
+    if (field === "location") return activity.location ?? "";
+    if (field === "endDate") return activity.endDate ?? "";
+    return String(activity[field]);
+  }
+
+  async function saveField(field: ActivityField, rawValue: string) {
+    const value = normalizeFieldValue(field, rawValue);
+    setDraftValue(field, value);
+    if (!canEdit(field) || editingBusy) return;
+    if (value === currentFieldValue(field)) {
+      if (field === "baseCurrency") setCurrencyOpen(false);
+      return;
+    }
+
+    const input: UpdateActivityInput = { version };
     if (field === "name") input.name = value;
-    if (field === "location") input.location = value.trim() || null;
+    if (field === "location") input.location = value || null;
     if (field === "baseCurrency") input.baseCurrency = value;
     if (field === "startDate") input.startDate = value;
     if (field === "endDate") input.endDate = value || null;
-    if (field === "inviteMode") input.inviteMode = value as "DIRECT_JOIN" | "REQUIRE_APPROVAL";
+    if (field === "inviteMode") input.inviteMode = value;
+
+    setSavingField(field);
+    setFieldErrors((current) => ({ ...current, [field]: undefined }));
     try {
       const result = await update.mutateAsync(input);
-      onSaved(result.warnings);
+      setVersion(result.data.version);
+      setWarnings(result.warnings);
+      setLastSavedField(field);
+      if (field === "baseCurrency") setCurrencyOpen(false);
     } catch (reason) {
-      setError(reason);
+      setFieldErrors((current) => ({ ...current, [field]: reason }));
+    } finally {
+      setSavingField(null);
     }
   }
 
-  return (
-    <form className="form-stack" onSubmit={submit}>
-      {field === "name" ? <Field label="活动名称"><Input value={value} onChange={(event) => setValue(event.target.value)} required autoFocus maxLength={120} /></Field> : null}
-      {field === "location" ? <Field label="地点（可选）"><Input value={value} onChange={(event) => setValue(event.target.value)} autoFocus maxLength={120} /></Field> : null}
-      {field === "baseCurrency" ? <Field label="主币种"><Select value={value} onChange={(event) => setValue(event.target.value)} autoFocus><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field> : null}
-      {field === "startDate" ? <Field label="开始日期"><Input type="date" value={value} onChange={(event) => setValue(event.target.value)} required autoFocus /></Field> : null}
-      {field === "endDate" ? <Field label="结束日期（可选）"><Input type="date" min={activity.startDate} value={value} onChange={(event) => setValue(event.target.value)} autoFocus /></Field> : null}
-      {field === "inviteMode" ? (
-        <div className="segmented" role="group" aria-label="加入方式">
-          <button type="button" aria-pressed={value === "DIRECT_JOIN"} onClick={() => setValue("DIRECT_JOIN")}>直接加入</button>
-          <button type="button" aria-pressed={value === "REQUIRE_APPROVAL"} onClick={() => setValue("REQUIRE_APPROVAL")}>需要审批</button>
-        </div>
-      ) : null}
-      {error ?? update.error ? <ErrorNotice error={error ?? update.error} /> : null}
-      <Button type="submit" busy={update.isPending}>保存</Button>
-    </form>
-  );
-}
+  function fieldStatus(field: ActivityField): ReactNode {
+    if (savingField === field) return <LoaderCircle aria-label="正在保存" className="spinner" size={16} />;
+    if (lastSavedField === field) return <Check aria-label="已保存" size={16} />;
+    return null;
+  }
 
-/** 资料行直接体现服务端权限：可编辑行是完整按钮，只读行不暴露虚假的交互语义。 */
-function ActivityInfoRow({ icon, label, value, helper, editable, onEdit }: { icon: ReactNode; label: string; value: string; helper?: string; editable: boolean; onEdit?: () => void }) {
-  const content = <>{icon}<span>{label}</span><span className="settings-row__value"><strong>{value}</strong>{helper ? <small>{helper}</small> : null}</span>{editable ? <ChevronRight aria-hidden="true" size={18} /> : null}</>;
-  return editable
-    ? <button className="settings-row" type="button" aria-label={`编辑${label}`} onClick={onEdit}>{content}</button>
-    : <div className="settings-row">{content}</div>;
-}
-
-export function MorePage({ onEdit, onDelete, onTransfer }: { onEdit?: (field: ActivityField) => void; onDelete?: () => void; onTransfer?: () => void }) {
-  const { session, activity, offline } = useWorkspace();
-  const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
-  const [error, setError] = useState<unknown>();
-  const canOpenEditor = Boolean(onEdit);
+  function fieldError(field: ActivityField): ReactNode {
+    return fieldErrors[field] ? <ErrorNotice error={fieldErrors[field]} /> : null;
+  }
 
   async function transition(action: string) {
-    setError(undefined);
+    if (actionBusy) return;
     try {
-      await lifecycle.mutateAsync({ action, version: activity.version });
-    } catch (reason) {
-      setError(reason);
+      await lifecycle.mutateAsync({ action, version });
+    } catch {
+      // mutation.error 由对应操作行下方的 ErrorNotice 展示，保留当前管理上下文。
     }
   }
 
-  return (
-    <div className="activity-more">
-      {offline ? <div className="notice" role="status">当前离线，活动管理需要联网后使用。</div> : null}
-      <section>
-        <h2>活动资料</h2>
-        <div className="settings-list">
-          <ActivityInfoRow icon={<Pencil aria-hidden="true" size={17} />} label="活动名称" value={activity.name} editable={!offline && canOpenEditor && activity.fieldPermissions.name} onEdit={() => onEdit?.("name")} />
-          <ActivityInfoRow icon={<MapPin aria-hidden="true" size={17} />} label="地点" value={activity.location || "未填写"} editable={!offline && canOpenEditor && activity.fieldPermissions.location} onEdit={() => onEdit?.("location")} />
-          <ActivityInfoRow icon={<CircleDollarSign aria-hidden="true" size={17} />} label="主币种" value={activity.baseCurrency} helper={activity.hasAccountingRecords ? "已有账务记录，不可修改" : undefined} editable={!offline && canOpenEditor && activity.fieldPermissions.baseCurrency} onEdit={() => onEdit?.("baseCurrency")} />
-          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="开始日期" value={activity.startDate} editable={!offline && canOpenEditor && activity.fieldPermissions.startDate} onEdit={() => onEdit?.("startDate")} />
-          <ActivityInfoRow icon={<CalendarDays aria-hidden="true" size={17} />} label="结束日期" value={activity.endDate || "未填写"} editable={!offline && canOpenEditor && activity.fieldPermissions.endDate} onEdit={() => onEdit?.("endDate")} />
-          <ActivityInfoRow icon={<UsersRound aria-hidden="true" size={17} />} label="状态" value={activityStatus(activity.status)} editable={false} />
-        </div>
-      </section>
-      <section>
-        <h2>加入设置</h2>
-        <div className="settings-list">
-          <ActivityInfoRow icon={<UserPlus aria-hidden="true" size={17} />} label="加入方式" value={activity.inviteMode === "DIRECT_JOIN" ? "直接加入" : "需要审批"} editable={!offline && canOpenEditor && activity.fieldPermissions.inviteMode} onEdit={() => onEdit?.("inviteMode")} />
-        </div>
-      </section>
-      <section>
-        <h2>数据导出</h2>
-        <a className="button button--secondary" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`}><Download aria-hidden="true" size={17} />导出 CSV</a>
-      </section>
-      {!offline && activity.currentMemberRole === "OWNER" && onTransfer ? <section><h2>成员与权限</h2><div className="settings-list"><ActivityInfoRow icon={<UserRoundCheck aria-hidden="true" size={17} />} label="转让所有权" value="选择新所有者" editable onEdit={onTransfer} /></div></section> : null}
-      {!offline && activity.allowedLifecycleActions.length ? <section><h2>活动状态</h2><div className="management-actions">{activity.allowedLifecycleActions.flatMap((action) => lifecycleLabels[action] ? [<Button key={action} variant="secondary" busy={lifecycle.isPending} onClick={() => void transition(action)}>{lifecycleLabels[action]}</Button>] : [])}</div></section> : null}
-      {error ?? lifecycle.error ? <ErrorNotice error={error ?? lifecycle.error} /> : null}
-      {!offline && activity.canDelete && onDelete ? <section className="management-danger"><h2>危险操作</h2><Button variant="danger" onClick={onDelete}><Trash2 aria-hidden="true" size={17} />删除活动</Button></section> : null}
-    </div>
-  );
-}
-
-function OwnershipTransferEditor({ onTransferred }: { onTransferred: () => void }) {
-  const { session, activity } = useWorkspace();
-  const members = useMembersQuery(session.userId, activity.activityId);
-  const transfer = useTransferOwnershipMutation(session.userId, activity.activityId);
-  const [memberId, setMemberId] = useState("");
-  const [error, setError] = useState<unknown>();
-  const candidates = members.data?.filter(
-    (member) =>
-      member.status === "ACTIVE" &&
-      member.userId !== null &&
-      member.memberId !== activity.ownerMemberId,
-  ) ?? [];
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setError(undefined);
+  async function confirmTransfer() {
+    if (!memberId || actionBusy) return;
+    setTransferError(undefined);
     try {
-      await transfer.mutateAsync({ newOwnerMemberId: memberId, version: activity.version });
-      onTransferred();
+      await transfer.mutateAsync({ newOwnerMemberId: memberId, version });
+      onClose();
     } catch (reason) {
-      setError(reason);
+      setTransferError(reason);
     }
   }
-
-  if (members.isPending) return <LoadingState label="正在读取可转让成员…" />;
-  if (members.error) return <ErrorNotice error={members.error} />;
-  return (
-    <form className="form-stack" onSubmit={submit}>
-      <p className="form-hint">转让后，新成员将成为活动所有者，你会变为普通成员。</p>
-      <Field label="新所有者">
-        <Select value={memberId} onChange={(event) => setMemberId(event.target.value)} required autoFocus>
-          <option value="">请选择成员</option>
-          {candidates.map((member) => <option key={member.memberId} value={member.memberId}>{member.displayName}</option>)}
-        </Select>
-      </Field>
-      {!candidates.length ? <p className="empty-copy">暂无可转让的已绑定账号成员。</p> : null}
-      {error ?? transfer.error ? <ErrorNotice error={error ?? transfer.error} /> : null}
-      <Button type="submit" busy={transfer.isPending} disabled={!memberId}>确认转让</Button>
-    </form>
-  );
-}
-
-/** 管理流程始终留在同一 Overlay 内，子视图负责返回，删除成功才退出活动工作区。 */
-function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
-  const { session, activity } = useWorkspace();
-  const remove = useDeleteActivityMutation(session.userId, activity.activityId);
-  const navigate = useNavigate();
-  const [view, setView] = useState<"root" | "delete" | "ownership" | ActivityField>("root");
-  const [deleteError, setDeleteError] = useState<unknown>();
-  const [warnings, setWarnings] = useState<string[]>([]);
 
   async function confirmDelete() {
+    if (actionBusy) return;
     setDeleteError(undefined);
     try {
-      await remove.mutateAsync(activity.version);
+      await remove.mutateAsync(version);
       navigate("/activities", { replace: true });
     } catch (reason) {
       setDeleteError(reason);
     }
   }
 
-  const title = view === "root" ? "活动管理" : view === "delete" ? "确认删除活动" : view === "ownership" ? "转让所有权" : activityFieldLabels[view];
+  const currencyLabel = currencyOptions.find(([code]) => code === draft.baseCurrency)?.[1] ?? draft.baseCurrency;
+  const candidates = members.data?.filter(
+    (member) => member.status === "ACTIVE" && member.userId !== null && member.memberId !== activity.ownerMemberId,
+  ) ?? [];
+
   return (
-    <Overlay open title={title} onBack={view === "root" ? undefined : { label: "返回活动管理", onClick: () => setView("root") }} onClose={onClose} focusKey={view}>
-      {view === "root" ? warnings.map((warning) => (
+    <div className="activity-more" data-overlay-initial-focus tabIndex={-1}>
+      {closeAfterSave && actionBusy ? <div className="notice" role="status">正在保存，保存完成后关闭活动管理。</div> : null}
+      {offline ? <div className="notice" role="status">当前离线，活动管理需要联网后使用。</div> : null}
+      {warnings.map((warning) => (
         <div className="notice" key={warning} role="status">
           {warning === "EXPENSE_BEFORE_ACTIVITY_START"
             ? "活动开始日期晚于已有账单的发生时间，请检查日期或历史账单。"
             : warning}
         </div>
-      )) : null}
-      {view === "root" ? <MorePage onEdit={setView} onDelete={() => setView("delete")} onTransfer={() => setView("ownership")} /> : null}
-      {view !== "root" && view !== "delete" && view !== "ownership" ? <ActivityFieldEditor field={view} onSaved={(nextWarnings) => { setWarnings(nextWarnings); setView("root"); }} /> : null}
-      {view === "ownership" ? <OwnershipTransferEditor onTransferred={onClose} /> : null}
-      {view === "delete" ? <div className="delete-confirmation"><p>删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。</p>{deleteError ?? remove.error ? <ErrorNotice error={deleteError ?? remove.error} /> : null}<Button data-overlay-initial-focus variant="danger" busy={remove.isPending} onClick={() => void confirmDelete()}><Trash2 aria-hidden="true" size={17} />确认删除活动</Button></div> : null}
+      ))}
+      <section>
+        <h2>活动资料</h2>
+        <div className="management-fields">
+          <div className="management-field">
+            <div className="management-field__heading"><Pencil aria-hidden="true" size={17} /><span><strong>活动名称</strong></span></div>
+            {canEdit("name") ? <div className="management-field__control"><Input aria-label="活动名称" value={draft.name} disabled={editingBusy} required maxLength={120} onChange={(event) => setDraftValue("name", event.target.value)} onBlur={(event) => void saveField("name", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("name")}</div> : <span className="management-field__readonly">{activity.name}</span>}
+            {fieldError("name")}
+          </div>
+          <div className="management-field">
+            <div className="management-field__heading"><MapPin aria-hidden="true" size={17} /><span><strong>地点</strong><small>可选</small></span></div>
+            {canEdit("location") ? <div className="management-field__control"><Input aria-label="地点" value={draft.location} disabled={editingBusy} maxLength={120} onChange={(event) => setDraftValue("location", event.target.value)} onBlur={(event) => void saveField("location", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("location")}</div> : <span className="management-field__readonly">{activity.location || "未填写"}</span>}
+            {fieldError("location")}
+          </div>
+          <div className="management-field">
+            <div className="management-field__heading"><CircleDollarSign aria-hidden="true" size={17} /><span><strong>主币种</strong>{activity.hasAccountingRecords ? <small>已有账务记录，不可修改</small> : !activity.fieldPermissions.baseCurrency ? <small>当前账号无修改权限</small> : null}</span></div>
+            {canEdit("baseCurrency") ? <div className="management-field__choice"><button className="management-choice-trigger" type="button" aria-expanded={currencyOpen} aria-controls="activity-currency-options" disabled={editingBusy} onClick={() => setCurrencyOpen((open) => !open)}><span>{draft.baseCurrency} {currencyLabel}</span><ChevronDown aria-hidden="true" size={18} /></button>{fieldStatus("baseCurrency")}</div> : <span className="management-field__readonly">{activity.baseCurrency}</span>}
+            {currencyOpen && canEdit("baseCurrency") ? <div className="management-choice-list" id="activity-currency-options" role="radiogroup" aria-label="主币种选项">{currencyOptions.map(([code, label]) => <button key={code} type="button" role="radio" aria-checked={draft.baseCurrency === code} disabled={editingBusy} onClick={() => void saveField("baseCurrency", code)}><span><strong>{code}</strong><small>{label}</small></span>{draft.baseCurrency === code ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
+            {fieldError("baseCurrency")}
+          </div>
+          <div className="management-field">
+            <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>开始日期</strong></span></div>
+            {canEdit("startDate") ? <div className="management-field__control"><Input aria-label="开始日期" type="date" value={draft.startDate} disabled={editingBusy} required onChange={(event) => void saveField("startDate", event.target.value)} />{fieldStatus("startDate")}</div> : <span className="management-field__readonly">{activity.startDate}</span>}
+            {fieldError("startDate")}
+          </div>
+          <div className="management-field">
+            <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>结束日期</strong><small>可选</small></span></div>
+            {canEdit("endDate") ? <div className="management-field__control"><Input aria-label="结束日期" type="date" min={activity.startDate} value={draft.endDate} disabled={editingBusy} onChange={(event) => void saveField("endDate", event.target.value)} />{fieldStatus("endDate")}</div> : <span className="management-field__readonly">{activity.endDate || "未填写"}</span>}
+            {fieldError("endDate")}
+          </div>
+          <div className="management-field management-field--readonly">
+            <div className="management-field__heading"><UsersRound aria-hidden="true" size={17} /><span><strong>状态</strong></span></div>
+            <span className="management-field__readonly">{activityStatus(activity.status)}</span>
+          </div>
+        </div>
+      </section>
+      <section>
+        <h2>加入设置</h2>
+        <div className="management-field">
+          <div className="management-field__heading"><UserPlus aria-hidden="true" size={17} /><span><strong>加入方式</strong></span></div>
+          {canEdit("inviteMode") ? <div className="management-field__segmented"><div className="segmented" role="group" aria-label="加入方式"><button type="button" aria-pressed={draft.inviteMode === "DIRECT_JOIN"} disabled={editingBusy} onClick={() => void saveField("inviteMode", "DIRECT_JOIN")}>直接加入</button><button type="button" aria-pressed={draft.inviteMode === "REQUIRE_APPROVAL"} disabled={editingBusy} onClick={() => void saveField("inviteMode", "REQUIRE_APPROVAL")}>需要审批</button></div>{fieldStatus("inviteMode")}</div> : <span className="management-field__readonly">{inviteModeLabels[activity.inviteMode] ?? activity.inviteMode}</span>}
+          {fieldError("inviteMode")}
+        </div>
+      </section>
+      <section>
+        <h2>数据导出</h2>
+        <a className="management-action-row" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`} aria-label="导出 CSV" aria-describedby="activity-export-description"><Download aria-hidden="true" size={19} /><span><strong>导出 CSV</strong><small id="activity-export-description">下载活动账务明细</small></span><ChevronRight aria-hidden="true" size={18} /></a>
+      </section>
+      {!offline && activity.currentMemberRole === "OWNER" ? <section>
+        <h2>成员与权限</h2>
+        <button className="management-action-row" type="button" aria-expanded={ownershipOpen} aria-controls="activity-ownership-panel" disabled={actionBusy} onClick={() => { setOwnershipOpen((open) => !open); setTransferError(undefined); setMemberId(""); }}><UserRoundCheck aria-hidden="true" size={19} /><span><strong>转让所有权</strong><small>选择新的活动所有者</small></span><ChevronDown aria-hidden="true" className={ownershipOpen ? "management-chevron management-chevron--open" : "management-chevron"} size={18} /></button>
+        {ownershipOpen ? <div className="management-expansion" id="activity-ownership-panel">
+          <p className="form-hint">转让后，新成员将成为活动所有者，你会变为普通成员。</p>
+          {members.isPending ? <LoadingState label="正在读取可转让成员…" /> : null}
+          {members.error ? <ErrorNotice error={members.error} /> : null}
+          {!members.isPending && !members.error && candidates.length ? <div className="management-member-list" role="radiogroup" aria-label="新所有者">{candidates.map((member) => <button key={member.memberId} type="button" role="radio" aria-checked={memberId === member.memberId} disabled={actionBusy} onClick={() => setMemberId(member.memberId)}><MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="sm" /><span>{member.displayName}</span>{memberId === member.memberId ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
+          {!members.isPending && !members.error && !candidates.length ? <p className="empty-copy">暂无可转让的已绑定账号成员。</p> : null}
+          {transferError ?? transfer.error ? <ErrorNotice error={transferError ?? transfer.error} /> : null}
+          <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => setOwnershipOpen(false)}>取消</Button><Button type="button" busy={transfer.isPending} disabled={!memberId || actionBusy} onClick={() => void confirmTransfer()}>确认转让</Button></div>
+        </div> : null}
+      </section> : null}
+      {!offline && activity.allowedLifecycleActions.length ? <section>
+        <h2>活动状态</h2>
+        <div className="management-action-list">{activity.allowedLifecycleActions.flatMap((action) => {
+          const label = lifecycleLabels[action];
+          if (!label) return [];
+          const icon = action === "END" ? <CircleStop aria-hidden="true" size={19} /> : action === "REOPEN" ? <RotateCcw aria-hidden="true" size={19} /> : action === "ARCHIVE" ? <Archive aria-hidden="true" size={19} /> : <ArchiveRestore aria-hidden="true" size={19} />;
+          return [<button key={action} className="management-action-row" type="button" disabled={actionBusy} aria-busy={lifecycle.isPending} onClick={() => void transition(action)}>{icon}<span><strong>{label}</strong><small>{lifecycleDescriptions[action]}</small></span><ChevronRight aria-hidden="true" size={18} /></button>];
+        })}</div>
+        {lifecycle.error ? <ErrorNotice error={lifecycle.error} /> : null}
+      </section> : null}
+      {!offline && activity.canDelete ? <section className="management-danger">
+        <h2>危险操作</h2>
+        <button className="management-action-row management-action-row--danger" type="button" aria-expanded={deleteOpen} aria-controls="activity-delete-panel" disabled={actionBusy} onClick={() => { setDeleteOpen((open) => !open); setDeleteError(undefined); }}><Trash2 aria-hidden="true" size={19} /><span><strong>删除活动</strong><small>活动将离开当前列表，可在恢复期限内找回</small></span><ChevronDown aria-hidden="true" className={deleteOpen ? "management-chevron management-chevron--open" : "management-chevron"} size={18} /></button>
+        {deleteOpen ? <div className="management-expansion management-expansion--danger" id="activity-delete-panel"><p>删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。</p>{deleteError ?? remove.error ? <ErrorNotice error={deleteError ?? remove.error} /> : null}<div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={remove.isPending} onClick={() => setDeleteOpen(false)}>取消</Button><Button autoFocus variant="danger" type="button" busy={remove.isPending} onClick={() => void confirmDelete()}>确认删除活动</Button></div></div> : null}
+      </section> : null}
+    </div>
+  );
+}
+
+/** 管理 Overlay 只有一个页面；保存中的关闭请求会在成功后继续，失败则保留错误和草稿。 */
+function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
+  const [state, setState] = useState({ busy: false, hasError: false });
+  const [closeAfterSave, setCloseAfterSave] = useState(false);
+
+  function requestClose() {
+    if (!state.busy) return true;
+    setCloseAfterSave(true);
+    return false;
+  }
+
+  useEffect(() => {
+    if (closeAfterSave && !state.busy && !state.hasError) {
+      setCloseAfterSave(false);
+      onClose();
+    }
+  }, [closeAfterSave, onClose, state.busy, state.hasError]);
+
+  return (
+    <Overlay open title="活动管理" onBeforeClose={requestClose} onClose={onClose} focusKey="management" className="activity-management-overlay">
+      <MorePage onClose={onClose} closeAfterSave={closeAfterSave} onStateChange={setState} />
     </Overlay>
   );
 }

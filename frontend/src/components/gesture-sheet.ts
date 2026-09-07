@@ -12,6 +12,7 @@ import {
 type SheetDragOptions = {
   open: boolean;
   onClose: () => void;
+  canClose?: () => boolean;
 };
 
 type SheetDragResult = {
@@ -50,7 +51,7 @@ let previousBodyOverflow: string | undefined;
  * Sheet 以当前展示偏移作为每次抓取的起点，并将释放速度交给同一组弹簧参数。
  * 外部关闭和手势关闭都会先完成可见退场，再释放背景锁定和调用业务 onClose。
  */
-export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResult {
+export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): SheetDragResult {
   const sheetRef = useRef<HTMLElement | null>(null);
   const pointer = useRef<{
     id: number;
@@ -67,6 +68,7 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
   const opacityRef = useRef(open ? 0 : 1);
   const animationVelocity = useRef(0);
   const onCloseRef = useRef(onClose);
+  const canCloseRef = useRef(canClose);
   const reducedMotion = useRef(
     typeof window !== "undefined"
       && typeof window.matchMedia === "function"
@@ -78,6 +80,7 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
   const [dragging, setDragging] = useState(false);
   const [overlayStyle, setOverlayStyle] = useState<CSSProperties>({});
   onCloseRef.current = onClose;
+  canCloseRef.current = canClose;
 
   const cancelAnimation = useCallback(() => {
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
@@ -156,6 +159,11 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
 
   const startClose = useCallback((notify: boolean, initialVelocity = animationVelocity.current) => {
     if (!present || phase.current === "closing") return;
+    if (notify && canCloseRef.current && !canCloseRef.current()) {
+      phase.current = "idle";
+      setDragging(false);
+      return;
+    }
     phase.current = "closing";
     setDragging(false);
     if (reducedMotion.current) {
@@ -182,7 +190,10 @@ export function useSheetDrag({ open, onClose }: SheetDragOptions): SheetDragResu
       setPresent(true);
       return;
     }
-    if (phase.current !== "closed" && phase.current !== "closing") return;
+    // React StrictMode 会在开发环境重放副作用；如果首次打开帧刚被清理，
+    // 允许第二次 layout effect 重新排队，避免 Sheet 永远停在屏幕底部。
+    const openingAnimationWasCancelled = phase.current === "opening" && frame.current === undefined;
+    if (phase.current !== "closed" && phase.current !== "closing" && !openingAnimationWasCancelled) return;
 
     const openingFromClosed = phase.current === "closed";
     phase.current = "opening";

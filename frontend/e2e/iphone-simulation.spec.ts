@@ -12,6 +12,8 @@ import {
   openQuickExpense,
 } from "./support/product";
 
+test.use({ serviceWorkers: "block" });
+
 const onePixelPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
@@ -21,6 +23,34 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "standalone", { configurable: true, value: true });
   });
+});
+
+test("独立 PWA 冷启动先展示品牌接管层，再交给活动首页", async ({ page }) => {
+  await login(page);
+
+  await page.evaluate(async () => {
+    if (!("serviceWorker" in navigator)) return;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+  });
+  let setupStatusRequestIntercepted = false;
+  await page.route("**/api/setup/status**", async (route) => {
+    setupStatusRequestIntercepted = true;
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { setupRequired: false } }),
+    });
+  });
+  await page.reload();
+
+  await expect.poll(() => setupStatusRequestIntercepted).toBe(true);
+  const launchScreen = page.getByRole("status", { name: "正在准备伙记" });
+  await expect(launchScreen).toBeVisible();
+  await expect(page.locator(".pwa-launch-screen__status")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
+  await expect(launchScreen).toHaveCount(0);
 });
 
 async function setSafeAreaVariables(

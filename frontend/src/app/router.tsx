@@ -1,5 +1,6 @@
 import { FileQuestion } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { AnimatePresence } from "motion/react";
+import { type ReactNode, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
@@ -13,6 +14,7 @@ import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { ChangePasswordPage } from "../features/me/password-page";
 import { NotificationsPage } from "../features/notifications/pages";
 import { PwaUpdatePrompt } from "./pwa-update";
+import { PwaLaunchScreen } from "./pwa-launch-screen";
 import { SetupPage, SetupStatusError } from "../features/setup/pages";
 import { useSetupStatusQuery } from "../features/setup/api";
 
@@ -36,21 +38,44 @@ function SetupGuard() {
     previousOnline.current = online;
     if (becameOnline && status.error) void status.refetch();
   }, [online, status.error, status.refetch]);
-  if (status.isPending) return <LoadingState label="正在确认初始化状态…" />;
-  // 离线工作台已经由当前标签页 Session 和 Snapshot 保护；只在网络错误时放行，
-  // 认证失效仍会由 ProtectedRoute 清理身份，不能借缓存绕过服务端授权。
-  if (status.error || !status.data) {
-    if (online && status.error) return <LoadingState label="正在重新确认初始化状态…" />;
-    // 只有已缓存的活动深链允许在断网时跳过初始化状态探针；列表、管理等页面仍需在线确认。
-    const cachedActivityDeepLink = location.pathname.startsWith("/activities/");
-    if (!online && cachedActivityDeepLink && (session.data || hasRememberedOfflineSession())) return <Outlet />;
-    return <SetupStatusError onRetry={() => void status.refetch()} />;
+  const [pwaStartupAvailable, setPwaStartupAvailable] = useState(true);
+  const pwaStartup =
+    pwaStartupAvailable &&
+    status.isPending &&
+    document.documentElement.classList.contains("pwa-standalone");
+  useEffect(() => {
+    if (!status.isPending) setPwaStartupAvailable(false);
+  }, [status.isPending]);
+
+  let guardedContent: ReactNode;
+  if (status.isPending) {
+    guardedContent = pwaStartup ? null : <LoadingState label="正在确认初始化状态…" />;
+  } else if (status.error || !status.data) {
+    // 离线工作台已经由当前标签页 Session 和 Snapshot 保护；只在网络错误时放行，
+    // 认证失效仍会由 ProtectedRoute 清理身份，不能借缓存绕过服务端授权。
+    if (online && status.error) {
+      guardedContent = <LoadingState label="正在重新确认初始化状态…" />;
+    } else {
+      // 只有已缓存的活动深链允许在断网时跳过初始化状态探针；列表、管理等页面仍需在线确认。
+      const cachedActivityDeepLink = location.pathname.startsWith("/activities/");
+      guardedContent = !online && cachedActivityDeepLink && (session.data || hasRememberedOfflineSession())
+        ? <Outlet />
+        : <SetupStatusError onRetry={() => void status.refetch()} />;
+    }
+  } else if (status.data.setupRequired) {
+    guardedContent = location.pathname === "/setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
+  } else {
+    guardedContent = location.pathname === "/setup" ? <Navigate to="/login" replace /> : <Outlet />;
   }
-  if (status.data.setupRequired) {
-    return location.pathname === "/setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
-  }
-  if (location.pathname === "/setup") return <Navigate to="/login" replace />;
-  return <Outlet />;
+
+  return (
+    <>
+      {guardedContent}
+      <AnimatePresence>
+        {pwaStartup ? <PwaLaunchScreen key="pwa-launch-screen" /> : null}
+      </AnimatePresence>
+    </>
+  );
 }
 
 function ProtectedRoute() {

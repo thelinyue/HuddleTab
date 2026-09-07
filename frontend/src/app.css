@@ -324,6 +324,12 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .activity-empty-join { width: 100%; min-height: 44px; color: var(--primary); }
 .activity-empty-join:hover { color: var(--primary); }
 .page-state { display: flex; min-height: 240px; align-items: center; justify-content: center; gap: 10px; color: var(--muted-foreground); }
+.pwa-launch-screen { position: fixed; inset: 0; z-index: 130; display: grid; min-width: 320px; min-height: 100dvh; place-items: center; padding: max(24px, var(--safe-area-top)) max(24px, var(--safe-area-right)) max(24px, var(--safe-area-bottom)) max(24px, var(--safe-area-left)); color: var(--foreground); background: var(--background); pointer-events: none; }
+.pwa-launch-screen__content { display: grid; justify-items: center; gap: 16px; }
+.pwa-launch-screen__icon { width: 96px; height: 96px; flex: 0 0 96px; border-radius: 22px; box-shadow: var(--shadow-overlay); object-fit: cover; user-select: none; }
+.pwa-launch-screen__status-slot { display: grid; min-height: 24px; place-items: center; }
+.pwa-launch-screen__status { display: flex; min-height: 24px; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 13px; line-height: 1.4; }
+.pwa-launch-screen__status .spinner { flex: 0 0 16px; }
 .notice { display: flex; align-items: start; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 11px 12px; background: var(--surface-muted); }
 .notice--error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); background: var(--danger-soft); }
 .notice--success { color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, var(--border)); background: color-mix(in srgb, var(--success) 8%, var(--surface)); }
@@ -474,6 +480,60 @@ button.settings-row:hover { background: var(--surface-muted); }
 .management-danger { border-top: 1px solid var(--border); padding-top: 20px; }
 .management-danger .button { width: 100%; }
 .delete-confirmation { display: grid; gap: 16px; }
+.management-fields { display: grid; }
+.management-field { display: grid; min-width: 0; grid-template-columns: minmax(112px, .72fr) minmax(0, 1.28fr); align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 10px 4px; }
+.management-field:last-child { border-bottom: 0; }
+.management-field__heading { display: flex; min-width: 0; align-items: flex-start; gap: 10px; color: var(--primary); }
+.management-field__heading > span { display: grid; min-width: 0; gap: 2px; }
+.management-field__heading strong { color: var(--foreground); font-size: 14px; font-weight: 650; line-height: 1.35; }
+.management-field__heading small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
+.management-field__control, .management-field__choice, .management-field__segmented { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
+.management-field__control > .input { width: min(100%, 228px); min-width: 0; border-color: transparent; background: transparent; text-align: right; }
+.management-field__control > .input:focus { border-color: var(--ring); background: var(--surface); text-align: left; }
+.management-field__control > svg, .management-field__choice > svg, .management-field__segmented > svg { flex: 0 0 auto; color: var(--primary); }
+.management-field__readonly { min-width: 0; justify-self: end; overflow-wrap: anywhere; color: var(--muted-foreground); font-size: 14px; line-height: 1.4; text-align: right; }
+.management-choice-trigger { display: flex; min-width: 0; min-height: 44px; align-items: center; justify-content: flex-end; gap: 8px; border: 1px solid transparent; border-radius: 10px; padding: 7px 8px; color: var(--foreground); background: transparent; font-size: 14px; text-align: right; touch-action: manipulation; }
+.management-choice-trigger:hover { background: var(--surface-muted); }
+.management-choice-trigger:focus-visible { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 22%, transparent); outline-offset: 0; }
+.management-choice-trigger > span { min-width: 0; overflow-wrap: anywhere; }
+.management-choice-trigger > svg { flex: 0 0 auto; color: var(--muted-foreground); transition: transform 160ms ease; }
+.management-choice-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.management-choice-list { grid-column: 2; display: grid; min-width: 0; margin: 0 0 4px; border-top: 1px solid var(--border); }
+.management-choice-list button { display: grid; min-width: 0; min-height: 52px; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--border); padding: 6px 8px; color: var(--foreground); background: transparent; text-align: left; touch-action: manipulation; }
+.management-choice-list button:hover, .management-choice-list button[aria-checked="true"] { background: var(--surface-muted); }
+.management-choice-list button > span { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
+.management-choice-list button strong { font-family: var(--font-money-family); font-size: 13px; }
+.management-choice-list button small { color: var(--muted-foreground); font-size: 13px; }
+.management-choice-list button > svg { color: var(--primary); }
+.management-field > .notice { grid-column: 1 / -1; margin: 2px 0 0 28px; }
+.management-field__segmented .segmented { width: min(100%, 280px); }
+.management-field__segmented .segmented button { min-height: 44px; }
+.management-action-list { display: grid; }
+.management-action-row { display: grid; width: 100%; min-width: 0; min-height: 62px; grid-template-columns: 28px minmax(0, 1fr) 20px; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--border); padding: 10px 4px; color: var(--foreground); background: transparent; text-align: left; text-decoration: none; touch-action: manipulation; }
+.management-action-row:hover { background: var(--surface-muted); }
+.management-action-row:active, .management-choice-trigger:active, .management-choice-list button:active, .management-member-list button:active, .management-field__segmented .segmented button:active { transform: scale(.985); transition: transform 90ms ease-out; }
+.management-action-row:disabled, .management-choice-trigger:disabled, .management-choice-list button:disabled, .management-member-list button:disabled, .management-field__segmented .segmented button:disabled { cursor: not-allowed; opacity: .48; }
+.management-action-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.management-action-row > svg:first-child { color: var(--primary); }
+.management-action-row > span { display: grid; min-width: 0; gap: 2px; }
+.management-action-row strong { font-size: 14px; font-weight: 650; line-height: 1.35; }
+.management-action-row small { color: var(--muted-foreground); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.management-action-row > svg:last-child { color: var(--muted-foreground); }
+.management-action-row--danger > svg:first-child, .management-action-row--danger strong { color: var(--danger); }
+.management-chevron { transition: transform 160ms ease; }
+.management-chevron--open { transform: rotate(180deg); }
+.management-expansion { display: grid; gap: 12px; margin: 0 0 4px 40px; border-bottom: 1px solid var(--border); padding: 12px 4px 16px 0; }
+.management-expansion > p { margin: 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
+.management-expansion--danger > p { color: var(--danger); }
+.management-expansion__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.management-member-list { display: grid; border-top: 1px solid var(--border); }
+.management-member-list button { display: grid; min-width: 0; min-height: 56px; grid-template-columns: 34px minmax(0, 1fr) 24px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--border); padding: 6px 4px; color: var(--foreground); background: transparent; text-align: left; touch-action: manipulation; }
+.management-member-list button:hover, .management-member-list button[aria-checked="true"] { background: var(--surface-muted); }
+.management-member-list button > span:not(.avatar) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.management-member-list button > svg { color: var(--primary); }
+.activity-more { display: grid; gap: 22px; min-width: 0; outline: none; }
+.activity-more > section { display: grid; gap: 8px; min-width: 0; }
+.activity-more > section > h2 { margin: 0 4px; color: var(--muted-foreground); font-size: 13px; font-weight: 700; }
 .profile-panel { display: flex; min-width: 0; align-items: center; gap: 14px; margin: 16px 0 24px; border-radius: 12px; padding: 16px; background: var(--secondary); }
 .profile-avatar-button { display: grid; width: 64px; height: 64px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; padding: 0; background: transparent; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent); }
 .profile-avatar-button:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent); }
@@ -1085,6 +1145,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .form-overlay__sheet { animation: none; }
   .quick-expense-more svg { transition: none; }
   button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disabled):active, .icon-button:not(:disabled):active, .settings-link:active, .settings-row:active, .activity-list-item:active, .workspace-nav a:active, .balance-entry:active, .settlement-recommendations button:active, .member-row:active { transform: none; }
+  .management-action-row:active, .management-choice-trigger:active, .management-choice-list button:active, .management-member-list button:active, .management-field__segmented .segmented button:active { transform: none; transition: none; }
+  .management-choice-trigger > svg, .management-chevron { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .product-bottom-nav { background: var(--surface); backdrop-filter: none; }
@@ -1096,6 +1158,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .input, .panel, .activity-list-item, .form-overlay__sheet, .account-card { border-color: var(--foreground); }
   .button--secondary { border-color: var(--foreground); }
   .quick-expense-submit-bar, .quick-expense-subview__footer, .quick-expense-attachment__surface { border-color: var(--foreground); }
+  .management-field, .management-choice-list, .management-action-row, .management-expansion, .management-member-list { border-color: var(--foreground); }
 }
 @media (min-width: 640px) {
   .account-page { padding: 32px 24px; }
@@ -1121,7 +1184,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .confirm-dialog { position: relative; display: grid; width: min(100%, 384px); gap: 14px; border: 1px solid var(--border); border-radius: 16px; padding: 20px; color: var(--foreground); background: var(--surface); box-shadow: var(--shadow-overlay); }
 .confirm-dialog h2 { font-size: 17px; font-weight: 750; }
 .confirm-dialog__message { color: var(--muted-foreground); font-size: 14px; line-height: 1.5; }
-.confirm-dialog__error { display: grid; gap: 8px; }
+.confirm-dialog__error { display: grid; gap: 8px; color: var(--danger); font-size: 13px; line-height: 1.45; }
 .confirm-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 520px) {
   .confirm-overlay { align-items: end; padding: 12px; }
@@ -1137,6 +1200,13 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 }
 
 /* Apple 风格的通知列表：筛选器是旧版的紧凑分段控件，通知行保持无卡片连续表面。 */
+.notification-header { align-items: flex-start; padding-block: 8px; }
+.notification-header__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.notification-header__actions .button { min-height: 44px; }
+.notification-delete-button { width: 44px; padding-inline: 0 !important; color: var(--danger); }
+.notification-delete-button:hover { color: var(--danger); background: var(--danger-soft); }
+.notification-header__actions .button, .notification-row__actions .button, .notification-delete-button { transition: transform 100ms ease-out, background-color 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease; }
+.notification-header__actions .button:active, .notification-row__actions .button:active { transform: scale(.97); }
 .notification-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; overflow: visible; border: 1px solid var(--border); border-radius: 12px; padding: 3px; background: var(--surface-muted); }
 .notification-filters button { min-height: 44px; min-width: 44px; border: 0; border-radius: 9px; padding: 0 8px; color: var(--muted-foreground); background: transparent; font-size: 13px; font-weight: 650; transition: transform 100ms ease-out, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
 .notification-filters button[aria-pressed="true"] { color: var(--foreground); background: var(--surface); box-shadow: 0 1px 3px rgb(23 33 29 / 10%); }
@@ -1176,6 +1246,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .activity-history .activity-group { margin-top: 12px; }
 
 @media (max-width: 520px) {
+  .notification-header { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .notification-header__actions { justify-content: flex-start; }
   .notification-filters { margin-inline: -2px; }
   .notification-filters button { padding-inline: 4px; font-size: 12px; }
   .notification-row { grid-template-columns: minmax(0, 1fr); padding-bottom: 4px; }
@@ -1186,7 +1258,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 @media (prefers-reduced-motion: reduce) {
   html.theme-transition, html.theme-transition body, html.theme-transition #root, html.theme-transition * { transition: none !important; }
   .form-overlay__header { cursor: default; }
-  .notification-filters button, .notification-row, .notification-row__link { transition: none; }
+  .notification-filters button, .notification-row, .notification-row__link, .notification-header__actions .button, .notification-row__actions .button, .notification-delete-button { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .notification-row[data-unread="true"] { background: var(--surface-muted); }
@@ -1260,6 +1332,8 @@ html.dark.pwa-standalone .update-prompt {
 @media (prefers-reduced-motion: reduce) {
   .pwa-standalone .product-bottom-nav a { transition: none; }
   .pwa-standalone .product-bottom-nav a:active { transform: none; }
+  .pwa-launch-screen__content, .pwa-launch-screen__icon, .pwa-launch-screen__status { transform: none !important; }
+  .pwa-launch-screen .spinner { animation: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .pwa-standalone .product-bottom-nav { background: var(--surface); box-shadow: 0 8px 24px rgb(13 21 18 / 16%); -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -1284,6 +1358,7 @@ html.dark.pwa-standalone .update-prompt {
 .deleted-activities-overlay .deleted-activities { margin-top: 0; }
 .deleted-activities-overlay .deleted-activity-list { margin-top: 0; }
 .deleted-activities-overlay .deleted-activity-row { min-height: 72px; padding-block: 12px; }
+.activity-management-overlay .form-overlay__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: calc(24px + var(--safe-area-bottom)); touch-action: pan-y; -webkit-overflow-scrolling: touch; }
 
 @media (max-width: 639px) {
   .activity-home-overlay .form-overlay__sheet { max-height: 92%; padding-bottom: var(--safe-area-bottom); }
@@ -1292,4 +1367,9 @@ html.dark.pwa-standalone .update-prompt {
   .activity-home-overlay .overlay-action-list .settings-row { min-height: 68px; }
   .deleted-activities-overlay .deleted-activity-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .deleted-activities-overlay .deleted-activity-row > .button { width: auto; min-width: 80px; padding-inline: 12px; }
+  .activity-management-overlay .form-overlay__sheet { max-height: 92%; padding-bottom: var(--safe-area-bottom); }
+  .management-field { grid-template-columns: minmax(100px, .82fr) minmax(0, 1.18fr); gap: 8px; padding-inline: 0; }
+  .management-field__control > .input { width: min(100%, 208px); }
+  .management-expansion { margin-left: 0; padding-right: 0; }
+  .management-action-row { padding-inline: 0; }
 }

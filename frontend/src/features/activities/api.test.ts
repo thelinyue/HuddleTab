@@ -225,6 +225,29 @@ describe("Activity mutation adapter", () => {
     expect(response).toEqual(envelope);
   });
 
+  it("update 遇到版本冲突时刷新活动相关读模型", async () => {
+    client.PUT.mockResolvedValue({
+      error: { error: { message: "活动版本已变化" } },
+      response: new Response(null, { status: 409 }),
+    });
+    const { queryClient, wrapper } = setupQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(
+      () => activityApi.useUpdateActivityMutation("user-1", "activity-1"),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await expect(result.current.mutateAsync({ name: "新名称", version: "7" })).rejects.toThrow("活动版本已变化");
+    });
+
+    await waitFor(() => expect(invalidate.mock.calls.map(([options]) => options)).toEqual([
+      { queryKey: queryKeys.activityDetail("user-1", "activity-1") },
+      { queryKey: queryKeys.activitySnapshot("user-1", "activity-1") },
+      { queryKey: queryKeys.activitiesCurrent("user-1") },
+    ]));
+  });
+
   it("删除临时成员使用 DELETE、携带 CSRF，并失效成员相关全部读模型", async () => {
     client.DELETE.mockResolvedValue(successful({ memberId: "guest-1", result: "LEFT", revision: "9" }));
     const { queryClient, wrapper } = setupQueryClient();

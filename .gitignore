@@ -13,3 +13,4 @@ tsconfig.tsbuildinfo
 frontend/dist/
 frontend/artifacts/
 server/target/
+.cargo-target/

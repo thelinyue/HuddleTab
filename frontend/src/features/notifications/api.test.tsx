@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const client = vi.hoisted(() => ({ GET: vi.fn(), POST: vi.fn() }));
+const client = vi.hoisted(() => ({ DELETE: vi.fn(), GET: vi.fn(), POST: vi.fn() }));
 const csrf = vi.hoisted(() => ({
   mutationHeaders: vi.fn().mockResolvedValue({ "X-CSRF-Token": "csrf-token" }),
 }));
@@ -12,7 +12,14 @@ vi.mock("../../api/client", () => ({ apiClient: client }));
 vi.mock("../../api/csrf", () => csrf);
 
 import { queryKeys } from "../../api/query-keys";
-import { useDecideNotificationJoinRequestMutation, useMarkNotificationReadMutation, useNotificationsQuery } from "./api";
+import {
+  useClearNotificationsMutation,
+  useDecideNotificationJoinRequestMutation,
+  useDeleteNotificationMutation,
+  useMarkAllNotificationsReadMutation,
+  useMarkNotificationReadMutation,
+  useNotificationsQuery,
+} from "./api";
 
 const unread = {
   activityId: "activity-1",
@@ -87,6 +94,73 @@ describe("notification adapter", () => {
       .toEqual({ items: [read], timeZone: "Asia/Shanghai", unreadCount: 0 });
     expect(queryClient.getQueryData(Reflect.get(queryKeys, "notifications")("user-2")))
       .toEqual(other);
+  });
+
+  it("批量已读使用一次请求并只替换当前用户缓存", async () => {
+    const readList = { items: [{ ...unread, readAt: "2026-09-01T10:01:00Z" }], timeZone: "Asia/Shanghai", unreadCount: 0 };
+    client.POST.mockResolvedValue({
+      data: { data: readList },
+      response: new Response(null, { status: 200 }),
+    });
+    const { queryClient, wrapper } = setup();
+    const other = { items: [unread], timeZone: "Asia/Shanghai", unreadCount: 1 };
+    queryClient.setQueryData(queryKeys.notifications("user-1"), other);
+    queryClient.setQueryData(queryKeys.notifications("user-2"), other);
+    const { result } = renderHook(() => useMarkAllNotificationsReadMutation("user-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync();
+    });
+
+    expect(client.POST).toHaveBeenCalledWith("/api/notifications/read-all", {
+      params: { header: { "x-csrf-token": "csrf-token" } },
+    });
+    expect(queryClient.getQueryData(queryKeys.notifications("user-1"))).toEqual(readList);
+    expect(queryClient.getQueryData(queryKeys.notifications("user-2"))).toEqual(other);
+  });
+
+  it("按筛选清理通知并替换当前用户列表", async () => {
+    const cleared = { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 };
+    client.DELETE.mockResolvedValue({
+      data: { data: cleared },
+      response: new Response(null, { status: 200 }),
+    });
+    const { queryClient, wrapper } = setup();
+    queryClient.setQueryData(queryKeys.notifications("user-1"), { items: [unread], timeZone: "Asia/Shanghai", unreadCount: 1 });
+    const { result } = renderHook(() => useClearNotificationsMutation("user-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync("SYSTEM");
+    });
+
+    expect(client.DELETE).toHaveBeenCalledWith("/api/notifications", {
+      body: { filter: "SYSTEM" },
+      params: { header: { "x-csrf-token": "csrf-token" } },
+    });
+    expect(queryClient.getQueryData(queryKeys.notifications("user-1"))).toEqual(cleared);
+  });
+
+  it("单条删除只发送通知 ID 并替换当前用户列表", async () => {
+    const remaining = { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 };
+    client.DELETE.mockResolvedValue({
+      data: { data: remaining },
+      response: new Response(null, { status: 200 }),
+    });
+    const { queryClient, wrapper } = setup();
+    queryClient.setQueryData(queryKeys.notifications("user-1"), { items: [unread], timeZone: "Asia/Shanghai", unreadCount: 1 });
+    const { result } = renderHook(() => useDeleteNotificationMutation("user-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync("notification-1");
+    });
+
+    expect(client.DELETE).toHaveBeenCalledWith("/api/notifications/{notification_id}", {
+      params: {
+        header: { "x-csrf-token": "csrf-token" },
+        path: { notification_id: "notification-1" },
+      },
+    });
+    expect(queryClient.getQueryData(queryKeys.notifications("user-1"))).toEqual(remaining);
   });
 
   it("内联审批提交受控路径并刷新通知和活动读模型", async () => {

@@ -110,6 +110,22 @@ fn request(actor: &TestActor, method: &str, uri: String) -> Request<Body> {
         .expect("通知请求应可构造")
 }
 
+fn request_with_body(actor: &TestActor, method: &str, uri: String, body: Value) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            COOKIE,
+            format!("huddletab_session={}", actor.session.expose_for_cookie()),
+        )
+        .header(ORIGIN, "http://localhost:5660")
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", actor.csrf.expose_for_header())
+        .body(Body::from(body.to_string()))
+        .expect("带 JSON 的通知请求应可构造")
+}
+
 async fn json_response(app: &axum::Router, request: Request<Body>) -> (StatusCode, Value) {
     let response = app.clone().oneshot(request).await.expect("router 应响应");
     let status = response.status();
@@ -121,6 +137,34 @@ async fn json_response(app: &axum::Router, request: Request<Body>) -> (StatusCod
         .to_bytes();
     let body = serde_json::from_slice(&bytes).expect("响应应为 JSON");
     (status, body)
+}
+
+async fn insert_notification(
+    pool: &PgPool,
+    recipient_user_id: Uuid,
+    activity_id: Uuid,
+    kind: &str,
+    target_type: &str,
+    read_at: Option<OffsetDateTime>,
+) -> Uuid {
+    let notification_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO notifications (
+            id, recipient_user_id, type, target_type, target_id, activity_id,
+            payload, read_at, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, now())",
+    )
+    .bind(notification_id)
+    .bind(recipient_user_id)
+    .bind(kind)
+    .bind(target_type)
+    .bind(activity_id)
+    .bind(serde_json::json!({"activityName": "通知测试", "status": "ENDED"}))
+    .bind(read_at)
+    .execute(pool)
+    .await
+    .expect("应插入测试通知");
+    notification_id
 }
 
 #[tokio::test]
@@ -377,4 +421,420 @@ async fn notification_list_caps_items_but_counts_all_unread_and_returns_time_zon
         &Rfc3339,
     )
     .expect("通知创建时间必须是浏览器可解析的 RFC 3339");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn notification_read_all_updates_every_unread_without_crossing_users_or_overwriting_read_time()
+ {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([37; 32]);
+    let alice = seed_actor(&pool, &secret, "alice").await;
+    let bob = seed_actor(&pool, &secret, "bob").await;
+    let activity_id = seed_activity(&pool, &alice).await;
+    let first_read_at = OffsetDateTime::now_utc() - Duration::days(1);
+    insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "ACTIVITY_STATUS_CHANGED",
+        "ACTIVITY",
+        Some(first_read_at),
+    )
+    .await;
+    for _ in 0..55 {
+        insert_notification(
+            &pool,
+            alice.user_id,
+            activity_id,
+            "ACTIVITY_STATUS_CHANGED",
+            "ACTIVITY",
+            None,
+        )
+        .await;
+    }
+    insert_notification(
+        &pool,
+        bob.user_id,
+        activity_id,
+        "ACTIVITY_STATUS_CHANGED",
+        "ACTIVITY",
+        None,
+    )
+    .await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+
+    let (status, body) = json_response(
+        &app,
+        request(&alice, "POST", "/api/notifications/read-all".to_owned()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["unreadCount"], 0);
+    assert!(
+        body["data"]["items"]
+            .as_array()
+            .expect("应返回通知数组")
+            .iter()
+            .all(|item| item["readAt"].is_string())
+    );
+    let alice_unread: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND read_at IS NULL",
+    )
+    .bind(alice.user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取 Alice 未读数");
+    let bob_unread: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND read_at IS NULL",
+    )
+    .bind(bob.user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取 Bob 未读数");
+    assert_eq!(alice_unread, 0);
+    assert_eq!(bob_unread, 1);
+    let stored_read_at: Option<OffsetDateTime> = sqlx::query_scalar(
+        "SELECT read_at FROM notifications WHERE recipient_user_id = $1 AND read_at = $2",
+    )
+    .bind(alice.user_id)
+    .bind(first_read_at)
+    .fetch_optional(&pool)
+    .await
+    .expect("应读取原有已读时间")
+    .flatten();
+    assert_eq!(stored_read_at, Some(first_read_at));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn notification_clear_applies_each_filter_to_all_history_and_preserves_other_user_data() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([41; 32]);
+    let alice = seed_actor(&pool, &secret, "alice").await;
+    let bob = seed_actor(&pool, &secret, "bob").await;
+    let activity_id = seed_activity(&pool, &alice).await;
+    let read_at = Some(OffsetDateTime::now_utc() - Duration::hours(1));
+    insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "JOIN_APPROVAL_RESOLVED",
+        "ACTIVITY",
+        read_at,
+    )
+    .await;
+    insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "JOIN_APPROVAL_REQUESTED",
+        "ACTIVITY",
+        None,
+    )
+    .await;
+    insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "SETTLEMENT_RECEIVED",
+        "SETTLEMENT",
+        None,
+    )
+    .await;
+    for _ in 0..55 {
+        insert_notification(
+            &pool,
+            alice.user_id,
+            activity_id,
+            "ACTIVITY_STATUS_CHANGED",
+            "ACTIVITY",
+            None,
+        )
+        .await;
+    }
+    insert_notification(
+        &pool,
+        bob.user_id,
+        activity_id,
+        "JOIN_APPROVAL_REQUESTED",
+        "ACTIVITY",
+        None,
+    )
+    .await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+
+    let (status, body) = json_response(
+        &app,
+        request_with_body(
+            &alice,
+            "DELETE",
+            "/api/notifications".to_owned(),
+            serde_json::json!({"filter": "UNREAD"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["unreadCount"], 0);
+    let remaining_after_unread: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM notifications WHERE recipient_user_id = $1")
+            .bind(alice.user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取未读清理后的通知数");
+    assert_eq!(remaining_after_unread, 1);
+
+    insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "SETTLEMENT_RECEIVED",
+        "SETTLEMENT",
+        read_at,
+    )
+    .await;
+    insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "ACTIVITY_STATUS_CHANGED",
+        "ACTIVITY",
+        read_at,
+    )
+    .await;
+    let (status, _) = json_response(
+        &app,
+        request_with_body(
+            &alice,
+            "DELETE",
+            "/api/notifications".to_owned(),
+            serde_json::json!({"filter": "INVITATION"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let invitation_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND type IN ('JOIN_APPROVAL_REQUESTED', 'JOIN_APPROVAL_RESOLVED', 'MEMBER_JOINED')",
+    )
+    .bind(alice.user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取邀请通知数");
+    assert_eq!(invitation_count, 0);
+
+    let (status, _) = json_response(
+        &app,
+        request_with_body(
+            &alice,
+            "DELETE",
+            "/api/notifications".to_owned(),
+            serde_json::json!({"filter": "SETTLEMENT"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let settlement_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND type = 'SETTLEMENT_RECEIVED'",
+    )
+    .bind(alice.user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应读取结算通知数");
+    assert_eq!(settlement_count, 0);
+
+    let (status, _) = json_response(
+        &app,
+        request_with_body(
+            &alice,
+            "DELETE",
+            "/api/notifications".to_owned(),
+            serde_json::json!({"filter": "SYSTEM"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let alice_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM notifications WHERE recipient_user_id = $1")
+            .bind(alice.user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取 Alice 清理后的通知数");
+    let bob_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM notifications WHERE recipient_user_id = $1")
+            .bind(bob.user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取 Bob 通知数");
+    assert_eq!(alice_count, 0);
+    assert_eq!(bob_count, 1);
+
+    insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "MEMBER_JOINED",
+        "ACTIVITY",
+        read_at,
+    )
+    .await;
+    let (status, _) = json_response(
+        &app,
+        request_with_body(
+            &alice,
+            "DELETE",
+            "/api/notifications".to_owned(),
+            serde_json::json!({"filter": "ALL"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let activity_count: i64 = sqlx::query_scalar("SELECT count(*) FROM activities WHERE id = $1")
+        .bind(activity_id)
+        .fetch_one(&pool)
+        .await
+        .expect("清理通知不应删除活动");
+    assert_eq!(activity_count, 1);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn notification_delete_is_recipient_scoped_idempotently_and_preserves_activity() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([43; 32]);
+    let alice = seed_actor(&pool, &secret, "alice").await;
+    let bob = seed_actor(&pool, &secret, "bob").await;
+    let activity_id = seed_activity(&pool, &alice).await;
+    let notification_id = insert_notification(
+        &pool,
+        alice.user_id,
+        activity_id,
+        "JOIN_APPROVAL_REQUESTED",
+        "ACTIVITY",
+        None,
+    )
+    .await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let uri = format!("/api/notifications/{notification_id}");
+
+    let (status, body) = json_response(&app, request(&bob, "DELETE", uri.clone())).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "NOT_FOUND");
+    let (status, body) = json_response(&app, request(&alice, "DELETE", uri.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["data"]["items"]
+            .as_array()
+            .expect("应返回通知数组")
+            .len(),
+        0
+    );
+    let (status, body) = json_response(&app, request(&alice, "DELETE", uri)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "NOT_FOUND");
+    let activity_count: i64 = sqlx::query_scalar("SELECT count(*) FROM activities WHERE id = $1")
+        .bind(activity_id)
+        .fetch_one(&pool)
+        .await
+        .expect("删除通知不应删除活动");
+    assert_eq!(activity_count, 1);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn notification_bulk_mutations_require_authentication_and_csrf() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([47; 32]);
+    let alice = seed_actor(&pool, &secret, "alice").await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
+    );
+    let mut missing_csrf = request(&alice, "POST", "/api/notifications/read-all".to_owned());
+    missing_csrf.headers_mut().remove("x-csrf-token");
+    let (status, body) = json_response(&app, missing_csrf).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "CSRF_INVALID");
+
+    let mut missing_csrf = request_with_body(
+        &alice,
+        "DELETE",
+        "/api/notifications".to_owned(),
+        serde_json::json!({"filter": "ALL"}),
+    );
+    missing_csrf.headers_mut().remove("x-csrf-token");
+    let (status, body) = json_response(&app, missing_csrf).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "CSRF_INVALID");
+
+    let mut missing_csrf = request(
+        &alice,
+        "DELETE",
+        format!("/api/notifications/{}", Uuid::new_v4()),
+    );
+    missing_csrf.headers_mut().remove("x-csrf-token");
+    let (status, body) = json_response(&app, missing_csrf).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "CSRF_INVALID");
+
+    for (method, uri, body) in [
+        ("POST", "/api/notifications/read-all", None),
+        (
+            "DELETE",
+            "/api/notifications",
+            Some(serde_json::json!({"filter": "ALL"})),
+        ),
+        (
+            "DELETE",
+            "/api/notifications/00000000-0000-0000-0000-000000000000",
+            None,
+        ),
+    ] {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if body.is_some() {
+            builder = builder.header(CONTENT_TYPE, "application/json");
+        }
+        let request = builder
+            .body(body.map_or_else(Body::empty, |value| Body::from(value.to_string())))
+            .expect("未认证通知请求应可构造");
+        let (status, response_body) = json_response(&app, request).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(response_body["error"]["code"], "UNAUTHENTICATED");
+    }
 }

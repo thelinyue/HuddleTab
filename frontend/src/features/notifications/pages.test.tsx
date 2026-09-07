@@ -3,7 +3,10 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  clear: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   decide: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
+  delete: { error: null as unknown, isPending: false, mutateAsync: vi.fn(), variables: undefined as string | undefined },
+  markAllRead: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   markRead: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   notifications: { items: [] as Array<Record<string, unknown>>, unreadCount: 1, timeZone: "Asia/Shanghai" },
 }));
@@ -15,7 +18,10 @@ vi.mock("../auth/api", () => ({
   }),
 }));
 vi.mock("./api", () => ({
+  useClearNotificationsMutation: () => state.clear,
   useDecideNotificationJoinRequestMutation: () => state.decide,
+  useDeleteNotificationMutation: () => state.delete,
+  useMarkAllNotificationsReadMutation: () => state.markAllRead,
   useMarkNotificationReadMutation: () => state.markRead,
   useNotificationsQuery: () => ({
     data: state.notifications,
@@ -43,9 +49,19 @@ function notification(overrides: Partial<Notification> = {}): Notification {
 
 afterEach(() => {
   cleanup();
+  state.clear.error = null;
+  state.clear.isPending = false;
+  state.clear.mutateAsync.mockReset();
   state.markRead.error = null;
   state.markRead.isPending = false;
   state.markRead.mutateAsync.mockReset();
+  state.markAllRead.error = null;
+  state.markAllRead.isPending = false;
+  state.markAllRead.mutateAsync.mockReset();
+  state.delete.error = null;
+  state.delete.isPending = false;
+  state.delete.variables = undefined;
+  state.delete.mutateAsync.mockReset();
   state.decide.error = null;
   state.decide.isPending = false;
   state.decide.mutateAsync.mockReset();
@@ -147,14 +163,63 @@ describe("NotificationsPage", () => {
     expect(screen.getByRole("button", { name: "通过" })).toBeInTheDocument();
   });
 
-  it("全部已读逐条执行，部分失败只报告失败数量", async () => {
+  it("全部已读只调用一次服务端批量接口", async () => {
     state.notifications.items = [notification(), notification({ notificationId: "notification-2" })];
     state.notifications.unreadCount = 2;
-    state.markRead.mutateAsync.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("失败"));
+    state.markAllRead.mutateAsync.mockResolvedValue(undefined);
     render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
 
     fireEvent.click(screen.getByRole("button", { name: /全部已读/ }));
-    await waitFor(() => expect(state.markRead.mutateAsync).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole("alert")).toHaveTextContent("1 条通知未能标记为已读");
+    await waitFor(() => expect(state.markAllRead.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(state.markRead.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("按当前筛选确认清理并发送筛选值", async () => {
+    state.notifications.items = [notification({ kind: "ACTIVITY_STATUS_CHANGED", payload: { activityName: "旅行", status: "ENDED" } })];
+    state.clear.mutateAsync.mockResolvedValue(undefined);
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole("button", { name: "系统" }));
+    fireEvent.click(screen.getByRole("button", { name: /清理当前/ }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("系统");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("当前列表未加载的旧通知");
+    fireEvent.click(screen.getByRole("button", { name: "确认清理" }));
+
+    await waitFor(() => expect(state.clear.mutateAsync).toHaveBeenCalledWith("SYSTEM"));
+  });
+
+  it("取消清理不发送请求，单条删除直接发送通知 ID", async () => {
+    state.delete.mutateAsync.mockResolvedValue(undefined);
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole("button", { name: /清理当前/ }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(state.clear.mutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除通知" }));
+    await waitFor(() => expect(state.delete.mutateAsync).toHaveBeenCalledWith("notification-1"));
+  });
+
+  it("清理失败保留原列表并在确认框显示错误", async () => {
+    state.clear.mutateAsync.mockRejectedValue(new Error("清理失败"));
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole("button", { name: /清理当前/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认清理" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("清理失败");
+    expect(screen.getByTestId("notification-notification-1")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("待审批通知可以无确认直接删除", async () => {
+    state.notifications.items = [notification({ payload: { displayName: "Bob", requestId: "request-1" } })];
+    state.delete.mutateAsync.mockResolvedValue(undefined);
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+
+    expect(screen.getByRole("button", { name: "通过" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "删除通知" }));
+    await waitFor(() => expect(state.delete.mutateAsync).toHaveBeenCalledWith("notification-1"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });

@@ -53,11 +53,8 @@ async function registerAndJoin(browser: Browser, testInfo: TestInfo, token: stri
 async function changeInviteModeToApproval(page: Page): Promise<void> {
   await page.getByRole("link", { name: "活动管理" }).click();
   const management = page.getByRole("dialog", { name: "活动管理" });
-  await management.getByRole("button", { name: "编辑加入方式" }).click();
-  const editor = page.getByRole("dialog", { name: "加入方式" });
-  await editor.getByRole("button", { name: "需要审批" }).click();
-  await editor.getByRole("button", { name: "保存" }).click();
-  await expect(page.getByRole("dialog", { name: "活动管理" })).toBeVisible();
+  await management.getByRole("button", { name: "需要审批" }).click();
+  await expect(management.getByRole("button", { name: "需要审批" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "关闭活动管理" }).click();
 }
 
@@ -78,6 +75,20 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
     await expect(page.getByRole("group", { name: "通知筛选" }).getByRole("button")).toHaveText(["全部", "未读", "邀请", "结算", "系统"]);
     await expect(page.getByRole("link", { name: /通知，\d+ 条未读/ })).toBeVisible();
 
+    await page.getByRole("button", { name: "邀请" }).click();
+    const joinedNotification = page.locator(".notification-row").filter({ hasText: `${member.displayName} 已加入活动` });
+    await expect(joinedNotification).toBeVisible();
+    await page.getByRole("button", { name: "清理当前" }).click();
+    const clearDialog = page.getByRole("alertdialog", { name: "清理邀请通知" });
+    await expect(clearDialog).toContainText("当前列表未加载的旧通知");
+    await expect(clearDialog).toContainText("不会删除活动、账单、结算或加入申请");
+    await clearDialog.getByRole("button", { name: "取消" }).click();
+    await expect(clearDialog).toBeHidden();
+    await expect(joinedNotification).toBeVisible();
+    await joinedNotification.getByRole("button", { name: "删除通知" }).click();
+    await expect(joinedNotification).toBeHidden();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+
     await page.goto(`/activities/${activityId}`);
     await changeInviteModeToApproval(page);
     const approvalToken = await issueLinkInvitation(page);
@@ -96,8 +107,8 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
 
       await page.goto(`/activities/${activityId}?panel=manage`);
       const deleteManagement = page.getByRole("dialog", { name: "活动管理" });
-      await deleteManagement.getByRole("button", { name: "删除活动" }).click();
-      await page.getByRole("dialog", { name: "确认删除活动" }).getByRole("button", { name: "确认删除活动", exact: true }).click();
+      await deleteManagement.getByRole("button", { name: /^删除活动/ }).click();
+      await deleteManagement.getByRole("button", { name: "确认删除活动", exact: true }).click();
       await expect(page).toHaveURL(/\/activities$/);
 
       await applicant.page.goto("/notifications");
@@ -124,12 +135,12 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
 
       await page.goto(`/activities/${activityId}?panel=manage`);
       const management = page.getByRole("dialog", { name: "活动管理" });
-      await management.getByRole("button", { name: "编辑转让所有权" }).click();
-      const ownership = page.getByRole("dialog", { name: "转让所有权" });
-      await ownership.getByLabel("新所有者").selectOption({ label: member.displayName });
-      await expect(ownership).toContainText("你会变为普通成员");
-      await ownership.getByRole("button", { name: "确认转让" }).click();
-      await expect(ownership).toBeHidden();
+      await management.getByRole("button", { name: /^转让所有权/ }).click();
+      const ownership = management.getByRole("radiogroup", { name: "新所有者" });
+      await ownership.getByRole("radio", { name: new RegExp(member.displayName) }).click();
+      await expect(management).toContainText("你会变为普通成员");
+      await management.getByRole("button", { name: "确认转让" }).click();
+      await expect(management).toBeHidden();
 
       await member.page.goto("/notifications");
       await expect(member.page.getByText("你已成为活动所有者")).toBeVisible();

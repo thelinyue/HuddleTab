@@ -721,7 +721,39 @@ export interface paths {
         get: operations["list"];
         put?: never;
         post?: never;
+        delete: operations["clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["mark_all_read"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{notification_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -923,6 +955,9 @@ export interface components {
         ChangePasswordRequest: {
             currentPassword: string;
             newPassword: string;
+        };
+        ClearNotificationsRequest: {
+            filter: components["schemas"]["NotificationFilterData"];
         };
         CreateActivityRequest: {
             baseCurrency: string;
@@ -1251,6 +1286,8 @@ export interface components {
         NotificationEnvelope: {
             data: components["schemas"]["NotificationData"];
         };
+        /** @enum {string} */
+        NotificationFilterData: "ALL" | "UNREAD" | "INVITATION" | "SETTLEMENT" | "SYSTEM";
         /** @enum {string} */
         NotificationKindData: "JOIN_APPROVAL_REQUESTED" | "JOIN_APPROVAL_RESOLVED" | "MEMBER_JOINED" | "PARTICIPATING_EXPENSE_CHANGED" | "PARTICIPATING_EXPENSE_DELETED" | "SETTLEMENT_RECEIVED" | "ACTIVITY_STATUS_CHANGED" | "OWNERSHIP_CHANGED";
         NotificationListData: {
@@ -4243,6 +4280,145 @@ export interface operations {
             };
             /** @description 未登录 */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    clear: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearNotificationsRequest"];
+            };
+        };
+        responses: {
+            /** @description 筛选范围内通知已清理 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationListEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 无效 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    mark_all_read: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 全部通知已读 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationListEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 无效 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 通知 UUID */
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 通知已删除 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationListEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 无效 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 通知不存在 */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

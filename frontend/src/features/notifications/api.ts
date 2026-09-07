@@ -7,6 +7,7 @@ import { queryKeys } from "../../api/query-keys";
 
 export type Notification = components["schemas"]["NotificationData"];
 export type NotificationList = components["schemas"]["NotificationListData"];
+export type NotificationFilter = components["schemas"]["NotificationFilterData"];
 
 async function listNotifications(): Promise<NotificationList> {
   return unwrap(await apiClient.GET("/api/notifications")).data;
@@ -19,6 +20,37 @@ async function markNotificationRead(notificationId: string): Promise<Notificatio
       params: {
         path: { notification_id: notificationId },
         header: { "x-csrf-token": headers["X-CSRF-Token"] },
+      },
+    }),
+  ).data;
+}
+
+async function markAllNotificationsRead(): Promise<NotificationList> {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.POST("/api/notifications/read-all", {
+      params: { header: { "x-csrf-token": headers["X-CSRF-Token"] } },
+    }),
+  ).data;
+}
+
+async function clearNotifications(filter: NotificationFilter): Promise<NotificationList> {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.DELETE("/api/notifications", {
+      body: { filter },
+      params: { header: { "x-csrf-token": headers["X-CSRF-Token"] } },
+    }),
+  ).data;
+}
+
+async function deleteNotification(notificationId: string): Promise<NotificationList> {
+  const headers = await mutationHeaders();
+  return unwrap(
+    await apiClient.DELETE("/api/notifications/{notification_id}", {
+      params: {
+        header: { "x-csrf-token": headers["X-CSRF-Token"] },
+        path: { notification_id: notificationId },
       },
     }),
   ).data;
@@ -57,6 +89,38 @@ export function useMarkNotificationReadMutation(userId: string) {
         },
       );
     },
+  });
+}
+
+function replaceNotificationList(
+  queryClient: ReturnType<typeof useQueryClient>,
+  userId: string,
+  list: NotificationList,
+) {
+  queryClient.setQueryData(queryKeys.notifications(userId), list);
+}
+
+export function useMarkAllNotificationsReadMutation(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: markAllNotificationsRead,
+    onSuccess: (list) => replaceNotificationList(queryClient, userId, list),
+  });
+}
+
+export function useClearNotificationsMutation(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: clearNotifications,
+    onSuccess: (list) => replaceNotificationList(queryClient, userId, list),
+  });
+}
+
+export function useDeleteNotificationMutation(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteNotification,
+    onSuccess: (list) => replaceNotificationList(queryClient, userId, list),
   });
 }
 

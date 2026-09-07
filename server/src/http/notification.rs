@@ -6,14 +6,16 @@ use axum::{
     http::HeaderMap,
 };
 use axum_extra::extract::cookie::CookieJar;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     application::notification::{
-        NotificationError, NotificationView, list_notifications, mark_notification_read,
+        NotificationError, NotificationFilter, NotificationView, clear_notifications,
+        delete_notification, list_notifications, mark_all_notifications_read,
+        mark_notification_read,
     },
     infrastructure::{clock::SystemClock, notification_repository::PostgresNotificationRepository},
 };
@@ -40,6 +42,33 @@ pub struct NotificationListData {
 #[derive(Serialize, ToSchema)]
 pub struct NotificationEnvelope {
     pub data: NotificationData,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ClearNotificationsRequest {
+    pub filter: NotificationFilterData,
+}
+
+#[derive(Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum NotificationFilterData {
+    All,
+    Unread,
+    Invitation,
+    Settlement,
+    System,
+}
+
+impl From<NotificationFilterData> for NotificationFilter {
+    fn from(filter: NotificationFilterData) -> Self {
+        match filter {
+            NotificationFilterData::All => Self::All,
+            NotificationFilterData::Unread => Self::Unread,
+            NotificationFilterData::Invitation => Self::Invitation,
+            NotificationFilterData::Settlement => Self::Settlement,
+            NotificationFilterData::System => Self::System,
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -92,22 +121,100 @@ pub(crate) async fn list(
     jar: CookieJar,
 ) -> Result<Json<NotificationListEnvelope>, ApiError> {
     let actor = authenticate(&state, &jar, request_id.clone()).await?;
+    Ok(Json(
+        load_notification_list(&state, actor.user_id, &request_id).await?,
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/notifications/read-all",
+    params(
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    responses(
+        (status = 200, description = "全部通知已读", body = NotificationListEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 无效", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn mark_all_read(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<NotificationListEnvelope>, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
     let repository = PostgresNotificationRepository::new(state.pool.clone());
-    let list = list_notifications(&repository, actor.user_id)
+    mark_all_notifications_read(&repository, &SystemClock, actor.user_id)
         .await
         .map_err(|error| map_error(error, request_id.clone()))?;
-    let items = list
-        .items
-        .into_iter()
-        .map(|item| notification_data(&item, &request_id))
-        .collect::<Result<Vec<_>, ApiError>>()?;
-    Ok(Json(NotificationListEnvelope {
-        data: NotificationListData {
-            items,
-            unread_count: list.unread_count,
-            time_zone: state.time_zone,
-        },
-    }))
+    Ok(Json(
+        load_notification_list(&state, actor.user_id, &request_id).await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/notifications",
+    request_body = ClearNotificationsRequest,
+    params(
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    responses(
+        (status = 200, description = "筛选范围内通知已清理", body = NotificationListEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 无效", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn clear(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<ClearNotificationsRequest>,
+) -> Result<Json<NotificationListEnvelope>, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    let repository = PostgresNotificationRepository::new(state.pool.clone());
+    clear_notifications(&repository, actor.user_id, request.filter.into())
+        .await
+        .map_err(|error| map_error(error, request_id.clone()))?;
+    Ok(Json(
+        load_notification_list(&state, actor.user_id, &request_id).await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/notifications/{notification_id}",
+    params(
+        ("notification_id" = String, Path, description = "通知 UUID"),
+        ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
+    ),
+    responses(
+        (status = 200, description = "通知已删除", body = NotificationListEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 无效", body = super::error::ErrorEnvelope),
+        (status = 404, description = "通知不存在", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn delete(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(notification_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<NotificationListEnvelope>, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    let notification_id =
+        Uuid::parse_str(&notification_id).map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let repository = PostgresNotificationRepository::new(state.pool.clone());
+    delete_notification(&repository, notification_id, actor.user_id)
+        .await
+        .map_err(|error| map_error(error, request_id.clone()))?;
+    Ok(Json(
+        load_notification_list(&state, actor.user_id, &request_id).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -142,6 +249,29 @@ pub(crate) async fn mark_read(
     Ok(Json(NotificationEnvelope {
         data: notification_data(&notification, &request_id)?,
     }))
+}
+
+async fn load_notification_list(
+    state: &AppState,
+    user_id: Uuid,
+    request_id: &RequestId,
+) -> Result<NotificationListEnvelope, ApiError> {
+    let repository = PostgresNotificationRepository::new(state.pool.clone());
+    let list = list_notifications(&repository, user_id)
+        .await
+        .map_err(|error| map_error(error, request_id.clone()))?;
+    let items = list
+        .items
+        .into_iter()
+        .map(|item| notification_data(&item, request_id))
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    Ok(NotificationListEnvelope {
+        data: NotificationListData {
+            items,
+            unread_count: list.unread_count,
+            time_zone: state.time_zone.clone(),
+        },
+    })
 }
 
 /// payload 只承载通知文案所需的最小字符串字段，页面导航继续使用受控 kind/target 列。

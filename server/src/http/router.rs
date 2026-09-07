@@ -262,7 +262,17 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         )
         .route(
             "/notifications",
-            get(notification::list).fallback(api_method_not_allowed),
+            get(notification::list)
+                .delete(notification::clear)
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/notifications/read-all",
+            axum::routing::post(notification::mark_all_read).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/notifications/{notification_id}",
+            axum::routing::delete(notification::delete).fallback(api_method_not_allowed),
         )
         .route(
             "/notifications/{notification_id}/read",

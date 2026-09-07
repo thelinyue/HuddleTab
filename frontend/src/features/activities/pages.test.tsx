@@ -864,22 +864,21 @@ describe("创建活动 Overlay", () => {
 });
 
 describe("活动管理 Overlay", () => {
-  it("按字段权限把资料行渲染为独立编辑入口，不展示权限清单或统一编辑按钮", () => {
+  it("直接渲染可编辑资料，不展示编辑按钮或字段二级视图", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
 
-    expect(screen.getByText("杭州")).toBeInTheDocument();
-    expect(screen.getByText("2026-09-01")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveValue("测试活动");
+    expect(screen.getByRole("textbox", { name: "地点" })).toHaveValue("杭州");
+    expect(screen.getByLabelText("开始日期")).toHaveValue("2026-09-01");
+    expect(screen.getByLabelText("结束日期")).toHaveValue("");
     expect(screen.getByText(/已有账务记录/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /CNY 人民币/ })).not.toBeInTheDocument();
     expect(screen.queryByText("字段权限")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑活动资料" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑活动名称" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑地点" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "编辑主币种" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑开始日期" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑结束日期" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑加入方式" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "结束活动" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "删除活动" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^编辑/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^需要审批$/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /^结束活动/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^删除活动/ })).toBeInTheDocument();
   });
 
   it("非 Owner 且服务端未授权时不显示任何管理命令", () => {
@@ -889,38 +888,49 @@ describe("活动管理 Overlay", () => {
     activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: false, inviteMode: false, location: false, name: false, startDate: false };
     renderWorkspace("/activities/activity-1?panel=manage");
 
-    expect(screen.queryByRole("button", { name: /^编辑/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "活动名称" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "地点" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "结束活动" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "删除活动" })).not.toBeInTheDocument();
   });
 
-  it("点击资料行只编辑对应字段，失败时携带版本并保留草稿和错误", async () => {
+  it("资料保存期间锁定其他管理控件", () => {
+    activityApiState.update.isPending = true;
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    expect(screen.getByRole("textbox", { name: "活动名称" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "地点" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "直接加入" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^结束活动/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^删除活动/ })).toBeDisabled();
+  });
+
+  it("已有账务时即使权限矩阵异常也保持币种只读", () => {
+    activityApiState.activity.fieldPermissions.baseCurrency = true;
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    expect(screen.queryByRole("button", { name: /CNY 人民币/ })).not.toBeInTheDocument();
+    expect(screen.getByText("已有账务记录，不可修改")).toBeInTheDocument();
+  });
+
+  it("文本字段失焦后只提交对应字段，失败时携带版本并保留草稿和错误", async () => {
     activityApiState.update.mutateAsync.mockRejectedValue(new Error("资料保存失败"));
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "编辑地点" }));
-
-    expect(screen.getByRole("button", { name: "返回活动管理" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "地点" })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "活动名称" })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: "地点（可选）" }), { target: { value: "苏州" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    const location = screen.getByRole("textbox", { name: "地点" });
+    fireEvent.change(location, { target: { value: "苏州" } });
+    fireEvent.blur(location);
 
     await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
       location: "苏州",
       version: "7",
     }));
     expect(await screen.findByRole("alert")).toHaveTextContent("资料保存失败");
-    expect(screen.getByRole("textbox", { name: "地点（可选）" })).toHaveValue("苏州");
+    expect(screen.getByRole("textbox", { name: "地点" })).toHaveValue("苏州");
   });
 
-  it("加入方式在独立子视图显式保存，不在选择时立即提交", async () => {
+  it("加入方式在主 Sheet 内选择后立即提交", async () => {
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "编辑加入方式" }));
-
-    expect(screen.getByRole("button", { name: "直接加入" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "需要审批" }));
-    expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
       inviteMode: "REQUIRE_APPROVAL",
@@ -928,67 +938,127 @@ describe("活动管理 Overlay", () => {
     }));
   });
 
-  it("单字段保存后返回管理根视图并展示 generated warning", async () => {
+  it("主币种在当前 Sheet 原地展开并按选项立即保存", async () => {
+    activityApiState.activity.hasAccountingRecords = false;
+    activityApiState.activity.fieldPermissions.baseCurrency = true;
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    const trigger = screen.getByRole("button", { name: "CNY 人民币" });
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const options = screen.getByRole("radiogroup", { name: "主币种选项" });
+    expect(within(options).getByRole("radio", { name: /CNY.*人民币/ })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(options).getByRole("radio", { name: /USD.*美元/ }));
+
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
+      baseCurrency: "USD",
+      version: "7",
+    }));
+    expect(screen.queryByRole("radiogroup", { name: "主币种选项" })).not.toBeInTheDocument();
+  });
+
+  it("重复选择当前币种只收起选项，不发起请求", () => {
+    activityApiState.activity.hasAccountingRecords = false;
+    activityApiState.activity.fieldPermissions.baseCurrency = true;
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    fireEvent.click(screen.getByRole("button", { name: "CNY 人民币" }));
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "主币种选项" })).getByRole("radio", { name: /CNY.*人民币/ }));
+
+    expect(screen.queryByRole("radiogroup", { name: "主币种选项" })).not.toBeInTheDocument();
+    expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("日期选择后直接保存并展示 generated warning，管理页保持原地", async () => {
     activityApiState.update.mutateAsync.mockResolvedValue({
       data: activityApiState.activity,
       warnings: ["EXPENSE_BEFORE_ACTIVITY_START"],
     });
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "编辑开始日期" }));
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2026-09-02" } });
 
     expect(await screen.findByText("活动开始日期晚于已有账单的发生时间，请检查日期或历史账单。"))
       .toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "编辑开始日期" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "关闭活动管理" })).toHaveFocus();
+    expect(screen.getByLabelText("开始日期")).toHaveValue("2026-09-02");
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
   });
 
-  it("切换管理子视图后关闭仍将焦点还给页头触发器", async () => {
+  it("关闭单层管理 Sheet 后仍将焦点还给页头触发器", async () => {
     renderWorkspace("/activities/activity-1");
     const trigger = screen.getByRole("link", { name: "活动管理" });
     trigger.focus();
     fireEvent.click(trigger);
-    fireEvent.click(await screen.findByRole("button", { name: "编辑活动名称" }));
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveFocus());
-    fireEvent.click(screen.getByRole("button", { name: "返回活动管理" }));
     fireEvent.click(screen.getByRole("button", { name: "关闭活动管理" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "活动管理" })).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
   });
 
+  it("资料保存期间请求关闭会等待保存完成", async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    activityApiState.update.mutateAsync.mockImplementation(() => new Promise<unknown>((resolve) => { resolveUpdate = resolve; }));
+    renderWorkspace("/activities/activity-1?panel=manage");
+    const location = screen.getByRole("textbox", { name: "地点" });
+    fireEvent.change(location, { target: { value: "苏州" } });
+    fireEvent.blur(location);
+
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "关闭活动管理" }));
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+    expect(screen.getByText("正在保存，保存完成后关闭活动管理。")).toBeInTheDocument();
+
+    resolveUpdate({ data: { ...activityApiState.activity, version: "8" }, warnings: [] });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "活动管理" })).not.toBeInTheDocument());
+  });
+
   it("生命周期命令始终携带当前版本", async () => {
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "结束活动" }));
+    fireEvent.click(screen.getByRole("button", { name: /^结束活动/ }));
     await waitFor(() => expect(activityApiState.lifecycle.mutateAsync).toHaveBeenCalledWith({ action: "END", version: "7" }));
   });
 
-  it("所有权转让只列出 ACTIVE 账号成员，失败时保留选择和 Overlay", async () => {
+  it("所有权转让在当前 Sheet 展开，只列出 ACTIVE 账号成员并保留失败选择", async () => {
     activityApiState.members[1] = { ...activityApiState.members[1], displayName: "Bob", userId: "user-2" };
     activityApiState.transfer.mutateAsync.mockRejectedValue(new Error("活动版本已变化"));
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "编辑转让所有权" }));
+    fireEvent.click(screen.getByRole("button", { name: /^转让所有权/ }));
 
     expect(screen.getByText("转让后，新成员将成为活动所有者，你会变为普通成员。")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "新所有者" }), { target: { value: "guest-1" } });
+    const candidates = screen.getByRole("radiogroup", { name: "新所有者" });
+    expect(within(candidates).getByRole("radio", { name: /Bob/ })).toBeInTheDocument();
+    expect(within(candidates).queryByRole("radio", { name: /临时成员/ })).not.toBeInTheDocument();
+    fireEvent.click(within(candidates).getByRole("radio", { name: /Bob/ }));
     fireEvent.click(screen.getByRole("button", { name: "确认转让" }));
 
     await waitFor(() => expect(activityApiState.transfer.mutateAsync).toHaveBeenCalledWith({ newOwnerMemberId: "guest-1", version: "7" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("活动版本已变化");
-    expect(screen.getByRole("combobox", { name: "新所有者" })).toHaveValue("guest-1");
-    expect(screen.getByRole("dialog", { name: "转让所有权" })).toBeInTheDocument();
+    expect(within(screen.getByRole("radiogroup", { name: "新所有者" })).getByRole("radio", { name: /Bob/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
   });
 
-  it("删除必须在 Overlay 内二次确认，成功后返回活动列表", async () => {
+  it("删除在当前 Sheet 原地展开并二次确认，成功后返回活动列表", async () => {
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "删除活动" }));
+    fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
     expect(activityApiState.remove.mutateAsync).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "确认删除活动" })).toBeInTheDocument();
+    expect(screen.getByText("删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "确认删除活动" })).toHaveFocus());
 
     fireEvent.click(screen.getByRole("button", { name: "确认删除活动" }));
     await waitFor(() => expect(activityApiState.remove.mutateAsync).toHaveBeenCalledWith("7"));
     expect(await screen.findByText("活动列表页")).toBeInTheDocument();
+  });
+
+  it("删除使用资料保存后得到的最新版本", async () => {
+    activityApiState.update.mutateAsync.mockResolvedValue({ data: { ...activityApiState.activity, version: "8" }, warnings: [] });
+    renderWorkspace("/activities/activity-1?panel=manage");
+    const location = screen.getByRole("textbox", { name: "地点" });
+    fireEvent.change(location, { target: { value: "苏州" } });
+    fireEvent.blur(location);
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ location: "苏州", version: "7" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除活动" }));
+    await waitFor(() => expect(activityApiState.remove.mutateAsync).toHaveBeenCalledWith("8"));
   });
 
   it("主导航始终严格保持流水和结算两项", () => {

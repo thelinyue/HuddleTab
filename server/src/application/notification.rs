@@ -27,6 +27,29 @@ pub struct NotificationList {
     pub unread_count: usize,
 }
 
+/// 通知页允许的筛选范围；批量清理使用同一枚举，避免前后端各自解释字符串。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NotificationFilter {
+    All,
+    Unread,
+    Invitation,
+    Settlement,
+    System,
+}
+
+impl NotificationFilter {
+    #[must_use]
+    pub const fn as_database_value(self) -> &'static str {
+        match self {
+            Self::All => "ALL",
+            Self::Unread => "UNREAD",
+            Self::Invitation => "INVITATION",
+            Self::Settlement => "SETTLEMENT",
+            Self::System => "SYSTEM",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum NotificationRepositoryError {
     #[error("通知不存在")]
@@ -48,6 +71,24 @@ pub trait NotificationRepository: Send + Sync {
         recipient_user_id: Uuid,
         now: OffsetDateTime,
     ) -> Result<NotificationView, NotificationRepositoryError>;
+
+    async fn mark_all_read(
+        &self,
+        recipient_user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<(), NotificationRepositoryError>;
+
+    async fn clear(
+        &self,
+        recipient_user_id: Uuid,
+        filter: NotificationFilter,
+    ) -> Result<(), NotificationRepositoryError>;
+
+    async fn delete(
+        &self,
+        notification_id: Uuid,
+        recipient_user_id: Uuid,
+    ) -> Result<(), NotificationRepositoryError>;
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -92,6 +133,42 @@ pub async fn mark_notification_read(
 ) -> Result<NotificationView, NotificationError> {
     repository
         .mark_read(notification_id, recipient_user_id, clock.now())
+        .await
+        .map_err(map_repository_error)
+}
+
+/// 一次标记当前用户的全部未读通知，服务端不受列表展示上限影响。
+pub async fn mark_all_notifications_read(
+    repository: &dyn NotificationRepository,
+    clock: &dyn Clock,
+    recipient_user_id: Uuid,
+) -> Result<(), NotificationError> {
+    repository
+        .mark_all_read(recipient_user_id, clock.now())
+        .await
+        .map_err(map_repository_error)
+}
+
+/// 永久删除当前用户筛选范围内的通知；筛选为空时由 HTTP 层拒绝，不会误删全部记录。
+pub async fn clear_notifications(
+    repository: &dyn NotificationRepository,
+    recipient_user_id: Uuid,
+    filter: NotificationFilter,
+) -> Result<(), NotificationError> {
+    repository
+        .clear(recipient_user_id, filter)
+        .await
+        .map_err(map_repository_error)
+}
+
+/// 永久删除当前用户的一条通知，不触碰通知指向的业务实体。
+pub async fn delete_notification(
+    repository: &dyn NotificationRepository,
+    notification_id: Uuid,
+    recipient_user_id: Uuid,
+) -> Result<(), NotificationError> {
+    repository
+        .delete(notification_id, recipient_user_id)
         .await
         .map_err(map_repository_error)
 }

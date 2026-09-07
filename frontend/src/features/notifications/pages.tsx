@@ -1,15 +1,27 @@
 import { Bell, BellRing, Check, CheckCheck, CircleDollarSign, Crown, Info, MailPlus, ReceiptText, Trash2, UserRoundPlus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
-import { Button, EmptyState, ErrorNotice, LoadingState } from "../../components/ui";
+import { toast } from "sonner";
+import { Button, ConfirmDialog, EmptyState, ErrorNotice, LoadingState } from "../../components/ui";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { formatMoney } from "../../domain-preview/money";
+import { errorMessage } from "../../api/error";
 import { useSessionQuery } from "../auth/api";
-import { type Notification, useDecideNotificationJoinRequestMutation, useMarkNotificationReadMutation, useNotificationsQuery } from "./api";
+import {
+  type Notification,
+  type NotificationFilter,
+  useClearNotificationsMutation,
+  useDecideNotificationJoinRequestMutation,
+  useDeleteNotificationMutation,
+  useMarkAllNotificationsReadMutation,
+  useMarkNotificationReadMutation,
+  useNotificationsQuery,
+} from "./api";
 
-type Filter = "ALL" | "UNREAD" | "INVITATION" | "SETTLEMENT" | "SYSTEM";
+type Filter = NotificationFilter;
 type Group = "UNREAD" | "TODAY" | "YESTERDAY" | "OLDER";
 const filters: Array<[Filter, string]> = [["ALL", "全部"], ["UNREAD", "未读"], ["INVITATION", "邀请"], ["SETTLEMENT", "结算"], ["SYSTEM", "系统"]];
+const filterLabels: Record<Filter, string> = Object.fromEntries(filters) as Record<Filter, string>;
 const groupLabels: Record<Group, string> = { UNREAD: "未读", TODAY: "今天", YESTERDAY: "昨天", OLDER: "更早" };
 
 function notificationTitle(notification: Notification): string {
@@ -95,22 +107,43 @@ export function NotificationsPage() {
   const userId = session.data?.userId ?? "";
   const notifications = useNotificationsQuery(userId);
   const markRead = useMarkNotificationReadMutation(userId);
+  const markAllRead = useMarkAllNotificationsReadMutation(userId);
+  const clearNotifications = useClearNotificationsMutation(userId);
+  const deleteNotification = useDeleteNotificationMutation(userId);
   const decide = useDecideNotificationJoinRequestMutation(userId);
   const [filter, setFilter] = useState<Filter>("ALL");
+  const [clearOpen, setClearOpen] = useState(false);
   const [operationError, setOperationError] = useState<unknown>();
+  const operationBusy = markRead.isPending || markAllRead.isPending || clearNotifications.isPending || deleteNotification.isPending || decide.isPending;
 
   async function read(notificationId: string) {
     setOperationError(undefined);
     try { await markRead.mutateAsync(notificationId); } catch (reason) { setOperationError(reason); }
   }
 
-  async function readAll(items: Notification[]) {
+  async function readAll() {
     setOperationError(undefined);
-    let failed = 0;
-    for (const item of items.filter((notification) => notification.readAt === null)) {
-      try { await markRead.mutateAsync(item.notificationId); } catch { failed += 1; }
-    }
-    if (failed) setOperationError(new Error(`${failed} 条通知未能标记为已读，请重试。`));
+    try {
+      await markAllRead.mutateAsync();
+      toast.success("全部通知已标记为已读");
+    } catch (reason) { setOperationError(reason); }
+  }
+
+  async function clearCurrent() {
+    setOperationError(undefined);
+    try {
+      await clearNotifications.mutateAsync(filter);
+      setClearOpen(false);
+      toast.success(`已清理“${filterLabels[filter]}”通知`);
+    } catch (reason) { setOperationError(reason); }
+  }
+
+  async function deleteOne(notificationId: string) {
+    setOperationError(undefined);
+    try {
+      await deleteNotification.mutateAsync(notificationId);
+      toast.success("通知已删除");
+    } catch (reason) { setOperationError(reason); }
   }
 
   async function decideRequest(notification: Notification, decision: "APPROVE" | "REJECT") {
@@ -129,9 +162,9 @@ export function NotificationsPage() {
 
   return <div className="top-level-page">
     <main className="app-frame app-frame--with-nav">
-      <header className="home-header"><div><h1>通知</h1>{notifications.data?.unreadCount ? <span className="notification-count">{notifications.data.unreadCount} 条未读</span> : null}</div>{notifications.data?.unreadCount ? <Button variant="ghost" busy={markRead.isPending} onClick={() => void readAll(allItems)}><CheckCheck aria-hidden="true" size={17} />全部已读</Button> : null}</header>
+      <header className="home-header notification-header"><div><h1>通知</h1>{notifications.data?.unreadCount ? <span className="notification-count">{notifications.data.unreadCount} 条未读</span> : null}</div><div className="notification-header__actions">{notifications.data?.unreadCount ? <Button variant="ghost" busy={markAllRead.isPending} disabled={operationBusy && !markAllRead.isPending} onClick={() => void readAll()}><CheckCheck aria-hidden="true" size={17} />全部已读</Button> : null}{items.length ? <Button variant="danger" busy={clearNotifications.isPending} disabled={operationBusy && !clearNotifications.isPending} onClick={() => { setOperationError(undefined); setClearOpen(true); }}><Trash2 aria-hidden="true" size={17} />清理当前</Button> : null}</div></header>
       <div className="notification-filters" role="group" aria-label="通知筛选">{filters.map(([value, label]) => <button type="button" aria-pressed={filter === value} key={value} onClick={() => setFilter(value)}>{label}</button>)}</div>
-      {operationError ? <ErrorNotice error={operationError} /> : null}
+      {operationError && !clearOpen ? <ErrorNotice error={operationError} /> : null}
       {!items.length ? <EmptyState icon={<Bell size={28} />} title="暂无通知" description={filter === "ALL" ? "活动变化与结算消息会显示在这里。" : "当前筛选下没有通知。"} /> : groups.map(({ group, items: groupItems }) => <section className="notification-group" aria-labelledby={`notification-group-${group}`} key={group}>
         <h2 id={`notification-group-${group}`}>{groupLabels[group]}</h2>
         <div className="notification-list">{groupItems.map((notification) => {
@@ -141,11 +174,12 @@ export function NotificationsPage() {
           const actionable = notification.kind === "JOIN_APPROVAL_REQUESTED" && !notification.activityDeleted && notification.readAt === null && !notification.payload.status && notification.payload.requestId;
           return <article className="notification-row" data-testid={`notification-${notification.notificationId}`} data-kind={notification.kind} data-activity-deleted={notification.activityDeleted} data-unread={notification.readAt === null} key={notification.notificationId}>
             {destination ? <Link className="notification-row__link" to={destination}>{content}</Link> : <div className="notification-row__link">{content}</div>}
-            <div className="notification-row__actions">{actionable ? <><Button variant="ghost" busy={decide.isPending} onClick={() => void decideRequest(notification, "REJECT")}>拒绝</Button><Button busy={decide.isPending} onClick={() => void decideRequest(notification, "APPROVE")}>通过</Button></> : null}{notification.readAt === null && !actionable ? <Button className="notification-read-button" variant="ghost" busy={markRead.isPending} aria-label="标记通知为已读" title="标记通知为已读" onClick={() => void read(notification.notificationId)}><Check aria-hidden="true" size={18} /></Button> : null}</div>
+            <div className="notification-row__actions">{actionable ? <><Button variant="ghost" busy={decide.isPending} disabled={operationBusy && !decide.isPending} onClick={() => void decideRequest(notification, "REJECT")}>拒绝</Button><Button busy={decide.isPending} disabled={operationBusy && !decide.isPending} onClick={() => void decideRequest(notification, "APPROVE")}>通过</Button></> : null}{notification.readAt === null && !actionable ? <Button className="notification-read-button" variant="ghost" busy={markRead.isPending && markRead.variables === notification.notificationId} disabled={operationBusy && !(markRead.isPending && markRead.variables === notification.notificationId)} aria-label="标记通知为已读" title="标记通知为已读" onClick={() => void read(notification.notificationId)}><Check aria-hidden="true" size={18} /></Button> : null}<Button className="notification-delete-button" variant="ghost" busy={deleteNotification.isPending && deleteNotification.variables === notification.notificationId} disabled={operationBusy && !(deleteNotification.isPending && deleteNotification.variables === notification.notificationId)} aria-label="删除通知" title="删除通知" onClick={() => void deleteOne(notification.notificationId)}><Trash2 aria-hidden="true" size={18} /></Button></div>
           </article>;
         })}</div>
       </section>)}
     </main>
     <ProductBottomNavigation />
+    <ConfirmDialog open={clearOpen} title={`清理${filterLabels[filter]}通知`} message={`将永久删除当前账号中全部符合“${filterLabels[filter]}”筛选的通知，包括当前列表未加载的旧通知。不会删除活动、账单、结算或加入申请，此操作无法恢复。`} error={clearOpen && operationError ? <span role="alert">{errorMessage(operationError)}</span> : undefined} confirmLabel="确认清理" busy={clearNotifications.isPending} onConfirm={() => void clearCurrent()} onCancel={() => { if (!clearNotifications.isPending) setClearOpen(false); }} />
   </div>;
 }
