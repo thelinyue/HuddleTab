@@ -151,10 +151,17 @@ export function NotificationsPage() {
     const requestId = notification.payload.requestId;
     if (!requestId) return;
     setOperationError(undefined);
+    setResolvedRequestIds((current) => new Set(current).add(requestId));
     try {
       await decide.mutateAsync({ activityId: notification.activityId, requestId, decision });
-      setResolvedRequestIds((current) => new Set(current).add(requestId));
-    } catch (reason) { setOperationError(reason); }
+    } catch (reason) {
+      setResolvedRequestIds((current) => {
+        const next = new Set(current);
+        next.delete(requestId);
+        return next;
+      });
+      setOperationError(reason);
+    }
   }
 
   if (session.isPending || notifications.isPending) return <LoadingState label="正在读取通知…" />;
