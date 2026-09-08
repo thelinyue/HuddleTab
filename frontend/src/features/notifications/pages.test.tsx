@@ -174,6 +174,13 @@ describe("NotificationsPage", () => {
     expect(state.markRead.mutateAsync).not.toHaveBeenCalled();
   });
 
+  it("已读的待审批通知仍保留审批操作", () => {
+    state.notifications.items = [notification({ readAt: "2026-09-08T00:00:00Z", payload: { displayName: "Bob", requestId: "request-1" } })];
+    render(<NotificationsPage />);
+    expect(screen.getByRole("button", { name: "通过" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument();
+  });
+
   it("按当前筛选确认清理并发送筛选值", async () => {
     state.notifications.items = [notification({ kind: "ACTIVITY_STATUS_CHANGED", payload: { activityName: "旅行", status: "ENDED" } })];
     state.clear.mutateAsync.mockResolvedValue(undefined);
