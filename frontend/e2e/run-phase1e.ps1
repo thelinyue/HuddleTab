@@ -221,7 +221,7 @@ try {
   } elseif ($IPhoneSimulationOnly) {
     "iPhone WebKit UI 与 Chromium Mobile PWA 模拟矩阵"
   } elseif ($UiParityOnly) {
-    "v0.0.2 UI 对照 Chromium Desktop/Mobile 矩阵"
+    "当前远程版本 UI 回归 Chromium Desktop/Mobile 矩阵"
   } elseif ($Task29Only) {
     "Task 29 Chromium Desktop/Mobile 管理矩阵"
   } elseif ($Task30Only) {

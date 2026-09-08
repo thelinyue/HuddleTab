@@ -134,7 +134,8 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
       await expect(deletedNotification).toBeVisible();
       await expect(deletedNotification.locator("a")).toHaveCount(0);
       await expect(deletedNotification).toContainText("活动已删除，无法打开");
-      await expect(deletedNotification.getByRole("button", { name: "标记通知为已读" })).toBeVisible();
+      await expect(deletedNotification).toHaveAttribute("data-unread", "true");
+      await expect(deletedNotification.locator(".notification-row__swipe-action--read")).toHaveCount(1);
 
       await page.getByRole("button", { name: "已删除活动" }).click();
       const deletedActivities = page.getByRole("dialog", { name: "已删除活动" });

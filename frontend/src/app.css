@@ -319,9 +319,9 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .empty-state--illustrated { gap: 0; padding-inline: 0; }
 .empty-state--illustrated p { margin-top: 4px; }
 .activity-empty-illustration { display: block; width: min(100%, 320px); height: auto; margin: 0 auto 20px; object-fit: contain; }
-.empty-state--illustrated .empty-state__actions { margin-top: 16px; gap: 4px; }
-.empty-state--illustrated .activity-empty-create { width: 100%; min-height: 48px; }
-.activity-empty-join { width: 100%; min-height: 44px; color: var(--primary); }
+.empty-state--illustrated .empty-state__actions { justify-self: center; width: min(100%, 288px); margin-top: 16px; gap: 8px; }
+.empty-state--illustrated .activity-empty-create, .empty-state--illustrated .activity-empty-join { width: 100%; min-height: 48px; }
+.activity-empty-join { color: var(--primary); }
 .activity-empty-join:hover { color: var(--primary); }
 .page-state { display: flex; min-height: 240px; align-items: center; justify-content: center; gap: 10px; color: var(--muted-foreground); }
 .pwa-launch-screen { position: fixed; inset: 0; z-index: 130; display: grid; min-width: 320px; min-height: 100dvh; place-items: center; padding: max(24px, var(--safe-area-top)) max(24px, var(--safe-area-right)) max(24px, var(--safe-area-bottom)) max(24px, var(--safe-area-left)); color: var(--foreground); background: var(--background); pointer-events: none; }
@@ -1305,14 +1305,14 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   user-select: none;
 }
 
-/* 玻璃只承载独立模式的悬浮导航、粘性工作台页头和更新提示。 */
-.pwa-standalone .app-frame--with-nav { padding-bottom: calc(92px + var(--safe-area-bottom)); }
-.pwa-standalone .product-bottom-nav {
+/* 底部导航在浏览器与独立 PWA 中都保持悬浮胶囊，粘性工作台页头和更新提示仍只在独立模式使用玻璃。 */
+.app-frame--with-nav { padding-bottom: calc(92px + var(--safe-area-bottom)); }
+.product-bottom-nav {
   right: max(12px, var(--safe-area-right));
   bottom: calc(8px + var(--safe-area-bottom));
   left: max(12px, var(--safe-area-left));
   width: auto;
-  max-width: 320px;
+  max-width: 280px;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 999px;
   padding: 4px;
@@ -1329,8 +1329,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 }
 .pwa-standalone .workspace-header { box-shadow: 0 8px 20px rgb(13 21 18 / 6%); }
 .pwa-standalone .update-prompt { border-color: color-mix(in srgb, var(--border) 72%, transparent); }
-.pwa-standalone .product-bottom-nav ul { gap: 2px; }
-.pwa-standalone .product-bottom-nav a {
+.product-bottom-nav ul { gap: 2px; }
+.product-bottom-nav a {
   min-height: 52px;
   border-bottom: 0;
   border-radius: 999px;
@@ -1338,15 +1338,15 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   touch-action: manipulation;
   transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 90ms ease-out;
 }
-.pwa-standalone .product-bottom-nav a.active {
+.product-bottom-nav a.active {
   border-bottom-color: transparent;
   background: color-mix(in srgb, var(--primary) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent), inset 0 1px 0 rgb(255 255 255 / 28%);
 }
-.pwa-standalone .product-bottom-nav a:active { transform: scale(.97); }
-.pwa-standalone .product-bottom-nav__badge { border-color: color-mix(in srgb, var(--surface) 80%, transparent); }
+.product-bottom-nav a:active { transform: scale(.97); }
+.product-bottom-nav__badge { border-color: color-mix(in srgb, var(--surface) 80%, transparent); }
 
-html.dark.pwa-standalone .product-bottom-nav,
+html.dark .product-bottom-nav,
 html.dark.pwa-standalone .workspace-header,
 html.dark.pwa-standalone .update-prompt {
   background: var(--surface);
@@ -1356,19 +1356,19 @@ html.dark.pwa-standalone .update-prompt {
 
 /* 辅助功能偏好优先于玻璃效果，仍保留清晰的当前位置反馈。 */
 @media (prefers-reduced-motion: reduce) {
-  .pwa-standalone .product-bottom-nav a { transition: none; }
-  .pwa-standalone .product-bottom-nav a:active { transform: none; }
+  .product-bottom-nav a { transition: none; }
+  .product-bottom-nav a:active { transform: none; }
   .pwa-launch-screen__content, .pwa-launch-screen__icon, .pwa-launch-screen__status { transform: none !important; }
   .pwa-launch-screen .spinner { animation: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .pwa-standalone .product-bottom-nav { background: var(--surface); box-shadow: 0 8px 24px rgb(13 21 18 / 16%); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .product-bottom-nav { background: var(--surface); box-shadow: 0 8px 24px rgb(13 21 18 / 16%); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .pwa-standalone .workspace-header, .pwa-standalone .update-prompt { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .pwa-standalone .product-bottom-nav a.active { background: var(--secondary); box-shadow: none; }
+  .product-bottom-nav a.active { background: var(--secondary); box-shadow: none; }
 }
 @media (prefers-contrast: more) {
-  .pwa-standalone .product-bottom-nav, .pwa-standalone .workspace-header, .pwa-standalone .update-prompt { border-color: var(--foreground); background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .pwa-standalone .product-bottom-nav a.active { box-shadow: inset 0 0 0 1px var(--primary); }
+  .product-bottom-nav, .pwa-standalone .workspace-header, .pwa-standalone .update-prompt { border-color: var(--foreground); background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .product-bottom-nav a.active { box-shadow: inset 0 0 0 1px var(--primary); }
 }
 
 /* 首页活动入口的移动 Sheet：标题栏负责手势，正文独立滚动，避免短内容像桌面小弹窗。 */
@@ -1467,10 +1467,6 @@ body:has(.activities-page) .update-prompt { bottom: calc(164px + var(--safe-area
   .activity-notification-overlay .form-overlay__body { padding: 18px 16px calc(18px + var(--safe-area-bottom)); }
   .notification-summary__list { margin: -18px -16px 0; }
   .notification-row__menu-trigger { top: 18px; }
-  .activities-page .empty-state--illustrated .empty-state__actions {
-    justify-self: start;
-    width: min(100%, calc(100% - 72px));
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

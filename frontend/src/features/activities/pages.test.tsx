@@ -703,7 +703,7 @@ describe("成员 Overlay", () => {
 });
 
 describe("活动列表空状态", () => {
-  it("还原 v0.0.2 的场景插画和主次操作层级", () => {
+  it("空状态插画下保持创建和加入入口的主次操作层级", () => {
     const { container } = renderActivitiesPage();
 
     const illustration = container.querySelector<HTMLImageElement>(

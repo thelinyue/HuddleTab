@@ -24,6 +24,40 @@ test("活动首页、工作台和记账入口保持远程基线信息路径", as
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link")).toHaveText(["活动", "我的"]);
 
+  if (await page.locator(".activities-page .empty-state--illustrated").isVisible().catch(() => false)) {
+    const emptyStateGeometry = await page.evaluate(() => {
+      const geometry = (selector: string) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (!element) return null;
+        const { left, width, height } = element.getBoundingClientRect();
+        return { left, width, height };
+      };
+      return {
+        actions: geometry(".activities-page .empty-state__actions"),
+        create: geometry(".activities-page .activity-empty-create"),
+        join: geometry(".activities-page .activity-empty-join"),
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(emptyStateGeometry.actions).not.toBeNull();
+    expect(emptyStateGeometry.create).not.toBeNull();
+    expect(emptyStateGeometry.join).not.toBeNull();
+    expect(Math.abs((emptyStateGeometry.actions?.left ?? 0) + (emptyStateGeometry.actions?.width ?? 0) / 2 - emptyStateGeometry.viewportWidth / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs((emptyStateGeometry.create?.left ?? 0) - (emptyStateGeometry.join?.left ?? 0))).toBeLessThanOrEqual(1);
+    expect(Math.abs((emptyStateGeometry.create?.width ?? 0) - (emptyStateGeometry.join?.width ?? 0))).toBeLessThanOrEqual(1);
+    expect(emptyStateGeometry.create?.height).toBeGreaterThanOrEqual(48);
+    expect(emptyStateGeometry.join?.height).toBeGreaterThanOrEqual(48);
+  }
+
+  const navigationGeometry = await page.evaluate(() => {
+    const element = document.querySelector<HTMLElement>(".activities-page .product-bottom-nav");
+    if (!element) return null;
+    const { width } = element.getBoundingClientRect();
+    return { width };
+  });
+  expect(navigationGeometry).not.toBeNull();
+  expect(navigationGeometry?.width).toBeLessThanOrEqual(280);
+
   const actionButton = page.getByRole("button", { name: "新建或加入活动" });
   await actionButton.click();
   const actionDialog = page.getByRole("dialog", { name: "新建或加入活动" });
@@ -171,8 +205,8 @@ test("通知与我的页覆盖主题、昵称和退出流程", async ({ page }, 
     (element) => getComputedStyle(element).backgroundColor,
   )).not.toBe(lightNavigationBackground);
   await expect.poll(() => productNavigation.evaluate(
-    (element) => Math.round(element.getBoundingClientRect().bottom),
-  )).toBe(await page.evaluate(() => window.innerHeight));
+    (element) => Math.round(window.innerHeight - element.getBoundingClientRect().bottom),
+  )).toBe(8);
   await themeSheet.getByRole("button", { name: "关闭主题" }).click();
 
   const displayName = `昵称-${testInfo.project.name}-${Date.now()}`;
