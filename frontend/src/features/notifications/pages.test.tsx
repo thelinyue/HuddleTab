@@ -181,6 +181,12 @@ describe("NotificationsPage", () => {
     expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument();
   });
 
+  it("状态为待处理的审批通知保留审批操作", () => {
+    state.notifications.items = [notification({ payload: { displayName: "Bob", requestId: "request-1", status: "PENDING" } })];
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(screen.getByRole("button", { name: "通过" })).toBeInTheDocument();
+  });
+
   it("按当前筛选确认清理并发送筛选值", async () => {
     state.notifications.items = [notification({ kind: "ACTIVITY_STATUS_CHANGED", payload: { activityName: "旅行", status: "ENDED" } })];
     state.clear.mutateAsync.mockResolvedValue(undefined);
