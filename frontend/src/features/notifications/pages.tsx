@@ -114,6 +114,7 @@ export function NotificationsPage() {
   const [filter, setFilter] = useState<Filter>("ALL");
   const [clearOpen, setClearOpen] = useState(false);
   const [operationError, setOperationError] = useState<unknown>();
+  const [resolvedRequestIds, setResolvedRequestIds] = useState<Set<string>>(() => new Set());
   const operationBusy = markRead.isPending || markAllRead.isPending || clearNotifications.isPending || deleteNotification.isPending || decide.isPending;
 
   async function read(notificationId: string) {
@@ -150,7 +151,10 @@ export function NotificationsPage() {
     const requestId = notification.payload.requestId;
     if (!requestId) return;
     setOperationError(undefined);
-    try { await decide.mutateAsync({ activityId: notification.activityId, requestId, decision }); } catch (reason) { setOperationError(reason); }
+    try {
+      await decide.mutateAsync({ activityId: notification.activityId, requestId, decision });
+      setResolvedRequestIds((current) => new Set(current).add(requestId));
+    } catch (reason) { setOperationError(reason); }
   }
 
   if (session.isPending || notifications.isPending) return <LoadingState label="正在读取通知…" />;
@@ -171,7 +175,7 @@ export function NotificationsPage() {
           const destination = notificationDestination(notification);
           const summary = notificationSummary(notification);
           const content = <><span className="notification-row__icon">{notificationIcon(notification)}</span><span className="notification-row__content"><strong>{notificationTitle(notification)}</strong>{summary ? <span>{summary}</span> : null}{notification.activityDeleted ? <span className="notification-row__status">活动已删除，无法打开</span> : null}<small>{new Date(notification.createdAt).toLocaleString("zh-CN", { timeZone })}</small></span></>;
-          const actionable = notification.kind === "JOIN_APPROVAL_REQUESTED" && !notification.activityDeleted && Boolean(notification.payload.requestId);
+          const actionable = notification.kind === "JOIN_APPROVAL_REQUESTED" && !notification.activityDeleted && Boolean(notification.payload.requestId) && !resolvedRequestIds.has(notification.payload.requestId ?? "");
           return <article className="notification-row" data-testid={`notification-${notification.notificationId}`} data-kind={notification.kind} data-activity-deleted={notification.activityDeleted} data-unread={notification.readAt === null} key={notification.notificationId}>
             {destination ? <Link className="notification-row__link" to={destination}>{content}</Link> : <div className="notification-row__link">{content}</div>}
             <div className="notification-row__actions">{actionable ? <><Button variant="ghost" busy={decide.isPending} disabled={operationBusy && !decide.isPending} onClick={() => void decideRequest(notification, "REJECT")}>拒绝</Button><Button busy={decide.isPending} disabled={operationBusy && !decide.isPending} onClick={() => void decideRequest(notification, "APPROVE")}>通过</Button></> : null}{notification.readAt === null && !actionable ? <Button className="notification-read-button" variant="ghost" busy={markRead.isPending && markRead.variables === notification.notificationId} disabled={operationBusy && !(markRead.isPending && markRead.variables === notification.notificationId)} aria-label="标记通知为已读" title="标记通知为已读" onClick={() => void read(notification.notificationId)}><Check aria-hidden="true" size={18} /></Button> : null}<Button className="notification-delete-button" variant="ghost" busy={deleteNotification.isPending && deleteNotification.variables === notification.notificationId} disabled={operationBusy && !(deleteNotification.isPending && deleteNotification.variables === notification.notificationId)} aria-label="删除通知" title="删除通知" onClick={() => void deleteOne(notification.notificationId)}><Trash2 aria-hidden="true" size={18} /></Button></div>
