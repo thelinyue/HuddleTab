@@ -110,7 +110,8 @@ fn request(actor: &TestActor, method: &str, uri: String) -> Request<Body> {
         .expect("通知请求应可构造")
 }
 
-fn request_with_body(actor: &TestActor, method: &str, uri: String, body: &Value) -> Request<Body> {
+#[allow(clippy::needless_pass_by_value)]
+fn request_with_body(actor: &TestActor, method: &str, uri: String, body: Value) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(uri)
