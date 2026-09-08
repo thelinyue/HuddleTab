@@ -120,7 +120,13 @@ export function useDeleteNotificationMutation(userId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: deleteNotification,
-    onSuccess: (list) => replaceNotificationList(queryClient, userId, list),
+    onSuccess: (list, notificationId) => {
+      // 删除响应可能与并发读取存在短暂顺序差异，客户端先排除已确认删除的行。
+      replaceNotificationList(queryClient, userId, {
+        ...list,
+        items: list.items.filter((item) => item.notificationId !== notificationId),
+      });
+    },
   });
 }
 
