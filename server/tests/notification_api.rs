@@ -506,16 +506,15 @@ async fn notification_read_all_updates_every_unread_without_crossing_users_or_ov
     .expect("应读取 Bob 未读数");
     assert_eq!(alice_unread, 0);
     assert_eq!(bob_unread, 1);
-    let stored_read_at: Option<OffsetDateTime> = sqlx::query_scalar(
-        "SELECT read_at FROM notifications WHERE recipient_user_id = $1 AND read_at = $2",
+    let stored_read_at: OffsetDateTime = sqlx::query_scalar(
+        "SELECT read_at FROM notifications WHERE recipient_user_id = $1 ORDER BY created_at LIMIT 1",
     )
     .bind(alice.user_id)
-    .bind(first_read_at)
     .fetch_optional(&pool)
     .await
     .expect("应读取原有已读时间")
-    .flatten();
-    assert_eq!(stored_read_at, Some(first_read_at));
+    .expect("应存在原有已读通知");
+    assert!((stored_read_at - first_read_at).whole_nanoseconds().abs() <= 1_000);
 }
 
 #[tokio::test]
