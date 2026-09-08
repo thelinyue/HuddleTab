@@ -382,8 +382,8 @@ function NotificationRow({
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content className="notification-action-menu" align="end" sideOffset={6}>
-                {notification.readAt === null ? <DropdownMenu.Item disabled={operationBusy && !readBusy} onSelect={() => onRead(notification.notificationId)}>标为已读</DropdownMenu.Item> : null}
-                <DropdownMenu.Item disabled={operationBusy && !deleteBusy} onSelect={() => onDelete(notification.notificationId)}>删除</DropdownMenu.Item>
+                {notification.readAt === null ? <DropdownMenu.Item asChild disabled={operationBusy && !readBusy}><button type="button" role="menuitem" onClick={() => onRead(notification.notificationId)}>标为已读</button></DropdownMenu.Item> : null}
+                <DropdownMenu.Item asChild disabled={operationBusy && !deleteBusy}><button type="button" role="menuitem" onClick={() => onDelete(notification.notificationId)}>删除</button></DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
@@ -516,6 +516,7 @@ export function NotificationsPage() {
   const [clearOpen, setClearOpen] = useState(false);
   const [operationError, setOperationError] = useState<unknown>();
   const [resolvedRequestIds, setResolvedRequestIds] = useState<Set<string>>(() => new Set());
+  const [deletedNotificationIds, setDeletedNotificationIds] = useState<Set<string>>(() => new Set());
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const operationBusy = markRead.isPending || markAllRead.isPending || clearNotifications.isPending || deleteNotification.isPending || decide.isPending;
 
@@ -552,8 +553,16 @@ export function NotificationsPage() {
 
   async function deleteOne(notificationId: string) {
     setOperationError(undefined);
+    setDeletedNotificationIds((current) => new Set(current).add(notificationId));
     try { await deleteNotification.mutateAsync(notificationId); toast.success("通知已删除"); }
-    catch (reason) { setOperationError(reason); }
+    catch (reason) {
+      setDeletedNotificationIds((current) => {
+        const next = new Set(current);
+        next.delete(notificationId);
+        return next;
+      });
+      setOperationError(reason);
+    }
   }
 
   async function decideRequest(notification: Notification, decision: "APPROVE" | "REJECT") {
@@ -574,7 +583,7 @@ export function NotificationsPage() {
 
   if (session.isPending || notifications.isPending) return <LoadingState label="正在读取通知…" />;
   if (session.error || notifications.error) return <ErrorNotice error={session.error ?? notifications.error} />;
-  const allItems = notifications.data?.items ?? [];
+  const allItems = (notifications.data?.items ?? []).filter((item) => !deletedNotificationIds.has(item.notificationId));
   const items = allItems.filter((item) => matchesFilter(item, filter));
   const timeZone = notifications.data?.timeZone ?? "Asia/Shanghai";
   const groups = (["UNREAD", "TODAY", "YESTERDAY", "OLDER"] as Group[]).map((group) => ({ group, items: items.filter((item) => notificationGroup(item, timeZone) === group) })).filter((group) => group.items.length);
