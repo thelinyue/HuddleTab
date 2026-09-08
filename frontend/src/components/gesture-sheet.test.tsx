@@ -37,8 +37,12 @@ function mockAnimationFrame() {
   return { advance, flush };
 }
 
-function Harness({ open = true, onClose = vi.fn() }: { open?: boolean; onClose?: () => void }) {
-  const { present, sheetRef, overlayStyle, requestClose, headerProps, style } = useSheetDrag({ open, onClose });
+function Harness({ open = true, onClose = vi.fn(), detents }: { open?: boolean; onClose?: () => void; detents?: readonly number[] }) {
+  const { present, sheetRef, overlayStyle, requestClose, headerProps, style } = useSheetDrag({
+    open,
+    onClose,
+    mobileSheet: detents ? { maxHeight: 0.88, detents, initialDetent: detents[0] } : undefined,
+  });
   if (!present) return null;
   return <div data-testid="overlay" style={overlayStyle}><section ref={sheetRef} style={style}><header {...headerProps}><span>拖拽标题</span><button type="button">关闭</button></header><button type="button" onClick={requestClose}>物理关闭</button></section></div>;
 }
@@ -176,6 +180,45 @@ describe("useSheetDrag", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("overlay")).not.toBeInTheDocument();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("分摊 Sheet 在 70% 与 88% 间停靠，最低档继续下拉才关闭", () => {
+    const animation = mockAnimationFrame();
+    const onClose = vi.fn();
+    vi.stubGlobal("innerWidth", 390);
+    vi.stubGlobal("innerHeight", 800);
+    render(<Harness onClose={onClose} detents={[0.7, 0.88]} />);
+    const header = screen.getByText("拖拽标题").parentElement!;
+    const sheet = header.parentElement!;
+    Object.defineProperty(sheet, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ width: 390, height: 560, top: 240, right: 390, bottom: 800, left: 0, x: 0, y: 240, toJSON() {} }),
+    });
+    act(() => animation.flush());
+    expect(sheet.style.getPropertyValue("--mobile-sheet-height")).toBe("70%");
+
+    fireEvent.pointerDown(header, { pointerId: 21, pointerType: "touch", clientY: 300, button: 0 });
+    animation.advance(120);
+    fireEvent.pointerMove(header, { pointerId: 21, pointerType: "touch", clientY: 140 });
+    fireEvent.pointerUp(header, { pointerId: 21, pointerType: "touch", clientY: 140 });
+    act(() => animation.flush());
+    expect(sheet.style.getPropertyValue("--mobile-sheet-height")).toBe("88%");
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(header, { pointerId: 22, pointerType: "touch", clientY: 140, button: 0 });
+    animation.advance(120);
+    fireEvent.pointerMove(header, { pointerId: 22, pointerType: "touch", clientY: 300 });
+    fireEvent.pointerUp(header, { pointerId: 22, pointerType: "touch", clientY: 300 });
+    act(() => animation.flush());
+    expect(sheet.style.getPropertyValue("--mobile-sheet-height")).toBe("70%");
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(header, { pointerId: 23, pointerType: "touch", clientY: 300, button: 0 });
+    animation.advance(120);
+    fireEvent.pointerMove(header, { pointerId: 23, pointerType: "touch", clientY: 480 });
+    fireEvent.pointerUp(header, { pointerId: 23, pointerType: "touch", clientY: 480 });
+    act(() => animation.flush());
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("减少动态效果时只做短透明度退场", () => {

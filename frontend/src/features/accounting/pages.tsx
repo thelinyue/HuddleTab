@@ -1,5 +1,4 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Filter, ImageDown, ImagePlus, Info, Plus, ReceiptText, Trash2, UsersRound, X } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Popover } from "radix-ui";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -225,6 +224,19 @@ function memberName(memberId: string, members: ReturnType<typeof useMembersQuery
   return members?.find((member) => member.memberId === memberId)?.displayName ?? "未知成员";
 }
 
+function quickTimeLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "请选择";
+  const now = new Date();
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  const time = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return sameDay
+    ? `今天 ${time}`
+    : date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 function memberAvatarPreset(memberId: string, members: readonly ActivityMember[] | undefined): number | null | undefined {
   return members?.find((member) => member.memberId === memberId)?.avatarPreset;
 }
@@ -422,12 +434,14 @@ export function ExpenseFeedPage() {
         title={quickExpenseViewTitle(quickView)}
         onBack={quickView === "entry" ? undefined : { label: quickExpenseBackLabel(quickView), onClick: () => setQuickView(parentQuickExpenseView(quickView)) }}
         focusKey={quickView}
+        initialFocus="mobile-dialog"
+        mobileSheet={quickExpenseMobileSheet(quickView)}
         onClose={() => { setQuickView("entry"); setEntryOpen(false); }}
-         className="quick-expense-overlay quick-expense-overlay--entry"
+        className={quickExpenseOverlayClass(quickView)}
       >
         <UnifiedExpenseEditor view={quickView} onViewChange={setQuickView} onSaved={() => { setQuickView("entry"); setEntryOpen(false); }} />
       </Overlay>
-      <Overlay open={Boolean(rejectedDraft)} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : { label: "修改被拒账单", onClick: () => setRejectedView(parentQuickExpenseView(rejectedView)) }} focusKey={rejectedView} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className="quick-expense-overlay quick-expense-overlay--entry"><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></Overlay>
+      <Overlay open={Boolean(rejectedDraft)} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : { label: quickExpenseBackLabel(rejectedView, "修改被拒账单"), onClick: () => setRejectedView(parentQuickExpenseView(rejectedView)) }} focusKey={rejectedView} initialFocus="mobile-dialog" mobileSheet={quickExpenseMobileSheet(rejectedView)} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className={quickExpenseOverlayClass(rejectedView)}><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></Overlay>
       {editExpenseId ? <ExpenseEditOverlay expenseId={editExpenseId} onClose={closeEditExpense} /> : null}
       <Overlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
         <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
@@ -449,17 +463,23 @@ export type QuickExpenseView =
   | "participants-add-guest"
   | "category"
   | "currency"
+  | "currency-rate"
+  | "time"
+  | "note"
   | "split";
 type PayerMode = "single" | "multiple";
 
 function quickExpenseViewTitle(view: QuickExpenseView): string {
   switch (view) {
-    case "payer": return "谁付款";
+    case "payer": return "付款人";
     case "payer-add-guest": return "添加临时成员";
-    case "participants": return "谁参与";
+    case "participants": return "参与人";
     case "participants-add-guest": return "添加临时成员";
     case "category": return "分类";
     case "currency": return "选择币种";
+    case "currency-rate": return "设置汇率";
+    case "time": return "时间";
+    case "note": return "备注与附件";
     case "split": return "分摊设置";
     default: return "记一笔";
   }
@@ -468,13 +488,40 @@ function quickExpenseViewTitle(view: QuickExpenseView): string {
 function parentQuickExpenseView(view: QuickExpenseView): QuickExpenseView {
   if (view === "payer-add-guest") return "payer";
   if (view === "participants-add-guest") return "participants";
+  if (view === "currency-rate") return "currency";
   return "entry";
 }
 
 function quickExpenseBackLabel(view: QuickExpenseView, rootLabel = "记一笔"): string {
-  if (view === "payer-add-guest") return "谁付款";
-  if (view === "participants-add-guest") return "谁参与";
+  if (view === "payer-add-guest") return "付款人";
+  if (view === "participants-add-guest") return "参与人";
+  if (view === "currency-rate") return "选择币种";
   return rootLabel;
+}
+
+/** 不同任务只占用完成它所需的高度，复杂分摊才提供第二个上拉停靠点。 */
+function quickExpenseMobileSheet(view: QuickExpenseView) {
+  switch (view) {
+    case "category":
+    case "time":
+      return { maxHeight: 0.45 };
+    case "payer":
+    case "payer-add-guest":
+    case "participants":
+    case "participants-add-guest":
+    case "currency":
+    case "currency-rate":
+    case "note":
+      return { maxHeight: 0.72 };
+    case "split":
+      return { maxHeight: 0.88, detents: [0.7, 0.88] as const, initialDetent: 0.7 };
+    default:
+      return { maxHeight: 0.88 };
+  }
+}
+
+function quickExpenseOverlayClass(view: QuickExpenseView): string {
+  return `quick-expense-overlay quick-expense-overlay--entry quick-expense-overlay--view-${view}`;
 }
 
 type ExpenseEditorProps = {
@@ -490,7 +537,7 @@ function RoutedExpenseEditor(props: ExpenseEditorProps) {
   return (
     <section className="routed-expense-editor" aria-labelledby="routed-expense-editor-title">
       <header className="routed-expense-editor__header">
-        {view !== "entry" ? <button className="icon-button" type="button" aria-label={`返回${rootTitle}`} onClick={() => setView(parentQuickExpenseView(view))}><ArrowLeft aria-hidden="true" size={20} /></button> : <span aria-hidden="true" />}
+        {view !== "entry" ? <button className="icon-button" type="button" aria-label={`返回${quickExpenseBackLabel(view, rootTitle)}`} onClick={() => setView(parentQuickExpenseView(view))}><ArrowLeft aria-hidden="true" size={20} /></button> : <span aria-hidden="true" />}
         <h2 id="routed-expense-editor-title">{title}</h2>
         <span aria-hidden="true" />
       </header>
@@ -542,8 +589,10 @@ function ExpenseEditOverlay({ expenseId, onClose }: { expenseId: string; onClose
       onBack={view === "entry" ? undefined : { label: quickExpenseBackLabel(view, "修改账单"), onClick: () => setView(parentQuickExpenseView(view)) }}
       leadingAction={deleteAction}
       focusKey={`${expenseId}-${view}`}
+      initialFocus="mobile-dialog"
+      mobileSheet={quickExpenseMobileSheet(view)}
       onClose={onClose}
-      className="quick-expense-overlay quick-expense-overlay--entry"
+      className={quickExpenseOverlayClass(view)}
     >
       {expense.isPending ? <LoadingState label="正在读取账单…" /> : null}
       {expense.error ? <ErrorNotice error={expense.error} /> : null}
@@ -660,14 +709,26 @@ function resolveQuickPayers(selection: PayerSelection, totalMinor: bigint | null
   }
 }
 
-function QuickSelectionRow({ label, value, children, onClick, initialFocus = false }: { label: string; value: string; children?: ReactNode; onClick: () => void; initialFocus?: boolean }) {
+function QuickFieldButton({ label, value, children, onClick, initialFocus = false }: { label: string; value: string; children?: ReactNode; onClick: () => void; initialFocus?: boolean }) {
   return (
-    <button type="button" className="quick-expense-selection" aria-label={label} aria-haspopup="dialog" data-overlay-initial-focus={initialFocus ? "true" : undefined} onClick={onClick}>
-      <span className="quick-expense-selection__label">{label}</span>
-      <span className="quick-expense-selection__value">
+    <button type="button" className="quick-expense-field-button" aria-label={`${label}：${value}`} aria-haspopup="dialog" data-overlay-initial-focus={initialFocus ? "true" : undefined} onClick={onClick}>
+      <span className="quick-expense-field-button__label">{label}</span>
+      <span className="quick-expense-field-button__value">
         {children}
-        <span className="quick-expense-selection__text">{value}</span>
+        <span>{value}</span>
         <ChevronRight aria-hidden="true" size={17} />
+      </span>
+    </button>
+  );
+}
+
+function QuickValueButton({ label, value, children, onClick, initialFocus = false }: { label: string; value: string; children?: ReactNode; onClick: () => void; initialFocus?: boolean }) {
+  return (
+    <button type="button" className="quick-expense-value-button" aria-label={`${label}：${value}`} aria-haspopup="dialog" data-overlay-initial-focus={initialFocus ? "true" : undefined} onClick={onClick}>
+      <span className="quick-expense-value-button__content">
+        {children}
+        <span>{value}</span>
+        <ChevronRight aria-hidden="true" size={15} />
       </span>
     </button>
   );
@@ -686,7 +747,7 @@ function QuickMemberChoiceList({ members, mode, selectedIds, onToggle, paymentVa
 }) {
   return (
     <div className="quick-member-picker">
-      <div className="quick-member-list" role={mode === "single" ? "radiogroup" : "group"} aria-label={mode === "single" ? "谁付款" : "选择成员"}>
+      <div className="quick-member-list" role={mode === "single" ? "radiogroup" : "group"} aria-label={mode === "single" ? "付款人" : "选择成员"}>
         {members.map((member) => {
           const selected = selectedIds.includes(member.memberId);
           return (
@@ -720,7 +781,6 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
   const deleteAttachment = useDeleteAttachmentMutation(session.userId, activity.activityId, initial?.expense.expenseId ?? "");
   const createGuest = useCreateGuestMutation(session.userId, activity.activityId);
   const rateSuggestion = useExchangeRateSuggestionMutation(activity.activityId);
-  const reducedMotion = useReducedMotion();
   const pendingPayload = rejected?.payload;
   const initialPayload = initial?.expense;
   const initialPayments = initial?.payments ?? [];
@@ -750,7 +810,6 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
   const [exchangeRateKind, setExchangeRateKind] = useState(initialPayload?.exchangeRateKind ?? pendingPayload?.exchangeRateKind ?? "IDENTITY");
   const [exchangeRateReferenceDate, setExchangeRateReferenceDate] = useState<string | null>(initialPayload?.exchangeRateReferenceDate ?? pendingPayload?.exchangeRateReferenceDate ?? null);
   const [exchangeRateProvider, setExchangeRateProvider] = useState<string | null>(initialPayload?.exchangeRateProvider ?? pendingPayload?.exchangeRateProvider ?? null);
-  const [moreSettingsOpen, setMoreSettingsOpen] = useState(false);
   const initialPayerMode: PayerMode = initialPaymentIds.length > 1 ? "multiple" : "single";
   const [payerMode, setPayerMode] = useState<PayerMode>(initialPayerMode);
   const [payerIds, setPayerIds] = useState<string[]>(initialPaymentIds);
@@ -779,7 +838,9 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
   const [guestError, setGuestError] = useState<string>();
   const [quickError, setQuickError] = useState<string>();
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [entryFocusTarget, setEntryFocusTarget] = useState<"amount" | "payer" | "participants" | "split" | "category" | "currency">("amount");
+  const [entryFocusTarget, setEntryFocusTarget] = useState<"amount" | "payer" | "participants" | "split" | "category" | "currency" | "time" | "note" | null>(() => (
+    typeof window !== "undefined" && window.innerWidth >= 640 ? "amount" : null
+  ));
   const amountRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -807,7 +868,7 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
   }, [fieldErrors]);
 
   useEffect(() => {
-    if (!initialized || view !== "entry") return;
+    if (!initialized || view !== "entry" || !entryFocusTarget) return;
     // 换页点击会先把原控件卸载，再提交浏览器的默认 focus；延后一拍可确保
     // 根表单的新入口已经挂载，同时不会在用户编辑字段时反复抢焦点。
     const timer = window.setTimeout(() => {
@@ -918,7 +979,7 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
     setExchangeRateReferenceDate(null);
     setExchangeRateProvider(null);
     setCurrencySearchDraft("");
-    onViewChange("entry");
+    onViewChange(next === activity.baseCurrency ? "entry" : "currency-rate");
   }
 
   async function requestReferenceRate() {
@@ -946,8 +1007,9 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
         return;
       }
       if (normalizedCurrency !== activity.baseCurrency && !exchangeRate.trim()) {
-        setMoreSettingsOpen(true);
-        throw new Error("汇率不能为空。请在更多设置中填写汇率。");
+        setQuickError("汇率不能为空，请先完成外币汇率设置。");
+        onViewChange("currency-rate");
+        return;
       }
       const payerSelection: PayerSelection = payerMode === "single"
         ? { mode: "single", memberId: payerIds[0] ?? "" }
@@ -1000,6 +1062,8 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
   const selectedPayerLabel = payerIds.length > 1 ? `${payerIds.length} 人` : selectedPayerNames;
   const selectedCategory = categories.find(([value]) => value === category) ?? categories[0];
   const selectedSplitLabel = quickSplitModes.find(([value]) => value === splitMode)?.[1] ?? "均摊";
+  const attachmentCount = initial?.attachments.length ?? selectedAttachments.length;
+  const noteSummary = note.trim() || (attachmentCount ? `已添加 ${attachmentCount} 张附件` : "点击添加备注或附件");
   const payerDraftSelection: PayerSelection = payerDraftMode === "single"
     ? { mode: "single", memberId: payerDraftIds[0] ?? "" }
     : { mode: "multiple", memberIds: payerDraftIds, amountInputs: payerDraftValues };
@@ -1017,49 +1081,34 @@ function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, onSaved }
       {quickError ? <div className="quick-expense-error" role="alert">{quickError}</div> : null}
       {view === "entry" ? (
         <div className="quick-expense-entry" data-quick-expense-view="entry">
-           <div className="quick-expense-amount">
-             <button type="button" className="quick-expense-currency" aria-label="币种" aria-haspopup="dialog" data-overlay-initial-focus={entryFocusTarget === "currency" ? "true" : undefined} onClick={() => { setEntryFocusTarget("currency"); onViewChange("currency"); }}><span>{currency}</span><ChevronRight aria-hidden="true" size={14} /></button>
+          <div className="quick-expense-amount">
+            <button type="button" className="quick-expense-currency" aria-label={`币种：${currency}`} aria-haspopup="dialog" data-overlay-initial-focus={entryFocusTarget === "currency" ? "true" : undefined} onClick={() => { setEntryFocusTarget("currency"); onViewChange("currency"); }}><span>{currency}</span><ChevronRight aria-hidden="true" size={14} /></button>
             <label htmlFor="quick-expense-amount" className="sr-only">金额</label>
             <Input ref={amountRef} id="quick-expense-amount" data-overlay-initial-focus={entryFocusTarget === "amount" ? "true" : undefined} className="quick-expense-amount__input" inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); clearFieldError("amount"); }} placeholder="0.00" aria-invalid={Boolean(fieldErrors.amount)} aria-describedby={fieldErrors.amount ? "quick-expense-amount-error" : undefined} required />
             <small>金额</small>
             {fieldErrors.amount ? <small id="quick-expense-amount-error" className="quick-expense-field-error" role="alert">{fieldErrors.amount}</small> : null}
           </div>
-          <label className="quick-expense-title"><span>用途</span><Input ref={titleRef} value={title} onChange={(event) => { setTitle(event.target.value); clearFieldError("title"); }} placeholder="例如：晚餐" maxLength={120} aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? "quick-expense-title-error" : undefined} required />{fieldErrors.title ? <small id="quick-expense-title-error" className="quick-expense-field-error" role="alert">{fieldErrors.title}</small> : null}</label>
-           <QuickSelectionRow label="谁付款" value={selectedPayerLabel || "请选择"} initialFocus={entryFocusTarget === "payer"} onClick={openPayer}><span className="quick-expense-avatar-stack" aria-hidden="true">{payerIds.slice(0, 3).map((id) => <MemberAvatar key={id} memberId={id} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickSelectionRow>
-           <div className="quick-expense-participants"><QuickSelectionRow label="谁参与" value={participantIds.length ? `${participantIds.length} 人` : "请选择"} initialFocus={entryFocusTarget === "participants"} onClick={openParticipants}><span className="quick-expense-avatar-stack" aria-hidden="true">{participantIds.slice(0, 3).map((id) => <MemberAvatar key={id} memberId={id} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickSelectionRow>{fieldErrors.participants ? <small className="quick-expense-error">{fieldErrors.participants}</small> : null}</div>
-           <QuickSelectionRow label="分摊设置" value={selectedSplitLabel} initialFocus={entryFocusTarget === "split"} onClick={() => { setEntryFocusTarget("split"); onViewChange("split"); }} />
-           <QuickSelectionRow label="分类" value={selectedCategory[1]} initialFocus={entryFocusTarget === "category"} onClick={() => { setEntryFocusTarget("category"); onViewChange("category"); }}><span className="quick-expense-category-icon" aria-hidden="true"><img src={`/expense-categories/${selectedCategory[2]}.webp`} width={36} height={36} alt="" /></span></QuickSelectionRow>
-           <button type="button" className="quick-expense-more" aria-expanded={moreSettingsOpen} aria-controls="expense-more-settings" onClick={() => setMoreSettingsOpen((current) => !current)}><span>更多设置</span><ChevronRight aria-hidden="true" size={17} /></button>
-           <AnimatePresence initial={false}>
-             {moreSettingsOpen ? (
-               <motion.div
-                 id="expense-more-settings"
-                 className="quick-expense-advanced-motion"
-                 initial={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0, overflow: "clip" }}
-                 animate={reducedMotion ? { opacity: 1, overflow: "visible" } : { height: "auto", opacity: 1, transitionEnd: { overflow: "visible" } }}
-                 exit={reducedMotion ? { opacity: 0 } : { height: 0, opacity: 0, overflow: "clip" }}
-                 transition={reducedMotion ? { duration: 0.16 } : { type: "spring", bounce: 0, duration: 0.32 }}
-               >
-                 <div className="quick-expense-advanced">
-                   <Field label="发生时间"><Input type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); if (exchangeRateKind === "PROVIDER" || exchangeRateKind === "CACHE") { setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); } }} required /></Field>
-                   {currency !== activity.baseCurrency ? <Field label={`汇率（1 ${currency} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input inputMode="decimal" value={exchangeRate} onChange={(event) => { setQuickError(undefined); setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} placeholder="例如 7.25" required /><Button type="button" variant="secondary" disabled={rateSuggestion.isPending} onClick={() => void requestReferenceRate()}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field> : null}
-                   <Field label="备注"><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field>
-                   {initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={setAttachmentToDelete} /> : <Field label="附件（最多三张）"><div className="quick-expense-attachment"><input id="quick-expense-attachments" className="quick-expense-attachment__input" aria-label="附件（最多三张）" type="file" accept={attachmentAccept} multiple disabled={selectedAttachments.length >= 3} onChange={(event) => { const files = Array.from(event.target.files ?? []); const error = validateAttachments([...selectedAttachments.map(({ file }) => file), ...files]); if (error) { setQuickError(error); return; } setSelectedAttachments((current) => [...current, ...files.map((file) => ({ id: crypto.randomUUID(), clientAttachmentId: crypto.randomUUID(), fileName: file.name, mimeType: file.type, blob: file, file }))]); event.target.value = ""; }} /><span className="quick-expense-attachment__surface"><ImagePlus aria-hidden="true" size={18} /><strong>选择图片</strong><small>{selectedAttachments.length ? `已选择 ${selectedAttachments.length}/3` : "未选择图片"}</small></span></div><SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field>}
-                   {deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}
-                 </div>
-               </motion.div>
-             ) : null}
-           </AnimatePresence>
-           <ConfirmDialog open={Boolean(attachmentToDelete)} title="删除附件" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} />
-           {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
-           {mutation.error instanceof ApiRequestError && mutation.error.status === 409 ? <div className="notice">服务器版本已更新。当前表单仍保留，请返回查看最新账单后再决定。</div> : null}
-           <div className="quick-expense-submit-bar"><Button type="submit" className="quick-expense-submit" busy={mutation.isPending}>{rejected ? "修改后重试" : "保存"}</Button></div>
+          <div className="quick-expense-grid">
+            <QuickValueButton label="分类" value={selectedCategory[1]} initialFocus={entryFocusTarget === "category"} onClick={() => { setEntryFocusTarget("category"); onViewChange("category"); }}><img className="quick-expense-value-button__image" src={`/expense-categories/${selectedCategory[2]}.webp`} width={34} height={34} alt="" /></QuickValueButton>
+            <label className="quick-expense-inline-field"><span>用途</span><Input ref={titleRef} aria-label="用途" value={title} onChange={(event) => { setTitle(event.target.value); clearFieldError("title"); }} placeholder="例如：晚餐" maxLength={120} aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? "quick-expense-title-error" : undefined} required />{fieldErrors.title ? <small id="quick-expense-title-error" className="quick-expense-error" role="alert">{fieldErrors.title}</small> : null}</label>
+            <QuickFieldButton label="付款人" value={selectedPayerLabel || "请选择"} initialFocus={entryFocusTarget === "payer"} onClick={openPayer}><span className="quick-expense-avatar-stack" aria-hidden="true">{payerIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>
+            <QuickFieldButton label="时间" value={quickTimeLabel(occurredAt)} initialFocus={entryFocusTarget === "time"} onClick={() => { setEntryFocusTarget("time"); onViewChange("time"); }} />
+            <div className="quick-expense-participants"><QuickFieldButton label="参与人" value={participantIds.length ? `${participantIds.length} 人` : "请选择"} initialFocus={entryFocusTarget === "participants"} onClick={openParticipants}><span className="quick-expense-avatar-stack" aria-hidden="true">{participantIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>{fieldErrors.participants ? <small className="quick-expense-error" role="alert">{fieldErrors.participants}</small> : null}</div>
+            <QuickValueButton label="分摊设置" value={selectedSplitLabel} initialFocus={entryFocusTarget === "split"} onClick={() => { setEntryFocusTarget("split"); onViewChange("split"); }} />
+          </div>
+          <QuickFieldButton label="备注" value={noteSummary} initialFocus={entryFocusTarget === "note"} onClick={() => { setEntryFocusTarget("note"); onViewChange("note"); }} />
+          {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
+          {mutation.error instanceof ApiRequestError && mutation.error.status === 409 ? <div className="notice">服务器版本已更新。当前表单仍保留，请返回查看最新账单后再决定。</div> : null}
+          <div className="quick-expense-submit-bar"><Button type="submit" className="quick-expense-submit" busy={mutation.isPending}>{rejected ? "修改后重试" : "保存"}</Button></div>
         </div>
       ) : view === "payer" ? <div className="quick-expense-subview" data-quick-expense-view="payer">{renderMemberPicker(payerDraftMode)}</div>
         : view === "participants" ? <div className="quick-expense-subview" data-quick-expense-view="participants"><QuickMemberChoiceList members={activeMembers} mode="multiple" selectedIds={participantDraft} onToggle={(id) => { setQuickError(undefined); setParticipantDraft((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }} canAddGuest={canAddGuest} online={!offline} onAddGuest={() => { setGuestError(undefined); onViewChange("participants-add-guest"); }} /><div className="quick-expense-subview__footer"><Button type="button" disabled={!participantDraft.length} onClick={commitParticipants}>完成</Button></div></div>
         : view === "payer-add-guest" || view === "participants-add-guest" ? <div className="quick-expense-subview quick-expense-guest-view" data-quick-expense-view={view}><label className="field"><span className="field__label">临时成员昵称</span><Input data-overlay-initial-focus value={guestName} maxLength={40} autoFocus required onChange={(event) => setGuestName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submitGuest(); } }} /></label>{guestError ? <p className="quick-expense-error" role="alert">{guestError}</p> : null}<Button type="button" disabled={!guestName.trim() || createGuest.isPending} busy={createGuest.isPending} onClick={() => void submitGuest()}>确认添加</Button></div>
         : view === "category" ? <div className="quick-expense-subview" data-quick-expense-view="category"><div className="quick-category-grid" role="radiogroup" aria-label="分类">{categories.map(([value, label, image]) => <button key={value} type="button" role="radio" aria-checked={category === value} onClick={() => { setCategory(value); onViewChange("entry"); }}><img src={`/expense-categories/${image}.webp`} width={44} height={44} alt="" /><span>{label}</span>{category === value ? <Check aria-hidden="true" size={15} /> : null}</button>)}</div></div>
         : view === "currency" ? <div className="quick-expense-subview" data-quick-expense-view="currency"><label className="quick-currency-search"><span className="sr-only">搜索币种</span><Input data-overlay-initial-focus placeholder="搜索币种" value={currencySearchDraft} onChange={(event) => setCurrencySearchDraft(event.target.value)} /></label><CurrencyQuickList value={currency} search={currencySearchDraft} onSelect={selectCurrency} /></div>
+        : view === "currency-rate" ? <div className="quick-expense-subview" data-quick-expense-view="currency-rate"><Field label={`汇率（1 ${currency} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input data-overlay-initial-focus inputMode="decimal" value={exchangeRate} onChange={(event) => { setQuickError(undefined); setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} placeholder="例如 7.25" required /><Button type="button" variant="secondary" disabled={rateSuggestion.isPending} onClick={() => void requestReferenceRate()}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field><div className="quick-expense-subview__footer"><Button type="button" disabled={!exchangeRate.trim()} onClick={() => onViewChange("entry")}>完成</Button></div></div>
+        : view === "time" ? <div className="quick-expense-subview" data-quick-expense-view="time"><Field label="时间"><Input data-overlay-initial-focus type="datetime-local" value={occurredAt} onChange={(event) => { setOccurredAt(event.target.value); if (exchangeRateKind === "PROVIDER" || exchangeRateKind === "CACHE") { setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); } }} required /></Field><div className="quick-expense-subview__footer"><Button type="button" disabled={!occurredAt} onClick={() => onViewChange("entry")}>完成</Button></div></div>
+        : view === "note" ? <div className="quick-expense-subview quick-expense-note-view" data-quick-expense-view="note"><Field label="备注"><Textarea data-overlay-initial-focus value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={4} /></Field>{initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={setAttachmentToDelete} /> : <Field label="附件（最多三张）"><div className="quick-expense-attachment"><input id="quick-expense-attachments" className="quick-expense-attachment__input" aria-label="附件（最多三张）" type="file" accept={attachmentAccept} multiple disabled={selectedAttachments.length >= 3} onChange={(event) => { const files = Array.from(event.target.files ?? []); const error = validateAttachments([...selectedAttachments.map(({ file }) => file), ...files]); if (error) { setQuickError(error); return; } setSelectedAttachments((current) => [...current, ...files.map((file) => ({ id: crypto.randomUUID(), clientAttachmentId: crypto.randomUUID(), fileName: file.name, mimeType: file.type, blob: file, file }))]); event.target.value = ""; }} /><span className="quick-expense-attachment__surface"><ImagePlus aria-hidden="true" size={18} /><strong>选择图片</strong><small>{selectedAttachments.length ? `已选择 ${selectedAttachments.length}/3` : "未选择图片"}</small></span></div><SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field>}{deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}<div className="quick-expense-subview__footer"><Button type="button" onClick={() => onViewChange("entry")}>完成</Button></div><ConfirmDialog open={Boolean(attachmentToDelete)} title="删除附件" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} /></div>
          : <div className="quick-expense-subview" data-quick-expense-view="split"><fieldset className="quick-split-modes" role="radiogroup" aria-label="分摊方式">{quickSplitModes.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={splitMode === value} onClick={() => { setQuickError(undefined); setSplitMode(value); }}>{label}</button>)}</fieldset><div className="quick-split-list" role="list" aria-label="参与成员分摊"><div className="quick-split-list__rows">{participantIds.map((memberId) => <div className="quick-split-row" key={memberId}><MemberAvatar memberId={memberId} displayName={memberName(memberId, activeMembers)} avatarPreset={memberAvatarPreset(memberId, activeMembers)} size="sm" /><span>{memberName(memberId, activeMembers)}</span>{splitMode === "EQUAL" ? <strong>{splitPreview.valid ? formatMoney(currency, splitPreview.allocations.find((row) => row.memberId === memberId)?.amountMinor.toString() ?? "0") : "待完成"}</strong> : <Input inputMode="decimal" aria-label={`${memberName(memberId, activeMembers)}${quickSplitModes.find(([value]) => value === splitMode)?.[1]}`} value={splitValues[memberId] ?? ""} placeholder={splitMode === "EXACT" ? "金额" : splitMode === "PERCENTAGE" ? "百分比" : "份数"} onChange={(event) => { setQuickError(undefined); setSplitValues((current) => ({ ...current, [memberId]: event.target.value })); }} />}</div>)}</div><div className="quick-expense-subview__summary" aria-live="polite"><QuickSplitSummary currency={currency} memberIds={participantIds} mode={splitMode} values={splitValues} totalMinor={totalMinor} /></div></div><div className="quick-expense-subview__footer"><Button type="button" disabled={!splitPreview.valid} onClick={() => { setQuickError(undefined); onViewChange("entry"); }}>完成</Button></div></div>}
     </form>
   );

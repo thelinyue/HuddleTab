@@ -11,6 +11,12 @@ export type OverlayProps = {
   onBack?: { label: string; onClick: () => void };
   leadingAction?: ReactNode;
   focusKey?: string;
+  initialFocus?: "auto" | "mobile-dialog";
+  mobileSheet?: {
+    maxHeight: number;
+    detents?: readonly number[];
+    initialDetent?: number;
+  };
   className?: string;
   children: ReactNode;
 };
@@ -27,11 +33,13 @@ export function Overlay({
   onBack,
   leadingAction,
   focusKey,
+  initialFocus = "auto",
+  mobileSheet,
   className,
   children,
 }: OverlayProps) {
   const titleId = useId();
-  const { present, sheetRef, overlayStyle, requestClose, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose, canClose: onBeforeClose });
+  const { present, sheetRef, overlayStyle, requestClose, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose, canClose: onBeforeClose, mobileSheet });
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
 
@@ -47,10 +55,15 @@ export function Overlay({
     if (!present) return;
     const sheet = sheetRef.current;
     const focusableSelector = "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
-    const initialFocus = sheet?.querySelector<HTMLElement>("[data-overlay-initial-focus]")
-      ?? sheet?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")
-      ?? sheet?.querySelector<HTMLElement>(focusableSelector);
-    initialFocus?.focus();
+    const shouldFocusDialog = initialFocus === "mobile-dialog"
+      && typeof window.matchMedia === "function"
+      && window.matchMedia("(max-width: 639px)").matches;
+    const initialTarget = shouldFocusDialog
+      ? sheet
+      : sheet?.querySelector<HTMLElement>("[data-overlay-initial-focus]")
+        ?? sheet?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")
+        ?? sheet?.querySelector<HTMLElement>(focusableSelector);
+    initialTarget?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -74,13 +87,22 @@ export function Overlay({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [focusKey, present, sheetRef]);
+  }, [focusKey, initialFocus, present, sheetRef]);
 
   if (!present) return null;
   return (
     <div className={["form-overlay", className].filter(Boolean).join(" ")} style={overlayStyle} role="presentation">
       <button className="form-overlay__scrim" type="button" aria-hidden="true" tabIndex={-1} onClick={requestClose} />
-      <section ref={sheetRef} style={sheetStyle} className="form-overlay__sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <section
+        ref={sheetRef}
+        style={sheetStyle}
+        className="form-overlay__sheet"
+        data-mobile-sheet-detents={mobileSheet?.detents?.length ? "true" : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <header className="form-overlay__header" {...headerProps}>
           <div className="form-overlay__header-main">
             {onBack

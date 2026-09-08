@@ -38,7 +38,7 @@ $iPhonePlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -Notif
 Assert-True (($iPhonePlaywright -join " ") -eq "run test:e2e -- --project=chromium-phase2-mobile --project=chromium-attachment-mobile --project=webkit-iphone-ui") "IPhoneSimulationOnly 没有固定到 PWA Mobile 与 WebKit iPhone 项目。"
 Assert-True (-not ($iPhonePlaywright -match "--grep|--config|--headed")) "IPhoneSimulationOnly 注入了未批准的 Playwright 参数。"
 $uiParityPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -UiParityOnly $true
-Assert-True (($uiParityPlaywright -join " ") -eq "run test:e2e -- ui-parity.spec.ts --project=chromium-ui-parity-desktop --project=chromium-ui-parity-mobile") "UiParityOnly 没有固定到 v0.0.2 对照 Desktop/Mobile 项目。"
+Assert-True (($uiParityPlaywright -join " ") -eq "run test:e2e -- ui-parity.spec.ts --project=chromium-ui-parity-desktop --project=chromium-ui-parity-mobile --project=chromium-ui-parity-compact") "UiParityOnly 没有固定到 v0.0.2 对照 Desktop/Mobile/320x568 项目。"
 Assert-True (-not ($uiParityPlaywright -match "--grep|--config|--headed")) "UiParityOnly 注入了未批准的 Playwright 参数。"
 $task29Playwright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false -Task29Only $true
 Assert-True (($task29Playwright -join " ") -eq "run test:e2e -- task29.spec.ts --project=chromium-task29-desktop --project=chromium-task29-mobile") "Task29Only 没有固定到管理员 Desktop/Mobile 项目。"

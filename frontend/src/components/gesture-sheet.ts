@@ -13,6 +13,11 @@ type SheetDragOptions = {
   open: boolean;
   onClose: () => void;
   canClose?: () => boolean;
+  mobileSheet?: {
+    maxHeight: number;
+    detents?: readonly number[];
+    initialDetent?: number;
+  };
 };
 
 type SheetDragResult = {
@@ -51,7 +56,11 @@ let previousBodyOverflow: string | undefined;
  * Sheet 以当前展示偏移作为每次抓取的起点，并将释放速度交给同一组弹簧参数。
  * 外部关闭和手势关闭都会先完成可见退场，再释放背景锁定和调用业务 onClose。
  */
-export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): SheetDragResult {
+export function useSheetDrag({ open, onClose, canClose, mobileSheet }: SheetDragOptions): SheetDragResult {
+  const detents = mobileSheet?.detents?.length
+    ? [...mobileSheet.detents].sort((left, right) => left - right)
+    : [];
+  const initialDetent = mobileSheet?.initialDetent ?? detents[0] ?? mobileSheet?.maxHeight ?? 0.92;
   const sheetRef = useRef<HTMLElement | null>(null);
   const pointer = useRef<{
     id: number;
@@ -61,6 +70,7 @@ export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): She
     lastTime: number;
     velocity: number;
     locked: boolean;
+    startDetent: number;
   } | undefined>(undefined);
   const frame = useRef<number | undefined>(undefined);
   const phase = useRef<AnimationPhase>("closed");
@@ -79,8 +89,13 @@ export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): She
   const [opacity, setOpacity] = useState(open ? 0 : 1);
   const [dragging, setDragging] = useState(false);
   const [overlayStyle, setOverlayStyle] = useState<CSSProperties>({});
+  const [detent, setDetent] = useState(initialDetent);
   onCloseRef.current = onClose;
   canCloseRef.current = canClose;
+
+  useEffect(() => {
+    setDetent(initialDetent);
+  }, [initialDetent]);
 
   const cancelAnimation = useCallback(() => {
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
@@ -295,7 +310,20 @@ export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): She
     ) element.releasePointerCapture(event.pointerId);
     pointer.current = undefined;
     setDragging(false);
-    const height = sheetRef.current?.getBoundingClientRect().height || window.innerHeight || 640;
+    const viewportHeight = window.visualViewport?.height || window.innerHeight || 640;
+    const height = sheetRef.current?.getBoundingClientRect().height || viewportHeight;
+    if (detents.length > 1 && window.innerWidth <= 639) {
+      const projectedDetent = detent - (current.velocity * 0.18) / viewportHeight;
+      const targetDetent = detents.reduce((nearest, candidate) => (
+        Math.abs(candidate - projectedDetent) < Math.abs(nearest - projectedDetent) ? candidate : nearest
+      ), detents[0]);
+      const atLowestDetent = current.startDetent <= detents[0] + 0.001;
+      if (!atLowestDetent || projectedDetent >= detents[0] - 0.08) {
+        setDetent(targetDetent);
+        settle(current.velocity);
+        return;
+      }
+    }
     const projected = projectSheetOffset(offsetRef.current, current.velocity);
     if (projected > height * 0.28 || current.velocity > 900) startClose(true, current.velocity);
     else settle(current.velocity);
@@ -319,6 +347,7 @@ export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): She
       lastTime: performance.now(),
       velocity: inheritedVelocity,
       locked: false,
+      startDetent: detent,
     };
     setDragging(true);
   };
@@ -334,8 +363,19 @@ export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): She
     current.velocity = ((event.clientY - current.lastY) / delta) * 1000;
     current.lastY = event.clientY;
     current.lastTime = now;
-    const next = current.startOffset + dy;
-    setOffsetValue(next >= 0 ? next : rubberband(next));
+    if (detents.length > 1 && window.innerWidth <= 639) {
+      const viewportHeight = window.visualViewport?.height || window.innerHeight || 640;
+      const minimum = detents[0];
+      const maximum = detents.at(-1)!;
+      const nextDetent = Math.min(maximum, Math.max(minimum, current.startDetent - dy / viewportHeight));
+      setDetent(nextDetent);
+      const consumedY = (current.startDetent - nextDetent) * viewportHeight;
+      const remainingY = current.startOffset + dy - consumedY;
+      setOffsetValue(remainingY >= 0 ? remainingY : rubberband(remainingY));
+    } else {
+      const next = current.startOffset + dy;
+      setOffsetValue(next >= 0 ? next : rubberband(next));
+    }
     event.preventDefault();
   };
 
@@ -345,8 +385,15 @@ export function useSheetDrag({ open, onClose, canClose }: SheetDragOptions): She
     overlayStyle,
     requestClose: () => startClose(true),
     headerProps: { onPointerDown, onPointerMove, onPointerUp: finish, onPointerCancel: finish },
-    style: reducedMotion.current
-      ? { opacity, transform: "none", willChange: "opacity" }
-      : { opacity: 1, transform: `translate3d(0, ${offset}px, 0)`, transition: dragging ? "none" : undefined, willChange: "transform" },
+    style: {
+      ...(reducedMotion.current
+        ? { opacity, transform: "none", willChange: "opacity" }
+        : { opacity: 1, transform: `translate3d(0, ${offset}px, 0)`, transition: dragging ? "none" : undefined, willChange: "transform" }),
+      "--mobile-sheet-max": `${(mobileSheet?.maxHeight ?? 0.92) * 100}%`,
+      "--mobile-sheet-height": detents.length ? `${detent * 100}%` : undefined,
+    } as CSSProperties & {
+      "--mobile-sheet-max": string;
+      "--mobile-sheet-height"?: string;
+    },
   };
 }

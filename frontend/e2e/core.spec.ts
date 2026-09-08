@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { assertCredentialFieldsVisuallyMasked, assertExpenseEditorScrollBoundary, assertNoHorizontalOverflow, createActivity, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openExpenseMoreSettings, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
+import { assertCredentialFieldsVisuallyMasked, assertExpenseEditorScrollBoundary, assertNoHorizontalOverflow, createActivity, fillQuickExpenseBasics, installArtifactVisualRedaction, login, openQuickExpense, saveChromiumSuccessScreenshot } from "./support/product";
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -45,21 +45,21 @@ async function createEqualExpense(page: Page, title: string): Promise<void> {
 async function createForeignExpense(page: Page, title: string): Promise<void> {
   const dialog = await openQuickExpense(page);
   await fillQuickExpenseBasics(dialog, "100", title);
-  await dialog.getByRole("button", { name: "币种", exact: true }).click();
+  await dialog.getByRole("button", { name: /^币种：/ }).click();
   const currencyDialog = page.getByRole("dialog", { name: "选择币种" });
   await currencyDialog.getByPlaceholder("搜索币种").fill("USD");
   await currencyDialog.getByRole("button", { name: /USD/ }).click();
-  await openExpenseMoreSettings(dialog);
-  await dialog.getByLabel(/汇率/).fill("7");
-  await dialog.getByRole("button", { name: "谁付款", exact: true }).click();
-  const payerDialog = page.getByRole("dialog", { name: "谁付款" });
+  await dialog.getByRole("textbox", { name: /^汇率（/ }).fill("7");
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
+  await dialog.getByRole("button", { name: /^付款人：/ }).click();
+  const payerDialog = page.getByRole("dialog", { name: "付款人" });
   await payerDialog.getByRole("button", { name: "多人付款", exact: true }).click();
   await payerDialog.getByRole("checkbox").nth(1).click();
   const paymentInputs = payerDialog.locator('input[inputmode="decimal"]');
   await paymentInputs.nth(0).fill("60");
   await paymentInputs.nth(1).fill("40");
   await payerDialog.getByRole("button", { name: "完成", exact: true }).click();
-  await dialog.getByRole("button", { name: "分摊设置", exact: true }).click();
+  await dialog.getByRole("button", { name: /^分摊设置：/ }).click();
   const splitDialog = page.getByRole("dialog", { name: "分摊设置" });
   await splitDialog.getByRole("radio", { name: "按金额", exact: true }).click();
   const splitInputs = splitDialog.locator('input[inputmode="decimal"]');

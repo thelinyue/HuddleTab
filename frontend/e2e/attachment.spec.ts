@@ -6,7 +6,7 @@ import {
   createActivity,
   fillQuickExpenseBasics,
   login,
-  openExpenseMoreSettings,
+  openExpenseNoteView,
   openQuickExpense,
   saveChromiumSuccessScreenshot,
 } from "./support/product";
@@ -26,7 +26,7 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   await expect(navigation.getByRole("link")).toHaveText(["流水", "结算"]);
   const dialog = await openQuickExpense(page);
   await fillQuickExpenseBasics(dialog, "12.34", title);
-  await openExpenseMoreSettings(dialog);
+  await openExpenseNoteView(dialog);
   await dialog.getByLabel("附件（最多三张）").setInputFiles([
     { name: "receipt-a.png", mimeType: "image/png", buffer: onePixelPng },
     { name: "receipt-b.png", mimeType: "image/png", buffer: onePixelPng },
@@ -38,6 +38,7 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
     name: "附件大图预览 receipt-b.png",
   })).toBeVisible();
   await page.getByRole("button", { name: "关闭附件预览" }).click();
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
   await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
@@ -50,9 +51,9 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   const expenseLink = page.getByRole("link", { name: new RegExp(title) });
   await expect(expenseLink).toBeVisible();
   await expenseLink.click();
-  const editor = page.getByRole("dialog", { name: "修改账单" });
+  const editor = page.locator(".quick-expense-overlay .form-overlay__sheet");
   await expect(editor.getByRole("heading", { name: "修改账单" })).toBeVisible();
-  await openExpenseMoreSettings(editor);
+  await openExpenseNoteView(editor);
   await assertExpenseEditorScrollBoundary(page, editor);
   const previews = page.getByRole("img", { name: /^附件 \d+$/ });
   await expect(previews).toHaveCount(2);

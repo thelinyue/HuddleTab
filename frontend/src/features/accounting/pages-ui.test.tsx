@@ -161,14 +161,14 @@ function renderPage(node: ReactNode, initialEntries?: string[]) {
   return render(<MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>);
 }
 
-function openMoreSettings(container: HTMLElement = document.body) {
-  const toggle = within(container).getByRole("button", { name: "更多设置" });
-  if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
-  return toggle;
+function openNoteView(container: HTMLElement = document.body) {
+  fireEvent.click(within(container).getByRole("button", { name: /^备注：/ }));
+  return screen.queryByRole("dialog", { name: "备注与附件" })
+    ?? screen.getByRole("region", { name: "备注与附件" });
 }
 
 function chooseCurrency(code: string) {
-  fireEvent.click(screen.getByRole("button", { name: "币种" }));
+  fireEvent.click(screen.getByRole("button", { name: /^币种：/ }));
   fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${code}`) }));
 }
 
@@ -196,7 +196,6 @@ describe("Expense 参考汇率", () => {
   it("只在点击后填入建议，手工修改立即清除自动来源", async () => {
     renderPage(<NewExpensePage />);
     chooseCurrency("JPY");
-    openMoreSettings();
     fireEvent.click(screen.getByRole("button", { name: "获取参考汇率" }));
 
     await waitFor(() => expect(rateMutation.mutateAsync).toHaveBeenCalledTimes(1));
@@ -212,14 +211,15 @@ describe("Expense 参考汇率", () => {
     renderPage(<NewExpensePage />);
     fireEvent.change(screen.getByPlaceholderText("0.00"), { target: { value: "123" } });
     chooseCurrency("JPY");
-    openMoreSettings();
     fireEvent.change(screen.getByPlaceholderText("例如 7.25"), { target: { value: "0.041" } });
     fireEvent.click(screen.getByRole("button", { name: "获取参考汇率" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("暂时无法获取参考汇率，请手动输入。");
-    expect(screen.getByPlaceholderText("0.00")).toHaveValue("123");
-    expect(screen.getByRole("button", { name: "币种" })).toHaveTextContent("JPY");
     expect(screen.getByPlaceholderText("例如 7.25")).toHaveValue("0.041");
+    fireEvent.click(screen.getByRole("button", { name: "返回选择币种" }));
+    fireEvent.click(screen.getByRole("button", { name: "返回记一笔" }));
+    expect(screen.getByPlaceholderText("0.00")).toHaveValue("123");
+    expect(screen.getByRole("button", { name: /^币种：/ })).toHaveTextContent("JPY");
   });
 });
 
@@ -265,14 +265,25 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     return { trigger, dialog: screen.getByRole("dialog", { name: "记一笔" }) };
   }
 
-  it("根表单按金额、用途、付款、参与、分摊、分类、更多设置和保存排序", async () => {
+  it("根表单使用三组双列字段、独立备注入口和保存栏", async () => {
     const { dialog } = openQuickExpense();
     await waitFor(() => expect(within(dialog).getByLabelText("金额")).toBeInTheDocument());
-    const labels = [...dialog.querySelectorAll(".quick-expense-selection__label")]
+    const labels = [...dialog.querySelectorAll(".quick-expense-field-button__label")]
       .map((element) => element.textContent);
-    expect(labels).toEqual(["谁付款", "谁参与", "分摊设置", "分类"]);
+    expect(labels).toEqual(["付款人", "时间", "参与人", "备注"]);
+    const categoryButton = within(dialog).getByRole("button", { name: "分类：餐饮" });
+    expect(categoryButton).toHaveTextContent("餐饮");
+    const categoryImage = categoryButton.querySelector(".quick-expense-value-button__image");
+    expect(categoryImage).toHaveAttribute("src", "/expense-categories/food.webp");
+    expect(categoryImage).toHaveAttribute("width", "34");
+    expect(categoryImage).toHaveAttribute("height", "34");
+    expect(categoryButton.querySelector(".quick-expense-value-button__content")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "分摊设置：均摊" })).toHaveTextContent("均摊");
+    expect(within(dialog).getByRole("button", { name: "币种：CNY" })).toHaveTextContent("CNY");
+    expect(dialog.querySelector(".quick-expense-amount > small:not(.quick-expense-field-error)")).toHaveTextContent("金额");
+    expect(dialog.querySelectorAll(".quick-expense-grid")).toHaveLength(1);
     expect(within(dialog).getByLabelText("用途")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "更多设置" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(dialog).queryByRole("button", { name: "更多设置" })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "保存" })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("金额")).toHaveValue("");
     expect(within(dialog).getByLabelText("金额")).toHaveAttribute("data-overlay-initial-focus", "true");
@@ -283,59 +294,62 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     const { trigger, dialog } = openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "晚餐" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "谁付款" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
 
-    const payerDialog = screen.getByRole("dialog", { name: "谁付款" });
-    expect(within(payerDialog).getByRole("button", { name: "关闭谁付款" })).toBeInTheDocument();
+    const payerDialog = screen.getByRole("dialog", { name: "付款人" });
+    expect(within(payerDialog).getByRole("button", { name: "关闭付款人" })).toBeInTheDocument();
     fireEvent.click(within(payerDialog).getByRole("button", { name: "记一笔" }));
 
     const rootDialog = screen.getByRole("dialog", { name: "记一笔" });
     expect(within(rootDialog).getByLabelText("金额")).toHaveValue("100");
     expect(within(rootDialog).getByLabelText("用途")).toHaveValue("晚餐");
-    await waitFor(() => expect(document.activeElement).toBe(within(rootDialog).getByRole("button", { name: "谁付款" })));
+    await waitFor(() => expect(document.activeElement).toBe(within(rootDialog).getByRole("button", { name: /^付款人：/ })));
     fireEvent.click(within(rootDialog).getByRole("button", { name: "关闭记一笔" }));
     expect(screen.queryByRole("dialog", { name: "记一笔" })).not.toBeInTheDocument();
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("更多设置使用中文附件入口并保留粘附保存栏", () => {
+  it("备注子视图使用中文附件入口并保留根表单粘附保存栏", () => {
     const { dialog } = openQuickExpense();
-    fireEvent.click(within(dialog).getByRole("button", { name: "更多设置" }));
-    expect(within(dialog).getByText("选择图片")).toBeInTheDocument();
-    expect(within(dialog).getByText("未选择图片")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("附件（最多三张）")).toHaveAttribute("accept", ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp");
     expect(within(dialog).getByRole("button", { name: "保存" }).parentElement).toHaveClass("quick-expense-submit-bar");
+    const noteDialog = openNoteView(dialog);
+    expect(within(noteDialog).getByText("选择图片")).toBeInTheDocument();
+    expect(within(noteDialog).getByText("未选择图片")).toBeInTheDocument();
+    expect(within(noteDialog).getByLabelText("附件（最多三张）")).toHaveAttribute("accept", ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp");
   });
 
   it("参与人确认、分类和币种确认都回到根表单并保留其他字段", () => {
     const { dialog } = openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "谁参与" }));
-    const participantDialog = screen.getByRole("dialog", { name: "谁参与" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^参与人：/ }));
+    const participantDialog = screen.getByRole("dialog", { name: "参与人" });
     fireEvent.click(within(participantDialog).getByRole("checkbox", { name: "乙" }));
     fireEvent.click(within(participantDialog).getByRole("button", { name: "完成" }));
     const rootAfterParticipants = screen.getByRole("dialog", { name: "记一笔" });
-    expect(within(rootAfterParticipants).getByRole("button", { name: "谁参与" })).toHaveTextContent("1 人");
+    expect(within(rootAfterParticipants).getByRole("button", { name: /^参与人：/ })).toHaveTextContent("1 人");
 
-    fireEvent.click(within(rootAfterParticipants).getByRole("button", { name: "分类" }));
+    fireEvent.click(within(rootAfterParticipants).getByRole("button", { name: /^分类：/ }));
     const categoryDialog = screen.getByRole("dialog", { name: "分类" });
     fireEvent.click(within(categoryDialog).getByRole("radio", { name: "交通" }));
     const rootAfterCategory = screen.getByRole("dialog", { name: "记一笔" });
-    expect(within(rootAfterCategory).getByRole("button", { name: "分类" })).toHaveTextContent("交通");
+    expect(within(rootAfterCategory).getByRole("button", { name: /^分类：/ })).toHaveTextContent("交通");
 
-    fireEvent.click(within(rootAfterCategory).getByRole("button", { name: "币种" }));
+    fireEvent.click(within(rootAfterCategory).getByRole("button", { name: /^币种：/ }));
     const currencyDialog = screen.getByRole("dialog", { name: "选择币种" });
     fireEvent.change(within(currencyDialog).getByPlaceholderText("搜索币种"), { target: { value: "USD" } });
     fireEvent.click(within(currencyDialog).getByRole("button", { name: /USD/ }));
-    expect(within(screen.getByRole("dialog", { name: "记一笔" })).getByRole("button", { name: "币种" })).toHaveTextContent("USD");
+    expect(screen.getByRole("dialog", { name: "设置汇率" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("例如 7.25"), { target: { value: "7.25" } });
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    expect(within(screen.getByRole("dialog", { name: "记一笔" })).getByRole("button", { name: /^币种：/ })).toHaveTextContent("USD");
   });
 
   it("多人付款严格校验守恒，提交时传递每个付款人的最小单位金额", async () => {
     const { dialog } = openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "多人晚餐" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "谁付款" }));
-    const payerDialog = screen.getByRole("dialog", { name: "谁付款" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
+    const payerDialog = screen.getByRole("dialog", { name: "付款人" });
     fireEvent.click(within(payerDialog).getByRole("button", { name: "多人付款" }));
     fireEvent.click(within(payerDialog).getByRole("checkbox", { name: "乙" }));
     fireEvent.change(within(payerDialog).getByLabelText("甲付款金额"), { target: { value: "60" } });
@@ -359,7 +373,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   it("精确分摊实时显示守恒汇总，参与人变更会清空旧的精确值", () => {
     const { dialog } = openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "分摊设置" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^分摊设置：/ }));
     const splitDialog = screen.getByRole("dialog", { name: "分摊设置" });
     fireEvent.click(within(splitDialog).getByRole("radio", { name: "按金额" }));
     fireEvent.change(within(splitDialog).getByLabelText("甲按金额"), { target: { value: "60" } });
@@ -367,31 +381,31 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     expect(splitDialog).toHaveTextContent("已分配 ¥100.00 / ¥100.00");
     fireEvent.click(within(splitDialog).getByRole("button", { name: "完成" }));
     const rootDialog = screen.getByRole("dialog", { name: "记一笔" });
-    fireEvent.click(within(rootDialog).getByRole("button", { name: "谁参与" }));
-    const participantDialog = screen.getByRole("dialog", { name: "谁参与" });
+    fireEvent.click(within(rootDialog).getByRole("button", { name: /^参与人：/ }));
+    const participantDialog = screen.getByRole("dialog", { name: "参与人" });
     fireEvent.click(within(participantDialog).getByRole("checkbox", { name: "乙" }));
     fireEvent.click(within(participantDialog).getByRole("button", { name: "完成" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "记一笔" })).getByRole("button", { name: "分摊设置" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "记一笔" })).getByRole("button", { name: /^分摊设置：/ }));
     const resetSplitDialog = screen.getByRole("dialog", { name: "分摊设置" });
     expect(within(resetSplitDialog).getByLabelText("甲按金额")).toHaveValue("");
   });
 
   it("Owner 在线可添加临时成员，离线时添加入口禁用", async () => {
     const { dialog } = openQuickExpense();
-    fireEvent.click(within(dialog).getByRole("button", { name: "谁付款" }));
-    const payerDialog = screen.getByRole("dialog", { name: "谁付款" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
+    const payerDialog = screen.getByRole("dialog", { name: "付款人" });
     fireEvent.click(within(payerDialog).getByRole("button", { name: "添加临时成员" }));
     const guestDialog = screen.getByRole("dialog", { name: "添加临时成员" });
     fireEvent.change(within(guestDialog).getByLabelText("临时成员昵称"), { target: { value: "临时甲" } });
     fireEvent.click(within(guestDialog).getByRole("button", { name: "确认添加" }));
     expect(await screen.findByRole("dialog", { name: "记一笔" })).toBeInTheDocument();
-    expect(within(screen.getByRole("dialog", { name: "记一笔" })).getByRole("button", { name: "谁付款" })).toHaveTextContent("临时甲");
+    expect(within(screen.getByRole("dialog", { name: "记一笔" })).getByRole("button", { name: /^付款人：/ })).toHaveTextContent("临时甲");
 
     workspaceState.offline = true;
     cleanup();
     const offline = openQuickExpense();
-    fireEvent.click(within(offline.dialog).getByRole("button", { name: "谁付款" }));
-    expect(within(screen.getByRole("dialog", { name: "谁付款" })).getByRole("button", { name: "添加临时成员" })).toBeDisabled();
+    fireEvent.click(within(offline.dialog).getByRole("button", { name: /^付款人：/ }));
+    expect(within(screen.getByRole("dialog", { name: "付款人" })).getByRole("button", { name: "添加临时成员" })).toBeDisabled();
   });
 
   it("金额为空时就地展示错误并把焦点交给金额输入", () => {
@@ -414,8 +428,8 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     const { dialog } = openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "付款校验" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "谁付款" }));
-    const payerDialog = screen.getByRole("dialog", { name: "谁付款" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
+    const payerDialog = screen.getByRole("dialog", { name: "付款人" });
     fireEvent.click(within(payerDialog).getByRole("button", { name: "多人付款" }));
     fireEvent.click(within(payerDialog).getByRole("checkbox", { name: "乙" }));
     fireEvent.change(within(payerDialog).getByLabelText("甲付款金额"), { target: { value: "60" } });
@@ -425,7 +439,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     fireEvent.change(within(rootDialog).getByLabelText("金额"), { target: { value: "99" } });
     fireEvent.click(within(rootDialog).getByRole("button", { name: "保存" }));
 
-    const invalidPayerDialog = await screen.findByRole("dialog", { name: "谁付款" });
+    const invalidPayerDialog = await screen.findByRole("dialog", { name: "付款人" });
     expect(within(invalidPayerDialog).getByRole("alert")).toHaveTextContent("付款合计必须等于消费金额");
   });
 
@@ -433,7 +447,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     const { dialog } = openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "分摊校验" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "分摊设置" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^分摊设置：/ }));
     const splitDialog = screen.getByRole("dialog", { name: "分摊设置" });
     fireEvent.click(within(splitDialog).getByRole("radio", { name: "按金额" }));
     fireEvent.change(within(splitDialog).getByLabelText("甲按金额"), { target: { value: "60" } });
@@ -453,23 +467,23 @@ describe("统一账单编辑器", () => {
     renderPage(<ExpenseDetailPage />);
 
     expect(screen.getByRole("heading", { name: "修改账单" })).toBeInTheDocument();
-    expect([...document.querySelectorAll(".quick-expense-selection__label")]
+    expect([...document.querySelectorAll(".quick-expense-field-button__label")]
       .map((element) => element.textContent))
-      .toEqual(["谁付款", "谁参与", "分摊设置", "分类"]);
+      .toEqual(["付款人", "时间", "参与人", "备注"]);
     expect(screen.getByLabelText("金额")).toHaveValue("10.00");
     expect(screen.getByLabelText("用途")).toHaveValue("午餐");
-    expect(screen.getByRole("button", { name: "谁付款" })).toHaveTextContent("甲");
-    expect(screen.getByRole("button", { name: "谁参与" })).toHaveTextContent("2 人");
-    expect(screen.getByRole("button", { name: "分摊设置" })).toHaveTextContent("按金额");
+    expect(screen.getByRole("button", { name: /^付款人：/ })).toHaveTextContent("甲");
+    expect(screen.getByRole("button", { name: /^参与人：/ })).toHaveTextContent("2 人");
+    expect(screen.getByRole("button", { name: /^分摊设置：/ })).toHaveTextContent("按金额");
 
-    fireEvent.click(screen.getByRole("button", { name: "谁付款" }));
+    fireEvent.click(screen.getByRole("button", { name: /^付款人：/ }));
     expect(screen.getByRole("radio", { name: "甲" })).toHaveAttribute("aria-checked", "true");
     fireEvent.click(screen.getByRole("button", { name: "返回修改账单" }));
-    fireEvent.click(screen.getByRole("button", { name: "谁参与" }));
+    fireEvent.click(screen.getByRole("button", { name: /^参与人：/ }));
     expect(screen.getByRole("checkbox", { name: "甲" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("checkbox", { name: "乙" })).toHaveAttribute("aria-checked", "true");
     fireEvent.click(screen.getByRole("button", { name: "返回修改账单" }));
-    fireEvent.click(screen.getByRole("button", { name: "分摊设置" }));
+    fireEvent.click(screen.getByRole("button", { name: /^分摊设置：/ }));
     expect(screen.getByRole("radio", { name: "按金额" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByLabelText("甲按金额")).toHaveValue("5.00");
     expect(screen.getByLabelText("乙按金额")).toHaveValue("5.00");
@@ -494,13 +508,13 @@ describe("统一账单编辑器", () => {
     })));
   });
 
-  it("更多设置折叠后保留输入", () => {
+  it("备注子视图返回后保留输入并更新摘要", () => {
     renderPage(<NewExpensePage />);
-    const toggle = openMoreSettings();
+    openNoteView();
     fireEvent.change(screen.getByLabelText("备注"), { target: { value: "保留这段备注" } });
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    expect(screen.getByRole("button", { name: "备注：保留这段备注" })).toBeInTheDocument();
+    openNoteView();
     expect(screen.getByLabelText("备注")).toHaveValue("保留这段备注");
   });
 
@@ -537,8 +551,8 @@ describe("流水内修改账单 Sheet", () => {
     expect(within(dialog).getByLabelText("用途")).toHaveValue("午餐");
     expect(within(dialog).getByRole("button", { name: "删除账单" })).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "谁付款" }));
-    const payerDialog = screen.getByRole("dialog", { name: "谁付款" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
+    const payerDialog = screen.getByRole("dialog", { name: "付款人" });
     fireEvent.click(within(payerDialog).getByRole("button", { name: "修改账单" }));
     expect(screen.getByRole("dialog", { name: "修改账单" })).toBeInTheDocument();
 
@@ -617,7 +631,7 @@ describe("流水备注摘要", () => {
 describe("Expense 附件选择与私有预览", () => {
   it("新建模式限制为三张受支持图片，编辑模式不再选择附件", () => {
     const create = renderPage(<NewExpensePage />);
-    openMoreSettings();
+    openNoteView();
     const input = screen.getByLabelText("附件（最多三张）");
     expect(input).toHaveAttribute(
       "accept",
@@ -626,7 +640,7 @@ describe("Expense 附件选择与私有预览", () => {
     create.unmount();
 
     renderPage(<ExpenseDetailPage />);
-    openMoreSettings();
+    openNoteView();
     expect(screen.queryByLabelText("附件（最多三张）")).not.toBeInTheDocument();
   });
 
@@ -651,19 +665,20 @@ describe("Expense 附件选择与私有预览", () => {
     },
   ])("无效附件保留已填表单并显示 $message", ({ files, message }) => {
     renderPage(<NewExpensePage />);
-    openMoreSettings();
     const title = screen.getByLabelText("用途");
     const amount = screen.getByPlaceholderText("0.00");
     fireEvent.change(title, { target: { value: "保留的午餐" } });
     fireEvent.change(amount, { target: { value: "12.34" } });
+    openNoteView();
 
     fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
       target: { files },
     });
 
     expect(screen.getByRole("alert")).toHaveTextContent(message);
-    expect(title).toHaveValue("保留的午餐");
-    expect(amount).toHaveValue("12.34");
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    expect(screen.getByLabelText("用途")).toHaveValue("保留的午餐");
+    expect(screen.getByPlaceholderText("0.00")).toHaveValue("12.34");
   });
 
   it("选择图片后显示缩略图，点击缩略图打开大图预览", () => {
@@ -672,7 +687,7 @@ describe("Expense 附件选择与私有预览", () => {
       .mockReturnValueOnce("blob:receipt-b");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     renderPage(<NewExpensePage />);
-    openMoreSettings();
+    openNoteView();
     const files = [
       new File(["a"], "receipt-a.png", { type: "image/png" }),
       new File(["b"], "receipt-b.webp", { type: "image/webp" }),
@@ -709,7 +724,13 @@ describe("Expense 附件选择与私有预览", () => {
       .mockReturnValueOnce("blob:receipt-b-next");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     renderPage(<NewExpensePage />);
-    openMoreSettings();
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("用途"), {
+      target: { value: "保留一张附件" },
+    });
+    openNoteView();
     const first = new File(["a"], "receipt-a.png", { type: "image/png" });
     const second = new File(["b"], "receipt-b.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
@@ -724,12 +745,7 @@ describe("Expense 附件选择与私有预览", () => {
     expect(screen.getByRole("img", { name: "receipt-b.png 缩略图" }))
       .toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("0.00"), {
-      target: { value: "10" },
-    });
-    fireEvent.change(screen.getByLabelText("用途"), {
-      target: { value: "保留一张附件" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalled());
@@ -744,7 +760,7 @@ describe("Expense 附件选择与私有预览", () => {
     const revoke = vi.spyOn(URL, "revokeObjectURL")
       .mockImplementation(() => undefined);
     renderPage(<NewExpensePage />);
-    openMoreSettings();
+    openNoteView();
     fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
       target: {
         files: [new File(["receipt"], "receipt.png", { type: "image/png" })],
@@ -760,7 +776,6 @@ describe("Expense 附件选择与私有预览", () => {
 
   it("保存时把同一 File[] 与账单输入一起交给创建 mutation", async () => {
     renderPage(<NewExpensePage />);
-    openMoreSettings();
     const file = new File(["receipt"], "receipt.png", {
       type: "image/png",
     });
@@ -770,10 +785,12 @@ describe("Expense 附件选择与私有预览", () => {
     fireEvent.change(screen.getByLabelText("用途"), {
       target: { value: "午餐附件" },
     });
+    openNoteView();
     fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
       target: { files: [file] },
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalled());
@@ -788,7 +805,7 @@ describe("Expense 附件选择与私有预览", () => {
     (status) => {
       activity.status = status;
       renderPage(<ExpenseDetailPage />);
-      if (status === "ACTIVE") openMoreSettings();
+      if (status === "ACTIVE") openNoteView();
 
       const link = screen.getByRole("link", { name: "查看附件 1" });
       expect(link).toHaveAttribute(
@@ -811,7 +828,7 @@ describe("Expense 附件选择与私有预览", () => {
 
   it("ACTIVE 编辑页确认后立即删除指定已有附件", async () => {
     renderPage(<ExpenseDetailPage />);
-    openMoreSettings();
+    openNoteView();
 
     fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
     expect(screen.getByRole("alertdialog", { name: "删除附件" })).toBeInTheDocument();
@@ -934,9 +951,10 @@ describe("Expense pending 流水隔离", () => {
     const dialog = screen.getByRole("dialog", { name: "修改被拒账单" });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByLabelText("用途")).toHaveValue("被拒早餐");
-    openMoreSettings(dialog);
+    openNoteView(dialog);
     expect(within(dialog).getByLabelText("备注")).toHaveValue("原始备注");
 
+    fireEvent.click(within(dialog).getByRole("button", { name: "完成" }));
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "修正早餐" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "修改后重试" }));
 

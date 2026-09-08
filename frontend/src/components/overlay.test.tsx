@@ -72,4 +72,22 @@ describe("共享 Overlay", () => {
     expect(screen.queryByRole("dialog", { name: "外部面板" })).not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("移动端可先聚焦 Sheet 容器，不自动唤起输入法", () => {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: query === "(max-width: 639px)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+
+    render(
+      <Overlay open title="移动面板" initialFocus="mobile-dialog" onClose={vi.fn()}>
+        <input aria-label="金额" data-overlay-initial-focus />
+      </Overlay>,
+    );
+
+    expect(screen.getByRole("dialog", { name: "移动面板" })).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "金额" })).not.toHaveFocus();
+  });
 });

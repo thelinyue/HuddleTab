@@ -128,9 +128,10 @@ export async function assertActivityChrome(page: Page, expected: { themeColor: s
 
 export async function openQuickExpense(page: Page): Promise<Locator> {
   await page.getByRole("button", { name: "记一笔", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "记一笔", exact: true });
-  await expect(dialog).toBeVisible();
-  return dialog;
+  const sheet = page.locator(".quick-expense-overlay .form-overlay__sheet");
+  await expect(sheet).toHaveAttribute("role", "dialog");
+  await expect(sheet).toBeVisible();
+  return sheet;
 }
 
 export async function fillQuickExpenseBasics(dialog: Locator, amount: string, title: string): Promise<void> {
@@ -138,13 +139,10 @@ export async function fillQuickExpenseBasics(dialog: Locator, amount: string, ti
   await dialog.getByLabel("用途").fill(title);
 }
 
-/** 快捷记账沿用 v0.0.2：需要日期、汇率或附件时显式展开“更多设置”。 */
-export async function openExpenseMoreSettings(dialog: Locator): Promise<void> {
-  const toggle = dialog.getByRole("button", { name: "更多设置", exact: true });
-  if (await toggle.count() === 0) return;
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+/** 备注和附件共用独立子视图，返回主表单时仍保留本地草稿。 */
+export async function openExpenseNoteView(editor: Locator): Promise<void> {
+  await editor.getByRole("button", { name: /^备注：/ }).click();
+  await expect(editor.page().getByRole("textbox", { name: "备注", exact: true })).toBeVisible();
 }
 
 export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): Promise<void> {
@@ -160,16 +158,40 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
   const metrics = await dialog.evaluate((element, expectedViewportHeight) => {
     const dialogBox = element.getBoundingClientRect();
     const amountBox = element.querySelector<HTMLElement>(".quick-expense-amount__input")?.getBoundingClientRect();
+    const amountLabelBox = element.querySelector<HTMLElement>(".quick-expense-amount > small:not(.quick-expense-field-error)")?.getBoundingClientRect();
     const currencyBox = element.querySelector<HTMLElement>(".quick-expense-currency")?.getBoundingClientRect();
+    const currencyIconBox = element.querySelector<SVGElement>(".quick-expense-currency svg")?.getBoundingClientRect();
     const titleBox = element.querySelector<HTMLElement>(".form-overlay__header h2")?.getBoundingClientRect();
     const saveBox = element.querySelector<HTMLElement>(".quick-expense-submit")?.getBoundingClientRect();
+    const categoryValueBox = element.querySelector<HTMLElement>('button[aria-label^="分类："] .quick-expense-value-button__content')?.getBoundingClientRect();
+    const purposeValueBox = element.querySelector<HTMLElement>(".quick-expense-inline-field .input")?.getBoundingClientRect();
+    const participantValueBox = element.querySelector<HTMLElement>('button[aria-label^="参与人："] .quick-expense-field-button__value')?.getBoundingClientRect();
+    const splitValueBox = element.querySelector<HTMLElement>('button[aria-label^="分摊设置："] .quick-expense-value-button__content')?.getBoundingClientRect();
+    const fieldGrid = element.querySelector<HTMLElement>(".quick-expense-grid");
+    const fieldGridStyle = fieldGrid ? getComputedStyle(fieldGrid) : null;
+    const secondRowStyle = fieldGrid?.children[2] ? getComputedStyle(fieldGrid.children[2]) : null;
+    const firstCellStyle = fieldGrid?.children[0] ? getComputedStyle(fieldGrid.children[0]) : null;
+    const centerY = (box?: DOMRect) => box ? box.top + box.height / 2 : null;
     return {
       dialogCenter: dialogBox.left + dialogBox.width / 2,
       amountCenter: amountBox ? amountBox.left + amountBox.width / 2 : null,
-      currencyRight: currencyBox ? currencyBox.right : null,
       amountLeft: amountBox?.left ?? null,
+      amountRight: amountBox?.right ?? null,
+      amountLabelRight: amountLabelBox?.right ?? null,
+      currencyLeft: currencyBox?.left ?? null,
+      currencyRight: currencyBox?.right ?? null,
+      currencyIconLeft: currencyIconBox?.left ?? null,
+      currencyIconRight: currencyIconBox?.right ?? null,
       titleCenter: titleBox ? titleBox.left + titleBox.width / 2 : null,
       saveBottom: saveBox?.bottom ?? null,
+      categoryValueCenterY: centerY(categoryValueBox),
+      purposeValueCenterY: centerY(purposeValueBox),
+      participantValueCenterY: centerY(participantValueBox),
+      splitValueCenterY: centerY(splitValueBox),
+      fieldGridColumnGap: fieldGridStyle?.columnGap ?? null,
+      fieldGridRowGap: fieldGridStyle?.rowGap ?? null,
+      secondRowBorderTop: secondRowStyle?.borderTopWidth ?? null,
+      firstCellBorderRight: firstCellStyle?.borderRightWidth ?? null,
       viewportHeight: expectedViewportHeight,
     };
   }, viewportBottom);
@@ -177,9 +199,27 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
   expect(Math.abs(metrics.amountCenter! - metrics.dialogCenter), `金额输入未位于 Overlay 中轴：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
   expect(metrics.titleCenter).not.toBeNull();
   expect(Math.abs(metrics.titleCenter! - metrics.dialogCenter), `Header 标题未居中：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
-  expect(metrics.currencyRight).not.toBeNull();
+  expect(metrics.amountLabelRight).not.toBeNull();
   expect(metrics.amountLeft).not.toBeNull();
-  expect(metrics.currencyRight!).toBeLessThanOrEqual(metrics.amountLeft! + 2);
+  expect(metrics.amountLabelRight!).toBeLessThanOrEqual(metrics.amountLeft! + 2);
+  expect(metrics.currencyLeft).not.toBeNull();
+  expect(metrics.currencyRight).not.toBeNull();
+  expect(metrics.currencyIconLeft).not.toBeNull();
+  expect(metrics.currencyIconRight).not.toBeNull();
+  expect(metrics.amountRight).not.toBeNull();
+  expect(metrics.currencyLeft!).toBeGreaterThanOrEqual(metrics.amountRight! - 2);
+  expect(metrics.currencyIconLeft!).toBeGreaterThanOrEqual(metrics.currencyLeft! - 1);
+  expect(metrics.currencyIconRight!).toBeLessThanOrEqual(metrics.currencyRight! + 1);
+  expect(metrics.categoryValueCenterY).not.toBeNull();
+  expect(metrics.purposeValueCenterY).not.toBeNull();
+  expect(Math.abs(metrics.categoryValueCenterY! - metrics.purposeValueCenterY!), `分类与用途值行未对齐：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.participantValueCenterY).not.toBeNull();
+  expect(metrics.splitValueCenterY).not.toBeNull();
+  expect(Math.abs(metrics.participantValueCenterY! - metrics.splitValueCenterY!), `参与人与分摊值行未对齐：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.fieldGridColumnGap).toBe("0px");
+  expect(metrics.fieldGridRowGap).toBe("0px");
+  expect(metrics.secondRowBorderTop).toBe("1px");
+  expect(metrics.firstCellBorderRight).toBe("0px");
   expect(metrics.saveBottom).not.toBeNull();
   expect(metrics.saveBottom!).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 }

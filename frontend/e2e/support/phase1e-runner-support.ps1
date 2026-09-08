@@ -73,7 +73,8 @@ function New-Phase1EPlaywrightArguments {
       "--",
       "ui-parity.spec.ts",
       "--project=chromium-ui-parity-desktop",
-      "--project=chromium-ui-parity-mobile"
+      "--project=chromium-ui-parity-mobile",
+      "--project=chromium-ui-parity-compact"
     )
   }
   if ($Task29Only) {

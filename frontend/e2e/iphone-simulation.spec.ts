@@ -8,7 +8,6 @@ import {
   createActivity,
   fillQuickExpenseBasics,
   login,
-  openExpenseMoreSettings,
   openQuickExpense,
 } from "./support/product";
 
@@ -137,7 +136,7 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   expect(sheetSafeArea.closeTop).toBeGreaterThanOrEqual(47);
   expect(sheetSafeArea.left).toBeGreaterThanOrEqual(11);
   expect(sheetSafeArea.rightGap).toBeGreaterThanOrEqual(13);
-  await openExpenseMoreSettings(dialog);
+  await dialog.getByLabel("用途").click();
   await resizeSimulatedViewport(page, 80, 360);
   await assertQuickExpenseGeometry(page, dialog);
   const keyboardContent = dialog.locator(".form-overlay__body");
@@ -151,19 +150,26 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
     return element.scrollTop;
   });
   expect(keyboardScrollTop).toBeGreaterThan(0);
-  await expect(dialog.getByLabel("备注")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /^备注：/ })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeVisible();
   await dismissSimulatedKeyboard(page);
   await assertExpenseEditorScrollBoundary(page, dialog);
   await fillQuickExpenseBasics(dialog, "12.34", expenseTitle);
-  for (const view of ["谁付款", "谁参与", "分摊设置", "币种"] as const) {
-    await dialog.getByRole("button", { name: view, exact: true }).click();
-    const title = view === "币种" ? "选择币种" : view;
+  for (const view of [
+    { trigger: /^付款人：/, title: "付款人" },
+    { trigger: /^参与人：/, title: "参与人" },
+    { trigger: /^分摊设置：/, title: "分摊设置" },
+    { trigger: /^币种：/, title: "选择币种" },
+  ] as const) {
+    await dialog.getByRole("button", { name: view.trigger }).click();
+    const title = view.title;
     const subview = page.getByRole("dialog", { name: title, exact: true });
     await assertExpenseEditorScrollBoundary(page, subview);
     await subview.getByRole("button", { name: "记一笔", exact: true }).click();
   }
   await assertExpenseEditorScrollBoundary(page, dialog);
+  await dialog.getByRole("button", { name: /^备注：/ }).click();
+  await expect(page.getByRole("dialog", { name: "备注与附件" })).toBeVisible();
   const attachmentInput = dialog.getByLabel("附件（最多三张）");
   await attachmentInput.setInputFiles([
     { name: "iphone-receipt-a.png", mimeType: "image/png", buffer: onePixelPng },
@@ -177,6 +183,7 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await dialog.getByRole("button", { name: "预览附件 iphone-receipt-b.png" }).click();
   await expect(page.getByRole("dialog", { name: "附件大图预览 iphone-receipt-b.png" })).toBeVisible();
   await page.getByRole("button", { name: "关闭附件预览" }).click();
+  await dialog.getByRole("button", { name: "完成", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
   // WebKit 不提供 Chromium 的 Service Worker 能力，持久化和同步由 Chromium Mobile 专项覆盖。
   await dialog.getByRole("button", { name: "关闭记一笔", exact: true }).click();
