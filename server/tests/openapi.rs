@@ -324,6 +324,7 @@ fn attachment_contract_publishes_multipart_and_private_binary_download() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn join_approval_and_notification_contract_is_complete() {
     let document = huddletab_server::http::openapi::document();
     let value = serde_json::to_value(document).expect("OpenAPI 应可序列化");
