@@ -110,7 +110,7 @@ fn request(actor: &TestActor, method: &str, uri: String) -> Request<Body> {
         .expect("通知请求应可构造")
 }
 
-fn request_with_body(actor: &TestActor, method: &str, uri: String, body: Value) -> Request<Body> {
+fn request_with_body(actor: &TestActor, method: &str, uri: String, body: &Value) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(uri)
@@ -169,6 +169,7 @@ async fn insert_notification(
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
 async fn notifications_are_user_scoped_and_order_unread_before_read() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
     let pool = connect_and_migrate(&database_url)
@@ -518,6 +519,7 @@ async fn notification_read_all_updates_every_unread_without_crossing_users_or_ov
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
 async fn notification_clear_applies_each_filter_to_all_history_and_preserves_other_user_data() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
     let pool = connect_and_migrate(&database_url)
