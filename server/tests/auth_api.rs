@@ -903,10 +903,7 @@ async fn auth_requests_return_a_standard_429_after_the_shared_ip_limit() {
     let mut last_response = None;
     for request_index in 0..11 {
         let (uri, body) = if request_index < 9 {
-            (
-                "/api/auth/login",
-                r#"{"username":"","password":""}"#,
-            )
+            ("/api/auth/login", r#"{"username":"","password":""}"#)
         } else {
             (
                 "/api/auth/register",
