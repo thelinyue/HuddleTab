@@ -397,7 +397,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
              LEFT JOIN activity_members guest \
                ON guest.activity_id = i.activity_id AND guest.id = i.guest_member_id \
-             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $3 \
+             WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
                AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
                AND (i.guest_member_id IS NULL \
                     OR (guest.user_id IS NULL AND guest.status = 'ACTIVE')) \
