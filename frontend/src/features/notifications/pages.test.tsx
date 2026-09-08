@@ -176,7 +176,7 @@ describe("NotificationsPage", () => {
 
   it("已读的待审批通知仍保留审批操作", () => {
     state.notifications.items = [notification({ readAt: "2026-09-08T00:00:00Z", payload: { displayName: "Bob", requestId: "request-1" } })];
-    render(<NotificationsPage />);
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
     expect(screen.getByRole("button", { name: "通过" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument();
   });
