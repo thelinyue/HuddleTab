@@ -19,7 +19,7 @@ async function openCreateActivity(page: import("@playwright/test").Page) {
   return page.getByRole("dialog", { name: "创建活动" });
 }
 
-test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", async ({ page }, testInfo) => {
+test("活动首页、工作台和记账入口保持远程基线信息路径", async ({ page }, testInfo) => {
   await login(page);
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link")).toHaveText(["活动", "通知", "我的"]);
@@ -37,27 +37,45 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
   const createDialog = await openCreateActivity(page);
   await createDialog.getByLabel("活动名称").fill(activityName);
   await createDialog.getByRole("button", { name: "创建活动", exact: true }).click();
-  // 创建后沿用 v0.0.2 的列表→工作台路径，服务端不会自动跳转到新活动。
+  // 创建后沿用远程基线的列表→工作台路径，服务端不会自动跳转到新活动。
   const activityLink = page.getByRole("link").filter({ hasText: activityName });
   await expect(activityLink).toBeVisible();
   await activityLink.click();
   await expect(page.getByRole("heading", { name: activityName, exact: true })).toBeVisible();
+  const activityHeader = await page.evaluate(() => {
+    const back = document.querySelector<HTMLElement>(".workspace-header .back-link")!.getBoundingClientRect();
+    const arrow = document.querySelector<SVGElement>(".workspace-header .back-link svg")!.getBoundingClientRect();
+    const title = document.querySelector<HTMLElement>(".workspace-header__identity h1")!.getBoundingClientRect();
+    return { backLeft: back.left, backWidth: back.width, backHeight: back.height, arrowLeft: arrow.left, titleLeft: title.left };
+  });
+  expect(activityHeader.backLeft).toBeGreaterThanOrEqual(0);
+  expect(activityHeader.backWidth).toBe(44);
+  expect(activityHeader.backHeight).toBe(44);
+  expect(Math.abs(activityHeader.arrowLeft - activityHeader.titleLeft)).toBeLessThanOrEqual(1);
 
   const activityNavigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(activityNavigation.getByRole("link")).toHaveText(["流水", "结算"]);
   const expenseDialog = await openQuickExpense(page);
   await expect(expenseDialog.locator(".quick-expense-amount__input")).toBeVisible();
   await expect(expenseDialog.getByLabel("用途")).toBeVisible();
-  await expect(expenseDialog.getByRole("button", { name: "保存", exact: true })).toBeVisible();
+  const saveButton = expenseDialog.getByRole("button", { name: "保存", exact: true });
+  await expect(saveButton).toBeVisible();
+  await expect(saveButton.locator("..")).toHaveClass(/quick-expense-action-dock/);
   await expect(expenseDialog.getByRole("button", { name: /^付款人：/ })).toBeVisible();
   await expect(expenseDialog.getByRole("button", { name: /^参与人：/ })).toBeVisible();
   await expect(expenseDialog.getByRole("button", { name: "分摊设置：均摊" })).toBeVisible();
   await expect(expenseDialog.getByRole("button", { name: "分类：餐饮" })).toBeVisible();
-  await expect(expenseDialog.getByRole("button", { name: /^时间：/ })).toBeVisible();
+  await expect(expenseDialog.getByLabel("时间")).toHaveAttribute("type", "datetime-local");
+  await expect(expenseDialog.getByRole("button", { name: /^时间：/ })).toHaveCount(0);
   await expect(expenseDialog.getByRole("button", { name: /^备注：/ })).toBeVisible();
   await expect(expenseDialog.getByRole("button", { name: "更多设置", exact: true })).toHaveCount(0);
   await assertQuickExpenseGeometry(page, expenseDialog);
   await assertExpenseEditorScrollBoundary(page, expenseDialog);
+  if (testInfo.project.name === "chromium-ui-parity-compact") {
+    const defaultOverlayPath = testInfo.outputPath("quick-expense-default.png");
+    await page.screenshot({ path: defaultOverlayPath });
+    await testInfo.attach("320x568 记一笔默认布局", { path: defaultOverlayPath, contentType: "image/png" });
+  }
 
   await fillQuickExpenseBasics(expenseDialog, "10", "对照路径测试");
   await expenseDialog.getByRole("button", { name: /^付款人：/ }).click();
@@ -70,7 +88,9 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
   await expenseDialog.getByRole("button", { name: /^参与人：/ }).click();
   const participantDialog = page.getByRole("dialog", { name: "参与人" });
   await assertExpenseEditorScrollBoundary(page, participantDialog);
-  await expect(participantDialog.getByRole("button", { name: "完成", exact: true })).toBeVisible();
+  const participantDone = participantDialog.getByRole("button", { name: "完成", exact: true });
+  await expect(participantDone).toBeVisible();
+  await expect(participantDone.locator("..")).toHaveClass(/quick-expense-action-dock/);
   await participantDialog.getByRole("button", { name: "记一笔", exact: true }).click();
   await expect(expenseDialog.getByRole("button", { name: /^参与人：/ })).toBeFocused();
 
@@ -78,6 +98,17 @@ test("v0.0.2 活动首页、工作台和记账入口保持同一信息路径", a
   const splitDialog = page.getByRole("dialog", { name: "分摊设置" });
   await assertExpenseEditorScrollBoundary(page, splitDialog);
   await expect(splitDialog.getByRole("radio", { name: "均摊", exact: true })).toHaveAttribute("aria-checked", "true");
+  await splitDialog.getByRole("radio", { name: "按份数", exact: true }).click();
+  const weightInput = splitDialog.getByRole("textbox", { name: /按份数$/ }).first();
+  const incrementWeight = splitDialog.getByRole("button", { name: /^增加.+的份数$/ }).first();
+  const decrementWeight = splitDialog.getByRole("button", { name: /^减少.+的份数$/ }).first();
+  await expect(weightInput).toHaveValue("");
+  await expect(decrementWeight).toBeDisabled();
+  await incrementWeight.click();
+  await expect(weightInput).toHaveValue("1");
+  await expect(decrementWeight).toBeDisabled();
+  await splitDialog.getByRole("radio", { name: "按比例", exact: true }).click();
+  await expect(splitDialog.locator('input[placeholder="%"]')).toHaveCount(1);
   await splitDialog.getByRole("button", { name: "记一笔", exact: true }).click();
   await expect(expenseDialog.getByRole("button", { name: /^分摊设置：/ })).toBeFocused();
 

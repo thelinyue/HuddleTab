@@ -67,6 +67,8 @@ export function Overlay({
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        // 确认弹层拥有自己的 Escape 语义，不能被外层 Sheet 抢先关闭。
+        if (document.querySelector('[role="alertdialog"]')) return;
         event.preventDefault();
         requestCloseRef.current();
         return;

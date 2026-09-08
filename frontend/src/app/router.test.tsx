@@ -8,13 +8,15 @@ import { ApplicationRouter } from "./router";
 
 const authState = vi.hoisted((): {
   data?: { userId: string; username: string; displayName: string };
+  isPending: boolean;
 } => ({
   data: { userId: "user-1", username: "tester", displayName: "测试用户" },
+  isPending: false,
 }));
 const setupState = vi.hoisted(() => ({ isPending: false, setupRequired: false, error: null as unknown }));
 
 vi.mock("../features/auth/api", () => ({
-  useSessionQuery: () => ({ isPending: false, data: authState.data }),
+  useSessionQuery: () => ({ isPending: authState.isPending, data: authState.data }),
   hasRememberedOfflineSession: () => false,
   useChangePasswordMutation: () => ({ isPending: false, mutateAsync: vi.fn() }),
 }));
@@ -77,6 +79,7 @@ afterEach(() => {
   cleanup();
   document.documentElement.classList.remove("pwa-standalone");
   setupState.isPending = false;
+  authState.isPending = false;
   authState.data = { userId: "user-1", username: "tester", displayName: "测试用户" };
   setupState.setupRequired = false;
   setupState.error = null;
@@ -91,20 +94,20 @@ describe("ApplicationRouter", () => {
     expect(screen.queryByText("PWA 更新提示")).not.toBeInTheDocument();
   });
 
-  it("通过 tab query 在同一活动地址打开结算主视图", () => {
+  it("通过 tab query 在同一活动地址打开结算主视图", async () => {
     renderRoute("/activities/activity-1?tab=settlement");
-    expect(screen.getByText("结算页")).toBeInTheDocument();
+    expect(await screen.findByText("结算页")).toBeInTheDocument();
     expect(screen.queryByText("流水页")).not.toBeInTheDocument();
   });
 
-  it("已登录用户可打开通知页", () => {
+  it("已登录用户可打开通知页", async () => {
     renderRoute("/notifications");
-    expect(screen.getByText("通知")).toBeInTheDocument();
+    expect(await screen.findByText("通知")).toBeInTheDocument();
   });
 
-  it("已登录用户可以直接打开修改密码二级页", () => {
+  it("已登录用户可以直接打开修改密码二级页", async () => {
     renderRoute("/me/password");
-    expect(screen.getByRole("heading", { name: "修改密码" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "修改密码" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "找不到这个页面" })).not.toBeInTheDocument();
   });
 
@@ -139,6 +142,16 @@ describe("ApplicationRouter", () => {
 
     expect(screen.getByRole("status", { name: "正在准备伙记" })).toBeInTheDocument();
     expect(screen.queryByText("正在确认初始化状态…")).not.toBeInTheDocument();
+  });
+
+  it("独立 PWA 在初始化完成但登录态仍在确认时继续显示品牌启动层", () => {
+    document.documentElement.classList.add("pwa-standalone");
+    authState.isPending = true;
+
+    renderRoute("/activities");
+
+    expect(screen.getByRole("status", { name: "正在准备伙记" })).toBeInTheDocument();
+    expect(screen.queryByText("正在确认登录状态…")).not.toBeInTheDocument();
   });
 
   it("普通浏览器等待初始化状态时保留原有加载提示", () => {

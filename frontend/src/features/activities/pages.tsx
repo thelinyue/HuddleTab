@@ -32,9 +32,11 @@ import {
 import {
   createContext,
   type FormEvent,
+  type RefObject,
   type ReactNode,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -193,17 +195,79 @@ export function ActivityWorkspace() {
   );
 }
 
+type ActivityLedgerResult = ReturnType<typeof useActivityLedgersQuery>[number];
+type LedgerReadiness = "pending" | "error" | "ready";
+type ActivitySummary = {
+  payable: bigint;
+  receivable: bigint;
+  readiness: LedgerReadiness;
+};
+
+function ledgerReadiness(ledger: ActivityLedgerResult | undefined): LedgerReadiness {
+  if (!ledger || ledger.isPending) return "pending";
+  if (ledger.isError || !ledger.data) return "error";
+  return "ready";
+}
+
 function summarizeLedgers(activities: readonly Activity[], ledgers: ReturnType<typeof useActivityLedgersQuery>) {
-  const byCurrency = new Map<string, { payable: bigint; receivable: bigint }>();
+  const byCurrency = new Map<string, ActivitySummary>();
   activities.forEach((activity, index) => {
-    const balance = ledgers[index]?.data?.balances.find((item) => item.memberId === activity.currentMemberId);
+    const ledger = ledgers[index];
+    const readiness = ledgerReadiness(ledger);
+    const current = byCurrency.get(activity.baseCurrency) ?? {
+      payable: 0n,
+      receivable: 0n,
+      readiness: "ready" as LedgerReadiness,
+    };
+    if (readiness === "error") current.readiness = "error";
+    else if (readiness === "pending" && current.readiness === "ready") current.readiness = "pending";
+    if (readiness !== "ready") {
+      byCurrency.set(activity.baseCurrency, current);
+      return;
+    }
+    const balance = ledger.data?.balances.find((item) => item.memberId === activity.currentMemberId);
     const amount = BigInt(balance?.netMinor ?? "0");
-    const current = byCurrency.get(activity.baseCurrency) ?? { payable: 0n, receivable: 0n };
     if (amount < 0n) current.payable += -amount;
     if (amount > 0n) current.receivable += amount;
     byCurrency.set(activity.baseCurrency, current);
   });
   return [...byCurrency.entries()];
+}
+
+function ActivityListSkeleton() {
+  return (
+    <div className="activity-list-skeleton" aria-hidden="true">
+      <span className="activity-skeleton-block activity-list-skeleton__heading" />
+      <ul className="activity-list activity-list-skeleton__list">
+        {[0, 1].map((index) => (
+          <li className="activity-list-item activity-list-item--skeleton" key={index}>
+            <span className="activity-skeleton-block activity-skeleton-block--cover" />
+            <span className="activity-list-item__content">
+              <span className="activity-skeleton-block activity-skeleton-block--title" />
+              <span className="activity-skeleton-block activity-skeleton-block--period" />
+            </span>
+            <span className="activity-list-item__balance">
+              <span className="activity-balance-skeleton"><i /><i /></span>
+              <ChevronRight aria-hidden="true" size={16} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ActivitySummarySkeleton() {
+  return (
+    <dl className="home-summary home-summary--skeleton" aria-hidden="true">
+      {[0, 1].map((index) => (
+        <div key={index}>
+          <span className="activity-skeleton-block home-summary--skeleton__label" />
+          <span className="activity-skeleton-block home-summary--skeleton__value" />
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function ActivityGroup({ title, activities, allActivities, ledgers }: { title: string; activities: readonly Activity[]; allActivities: readonly Activity[]; ledgers: ReturnType<typeof useActivityLedgersQuery> }) {
@@ -214,14 +278,23 @@ function ActivityGroup({ title, activities, allActivities, ledgers }: { title: s
       <ul className="activity-list">
         {activities.map((activity) => {
           const ledger = ledgers[allActivities.findIndex((item) => item.activityId === activity.activityId)];
-          const own = ledger?.data?.balances.find((balance) => balance.memberId === activity.currentMemberId);
-          const amount = BigInt(own?.netMinor ?? "0");
+          const readiness = ledgerReadiness(ledger);
+          const own = readiness === "ready"
+            ? ledger?.data?.balances.find((balance) => balance.memberId === activity.currentMemberId)
+            : undefined;
+          const amount = own ? BigInt(own.netMinor) : 0n;
           return (
             <li key={activity.activityId}>
               <Link className="activity-list-item" to={`/activities/${activity.activityId}`}>
-                <img src={`/activity-covers/cover-0${stableIndex(activity.activityId, 6) + 1}.webp`} width={72} height={56} alt="" />
+                <img src={`/activity-covers/cover-0${stableIndex(activity.activityId, 6) + 1}.webp`} width={72} height={56} alt="" loading="lazy" decoding="async" />
                 <span className="activity-list-item__content"><strong>{activity.name}</strong><small className="activity-list-item__period">{[activityPeriodLabel(activity), activityStatus(activity.status)].filter(Boolean).join(" · ")}</small></span>
-                <span className="activity-list-item__balance">{amount === 0n ? <small>已结清</small> : <><small>{amount > 0n ? "应收" : "应付"}</small><Money value={formatMoney(activity.baseCurrency, (amount < 0n ? -amount : amount).toString())} tone={amount > 0n ? "positive" : "negative"} /></>}<ChevronRight aria-hidden="true" size={16} /></span>
+                <span className="activity-list-item__balance">
+                  {readiness === "pending" ? <span className="activity-balance-skeleton"><i /><i /></span> : null}
+                  {readiness === "error" ? <small className="activity-list-item__balance--unavailable">余额暂不可用</small> : null}
+                  {readiness === "ready" && amount === 0n ? <small>已结清</small> : null}
+                  {readiness === "ready" && amount !== 0n ? <><small>{amount > 0n ? "应收" : "应付"}</small><Money value={formatMoney(activity.baseCurrency, (amount < 0n ? -amount : amount).toString())} tone={amount > 0n ? "positive" : "negative"} /></> : null}
+                  <ChevronRight aria-hidden="true" size={16} />
+                </span>
               </Link>
             </li>
           );
@@ -329,8 +402,8 @@ export function ActivitiesPage() {
     }
   }
 
-  if (session.isPending || activities.isPending) return <LoadingState label="正在读取活动…" />;
-  if (session.error || activities.error) return <ErrorNotice error={session.error ?? activities.error} />;
+  const listPending = session.isPending || activities.isPending;
+  const listError = session.error ?? activities.error;
   const items = activities.data ?? [];
   const summaries = summarizeLedgers(items, ledgers);
   const active = items.filter((item) => item.status === "ACTIVE");
@@ -353,7 +426,8 @@ export function ActivitiesPage() {
   const openJoin = () => openChildPanel("join");
   return (
     <div className="top-level-page">
-      <main className="app-frame app-frame--with-nav">
+      <main className="app-frame app-frame--with-nav" aria-busy={listPending}>
+        {listPending ? <span className="sr-only" role="status">正在读取活动…</span> : null}
         <header className="home-header">
           <div className="home-header__title">
             <h1>活动</h1>
@@ -363,13 +437,16 @@ export function ActivitiesPage() {
           </div>
           <button className="home-add" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => openPanel("actions")}><Plus aria-hidden="true" size={18} /></button>
         </header>
-        {summaries.map(([currency, summary]) => (
+        {!listPending && !listError ? summaries.map(([currency, summary]) => (
           <dl className="home-summary" key={currency} aria-label={`${currency} 跨活动账务摘要`}>
-            <div><dt>待支付</dt><dd><Money value={formatMoney(currency, summary.payable.toString())} tone="negative" /></dd></div>
-            <div><dt>待收款</dt><dd><Money value={formatMoney(currency, summary.receivable.toString())} tone="positive" /></dd></div>
+            <div><dt>待支付</dt><dd>{summary.readiness === "pending" ? <span className="home-summary__skeleton" aria-hidden="true" /> : summary.readiness === "error" ? <small className="home-summary__unavailable">暂不可用</small> : <Money value={formatMoney(currency, summary.payable.toString())} tone="negative" />}</dd></div>
+            <div><dt>待收款</dt><dd>{summary.readiness === "pending" ? <span className="home-summary__skeleton" aria-hidden="true" /> : summary.readiness === "error" ? <small className="home-summary__unavailable">暂不可用</small> : <Money value={formatMoney(currency, summary.receivable.toString())} tone="positive" />}</dd></div>
           </dl>
-        ))}
-        {!items.length ? <EmptyState
+        )) : null}
+        {listPending ? <ActivitySummarySkeleton /> : null}
+        {listPending ? <ActivityListSkeleton /> : null}
+        {listError ? <ErrorNotice error={listError} /> : null}
+        {!listPending && !listError && !items.length ? <EmptyState
           icon={<Plus size={28} />}
           visual={<img className="activity-empty-illustration" src="/illustrations/activity-list-empty.webp" alt="" aria-hidden="true" width={960} height={640} loading="eager" sizes="(max-width: 351px) calc(100vw - 32px), 320px" />}
           title="还没有活动"
@@ -761,15 +838,26 @@ const inviteModeLabels: Record<string, string> = {
 };
 
 type ActivityField = keyof Activity["fieldPermissions"];
+type ActivityManagementView = "root" | "transfer";
 
 /**
- * 活动管理使用单层 Sheet：资料直接编辑，复杂操作在原位置展开。
+ * 活动管理根视图保持可扫描的设置列表；资料仍然直接编辑，复杂操作切换到同一 Sheet 的子视图。
  * 每次资料更新只提交一个字段和 version，避免覆盖其他成员的并发修改。
  */
-export function MorePage({ onClose, closeAfterSave = false, onStateChange }: {
+export function MorePage({
+  onClose,
+  closeAfterSave = false,
+  onStateChange,
+  view = "root",
+  onViewChange,
+  transferTriggerRef,
+}: {
   onClose: () => void;
   closeAfterSave?: boolean;
   onStateChange?: (state: { busy: boolean; hasError: boolean }) => void;
+  view?: ActivityManagementView;
+  onViewChange?: (view: ActivityManagementView) => void;
+  transferTriggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const { session, activity, offline } = useWorkspace();
   const update = useUpdateActivityMutation(session.userId, activity.activityId);
@@ -791,12 +879,12 @@ export function MorePage({ onClose, closeAfterSave = false, onStateChange }: {
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ActivityField, unknown>>>({});
   const [warnings, setWarnings] = useState<string[]>([]);
   const [currencyOpen, setCurrencyOpen] = useState(false);
-  const [ownershipOpen, setOwnershipOpen] = useState(false);
   const [memberId, setMemberId] = useState("");
   const [transferError, setTransferError] = useState<unknown>();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>();
-  const members = useMembersQuery(session.userId, activity.activityId, ownershipOpen);
+  const transferPanelRef = useRef<HTMLElement | null>(null);
+  const members = useMembersQuery(session.userId, activity.activityId, view === "transfer");
 
   const canEdit = (field: ActivityField) =>
     !offline
@@ -814,6 +902,11 @@ export function MorePage({ onClose, closeAfterSave = false, onStateChange }: {
   useEffect(() => {
     onStateChange?.({ busy: actionBusy, hasError });
   }, [actionBusy, hasError, onStateChange]);
+
+  useEffect(() => {
+    if (view !== "transfer") return;
+    transferPanelRef.current?.focus();
+  }, [view]);
 
   function setDraftValue(field: ActivityField, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -864,9 +957,13 @@ export function MorePage({ onClose, closeAfterSave = false, onStateChange }: {
   }
 
   function fieldStatus(field: ActivityField): ReactNode {
-    if (savingField === field) return <LoaderCircle aria-label="正在保存" className="spinner" size={16} />;
-    if (lastSavedField === field) return <Check aria-label="已保存" size={16} />;
-    return null;
+    const icon = savingField === field
+      ? <LoaderCircle aria-label="正在保存" className="spinner" size={16} />
+      : lastSavedField === field
+        ? <Check aria-label="已保存" size={16} />
+        : null;
+    if (!icon) return null;
+    return <span className="management-field__status" role="status" aria-live="polite">{icon}</span>;
   }
 
   function fieldError(field: ActivityField): ReactNode {
@@ -891,6 +988,12 @@ export function MorePage({ onClose, closeAfterSave = false, onStateChange }: {
     } catch (reason) {
       setTransferError(reason);
     }
+  }
+
+  function openTransfer() {
+    setMemberId("");
+    setTransferError(undefined);
+    onViewChange?.("transfer");
   }
 
   async function confirmDelete() {
@@ -920,89 +1023,117 @@ export function MorePage({ onClose, closeAfterSave = false, onStateChange }: {
             : warning}
         </div>
       ))}
-      <section>
-        <h2>活动资料</h2>
-        <div className="management-fields">
-          <div className="management-field">
-            <div className="management-field__heading"><Pencil aria-hidden="true" size={17} /><span><strong>活动名称</strong></span></div>
-            {canEdit("name") ? <div className="management-field__control"><Input aria-label="活动名称" value={draft.name} disabled={editingBusy} required maxLength={120} onChange={(event) => setDraftValue("name", event.target.value)} onBlur={(event) => void saveField("name", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("name")}</div> : <span className="management-field__readonly">{activity.name}</span>}
-            {fieldError("name")}
-          </div>
-          <div className="management-field">
-            <div className="management-field__heading"><MapPin aria-hidden="true" size={17} /><span><strong>地点</strong><small>可选</small></span></div>
-            {canEdit("location") ? <div className="management-field__control"><Input aria-label="地点" value={draft.location} disabled={editingBusy} maxLength={120} onChange={(event) => setDraftValue("location", event.target.value)} onBlur={(event) => void saveField("location", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("location")}</div> : <span className="management-field__readonly">{activity.location || "未填写"}</span>}
-            {fieldError("location")}
-          </div>
-          <div className="management-field">
-            <div className="management-field__heading"><CircleDollarSign aria-hidden="true" size={17} /><span><strong>主币种</strong>{activity.hasAccountingRecords ? <small>已有账务记录，不可修改</small> : !activity.fieldPermissions.baseCurrency ? <small>当前账号无修改权限</small> : null}</span></div>
-            {canEdit("baseCurrency") ? <div className="management-field__choice"><button className="management-choice-trigger" type="button" aria-expanded={currencyOpen} aria-controls="activity-currency-options" disabled={editingBusy} onClick={() => setCurrencyOpen((open) => !open)}><span>{draft.baseCurrency} {currencyLabel}</span><ChevronDown aria-hidden="true" size={18} /></button>{fieldStatus("baseCurrency")}</div> : <span className="management-field__readonly">{activity.baseCurrency}</span>}
-            {currencyOpen && canEdit("baseCurrency") ? <div className="management-choice-list" id="activity-currency-options" role="radiogroup" aria-label="主币种选项">{currencyOptions.map(([code, label]) => <button key={code} type="button" role="radio" aria-checked={draft.baseCurrency === code} disabled={editingBusy} onClick={() => void saveField("baseCurrency", code)}><span><strong>{code}</strong><small>{label}</small></span>{draft.baseCurrency === code ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
-            {fieldError("baseCurrency")}
-          </div>
-          <div className="management-field">
-            <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>开始日期</strong></span></div>
-            {canEdit("startDate") ? <div className="management-field__control"><Input aria-label="开始日期" type="date" value={draft.startDate} disabled={editingBusy} required onChange={(event) => void saveField("startDate", event.target.value)} />{fieldStatus("startDate")}</div> : <span className="management-field__readonly">{activity.startDate}</span>}
-            {fieldError("startDate")}
-          </div>
-          <div className="management-field">
-            <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>结束日期</strong><small>可选</small></span></div>
-            {canEdit("endDate") ? <div className="management-field__control"><Input aria-label="结束日期" type="date" min={activity.startDate} value={draft.endDate} disabled={editingBusy} onChange={(event) => void saveField("endDate", event.target.value)} />{fieldStatus("endDate")}</div> : <span className="management-field__readonly">{activity.endDate || "未填写"}</span>}
-            {fieldError("endDate")}
-          </div>
-          <div className="management-field management-field--readonly">
-            <div className="management-field__heading"><UsersRound aria-hidden="true" size={17} /><span><strong>状态</strong></span></div>
-            <span className="management-field__readonly">{activityStatus(activity.status)}</span>
-          </div>
+      {view === "transfer" ? <section ref={transferPanelRef} className="management-subview" aria-labelledby="activity-transfer-heading" tabIndex={-1}>
+        <div className="management-subview__intro">
+          <h3 id="activity-transfer-heading">选择新的活动所有者</h3>
+          <p>转让后，新成员将成为活动所有者，你会变为普通成员。</p>
         </div>
-      </section>
-      <section>
-        <h2>加入设置</h2>
-        <div className="management-field">
-          <div className="management-field__heading"><UserPlus aria-hidden="true" size={17} /><span><strong>加入方式</strong></span></div>
-          {canEdit("inviteMode") ? <div className="management-field__segmented"><div className="segmented" role="group" aria-label="加入方式"><button type="button" aria-pressed={draft.inviteMode === "DIRECT_JOIN"} disabled={editingBusy} onClick={() => void saveField("inviteMode", "DIRECT_JOIN")}>直接加入</button><button type="button" aria-pressed={draft.inviteMode === "REQUIRE_APPROVAL"} disabled={editingBusy} onClick={() => void saveField("inviteMode", "REQUIRE_APPROVAL")}>需要审批</button></div>{fieldStatus("inviteMode")}</div> : <span className="management-field__readonly">{inviteModeLabels[activity.inviteMode] ?? activity.inviteMode}</span>}
-          {fieldError("inviteMode")}
-        </div>
-      </section>
-      <section>
-        <h2>数据导出</h2>
-        <a className="management-action-row" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`} aria-label="导出 CSV" aria-describedby="activity-export-description"><Download aria-hidden="true" size={19} /><span><strong>导出 CSV</strong><small id="activity-export-description">下载活动账务明细</small></span><ChevronRight aria-hidden="true" size={18} /></a>
-      </section>
-      {!offline && activity.currentMemberRole === "OWNER" ? <section>
-        <h2>成员与权限</h2>
-        <button className="management-action-row" type="button" aria-expanded={ownershipOpen} aria-controls="activity-ownership-panel" disabled={actionBusy} onClick={() => { setOwnershipOpen((open) => !open); setTransferError(undefined); setMemberId(""); }}><UserRoundCheck aria-hidden="true" size={19} /><span><strong>转让所有权</strong><small>选择新的活动所有者</small></span><ChevronDown aria-hidden="true" className={ownershipOpen ? "management-chevron management-chevron--open" : "management-chevron"} size={18} /></button>
-        {ownershipOpen ? <div className="management-expansion" id="activity-ownership-panel">
-          <p className="form-hint">转让后，新成员将成为活动所有者，你会变为普通成员。</p>
-          {members.isPending ? <LoadingState label="正在读取可转让成员…" /> : null}
-          {members.error ? <ErrorNotice error={members.error} /> : null}
-          {!members.isPending && !members.error && candidates.length ? <div className="management-member-list" role="radiogroup" aria-label="新所有者">{candidates.map((member) => <button key={member.memberId} type="button" role="radio" aria-checked={memberId === member.memberId} disabled={actionBusy} onClick={() => setMemberId(member.memberId)}><MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="sm" /><span>{member.displayName}</span>{memberId === member.memberId ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
-          {!members.isPending && !members.error && !candidates.length ? <p className="empty-copy">暂无可转让的已绑定账号成员。</p> : null}
-          {transferError ?? transfer.error ? <ErrorNotice error={transferError ?? transfer.error} /> : null}
-          <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => setOwnershipOpen(false)}>取消</Button><Button type="button" busy={transfer.isPending} disabled={!memberId || actionBusy} onClick={() => void confirmTransfer()}>确认转让</Button></div>
-        </div> : null}
-      </section> : null}
-      {!offline && activity.allowedLifecycleActions.length ? <section>
-        <h2>活动状态</h2>
-        <div className="management-action-list">{activity.allowedLifecycleActions.flatMap((action) => {
-          const label = lifecycleLabels[action];
-          if (!label) return [];
-          const icon = action === "END" ? <CircleStop aria-hidden="true" size={19} /> : action === "REOPEN" ? <RotateCcw aria-hidden="true" size={19} /> : action === "ARCHIVE" ? <Archive aria-hidden="true" size={19} /> : <ArchiveRestore aria-hidden="true" size={19} />;
-          return [<button key={action} className="management-action-row" type="button" disabled={actionBusy} aria-busy={lifecycle.isPending} onClick={() => void transition(action)}>{icon}<span><strong>{label}</strong><small>{lifecycleDescriptions[action]}</small></span><ChevronRight aria-hidden="true" size={18} /></button>];
-        })}</div>
-        {lifecycle.error ? <ErrorNotice error={lifecycle.error} /> : null}
-      </section> : null}
-      {!offline && activity.canDelete ? <section className="management-danger">
-        <h2>危险操作</h2>
-        <button className="management-action-row management-action-row--danger" type="button" aria-expanded={deleteOpen} aria-controls="activity-delete-panel" disabled={actionBusy} onClick={() => { setDeleteOpen((open) => !open); setDeleteError(undefined); }}><Trash2 aria-hidden="true" size={19} /><span><strong>删除活动</strong><small>活动将离开当前列表，可在恢复期限内找回</small></span><ChevronDown aria-hidden="true" className={deleteOpen ? "management-chevron management-chevron--open" : "management-chevron"} size={18} /></button>
-        {deleteOpen ? <div className="management-expansion management-expansion--danger" id="activity-delete-panel"><p>删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。</p>{deleteError ?? remove.error ? <ErrorNotice error={deleteError ?? remove.error} /> : null}<div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={remove.isPending} onClick={() => setDeleteOpen(false)}>取消</Button><Button autoFocus variant="danger" type="button" busy={remove.isPending} onClick={() => void confirmDelete()}>确认删除活动</Button></div></div> : null}
-      </section> : null}
+        {members.isPending ? <LoadingState label="正在读取可转让成员…" /> : null}
+        {members.error ? <ErrorNotice error={members.error} /> : null}
+        {!members.isPending && !members.error && candidates.length ? <div className="management-member-list" role="radiogroup" aria-label="新所有者">{candidates.map((member) => <button key={member.memberId} type="button" role="radio" aria-checked={memberId === member.memberId} disabled={actionBusy} onClick={() => setMemberId(member.memberId)}><MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="sm" /><span>{member.displayName}</span>{memberId === member.memberId ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
+        {!members.isPending && !members.error && !candidates.length ? <p className="empty-copy">暂无可转让的已绑定账号成员。</p> : null}
+        {transferError ?? transfer.error ? <ErrorNotice error={transferError ?? transfer.error} /> : null}
+        <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => onViewChange?.("root")}>取消</Button><Button type="button" busy={transfer.isPending} disabled={!memberId || actionBusy} onClick={() => void confirmTransfer()}>确认转让</Button></div>
+      </section> : <>
+        <section aria-labelledby="activity-information-heading">
+          <h2 id="activity-information-heading">活动信息</h2>
+          <div className="management-list">
+            <div className="management-field">
+              <div className="management-field__heading"><Pencil aria-hidden="true" size={17} /><span><strong>活动名称</strong></span></div>
+              {canEdit("name") ? <div className="management-field__control"><Input aria-label="活动名称" value={draft.name} disabled={editingBusy} required maxLength={120} onChange={(event) => setDraftValue("name", event.target.value)} onBlur={(event) => void saveField("name", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("name")}</div> : <span className="management-field__readonly">{activity.name}</span>}
+              {fieldError("name")}
+            </div>
+            <div className="management-field">
+              <div className="management-field__heading"><MapPin aria-hidden="true" size={17} /><span><strong>地点</strong><small>可选</small></span></div>
+              {canEdit("location") ? <div className="management-field__control"><Input aria-label="地点" value={draft.location} disabled={editingBusy} maxLength={120} onChange={(event) => setDraftValue("location", event.target.value)} onBlur={(event) => void saveField("location", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("location")}</div> : <span className="management-field__readonly">{activity.location || "未填写"}</span>}
+              {fieldError("location")}
+            </div>
+            <div className="management-field">
+              <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>开始日期</strong></span></div>
+              {canEdit("startDate") ? <div className="management-field__control"><Input aria-label="开始日期" type="date" value={draft.startDate} disabled={editingBusy} required onChange={(event) => void saveField("startDate", event.target.value)} />{fieldStatus("startDate")}</div> : <span className="management-field__readonly">{activity.startDate}</span>}
+              {fieldError("startDate")}
+            </div>
+            <div className="management-field">
+              <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>结束日期</strong><small>可选</small></span></div>
+              {canEdit("endDate") ? <div className="management-field__control"><Input aria-label="结束日期" type="date" min={activity.startDate} value={draft.endDate} disabled={editingBusy} onChange={(event) => void saveField("endDate", event.target.value)} />{fieldStatus("endDate")}</div> : <span className="management-field__readonly">{activity.endDate || "未填写"}</span>}
+              {fieldError("endDate")}
+            </div>
+            <div className="management-field">
+              <div className="management-field__heading"><CircleDollarSign aria-hidden="true" size={17} /><span><strong>主币种</strong>{activity.hasAccountingRecords ? <small>已有账务记录，不可修改</small> : !activity.fieldPermissions.baseCurrency ? <small>当前账号无修改权限</small> : null}</span></div>
+              {canEdit("baseCurrency") ? <div className="management-field__choice"><button className="management-choice-trigger" type="button" aria-expanded={currencyOpen} aria-controls="activity-currency-options" disabled={editingBusy} onClick={() => setCurrencyOpen((open) => !open)}><span>{draft.baseCurrency} {currencyLabel}</span><ChevronDown aria-hidden="true" size={18} /></button>{fieldStatus("baseCurrency")}</div> : <span className="management-field__readonly">{activity.baseCurrency}</span>}
+              {currencyOpen && canEdit("baseCurrency") ? <div className="management-choice-list" id="activity-currency-options" role="radiogroup" aria-label="主币种选项">{currencyOptions.map(([code, label]) => <button key={code} type="button" role="radio" aria-checked={draft.baseCurrency === code} disabled={editingBusy} onClick={() => void saveField("baseCurrency", code)}><span><strong>{code}</strong><small>{label}</small></span>{draft.baseCurrency === code ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
+              {fieldError("baseCurrency")}
+            </div>
+          </div>
+        </section>
+        <section aria-labelledby="activity-collaboration-heading">
+          <h2 id="activity-collaboration-heading">协作与数据</h2>
+          <div className="management-list">
+            <div className="management-field">
+              <div className="management-field__heading"><UserPlus aria-hidden="true" size={17} /><span><strong>加入方式</strong></span></div>
+              {canEdit("inviteMode") ? <div className="management-field__segmented"><div className="segmented" role="group" aria-label="加入方式"><button type="button" aria-pressed={draft.inviteMode === "DIRECT_JOIN"} disabled={editingBusy} onClick={() => void saveField("inviteMode", "DIRECT_JOIN")}>直接加入</button><button type="button" aria-pressed={draft.inviteMode === "REQUIRE_APPROVAL"} disabled={editingBusy} onClick={() => void saveField("inviteMode", "REQUIRE_APPROVAL")}>需要审批</button></div>{fieldStatus("inviteMode")}</div> : <span className="management-field__readonly">{inviteModeLabels[activity.inviteMode] ?? activity.inviteMode}</span>}
+              {fieldError("inviteMode")}
+            </div>
+            <a className="management-action-row management-action-row--command" href={`/api/activities/${encodeURIComponent(activity.activityId)}/export.csv`} aria-label="导出 CSV" aria-describedby="activity-export-description"><Download aria-hidden="true" size={19} /><span><strong>导出 CSV</strong><small id="activity-export-description">下载活动账务明细</small></span></a>
+          </div>
+        </section>
+        <section aria-labelledby="activity-status-heading">
+          <h2 id="activity-status-heading">活动状态</h2>
+          <div className="management-list">
+            <div className="management-field management-field--readonly">
+              <div className="management-field__heading"><UsersRound aria-hidden="true" size={17} /><span><strong>当前状态</strong></span></div>
+              <span className="management-field__readonly">{activityStatus(activity.status)}</span>
+            </div>
+            {!offline && activity.allowedLifecycleActions.length ? <div className="management-action-list">{activity.allowedLifecycleActions.flatMap((action) => {
+              const label = lifecycleLabels[action];
+              if (!label) return [];
+              const icon = action === "END" ? <CircleStop aria-hidden="true" size={19} /> : action === "REOPEN" ? <RotateCcw aria-hidden="true" size={19} /> : action === "ARCHIVE" ? <Archive aria-hidden="true" size={19} /> : <ArchiveRestore aria-hidden="true" size={19} />;
+              return [<button key={action} className="management-action-row management-action-row--command" type="button" disabled={actionBusy} aria-busy={lifecycle.isPending} onClick={() => void transition(action)}>{icon}<span><strong>{label}</strong><small>{lifecycleDescriptions[action]}</small></span></button>];
+            })}</div> : null}
+          </div>
+          {lifecycle.error ? <ErrorNotice error={lifecycle.error} /> : null}
+        </section>
+        {!offline && activity.currentMemberRole === "OWNER" ? <section aria-labelledby="activity-permissions-heading">
+          <h2 id="activity-permissions-heading">成员与权限</h2>
+          <div className="management-list">
+            <button ref={transferTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy} onClick={openTransfer}><UserRoundCheck aria-hidden="true" size={19} /><span><strong>转让所有权</strong><small>选择新的活动所有者</small></span><ChevronRight aria-hidden="true" size={18} /></button>
+          </div>
+        </section> : null}
+        {!offline && activity.canDelete ? <section className="management-danger" aria-labelledby="activity-danger-heading">
+          <h2 id="activity-danger-heading">危险操作</h2>
+          <div className="management-list">
+            <button className="management-action-row management-action-row--command management-action-row--danger" type="button" disabled={actionBusy} onClick={() => { setDeleteOpen(true); setDeleteError(undefined); }}><Trash2 aria-hidden="true" size={19} /><span><strong>删除活动</strong><small>活动将离开当前列表，可在恢复期限内找回</small></span></button>
+          </div>
+        </section> : null}
+      </>}
+      <ConfirmDialog
+        open={deleteOpen}
+        title="确认删除活动"
+        message="删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。确定继续吗？"
+        error={(deleteError ?? remove.error) ? <ErrorNotice error={deleteError ?? remove.error} /> : undefined}
+        confirmLabel="确认删除活动"
+        busy={remove.isPending}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => { setDeleteOpen(false); setDeleteError(undefined); }}
+      />
     </div>
   );
 }
 
-/** 管理 Overlay 只有一个页面；保存中的关闭请求会在成功后继续，失败则保留错误和草稿。 */
+/** 管理 Overlay 只有一个 Sheet；保存中的关闭请求会在成功后继续，失败则保留错误和草稿。 */
 function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
   const [state, setState] = useState({ busy: false, hasError: false });
   const [closeAfterSave, setCloseAfterSave] = useState(false);
+  const [view, setView] = useState<ActivityManagementView>("root");
+  const transferTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const previousView = useRef<ActivityManagementView>("root");
+
+  useEffect(() => {
+    if (view === "root" && previousView.current === "transfer") {
+      transferTriggerRef.current?.focus();
+    }
+    previousView.current = view;
+  }, [view]);
 
   function requestClose() {
     if (!state.busy) return true;
@@ -1018,8 +1149,23 @@ function ActivityManagementOverlay({ onClose }: { onClose: () => void }) {
   }, [closeAfterSave, onClose, state.busy, state.hasError]);
 
   return (
-    <Overlay open title="活动管理" onBeforeClose={requestClose} onClose={onClose} focusKey="management" className="activity-management-overlay">
-      <MorePage onClose={onClose} closeAfterSave={closeAfterSave} onStateChange={setState} />
+    <Overlay
+      open
+      title={view === "transfer" ? "转让所有权" : "活动管理"}
+      onBeforeClose={requestClose}
+      onClose={onClose}
+      onBack={view === "transfer" ? { label: "返回活动管理", onClick: () => { if (!state.busy) setView("root"); } } : undefined}
+      focusKey={`management-${view}`}
+      className="activity-management-overlay"
+    >
+      <MorePage
+        onClose={onClose}
+        closeAfterSave={closeAfterSave}
+        onStateChange={setState}
+        view={view}
+        onViewChange={setView}
+        transferTriggerRef={transferTriggerRef}
+      />
     </Overlay>
   );
 }

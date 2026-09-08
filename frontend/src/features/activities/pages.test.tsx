@@ -29,6 +29,9 @@ const activityApiState = vi.hoisted(() => ({
   },
   activityError: null as unknown,
   activities: [] as Array<Record<string, unknown>>,
+  activitiesError: null as unknown,
+  activitiesPending: false,
+  ledgers: [] as Array<{ data?: { balances: Array<{ memberId: string; netMinor: string }> }; isError: boolean; isPending: boolean }>,
   deletedActivities: [] as Array<Record<string, unknown>>,
   deletedQueryEnabled: [] as boolean[],
   deletedQueryError: null as unknown,
@@ -87,7 +90,7 @@ const activityApiState = vi.hoisted(() => ({
 }));
 
 vi.mock("../accounting/api", () => ({
-  useActivityLedgersQuery: () => [],
+  useActivityLedgersQuery: () => activityApiState.ledgers,
 }));
 
 vi.mock("../auth/api", () => ({
@@ -113,7 +116,7 @@ vi.mock("./api", async (importOriginal) => {
   const original = await importOriginal<typeof import("./api")>();
   return {
     ...original,
-    useActivitiesQuery: () => ({ data: activityApiState.activities, isPending: false }),
+    useActivitiesQuery: () => ({ data: activityApiState.activities, error: activityApiState.activitiesError, isPending: activityApiState.activitiesPending }),
     useDeletedActivitiesQuery: (_userId: string, enabled = true) => {
       activityApiState.deletedQueryEnabled.push(enabled);
       return {
@@ -181,6 +184,9 @@ afterEach(() => {
   activityApiState.activity.hasAccountingRecords = true;
   activityApiState.activity.location = "杭州";
   activityApiState.activities = [];
+  activityApiState.activitiesError = null;
+  activityApiState.activitiesPending = false;
+  activityApiState.ledgers = [];
   activityApiState.activityError = null;
   activityApiState.deletedActivities = [];
   activityApiState.deletedQueryEnabled.length = 0;
@@ -732,6 +738,61 @@ describe("活动列表空状态", () => {
     expect(
       container.querySelector('img[src="/illustrations/activity-list-empty.webp"]'),
     ).not.toBeInTheDocument();
+    expect(container.querySelector('img[src^="/activity-covers/"]')).toHaveAttribute("loading", "lazy");
+    expect(container.querySelector('img[src^="/activity-covers/"]')).toHaveAttribute("decoding", "async");
+  });
+});
+
+describe("活动列表加载状态", () => {
+  it("活动数据等待时保留页面外壳并只显示内容骨架", () => {
+    activityApiState.activitiesPending = true;
+    renderActivitiesPage();
+
+    expect(screen.getByRole("heading", { name: "活动" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新建或加入活动" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
+    expect(document.querySelectorAll(".activity-list-item--skeleton")).toHaveLength(2);
+    expect(screen.queryByText("正在读取活动…")).toBeInTheDocument();
+  });
+
+  it("活动列表失败时保留页面外壳并在内容区显示错误", () => {
+    activityApiState.activitiesError = new Error("活动列表读取失败");
+    renderActivitiesPage();
+
+    expect(screen.getByRole("heading", { name: "活动" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("活动列表读取失败");
+    expect(screen.queryByText("正在读取活动…")).not.toBeInTheDocument();
+  });
+
+  it("Ledger 等待或失败时不把未知余额显示为已结清", () => {
+    activityApiState.activities = [activityApiState.activity];
+    activityApiState.ledgers = [{ isPending: true, isError: false }];
+    const { rerender } = renderActivitiesPage();
+
+    expect(screen.getByText("测试活动")).toBeInTheDocument();
+    expect(screen.queryByText("已结清")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".activity-balance-skeleton")).toHaveLength(1);
+    expect(document.querySelectorAll(".home-summary__skeleton")).toHaveLength(2);
+
+    activityApiState.ledgers = [{ isPending: false, isError: true }];
+    rerender(<MemoryRouter initialEntries={["/activities"]}><ActivitiesPage /></MemoryRouter>);
+    expect(screen.getByText("余额暂不可用")).toBeInTheDocument();
+    expect(screen.queryByText("已结清")).not.toBeInTheDocument();
+  });
+
+  it("Ledger 成功后显示真实余额和汇总", () => {
+    activityApiState.activities = [activityApiState.activity];
+    activityApiState.ledgers = [{
+      isPending: false,
+      isError: false,
+      data: { balances: [{ memberId: "member-owner", netMinor: "-1200" }] },
+    }];
+    renderActivitiesPage();
+
+    expect(screen.getByText("应付")).toBeInTheDocument();
+    expect(screen.queryByText("余额暂不可用")).not.toBeInTheDocument();
+    expect(document.querySelector(".home-summary__skeleton")).toBeNull();
   });
 });
 
@@ -864,6 +925,21 @@ describe("创建活动 Overlay", () => {
 });
 
 describe("活动管理 Overlay", () => {
+  it("根列表按常用顺序分组，状态与危险操作独立呈现", () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    const dialog = screen.getByRole("dialog", { name: "活动管理" });
+    expect([...dialog.querySelectorAll(".activity-more > section > h2")].map((heading) => heading.textContent)).toEqual([
+      "活动信息",
+      "协作与数据",
+      "活动状态",
+      "成员与权限",
+      "危险操作",
+    ]);
+    expect(within(dialog).getByText("当前状态")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "导出 CSV" })).toBeInTheDocument();
+  });
+
   it("直接渲染可编辑资料，不展示编辑按钮或字段二级视图", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
 
@@ -1017,12 +1093,14 @@ describe("活动管理 Overlay", () => {
     await waitFor(() => expect(activityApiState.lifecycle.mutateAsync).toHaveBeenCalledWith({ action: "END", version: "7" }));
   });
 
-  it("所有权转让在当前 Sheet 展开，只列出 ACTIVE 账号成员并保留失败选择", async () => {
+  it("所有权转让进入子视图，只列出 ACTIVE 账号成员并保留失败选择", async () => {
     activityApiState.members[1] = { ...activityApiState.members[1], displayName: "Bob", userId: "user-2" };
     activityApiState.transfer.mutateAsync.mockRejectedValue(new Error("活动版本已变化"));
     renderWorkspace("/activities/activity-1?panel=manage");
     fireEvent.click(screen.getByRole("button", { name: /^转让所有权/ }));
 
+    expect(screen.getByRole("dialog", { name: "转让所有权" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回活动管理" })).toBeInTheDocument();
     expect(screen.getByText("转让后，新成员将成为活动所有者，你会变为普通成员。")).toBeInTheDocument();
     const candidates = screen.getByRole("radiogroup", { name: "新所有者" });
     expect(within(candidates).getByRole("radio", { name: /Bob/ })).toBeInTheDocument();
@@ -1033,19 +1111,42 @@ describe("活动管理 Overlay", () => {
     await waitFor(() => expect(activityApiState.transfer.mutateAsync).toHaveBeenCalledWith({ newOwnerMemberId: "guest-1", version: "7" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("活动版本已变化");
     expect(within(screen.getByRole("radiogroup", { name: "新所有者" })).getByRole("radio", { name: /Bob/ })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "转让所有权" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "返回活动管理" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^转让所有权/ })).toHaveFocus();
   });
 
-  it("删除在当前 Sheet 原地展开并二次确认，成功后返回活动列表", async () => {
+  it("删除使用 AlertDialog 二次确认，取消后保留管理列表并成功返回活动列表", async () => {
     renderWorkspace("/activities/activity-1?panel=manage");
     fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
     expect(activityApiState.remove.mutateAsync).not.toHaveBeenCalled();
-    expect(screen.getByText("删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "确认删除活动" })).toHaveFocus());
+    const confirmation = screen.getByRole("alertdialog", { name: "确认删除活动" });
+    expect(confirmation).toHaveTextContent("删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。");
+    expect(within(confirmation).getByRole("button", { name: "取消" })).toHaveFocus();
 
+    fireEvent.click(within(confirmation).getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("alertdialog", { name: "确认删除活动" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
     fireEvent.click(screen.getByRole("button", { name: "确认删除活动" }));
+
     await waitFor(() => expect(activityApiState.remove.mutateAsync).toHaveBeenCalledWith("7"));
     expect(await screen.findByText("活动列表页")).toBeInTheDocument();
+  });
+
+  it("删除确认支持 Escape 并将焦点还给删除入口", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+    const trigger = screen.getByRole("button", { name: /^删除活动/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("alertdialog", { name: "确认删除活动" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "确认删除活动" })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+    expect(activityApiState.remove.mutateAsync).not.toHaveBeenCalled();
   });
 
   it("删除使用资料保存后得到的最新版本", async () => {

@@ -134,7 +134,7 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
       await expect(applicant.page.getByText("当前筛选下没有通知。")).toBeVisible();
 
       await page.goto(`/activities/${activityId}?panel=manage`);
-      const management = page.getByRole("dialog", { name: "活动管理" });
+      const management = page.locator(".activity-management-overlay").getByRole("dialog");
       await management.getByRole("button", { name: /^转让所有权/ }).click();
       const ownership = management.getByRole("radiogroup", { name: "新所有者" });
       await ownership.getByRole("radio", { name: new RegExp(member.displayName) }).click();

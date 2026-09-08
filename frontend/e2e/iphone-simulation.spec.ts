@@ -52,6 +52,31 @@ test("独立 PWA 冷启动先展示品牌接管层，再交给活动首页", asy
   await expect(launchScreen).toHaveCount(0);
 });
 
+test("活动列表慢加载时先显示稳定外壳和骨架", async ({ page }) => {
+  await login(page);
+  const activityName = `启动骨架 ${Date.now()}`;
+  await createActivity(page, activityName);
+
+  await page.route("**/api/activities**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("view") !== "current") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.fulfill({ response });
+  });
+  await page.goto("/activities");
+
+  await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建或加入活动" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
+  await expect(page.locator(".activity-list-item--skeleton")).toHaveCount(2);
+  await expect(page.getByRole("link", { name: new RegExp(activityName) })).toBeVisible();
+  await expect(page.locator(".activity-list-item--skeleton")).toHaveCount(0);
+});
+
 async function setSafeAreaVariables(
   page: import("@playwright/test").Page,
   insets: { top: number; right: number; bottom: number; left: number },
@@ -110,24 +135,37 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await page.evaluate(() => localStorage.setItem("huddletab-theme", "light"));
   await page.reload();
   await expect(page.getByRole("heading", { name: activityName, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "记一笔", exact: true })).toBeVisible();
   await setSafeAreaVariables(page, { top: 47, right: 13, bottom: 34, left: 11 });
   await expect(page.locator(".workspace-header")).toHaveCSS("padding-top", "47px");
   const portraitChrome = await page.evaluate(() => {
     const headerButton = document.querySelector<HTMLElement>(".workspace-header .back-link")!.getBoundingClientRect();
+    const headerArrow = document.querySelector<SVGElement>(".workspace-header .back-link svg")!.getBoundingClientRect();
+    const activityTitle = document.querySelector<HTMLElement>(".workspace-header__identity h1")!.getBoundingClientRect();
     const fab = document.querySelector<HTMLElement>(".quick-expense-trigger")!.getBoundingClientRect();
     return {
       headerButtonTop: headerButton.top,
+      headerButtonLeft: headerButton.left,
+      headerButtonWidth: headerButton.width,
+      headerButtonHeight: headerButton.height,
+      headerArrowLeft: headerArrow.left,
+      activityTitleLeft: activityTitle.left,
       fabRightGap: window.innerWidth - fab.right,
       fabBottomGap: window.innerHeight - fab.bottom,
     };
   });
   expect(portraitChrome.headerButtonTop).toBeGreaterThanOrEqual(47);
+  expect(portraitChrome.headerButtonLeft).toBeGreaterThanOrEqual(11);
+  expect(portraitChrome.headerButtonWidth).toBe(44);
+  expect(portraitChrome.headerButtonHeight).toBe(44);
+  expect(Math.abs(portraitChrome.headerArrowLeft - portraitChrome.activityTitleLeft)).toBeLessThanOrEqual(1);
   expect(portraitChrome.fabRightGap).toBeGreaterThanOrEqual(29);
   expect(portraitChrome.fabBottomGap).toBeGreaterThanOrEqual(52);
 
   const initialViewportHeight = await page.evaluate(() => window.innerHeight);
   await simulateKeyboardViewport(page, 0, initialViewportHeight);
   const dialog = await openQuickExpense(page);
+  await expect(dialog.getByLabel("时间")).toHaveAttribute("type", "datetime-local");
   const sheetSafeArea = await dialog.evaluate((element) => {
     const close = element.querySelector<HTMLElement>(".form-overlay__header > .icon-button")!.getBoundingClientRect();
     const bounds = element.getBoundingClientRect();

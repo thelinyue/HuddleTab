@@ -4,20 +4,26 @@ import { type ReactNode, lazy, Suspense, useEffect, useRef, useState } from "rea
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
-import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "../features/accounting/pages";
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
-import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "../features/admin/pages";
 import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
 import { useOnlineStatus } from "../features/activities/offline-workspace";
 import { hasRememberedOfflineSession, useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
-import { ChangePasswordPage } from "../features/me/password-page";
-import { NotificationsPage } from "../features/notifications/pages";
 import { PwaUpdatePrompt } from "./pwa-update";
 import { PwaLaunchScreen } from "./pwa-launch-screen";
 import { SetupPage, SetupStatusError } from "../features/setup/pages";
 import { useSetupStatusQuery } from "../features/setup/api";
 
+const ExpenseDetailPage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.ExpenseDetailPage })));
+const ExpenseFeedPage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.ExpenseFeedPage })));
+const NewExpensePage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.NewExpensePage })));
+const SettlementsPage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.SettlementsPage })));
+const AdminHomePage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminHomePage })));
+const AdminSettingsPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSettingsPage })));
+const AdminSystemInformationPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSystemInformationPage })));
+const AdminUsersPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminUsersPage })));
+const ChangePasswordPage = lazy(() => import("../features/me/password-page").then((module) => ({ default: module.ChangePasswordPage })));
+const NotificationsPage = lazy(() => import("../features/notifications/pages").then((module) => ({ default: module.NotificationsPage })));
 const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));
 
 function RootRedirect() {
@@ -39,13 +45,16 @@ function SetupGuard() {
     if (becameOnline && status.error) void status.refetch();
   }, [online, status.error, status.refetch]);
   const [pwaStartupAvailable, setPwaStartupAvailable] = useState(true);
+  const pwaStartupPending =
+    status.isPending ||
+    (status.data?.setupRequired === false && session.isPending);
   const pwaStartup =
     pwaStartupAvailable &&
-    status.isPending &&
+    pwaStartupPending &&
     document.documentElement.classList.contains("pwa-standalone");
   useEffect(() => {
-    if (!status.isPending) setPwaStartupAvailable(false);
-  }, [status.isPending]);
+    if (!pwaStartupPending) setPwaStartupAvailable(false);
+  }, [pwaStartupPending]);
 
   let guardedContent: ReactNode;
   if (status.isPending) {
@@ -70,7 +79,7 @@ function SetupGuard() {
 
   return (
     <>
-      {guardedContent}
+      {pwaStartup ? null : guardedContent}
       <AnimatePresence>
         {pwaStartup ? <PwaLaunchScreen key="pwa-launch-screen" /> : null}
       </AnimatePresence>
@@ -106,7 +115,12 @@ function NotFoundPage() {
 
 function ActivityPrimaryPage() {
   const [searchParams] = useSearchParams();
-  return searchParams.get("tab") === "settlement" ? <SettlementsPage /> : <ExpenseFeedPage />;
+  const settlement = searchParams.get("tab") === "settlement";
+  return (
+    <Suspense fallback={<LoadingState label={settlement ? "正在打开结算…" : "正在打开流水…"} />}>
+      {settlement ? <SettlementsPage /> : <ExpenseFeedPage />}
+    </Suspense>
+  );
 }
 
 function RoutePwaUpdatePrompt() {
@@ -128,17 +142,17 @@ export function ApplicationRouter() {
           <Route path="/activities" element={<ActivitiesPage />} />
           <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
             <Route index element={<ActivityPrimaryPage />} />
-            <Route path="expenses/new" element={<NewExpensePage />} />
-            <Route path="expenses/:expenseId" element={<ExpenseDetailPage />} />
+            <Route path="expenses/new" element={<Suspense fallback={<LoadingState label="正在打开记账…" />}><NewExpensePage /></Suspense>} />
+            <Route path="expenses/:expenseId" element={<Suspense fallback={<LoadingState label="正在打开账单…" />}><ExpenseDetailPage /></Suspense>} />
           </Route>
-          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/notifications" element={<Suspense fallback={<LoadingState label="正在打开通知…" />}><NotificationsPage /></Suspense>} />
           <Route path="/me" element={<MePage />} />
-          <Route path="/me/password" element={<ChangePasswordPage />} />
+          <Route path="/me/password" element={<Suspense fallback={<LoadingState label="正在打开密码设置…" />}><ChangePasswordPage /></Suspense>} />
           <Route element={<ProtectedAdminRoute />}>
-            <Route path="/admin" element={<AdminHomePage />} />
-            <Route path="/admin/users" element={<AdminUsersPage />} />
-            <Route path="/admin/settings" element={<AdminSettingsPage />} />
-            <Route path="/admin/system" element={<AdminSystemInformationPage />} />
+            <Route path="/admin" element={<Suspense fallback={<LoadingState label="正在打开系统管理…" />}><AdminHomePage /></Suspense>} />
+            <Route path="/admin/users" element={<Suspense fallback={<LoadingState label="正在打开用户管理…" />}><AdminUsersPage /></Suspense>} />
+            <Route path="/admin/settings" element={<Suspense fallback={<LoadingState label="正在打开系统设置…" />}><AdminSettingsPage /></Suspense>} />
+            <Route path="/admin/system" element={<Suspense fallback={<LoadingState label="正在打开系统信息…" />}><AdminSystemInformationPage /></Suspense>} />
           </Route>
             <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
           </Route>

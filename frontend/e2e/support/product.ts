@@ -149,7 +149,7 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
   const viewportBottom = await page.evaluate(() => window.visualViewport
     ? window.visualViewport.offsetTop + window.visualViewport.height
     : window.innerHeight);
-  // 入场动画会暂时把移动 Sheet 放在视口下方；只在最终展示位置检查粘附栏，
+  // 入场动画会暂时把移动 Sheet 放在视口下方；只在最终展示位置检查悬浮操作，
   // 避免把过渡中的 presentation value 当成布局错误。
   await expect.poll(
     () => dialog.evaluate((element) => element.getBoundingClientRect().bottom),
@@ -157,17 +157,32 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
   ).toBeLessThanOrEqual(viewportBottom + 1);
   const metrics = await dialog.evaluate((element, expectedViewportHeight) => {
     const dialogBox = element.getBoundingClientRect();
+    const sheetPaddingBottom = Number.parseFloat(getComputedStyle(element).paddingBottom) || 0;
     const amountBox = element.querySelector<HTMLElement>(".quick-expense-amount__input")?.getBoundingClientRect();
     const amountLabelBox = element.querySelector<HTMLElement>(".quick-expense-amount > small:not(.quick-expense-field-error)")?.getBoundingClientRect();
     const currencyBox = element.querySelector<HTMLElement>(".quick-expense-currency")?.getBoundingClientRect();
     const currencyIconBox = element.querySelector<SVGElement>(".quick-expense-currency svg")?.getBoundingClientRect();
     const titleBox = element.querySelector<HTMLElement>(".form-overlay__header h2")?.getBoundingClientRect();
-    const saveBox = element.querySelector<HTMLElement>(".quick-expense-submit")?.getBoundingClientRect();
+    const saveButton = element.querySelector<HTMLElement>(".quick-expense-submit");
+    const saveBox = saveButton?.getBoundingClientRect();
+    const saveStyle = saveButton ? getComputedStyle(saveButton) : null;
+    const dockBox = element.querySelector<HTMLElement>(".quick-expense-action-dock")?.getBoundingClientRect();
+    const categoryCellBox = element.querySelector<HTMLElement>('button[aria-label^="分类："]')?.getBoundingClientRect();
     const categoryValueBox = element.querySelector<HTMLElement>('button[aria-label^="分类："] .quick-expense-value-button__content')?.getBoundingClientRect();
+    const purposeCellBox = element.querySelector<HTMLElement>(".quick-expense-inline-field")?.getBoundingClientRect();
     const purposeValueBox = element.querySelector<HTMLElement>(".quick-expense-inline-field .input")?.getBoundingClientRect();
+    const payerCellBox = element.querySelector<HTMLElement>('button[aria-label^="付款人："]')?.getBoundingClientRect();
+    const payerValueBox = element.querySelector<HTMLElement>('button[aria-label^="付款人："] .quick-expense-field-button__value')?.getBoundingClientRect();
+    const timeCellBox = element.querySelector<HTMLElement>(".quick-expense-time-picker")?.getBoundingClientRect();
+    const timeInput = element.querySelector<HTMLElement>(".quick-expense-time-picker__input");
+    const timeInputBox = timeInput?.getBoundingClientRect();
+    const timeValueBox = element.querySelector<HTMLElement>(".quick-expense-time-picker .quick-expense-field-button__value")?.getBoundingClientRect();
+    const participantCellBox = element.querySelector<HTMLElement>(".quick-expense-participants")?.getBoundingClientRect();
     const participantValueBox = element.querySelector<HTMLElement>('button[aria-label^="参与人："] .quick-expense-field-button__value')?.getBoundingClientRect();
+    const splitCellBox = element.querySelector<HTMLElement>('button[aria-label^="分摊设置："]')?.getBoundingClientRect();
     const splitValueBox = element.querySelector<HTMLElement>('button[aria-label^="分摊设置："] .quick-expense-value-button__content')?.getBoundingClientRect();
     const fieldGrid = element.querySelector<HTMLElement>(".quick-expense-grid");
+    const fieldGridBox = fieldGrid?.getBoundingClientRect();
     const fieldGridStyle = fieldGrid ? getComputedStyle(fieldGrid) : null;
     const secondRowStyle = fieldGrid?.children[2] ? getComputedStyle(fieldGrid.children[2]) : null;
     const firstCellStyle = fieldGrid?.children[0] ? getComputedStyle(fieldGrid.children[0]) : null;
@@ -184,14 +199,47 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
       currencyIconRight: currencyIconBox?.right ?? null,
       titleCenter: titleBox ? titleBox.left + titleBox.width / 2 : null,
       saveBottom: saveBox?.bottom ?? null,
+      saveCenter: saveBox ? saveBox.left + saveBox.width / 2 : null,
+      saveHeight: saveBox?.height ?? null,
+      saveWidth: saveBox?.width ?? null,
+      saveRadius: saveStyle?.borderTopLeftRadius ?? null,
+      saveFontSize: saveStyle?.fontSize ?? null,
+      saveFontWeight: saveStyle?.fontWeight ?? null,
+      saveBoxShadow: saveStyle?.boxShadow ?? null,
+      dockCenter: dockBox ? dockBox.left + dockBox.width / 2 : null,
+      dockWidth: dockBox?.width ?? null,
       categoryValueCenterY: centerY(categoryValueBox),
       purposeValueCenterY: centerY(purposeValueBox),
+      payerValueCenterY: centerY(payerValueBox),
+      timeValueCenterY: centerY(timeValueBox),
       participantValueCenterY: centerY(participantValueBox),
       splitValueCenterY: centerY(splitValueBox),
+      fieldGridLeft: fieldGridBox?.left ?? null,
+      fieldGridRight: fieldGridBox?.right ?? null,
+      categoryCellLeft: categoryCellBox?.left ?? null,
+      categoryCellRight: categoryCellBox?.right ?? null,
+      purposeCellLeft: purposeCellBox?.left ?? null,
+      purposeCellRight: purposeCellBox?.right ?? null,
+      payerCellLeft: payerCellBox?.left ?? null,
+      payerCellRight: payerCellBox?.right ?? null,
+      timeCellLeft: timeCellBox?.left ?? null,
+      timeCellRight: timeCellBox?.right ?? null,
+      timeCellTop: timeCellBox?.top ?? null,
+      timeCellBottom: timeCellBox?.bottom ?? null,
+      timeInputLeft: timeInputBox?.left ?? null,
+      timeInputRight: timeInputBox?.right ?? null,
+      timeInputTop: timeInputBox?.top ?? null,
+      timeInputBottom: timeInputBox?.bottom ?? null,
+      timeInputOpacity: timeInput ? getComputedStyle(timeInput).opacity : null,
+      participantCellLeft: participantCellBox?.left ?? null,
+      participantCellRight: participantCellBox?.right ?? null,
+      splitCellLeft: splitCellBox?.left ?? null,
+      splitCellRight: splitCellBox?.right ?? null,
       fieldGridColumnGap: fieldGridStyle?.columnGap ?? null,
       fieldGridRowGap: fieldGridStyle?.rowGap ?? null,
       secondRowBorderTop: secondRowStyle?.borderTopWidth ?? null,
       firstCellBorderRight: firstCellStyle?.borderRightWidth ?? null,
+      sheetPaddingBottom,
       viewportHeight: expectedViewportHeight,
     };
   }, viewportBottom);
@@ -213,20 +261,53 @@ export async function assertQuickExpenseGeometry(page: Page, dialog: Locator): P
   expect(metrics.categoryValueCenterY).not.toBeNull();
   expect(metrics.purposeValueCenterY).not.toBeNull();
   expect(Math.abs(metrics.categoryValueCenterY! - metrics.purposeValueCenterY!), `分类与用途值行未对齐：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.payerValueCenterY).not.toBeNull();
+  expect(metrics.timeValueCenterY).not.toBeNull();
+  expect(Math.abs(metrics.payerValueCenterY! - metrics.timeValueCenterY!), `付款人与时间值行未对齐：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   expect(metrics.participantValueCenterY).not.toBeNull();
   expect(metrics.splitValueCenterY).not.toBeNull();
   expect(Math.abs(metrics.participantValueCenterY! - metrics.splitValueCenterY!), `参与人与分摊值行未对齐：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.categoryCellLeft).toBe(metrics.fieldGridLeft);
+  expect(metrics.purposeCellRight).toBe(metrics.fieldGridRight);
+  expect(metrics.payerCellLeft).toBe(metrics.categoryCellLeft);
+  expect(metrics.payerCellRight).toBe(metrics.categoryCellRight);
+  expect(metrics.timeCellLeft).toBe(metrics.purposeCellLeft);
+  expect(metrics.timeCellRight).toBe(metrics.purposeCellRight);
+  expect(metrics.participantCellLeft).toBe(metrics.categoryCellLeft);
+  expect(metrics.participantCellRight).toBe(metrics.categoryCellRight);
+  expect(metrics.splitCellLeft).toBe(metrics.purposeCellLeft);
+  expect(metrics.splitCellRight).toBe(metrics.purposeCellRight);
+  expect(metrics.timeInputLeft).toBe(metrics.timeCellLeft);
+  expect(metrics.timeInputRight).toBe(metrics.timeCellRight);
+  expect(metrics.timeInputTop).toBe(metrics.timeCellTop);
+  expect(metrics.timeInputBottom).toBe(metrics.timeCellBottom);
+  expect(metrics.timeInputOpacity).toBe("0");
   expect(metrics.fieldGridColumnGap).toBe("0px");
   expect(metrics.fieldGridRowGap).toBe("0px");
   expect(metrics.secondRowBorderTop).toBe("1px");
   expect(metrics.firstCellBorderRight).toBe("0px");
   expect(metrics.saveBottom).not.toBeNull();
-  expect(metrics.saveBottom!).toBeLessThanOrEqual(metrics.viewportHeight + 1);
+  expect(metrics.saveCenter).not.toBeNull();
+  expect(metrics.dockCenter).not.toBeNull();
+  expect(Math.abs(metrics.saveCenter! - metrics.dockCenter!), `保存按钮未在 Dock 中居中：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.saveHeight).toBe(50);
+  expect(metrics.saveWidth).not.toBeNull();
+  expect(metrics.dockWidth).not.toBeNull();
+  expect(Math.abs(metrics.saveWidth! - metrics.dockWidth!), `主操作按钮未铺满 Dock 内容区：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.saveRadius).toBe("14px");
+  expect(metrics.saveFontSize).toBe("16px");
+  expect(metrics.saveFontWeight).toBe("700");
+  expect(metrics.saveBoxShadow).toContain("2px 8px");
+  const saveBottomGap = metrics.viewportHeight - metrics.saveBottom!;
+  expect(saveBottomGap).toBeGreaterThanOrEqual(metrics.viewportHeight <= 844 ? metrics.sheetPaddingBottom + 9 : 9);
+  if (metrics.viewportHeight <= 844) {
+    expect(saveBottomGap, `主操作按钮底部留白异常：${JSON.stringify(metrics)}`).toBeLessThanOrEqual(metrics.sheetPaddingBottom + 18);
+  }
 }
 
 /**
- * PWA 账单编辑器只允许内容区纵向滚动。逐层检查实际布局宽度，再用横向滚轮
- * 验证浏览器不会产生可见位移；有足够内容时同时确认纵向滚动仍然可用。
+ * PWA 账单编辑器只允许内容区纵向滚动。逐层检查实际布局宽度，模拟横向触摸后
+ * 再直接写入横向滚动位置；有足够内容时同时确认纵向滚动仍然可用。
  */
 export async function assertExpenseEditorScrollBoundary(page: Page, editor: Locator): Promise<void> {
   const body = editor.locator(".form-overlay__body, .routed-expense-editor__body").first();
@@ -282,11 +363,16 @@ export async function assertExpenseEditorScrollBoundary(page: Page, editor: Loca
   expect(horizontal.viewLeft).toBe(before.nodes[2]?.left);
 
   if (before.scrollHeight > before.clientHeight + 1) {
-    const scrollTop = await body.evaluate((element) => {
-      element.scrollTop += 160;
-      return element.scrollTop;
+    const scrolled = await body.evaluate((element) => {
+      const initialScrollTop = element.scrollTop;
+      const maximumScrollTop = element.scrollHeight - element.clientHeight;
+      element.scrollTop = initialScrollTop > maximumScrollTop / 2 ? 0 : maximumScrollTop;
+      const movedScrollTop = element.scrollTop;
+      element.scrollTop = initialScrollTop;
+      return { initialScrollTop, movedScrollTop, restoredScrollTop: element.scrollTop };
     });
-    expect(scrollTop).toBeGreaterThan(0);
+    expect(scrolled.movedScrollTop).not.toBe(scrolled.initialScrollTop);
+    expect(scrolled.restoredScrollTop).toBe(scrolled.initialScrollTop);
   }
 }
 
