@@ -4,7 +4,7 @@ HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作�
 
 ## 当前源码运行
 
-正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.0.10`，对应 Git tag `v0.0.10`。该版本使用 Rust/Axum 运行栈。
+正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.10`，对应 Git tag `v0.0.10`。该版本使用 Rust/Axum 运行栈。
 
 ## Compose 直接部署
 
