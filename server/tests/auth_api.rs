@@ -905,7 +905,7 @@ async fn auth_requests_return_a_standard_429_after_the_shared_ip_limit() {
         let (uri, body) = if request_index < 9 {
             (
                 "/api/auth/login",
-                r#"{"username":"alice","password":"valid password"}"#,
+                r#"{"username":"","password":""}"#,
             )
         } else {
             (
