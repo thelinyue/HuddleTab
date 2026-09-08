@@ -120,6 +120,20 @@ export function useDeleteNotificationMutation(userId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: deleteNotification,
+    onMutate: async (notificationId) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.notifications(userId) });
+      const previous = queryClient.getQueryData<NotificationList>(queryKeys.notifications(userId));
+      if (previous) {
+        queryClient.setQueryData(queryKeys.notifications(userId), {
+          ...previous,
+          items: previous.items.filter((item) => item.notificationId !== notificationId),
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _notificationId, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKeys.notifications(userId), context.previous);
+    },
     onSuccess: (list, notificationId) => {
       // 删除响应可能与并发读取存在短暂顺序差异，客户端先排除已确认删除的行。
       replaceNotificationList(queryClient, userId, {
