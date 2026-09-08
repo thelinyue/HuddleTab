@@ -138,6 +138,10 @@ pub async fn mark_notification_read(
 }
 
 /// 一次标记当前用户的全部未读通知，服务端不受列表展示上限影响。
+///
+/// # Errors
+///
+/// 存储不可用时返回对应错误。
 pub async fn mark_all_notifications_read(
     repository: &dyn NotificationRepository,
     clock: &dyn Clock,
@@ -150,6 +154,10 @@ pub async fn mark_all_notifications_read(
 }
 
 /// 永久删除当前用户筛选范围内的通知；筛选为空时由 HTTP 层拒绝，不会误删全部记录。
+///
+/// # Errors
+///
+/// 存储不可用时返回对应错误。
 pub async fn clear_notifications(
     repository: &dyn NotificationRepository,
     recipient_user_id: Uuid,
@@ -162,6 +170,10 @@ pub async fn clear_notifications(
 }
 
 /// 永久删除当前用户的一条通知，不触碰通知指向的业务实体。
+///
+/// # Errors
+///
+/// 通知不存在、不属于当前用户或存储不可用时返回对应错误。
 pub async fn delete_notification(
     repository: &dyn NotificationRepository,
     notification_id: Uuid,
