@@ -127,11 +127,11 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
       const restoredNotification = applicant.page.locator(".notification-row").filter({ hasText: "加入申请已批准" });
       await expect(restoredNotification.locator("a")).toHaveAttribute("href", `/activities/${activityId}`);
 
-      await page.goto("/notifications");
-      await page.getByRole("button", { name: "全部已读" }).click();
-      await expect(page.getByRole("button", { name: "全部已读" })).toBeHidden();
-      await page.getByRole("button", { name: "未读" }).click();
-      await expect(page.getByText("当前筛选下没有通知。")).toBeVisible();
+      await applicant.page.goto("/notifications");
+      await applicant.page.getByRole("button", { name: "全部已读" }).click();
+      await expect(applicant.page.getByRole("button", { name: "全部已读" })).toBeHidden();
+      await applicant.page.getByRole("button", { name: "未读" }).click();
+      await expect(applicant.page.getByText("当前筛选下没有通知。")).toBeVisible();
 
       await page.goto(`/activities/${activityId}?panel=manage`);
       const management = page.getByRole("dialog", { name: "活动管理" });
