@@ -151,7 +151,7 @@ test("Chromium 核心账务矩阵覆盖冲突、导出、导航与响应式布�
   await assertCredentialFieldsVisuallyMasked(page);
   await login(page);
   const mainNavigation = page.getByRole("navigation", { name: "主导航" });
-  await expect(mainNavigation.getByRole("link")).toHaveCount(3);
+  await expect(mainNavigation.getByRole("link")).toHaveCount(2);
   await assertNoHorizontalOverflow(page);
 
   const activityId = await createActivity(page, activityName);

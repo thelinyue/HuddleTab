@@ -278,6 +278,8 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   function openQuickExpense() {
     renderPage(<ExpenseFeedPage />);
     const trigger = screen.getByRole("button", { name: "记一笔" });
+    expect(trigger).toHaveClass("activity-add-fab", "quick-expense-trigger");
+    expect(trigger).toHaveAttribute("title", "记一笔");
     trigger.focus();
     fireEvent.click(trigger);
     return { trigger, dialog: screen.getByRole("dialog", { name: "记一笔" }) };

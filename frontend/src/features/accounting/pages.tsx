@@ -428,7 +428,7 @@ export function ExpenseFeedPage() {
         )) : <EmptyState icon={<ReceiptText size={28} />} title={allExpenses.length ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length ? "调整筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} />}
       </section>
 
-      {expenseWritable ? <button className="quick-expense-trigger" type="button" aria-label="记一笔" onClick={() => { setQuickView("entry"); setEntryOpen(true); }}><Plus aria-hidden="true" size={24} /></button> : null}
+      {expenseWritable ? <button className="activity-add-fab quick-expense-trigger" type="button" aria-label="记一笔" title="记一笔" onClick={() => { setQuickView("entry"); setEntryOpen(true); }}><Plus aria-hidden="true" size={24} /></button> : null}
       <Overlay
         open={expenseWritable && entryOpen}
         title={quickExpenseViewTitle(quickView)}

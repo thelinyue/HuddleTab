@@ -630,9 +630,6 @@ button.settings-row:hover { background: var(--surface-muted); }
 .notification-row__content { display: grid; min-width: 0; gap: 2px; }
 .notification-row__content strong { overflow-wrap: anywhere; }
 .notification-row__content > span { color: var(--muted-foreground); font-size: 13px; overflow-wrap: anywhere; }
-.notification-row__actions { display: flex; align-items: center; gap: 4px; padding-right: 4px; }
-.notification-row__actions .button { min-height: 34px; padding-inline: 10px; }
-.notification-read-button { width: 44px; padding-inline: 0; }
 
 .expense-list { padding: 0; overflow: hidden; }
 .expense-row { display: grid; min-height: 72px; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
@@ -1239,11 +1236,6 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 /* Apple 风格的通知列表：筛选器是旧版的紧凑分段控件，通知行保持无卡片连续表面。 */
 .notification-header { align-items: flex-start; padding-block: 8px; }
 .notification-header__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.notification-header__actions .button { min-height: 44px; }
-.notification-delete-button { width: 44px; padding-inline: 0 !important; color: var(--danger); }
-.notification-delete-button:hover { color: var(--danger); background: var(--danger-soft); }
-.notification-header__actions .button, .notification-row__actions .button, .notification-delete-button { transition: transform 100ms ease-out, background-color 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease; }
-.notification-header__actions .button:active, .notification-row__actions .button:active { transform: scale(.97); }
 .notification-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; overflow: visible; border: 1px solid var(--border); border-radius: 12px; padding: 3px; background: var(--surface-muted); }
 .notification-filters button { min-height: 44px; min-width: 44px; border: 0; border-radius: 9px; padding: 0 8px; color: var(--muted-foreground); background: transparent; font-size: 13px; font-weight: 650; transition: transform 100ms ease-out, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
 .notification-filters button[aria-pressed="true"] { color: var(--foreground); background: var(--surface); box-shadow: 0 1px 3px rgb(23 33 29 / 10%); }
@@ -1268,9 +1260,6 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .notification-row[data-unread="true"] .notification-row__content::before { width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--primary); content: ""; }
 .notification-row[data-unread="true"] .notification-row__content { position: relative; }
 .notification-row[data-unread="true"] .notification-row__content::before { position: absolute; top: 7px; left: -12px; }
-.notification-row__actions { min-height: 44px; padding-right: 4px; }
-.notification-row__actions .button { min-height: 44px; border-radius: 10px; padding-inline: 11px; }
-.notification-read-button { width: 44px; padding-inline: 0 !important; }
 
 .empty-state__actions { display: grid; width: min(100%, 288px); gap: 8px; }
 .activity-list-item__content small { display: block; line-height: 1.45; }
@@ -1283,19 +1272,19 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .activity-history .activity-group { margin-top: 12px; }
 
 @media (max-width: 520px) {
-  .notification-header { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .notification-header__actions { justify-content: flex-start; }
   .notification-filters { margin-inline: -2px; }
   .notification-filters button { padding-inline: 4px; font-size: 12px; }
-  .notification-row { grid-template-columns: minmax(0, 1fr); padding-bottom: 4px; }
-  .notification-row__actions { justify-content: flex-end; padding: 0 8px 4px; }
-  .notification-row__actions:empty { display: none; }
+}
+
+@media (max-width: 359px) {
+  .notification-header { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .notification-header__actions { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   html.theme-transition, html.theme-transition body, html.theme-transition #root, html.theme-transition * { transition: none !important; }
   .form-overlay__header { cursor: default; }
-  .notification-filters button, .notification-row, .notification-row__link, .notification-header__actions .button, .notification-row__actions .button, .notification-delete-button { transition: none; }
+  .notification-filters button, .notification-row, .notification-row__link { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .notification-row[data-unread="true"] { background: var(--surface-muted); }
@@ -1420,4 +1409,82 @@ html.dark.pwa-standalone .update-prompt {
   .management-choice-trigger { width: 100%; justify-content: space-between; padding-inline: 0; text-align: left; }
   .management-choice-list { grid-column: 1 / -1; margin-left: 38px; }
   .management-field > .notice { margin-left: 38px; }
+}
+
+/* 活动层级统一使用右下角主操作：列表页需要避开悬浮底栏，详情页保持安全区间距。 */
+.home-header__actions { display: flex; align-items: center; gap: 8px; }
+.activity-notifications-trigger { position: relative; display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; }
+.activity-notifications-trigger__badge { position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border: 2px solid var(--surface); border-radius: 50%; background: var(--danger); }
+.activity-add-fab { position: fixed; right: max(20px, calc((100vw - 800px) / 2 + 20px), calc(var(--safe-area-right) + 20px)); bottom: max(24px, calc(var(--safe-area-bottom) + 24px)); z-index: 30; display: grid; width: 56px; height: 56px; place-items: center; border: 0; border-radius: 50%; color: var(--primary-foreground); background: var(--primary); box-shadow: 0 8px 20px rgb(13 55 42 / 28%); transition: transform 100ms ease-out, box-shadow 160ms ease, background-color 160ms ease; }
+.activity-add-fab:active:not(:disabled) { transform: scale(.96); }
+.activities-page .activity-add-fab { bottom: calc(84px + var(--safe-area-bottom)); }
+.activities-page .app-frame { padding-bottom: calc(164px + var(--safe-area-bottom)); }
+body:has(.activities-page) .update-prompt { bottom: calc(164px + var(--safe-area-bottom)); }
+.product-bottom-nav ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* 通知行是可横向揭示的连续表面；正文移动时，操作轨道留在行底层。 */
+.notification-row { display: block; min-height: 80px; overflow: hidden; border-bottom: 1px solid var(--border); }
+.notification-row__viewport { position: relative; min-width: 0; overflow: hidden; }
+.notification-row__swipe-actions { position: absolute; inset: 0 0 2px auto; z-index: 0; display: flex; min-height: 0; }
+.notification-row__swipe-action { display: grid; width: 64px; min-width: 64px; min-height: 64px; height: 100%; place-items: center; border: 0; padding: 0 4px; color: var(--primary-foreground); background: var(--primary); font-size: 12px; font-weight: 700; }
+.notification-row__swipe-action--delete { background: var(--danger); }
+.notification-row__swipe-action:disabled { cursor: wait; opacity: .62; }
+.notification-row__surface { position: relative; z-index: 1; display: grid; min-width: 0; min-height: 80px; grid-template-columns: minmax(0, 1fr) 44px; align-items: stretch; background: var(--surface); will-change: transform; }
+.notification-row[data-unread="true"] .notification-row__surface { background: color-mix(in srgb, var(--primary) 4%, var(--surface)); }
+.notification-row__body { display: grid; min-width: 0; }
+.notification-row__link { min-width: 0; min-height: 80px; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; padding: 12px 8px; touch-action: pan-y; }
+.notification-row__inline-actions { display: flex; min-height: 52px; align-items: center; gap: 6px; padding: 0 8px 8px 68px; }
+.notification-row__inline-actions .button { min-height: 44px; border-radius: 10px; padding-inline: 12px; }
+.notification-row__menu-trigger { align-self: center; width: 44px; height: 44px; color: var(--muted-foreground); border-radius: 50%; }
+.notification-row__menu-trigger:hover { color: var(--foreground); background: var(--surface-muted); }
+.notification-action-menu { z-index: 120; min-width: 144px; border: 1px solid var(--border); border-radius: 10px; padding: 4px; color: var(--foreground); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.notification-action-menu [role="menuitem"] { display: flex; min-height: 44px; align-items: center; border-radius: 7px; padding: 0 10px; font-size: 13px; cursor: pointer; outline: none; }
+.notification-action-menu [role="menuitem"]:focus, .notification-action-menu [role="menuitem"][data-highlighted] { background: var(--surface-muted); }
+.notification-action-menu [role="menuitem"][data-disabled] { cursor: wait; opacity: .5; }
+.notification-summary { display: grid; min-width: 0; gap: 12px; }
+.notification-summary__list { margin: -18px -16px 0; border-top: 0; }
+.notification-summary__footer { display: flex; justify-content: center; padding-top: 2px; }
+.notification-summary__view-all { width: 100%; justify-content: center; }
+.notification-page__frame { padding-bottom: calc(32px + var(--safe-area-bottom)); }
+.notification-page .notification-header { align-items: center; }
+.notification-header__title { display: flex; min-width: 0; align-items: center; gap: 2px; }
+.notification-header__title > div { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
+.notification-header__actions { flex-wrap: nowrap; align-items: center; }
+.notification-header__actions > .icon-button { flex: 0 0 44px; }
+.notification-page .notification-header__actions { gap: 2px; }
+
+@media (hover: none) and (pointer: coarse) {
+  .notification-row__menu-trigger { position: absolute; top: 18px; right: 0; z-index: 2; opacity: 0; pointer-events: none; }
+  .notification-row__menu-trigger:focus-visible { opacity: 1; pointer-events: auto; }
+}
+
+@media (min-width: 640px) {
+  .activity-notification-overlay { place-items: start end; padding-top: 64px; padding-right: max(20px, calc((100vw - 800px) / 2 + 20px)); }
+  .activity-notification-overlay .form-overlay__sheet { width: min(384px, calc(100vw - 40px)); max-height: min(80dvh, 720px); transform-origin: top right; }
+}
+
+@media (max-width: 639px) {
+  .activity-notification-overlay .form-overlay__body { padding: 18px 16px calc(18px + var(--safe-area-bottom)); }
+  .notification-summary__list { margin: -18px -16px 0; }
+  .notification-row__menu-trigger { top: 18px; }
+  .activities-page .empty-state--illustrated .empty-state__actions {
+    justify-self: start;
+    width: min(100%, calc(100% - 72px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-add-fab { transition: none; }
+  .activity-add-fab:active:not(:disabled) { transform: none; }
+  .notification-row__surface { will-change: auto; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .activity-notifications-trigger__badge { border-color: var(--surface); }
+  .notification-action-menu { background: var(--surface); }
+}
+
+@media (prefers-contrast: more) {
+  .activity-add-fab, .notification-row__swipe-action, .notification-action-menu { border: 1px solid var(--foreground); }
+  .notification-row__surface { border-inline: 1px solid var(--foreground); }
 }

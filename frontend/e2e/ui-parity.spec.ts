@@ -22,7 +22,7 @@ async function openCreateActivity(page: import("@playwright/test").Page) {
 test("活动首页、工作台和记账入口保持远程基线信息路径", async ({ page }, testInfo) => {
   await login(page);
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link")).toHaveText(["活动", "通知", "我的"]);
+  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link")).toHaveText(["活动", "我的"]);
 
   const actionButton = page.getByRole("button", { name: "新建或加入活动" });
   await actionButton.click();

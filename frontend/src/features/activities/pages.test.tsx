@@ -31,6 +31,10 @@ const activityApiState = vi.hoisted(() => ({
   activities: [] as Array<Record<string, unknown>>,
   activitiesError: null as unknown,
   activitiesPending: false,
+  notifications: { items: [] as Array<Record<string, unknown>>, timeZone: "Asia/Shanghai", unreadCount: 0 },
+  notificationMarkRead: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
+  notificationDelete: { error: null as unknown, isPending: false, mutateAsync: vi.fn(), variables: undefined as string | undefined },
+  notificationDecide: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   ledgers: [] as Array<{ data?: { balances: Array<{ memberId: string; netMinor: string }> }; isError: boolean; isPending: boolean }>,
   deletedActivities: [] as Array<Record<string, unknown>>,
   deletedQueryEnabled: [] as boolean[],
@@ -104,7 +108,10 @@ vi.mock("../auth/api", () => ({
 }));
 
 vi.mock("../notifications/api", () => ({
-  useNotificationsQuery: () => ({ data: { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 } }),
+  useNotificationsQuery: () => ({ data: activityApiState.notifications, isPending: false }),
+  useMarkNotificationReadMutation: () => activityApiState.notificationMarkRead,
+  useDeleteNotificationMutation: () => activityApiState.notificationDelete,
+  useDecideNotificationJoinRequestMutation: () => activityApiState.notificationDecide,
 }));
 
 vi.mock("./offline-workspace", () => ({
@@ -184,6 +191,13 @@ afterEach(() => {
   activityApiState.activity.hasAccountingRecords = true;
   activityApiState.activity.location = "杭州";
   activityApiState.activities = [];
+  activityApiState.notifications = { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 };
+  for (const mutation of [activityApiState.notificationMarkRead, activityApiState.notificationDelete, activityApiState.notificationDecide]) {
+    mutation.error = null;
+    mutation.isPending = false;
+    mutation.mutateAsync.mockReset();
+  }
+  activityApiState.notificationDelete.variables = undefined;
   activityApiState.activitiesError = null;
   activityApiState.activitiesPending = false;
   activityApiState.ledgers = [];
@@ -716,19 +730,44 @@ describe("活动列表空状态", () => {
     );
   });
 
-  it("把恢复入口放在标题文字右侧，并保留最右侧的新建入口", () => {
+  it("把恢复入口放在标题文字右侧，通知留在页头并把新建入口移到浮动按钮", () => {
     const { container } = renderActivitiesPage();
     const heading = screen.getByRole("heading", { name: "活动" });
     const deletedButton = screen.getByRole("button", { name: "已删除活动" });
+    const notificationButton = screen.getByRole("button", { name: "通知" });
     const actionButton = screen.getByRole("button", { name: "新建或加入活动" });
 
     expect(heading.parentElement).toHaveClass("home-header__title");
     expect(heading.nextElementSibling).toBe(deletedButton);
-    expect(heading.parentElement?.parentElement?.lastElementChild).toBe(actionButton);
+    expect(container.querySelector(".home-header__actions")).toContainElement(notificationButton);
+    expect(actionButton).toHaveClass("activity-add-fab");
+    expect(actionButton.closest(".home-header")).toBeNull();
     expect(deletedButton).toHaveAttribute("title", "已删除活动");
     expect(deletedButton.querySelector(".lucide-trash-2")).toBeInTheDocument();
     expect(deletedButton.querySelector(".lucide-rotate-ccw")).not.toBeInTheDocument();
     expect(container.querySelector(".deleted-activities-entry")).not.toBeInTheDocument();
+  });
+
+  it("页头通知按钮提供未读数量文案并打开摘要 Sheet", () => {
+    activityApiState.notifications.unreadCount = 3;
+    renderActivitiesPage("/activities", true);
+
+    const trigger = screen.getByRole("button", { name: "通知，3 条未读" });
+    expect(trigger.querySelector(".activity-notifications-trigger__badge")).toBeInTheDocument();
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("dialog", { name: "通知" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=notifications");
+  });
+
+  it("活动摘要保留查看全部入口并通过浮动按钮打开创建选择页", () => {
+    renderActivitiesPage("/activities?panel=notifications");
+    const summary = screen.getByRole("dialog", { name: "通知" });
+    expect(within(summary).getByRole("button", { name: /查看全部通知/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭通知" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建或加入活动" }));
+    expect(screen.getByRole("dialog", { name: "新建或加入活动" })).toBeInTheDocument();
   });
 
   it("已有活动时不显示空状态插画", () => {

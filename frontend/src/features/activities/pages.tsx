@@ -3,6 +3,7 @@ import {
   ArchiveRestore,
   ArrowLeft,
   ArrowRight,
+  Bell,
   ChevronDown,
   ChevronRight,
   CircleDollarSign,
@@ -84,6 +85,8 @@ import { type Session, useLogoutMutation, useSessionQuery, useUpdateAvatarPreset
 import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
 import { inclusiveCalendarDays } from "../../lib/calendar-date";
 import { useThemePreference, type ThemePreference } from "../../components/theme-provider";
+import { NotificationsSummary } from "../notifications/pages";
+import { useNotificationsQuery } from "../notifications/api";
 
 type WorkspaceValue = { session: Session; activity: Activity; members: ActivityMember[]; offline: boolean; snapshot?: ReturnType<typeof useActivitySnapshotQuery>["data"] };
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
@@ -119,10 +122,10 @@ function localCalendarToday(): string {
 }
 
 /** 首页四种面板状态统一由 URL 驱动，便于系统返回和刷新后恢复可预测的入口层级。 */
-type ActivityPanel = "actions" | "create" | "join" | "deleted";
+type ActivityPanel = "actions" | "create" | "join" | "deleted" | "notifications";
 
 function activityPanelFromSearch(value: string | null): ActivityPanel | null {
-  return value === "actions" || value === "create" || value === "join" || value === "deleted" ? value : null;
+  return value === "actions" || value === "create" || value === "join" || value === "deleted" || value === "notifications" ? value : null;
 }
 
 function activityPanelDepth(state: unknown): number | null {
@@ -338,6 +341,7 @@ function DeletedActivities({ activities, userId }: { activities: readonly Activi
 export function ActivitiesPage() {
   const session = useSessionQuery();
   const activities = useActivitiesQuery(session.data?.userId ?? "");
+  const notifications = useNotificationsQuery(session.data?.userId ?? "");
   const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const panel = activityPanelFromSearch(searchParams.get("panel"));
@@ -424,8 +428,12 @@ export function ActivitiesPage() {
   }
   const openCreate = () => openChildPanel("create");
   const openJoin = () => openChildPanel("join");
+  const notificationsUnreadCount = notifications.data?.unreadCount ?? 0;
+  const notificationsUnreadLabel = notificationsUnreadCount > 0
+    ? `通知，${notificationsUnreadCount} 条未读`
+    : "通知";
   return (
-    <div className="top-level-page">
+    <div className="top-level-page activities-page">
       <main className="app-frame app-frame--with-nav" aria-busy={listPending}>
         {listPending ? <span className="sr-only" role="status">正在读取活动…</span> : null}
         <header className="home-header">
@@ -435,7 +443,12 @@ export function ActivitiesPage() {
               <Trash2 aria-hidden="true" size={18} />
             </button>
           </div>
-          <button className="home-add" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => openPanel("actions")}><Plus aria-hidden="true" size={18} /></button>
+          <div className="home-header__actions">
+            <button className="icon-button activity-notifications-trigger" type="button" aria-label={notificationsUnreadLabel} title="通知" onClick={() => openPanel("notifications")}>
+              <Bell aria-hidden="true" size={20} />
+              {notificationsUnreadCount > 0 ? <span className="activity-notifications-trigger__badge" aria-hidden="true" /> : null}
+            </button>
+          </div>
         </header>
         {!listPending && !listError ? summaries.map(([currency, summary]) => (
           <dl className="home-summary" key={currency} aria-label={`${currency} 跨活动账务摘要`}>
@@ -458,6 +471,7 @@ export function ActivitiesPage() {
         {archived.length ? <details className="activity-history"><summary>查看历史活动</summary><ActivityGroup title="已归档" activities={archived} allActivities={items} ledgers={ledgers} /></details> : null}
       </main>
       <ProductBottomNavigation />
+      <button className="activity-add-fab" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => openPanel("actions")}><Plus aria-hidden="true" size={24} /></button>
       <Overlay open={panel === "actions" || panel === "create" || panel === "join"} title={panel === "create" ? "创建活动" : panel === "join" ? "加入活动" : "新建或加入活动"} onBack={panel === "create" || panel === "join" ? { label: "新建或加入活动", onClick: backToActions } : undefined} onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay activity-actions-overlay">
         {panel === "actions" ? <div className="overlay-action-list">
           <button type="button" className="settings-row" data-overlay-initial-focus onClick={openCreate}><Plus aria-hidden="true" size={20} /><span><strong>创建活动</strong><small>为旅行或聚会建立新的账本</small></span><ChevronRight aria-hidden="true" size={18} /></button>
@@ -476,6 +490,16 @@ export function ActivitiesPage() {
           <Field label="邀请口令" hint="向活动所有者索取邀请口令后粘贴到这里。"><Input value={joinToken} onChange={(event) => setJoinToken(event.target.value)} autoComplete="off" autoFocus required /></Field>
           <Button type="submit">查看邀请 <ArrowRight aria-hidden="true" size={18} /></Button>
         </form> : null}
+      </Overlay>
+      <Overlay
+        open={panel === "notifications"}
+        title="通知"
+        onClose={closePanel}
+        focusKey={panel ?? "closed"}
+        mobileSheet={{ maxHeight: 0.92, detents: [0.72, 0.92], initialDetent: 0.72 }}
+        className="activity-home-overlay activity-notification-overlay"
+      >
+        <NotificationsSummary onViewAll={() => navigate("/notifications", { replace: true })} />
       </Overlay>
       <Overlay open={panel === "deleted"} title="已删除活动" onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay deleted-activities-overlay">
         {deletedActivities.isPending ? <LoadingState label="正在读取已删除活动…" /> : null}

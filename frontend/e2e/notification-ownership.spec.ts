@@ -58,6 +58,22 @@ async function changeInviteModeToApproval(page: Page): Promise<void> {
   await page.getByRole("button", { name: "关闭活动管理" }).click();
 }
 
+async function deleteNotificationRow(page: Page, row: import("@playwright/test").Locator): Promise<void> {
+  if ((page.viewportSize()?.width ?? 1_000) <= 639) {
+    const surface = row.locator(".notification-row__surface");
+    const box = await surface.boundingBox();
+    if (!box) throw new Error("通知行滑动表面不可见。");
+    const y = box.y + Math.min(box.height / 2, 40);
+    await surface.dispatchEvent("pointerdown", { pointerId: 1, pointerType: "touch", clientX: box.x + box.width - 24, clientY: y, button: 0 });
+    await surface.dispatchEvent("pointermove", { pointerId: 1, pointerType: "touch", clientX: box.x + box.width - 180, clientY: y });
+    await surface.dispatchEvent("pointerup", { pointerId: 1, pointerType: "touch", clientX: box.x + box.width - 180, clientY: y });
+    await row.getByRole("button", { name: "删除通知" }).click();
+    return;
+  }
+  await row.getByRole("button", { name: "通知操作" }).click();
+  await page.getByRole("menu").getByRole("menuitem", { name: "删除" }).click();
+}
+
 test("通知筛选、加入审批和所有权转让保持同一活动交互层级", async ({ page, browser }, testInfo) => {
   test.setTimeout(90_000);
   const activityName = `Phase 1E 通知-${Date.now()}`;
@@ -73,19 +89,21 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
     await page.reload();
     await expect(page.getByText(`${member.displayName} 已加入活动`)).toBeVisible();
     await expect(page.getByRole("group", { name: "通知筛选" }).getByRole("button")).toHaveText(["全部", "未读", "邀请", "结算", "系统"]);
-    await expect(page.getByRole("link", { name: /通知，\d+ 条未读/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "返回活动" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "主导航" })).toHaveCount(0);
 
     await page.getByRole("button", { name: "邀请" }).click();
     const joinedNotification = page.locator(".notification-row").filter({ hasText: `${member.displayName} 已加入活动` });
     await expect(joinedNotification).toBeVisible();
-    await page.getByRole("button", { name: "清理当前" }).click();
+    await page.getByRole("button", { name: "通知更多操作" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: "清理当前" }).click();
     const clearDialog = page.getByRole("alertdialog", { name: "清理邀请通知" });
     await expect(clearDialog).toContainText("当前列表未加载的旧通知");
     await expect(clearDialog).toContainText("不会删除活动、账单、结算或加入申请");
     await clearDialog.getByRole("button", { name: "取消" }).click();
     await expect(clearDialog).toBeHidden();
     await expect(joinedNotification).toBeVisible();
-    await joinedNotification.getByRole("button", { name: "删除通知" }).click();
+    await deleteNotificationRow(page, joinedNotification);
     await expect(joinedNotification).toBeHidden();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
 
