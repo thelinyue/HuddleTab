@@ -2,7 +2,7 @@ import { retryableLazy } from "../components/retryable-lazy";
 import { AccountingSkeleton } from "../features/accounting/skeleton";
 import { FileQuestion } from "lucide-react";
 import { AnimatePresence } from "motion/react";
-import { type ReactNode, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
@@ -10,13 +10,10 @@ import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
 import { ActivitiesPage } from "../features/activities/activities-page";
 import { ActivityWorkspace } from "../features/activities/activity-workspace";
 import { MePage } from "../features/me/page";
-import { useOnlineStatus } from "../features/activities/offline-workspace";
-import { hasRememberedOfflineSession, useSessionQuery } from "../features/auth/api";
+import { useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { PwaUpdatePrompt } from "./pwa-update";
 import { PwaLaunchScreen } from "./pwa-launch-screen";
-import { SetupPage, SetupStatusError } from "../features/setup/pages";
-import { useSetupStatusQuery } from "../features/setup/api";
 
 const ExpenseDetailPage = retryableLazy(() => import("../features/accounting/expense-editor").then((module) => ({ default: module.ExpenseDetailPage })));
 const ExpenseFeedPage = retryableLazy(() => import("../features/accounting/feed-page").then((module) => ({ default: module.ExpenseFeedPage })), <AccountingSkeleton />);
@@ -26,6 +23,7 @@ const AdminHomePage = lazy(() => import("../features/admin/pages").then((module)
 const AdminSettingsPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSettingsPage })));
 const AdminSystemInformationPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSystemInformationPage })));
 const AdminUsersPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminUsersPage })));
+const ChangeUsernamePage = lazy(() => import("../features/me/username-page").then((module) => ({ default: module.ChangeUsernamePage })));
 const ChangePasswordPage = lazy(() => import("../features/me/password-page").then((module) => ({ default: module.ChangePasswordPage })));
 const NotificationsPage = lazy(() => import("../features/notifications/pages").then((module) => ({ default: module.NotificationsPage })));
 const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));
@@ -36,59 +34,15 @@ function RootRedirect() {
   return <Navigate to={session.data ? "/activities" : "/login"} replace />;
 }
 
-/** 初始化是全站部署前置条件；网络故障时宁可停在提示页，也不使用可能过期的产品缓存。 */
-function SetupGuard() {
-  const location = useLocation();
-  const status = useSetupStatusQuery();
+/** PWA 启动层只等待首次 Session 查询；后续刷新不重复播放，也不阻塞离线身份恢复。 */
+function SessionLaunch() {
   const session = useSessionQuery();
-  const online = useOnlineStatus();
-  const previousOnline = useRef(online);
+  const [startupAvailable, setStartupAvailable] = useState(true);
+  const showLaunch = startupAvailable && session.isPending && document.documentElement.classList.contains("pwa-standalone");
   useEffect(() => {
-    const becameOnline = online && !previousOnline.current;
-    previousOnline.current = online;
-    if (becameOnline && status.error) void status.refetch();
-  }, [online, status.error, status.refetch]);
-  const [pwaStartupAvailable, setPwaStartupAvailable] = useState(true);
-  const pwaStartupPending =
-    status.isPending ||
-    (status.data?.setupRequired === false && session.isPending);
-  const pwaStartup =
-    pwaStartupAvailable &&
-    pwaStartupPending &&
-    document.documentElement.classList.contains("pwa-standalone");
-  useEffect(() => {
-    if (!pwaStartupPending) setPwaStartupAvailable(false);
-  }, [pwaStartupPending]);
-
-  let guardedContent: ReactNode;
-  if (status.isPending) {
-    guardedContent = pwaStartup ? null : <LoadingState label="正在确认初始化状态…" />;
-  } else if (status.error || !status.data) {
-    // 离线工作台已经由当前标签页 Session 和 Snapshot 保护；只在网络错误时放行，
-    // 认证失效仍会由 ProtectedRoute 清理身份，不能借缓存绕过服务端授权。
-    if (online && status.error) {
-      guardedContent = <LoadingState label="正在重新确认初始化状态…" />;
-    } else {
-      // 只有已缓存的活动深链允许在断网时跳过初始化状态探针；列表、管理等页面仍需在线确认。
-      const cachedActivityDeepLink = location.pathname.startsWith("/activities/");
-      guardedContent = !online && cachedActivityDeepLink && (session.data || hasRememberedOfflineSession())
-        ? <Outlet />
-        : <SetupStatusError onRetry={() => void status.refetch()} />;
-    }
-  } else if (status.data.setupRequired) {
-    guardedContent = location.pathname === "/setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
-  } else {
-    guardedContent = location.pathname === "/setup" ? <Navigate to="/login" replace /> : <Outlet />;
-  }
-
-  return (
-    <>
-      {pwaStartup ? null : guardedContent}
-      <AnimatePresence>
-        {pwaStartup ? <PwaLaunchScreen key="pwa-launch-screen" /> : null}
-      </AnimatePresence>
-    </>
-  );
+    if (!session.isPending) setStartupAvailable(false);
+  }, [session.isPending]);
+  return <>{showLaunch ? null : <Outlet />}<AnimatePresence>{showLaunch ? <PwaLaunchScreen key="pwa-launch-screen" /> : null}</AnimatePresence></>;
 }
 
 function ProtectedRoute() {
@@ -136,9 +90,8 @@ export function ApplicationRouter() {
   return (
     <>
       <Routes>
-        <Route element={<SetupGuard />}>
+        <Route element={<SessionLaunch />}>
           <Route path="/" element={<RootRedirect />} />
-          <Route path="/setup" element={<SetupPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/join/:token" element={<JoinPage />} />
@@ -151,6 +104,7 @@ export function ApplicationRouter() {
           </Route>
           <Route path="/notifications" element={<Suspense fallback={<LoadingState label="正在打开通知…" />}><NotificationsPage /></Suspense>} />
           <Route path="/me" element={<MePage />} />
+          <Route path="/me/username" element={<Suspense fallback={<LoadingState label="正在打开用户名设置…" />}><ChangeUsernamePage /></Suspense>} />
           <Route path="/me/password" element={<Suspense fallback={<LoadingState label="正在打开密码设置…" />}><ChangePasswordPage /></Suspense>} />
           <Route element={<ProtectedAdminRoute />}>
             <Route path="/admin" element={<Suspense fallback={<LoadingState label="正在打开系统管理…" />}><AdminHomePage /></Suspense>} />

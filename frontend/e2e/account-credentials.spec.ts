@@ -1,0 +1,44 @@
+import { expect, test } from "@playwright/test";
+import { assertNoHorizontalOverflow, login } from "./support/product";
+
+test("启动管理员可登录，网页改名校验密码并保留身份", async ({ page }, testInfo) => {
+  const original = process.env.HUDDLETAB_E2E_USERNAME!;
+  const password = process.env.HUDDLETAB_E2E_PASSWORD!;
+  const renamed = `renamed-${testInfo.project.name.includes("mobile") ? "mobile" : "desktop"}`;
+  await login(page);
+  await page.goto("/me");
+  await expect(page.getByRole("link", { name: "系统管理", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "修改用户名", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "修改用户名" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存用户名" })).toBeDisabled();
+  await page.getByLabel("新用户名").fill(renamed);
+  await page.getByLabel("当前密码").fill("incorrect-password");
+  await page.getByRole("button", { name: "保存用户名" }).click();
+  await expect(page.getByText("当前密码错误，请重新输入。", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/me\/username$/);
+  await expect(page.getByLabel("新用户名")).toHaveValue(renamed);
+  await page.getByLabel("当前密码").fill(password);
+  await page.getByRole("button", { name: "保存用户名" }).click();
+  await expect(page.getByRole("status")).toContainText("用户名已修改");
+  await assertNoHorizontalOverflow(page);
+  await page.getByLabel("当前密码").blur();
+  await page.screenshot({ path: `artifacts/username-settings-${testInfo.project.name}.png`, fullPage: true });
+  await page.getByRole("link", { name: "返回我的" }).click();
+  await expect(page.locator(".profile-identity-button")).toContainText(renamed);
+  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page.getByLabel("用户名", { exact: true }).fill(original);
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByText("用户名或密码错误。", { exact: true })).toBeVisible();
+  await page.getByLabel("用户名", { exact: true }).fill(renamed);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page).toHaveURL(/\/activities$/);
+  // 恢复测试凭据，使后续视口和业务矩阵继续使用 runner 的隔离账号。
+  await page.goto("/me/username");
+  await page.getByLabel("新用户名").fill(original);
+  await page.getByLabel("当前密码").fill(password);
+  await page.getByRole("button", { name: "保存用户名" }).click();
+  await expect(page.getByRole("status")).toContainText("用户名已修改");
+  await page.goto("/setup");
+  await expect(page.getByRole("heading", { name: "找不到这个页面" })).toBeVisible();
+});

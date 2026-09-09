@@ -15,7 +15,6 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
     if (endpoint === 'settlements' && controls.historyError) { await route.fulfill({ status: 503, json: { error: { message: '记录暂时无法读取' } } }); return; }
     if (route.request().method() !== 'GET') { controls.writes.push(route.request().postDataJSON()); await route.fulfill({ status: controls.failWrite ? 409 : 200, json: controls.failWrite ? { error: { message: '记录冲突，请重试' } } : { data: records[0] } }); return; }
     let data: unknown = [];
-    if (url.pathname === '/api/setup/status') data = { setupRequired: false };
     else if (endpoint === 'session') data = { userId: 'u0', username: 'demo', displayName: '小林', isSystemAdmin: false };
     else if (endpoint === 'csrf') data = { token: 'fixture' };
     else if (endpoint === 'demo') data = activity;

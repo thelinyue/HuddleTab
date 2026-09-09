@@ -16,14 +16,6 @@ import { AppProviders } from "./providers";
 import { ApplicationRouter } from "./router";
 
 vi.mock("./pwa-update", () => ({ PwaUpdatePrompt: () => null }));
-vi.mock("../features/setup/api", () => ({
-  useSetupStatusQuery: () => ({
-    isPending: false,
-    error: null,
-    data: { setupRequired: false },
-    refetch: vi.fn(),
-  }),
-}));
 vi.mock("../features/me/page", () => ({ MePage: () => <h1>我的</h1> }));
 
 vi.mock("../features/activities/activities-page", () => ({ ActivitiesPage: () => <h1>活动</h1> }));

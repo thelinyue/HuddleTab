@@ -23,6 +23,8 @@ $temporaryData = $null
 $composeAttempted = $false
 $primaryFailure = $null
 $script:composeFileWsl = $null
+$originalAdminUsername = $env:ADMIN_USERNAME
+$originalAdminPassword = $env:ADMIN_PASSWORD
 $originalWslEnv = $env:WSLENV
 $originalAppVersion = $env:APP_VERSION
 $originalPostgresDb = $env:POSTGRES_DB
@@ -33,7 +35,9 @@ $originalUiParityMode = $env:HUDDLETAB_E2E_UI_PARITY_MODE
 $sensitiveNames = @(
   "HUDDLETAB_E2E_USERNAME",
   "HUDDLETAB_E2E_PASSWORD",
-  "POSTGRES_PASSWORD"
+  "POSTGRES_PASSWORD",
+  "ADMIN_USERNAME",
+  "ADMIN_PASSWORD"
 )
 
 if (@($AttachmentOnly, $NotificationOwnershipOnly, $Phase2Only, $IPhoneSimulationOnly, $UiParityOnly, $Task29Only, $Task30Only, $Task31Only, $ReleaseVerification).Where({ $_ }).Count -gt 1) {
@@ -151,11 +155,13 @@ try {
   $baseUrl = "http://127.0.0.1:$appPort"
   $env:HUDDLETAB_E2E_USERNAME = "phase1e$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
   $env:HUDDLETAB_E2E_PASSWORD = "$([Guid]::NewGuid().ToString('N'))Aa1!"
+  $env:ADMIN_USERNAME = $env:HUDDLETAB_E2E_USERNAME
+  $env:ADMIN_PASSWORD = $env:HUDDLETAB_E2E_PASSWORD
   $env:POSTGRES_PASSWORD = "$([Guid]::NewGuid().ToString('N'))Pg1!"
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
-  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.13" } else { "dev" }
+  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.14" } else { "dev" }
   $env:PUID = "10001"
   $env:PGID = "10001"
   $env:TRUST_PROXY = "false"
@@ -197,21 +203,21 @@ try {
     if ((@($services) -join ",") -ne "postgres,app") { throw "最终 Compose 服务必须严格为 postgres 与 app。" }
   }
 
-  Write-Host "[3/10] 验证空库网页初始化表单、fresh migration 与自动登录"
-  $setupExitCode = 0
+  Write-Host "[3/10] 验证空库启动管理员与网页凭据修改、fresh migration 与登录"
+  $accountExitCode = 0
   Push-Location $frontendDir
   try {
-    # setup mobile 依赖 desktop 项目，Playwright 会按固定依赖顺序先检查空库表单再提交初始化。
-    & npm run test:e2e -- setup.spec.ts --project=chromium-setup-mobile
-    $setupExitCode = $LASTEXITCODE
+    # 两种视口顺序运行，测试结束恢复凭据，后续矩阵继续使用原测试账号。
+    & npm run test:e2e -- account-credentials.spec.ts --project=chromium-account-mobile
+    $accountExitCode = $LASTEXITCODE
   } finally {
     Pop-Location
   }
-  # 初始化场景可能包含密码输入；无论测试成功还是失败，先脱敏再决定是否中止。
+  # 账号场景可能包含密码输入；无论测试成功还是失败，先脱敏再决定是否中止。
   node (Join-Path $PSScriptRoot "support/artifact-sanitizer.mjs") $artifactDir
-  $setupSanitizerExitCode = $LASTEXITCODE
-  if ($setupSanitizerExitCode -ne 0) { throw "初始化场景 artifact 脱敏或扫描失败。" }
-  if ($setupExitCode -ne 0) { throw "网页初始化表单浏览器检查失败，脱敏后的报告已留在 frontend/artifacts。" }
+  $accountSanitizerExitCode = $LASTEXITCODE
+  if ($accountSanitizerExitCode -ne 0) { throw "初始化场景 artifact 脱敏或扫描失败。" }
+  if ($accountExitCode -ne 0) { throw "启动管理员与网页凭据修改浏览器检查失败，脱敏后的报告已留在 frontend/artifacts。" }
   $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
   if ([int] $migration.Output.Trim() -ne 1) { throw "全新安装应完成 1 条数据库初始化 migration。" }
   $matrixLabel = if ($Phase2Only) {
@@ -227,7 +233,7 @@ try {
   } elseif ($Task31Only) {
     "Task 31 Chromium Desktop/Mobile 系统信息矩阵"
   } elseif ($ReleaseVerification) {
-    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.13）"
+    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.14）"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {
@@ -325,6 +331,8 @@ try {
   if ($null -ne $originalPgid) { $env:PGID = $originalPgid }
   if ($null -ne $originalTrustProxy) { $env:TRUST_PROXY = $originalTrustProxy }
   if ($null -ne $originalUiParityMode) { $env:HUDDLETAB_E2E_UI_PARITY_MODE = $originalUiParityMode }
+  if ($null -ne $originalAdminUsername) { $env:ADMIN_USERNAME = $originalAdminUsername } else { Remove-Item Env:ADMIN_USERNAME -ErrorAction SilentlyContinue }
+  if ($null -ne $originalAdminPassword) { $env:ADMIN_PASSWORD = $originalAdminPassword } else { Remove-Item Env:ADMIN_PASSWORD -ErrorAction SilentlyContinue }
   $env:WSLENV = $originalWslEnv
 }
 

@@ -23,7 +23,7 @@ use super::static_files::mount_static_files;
 use super::{
     accounting, activity, admin, attachment, auth, collaboration,
     error::{ApiError, RequestId},
-    exchange_rate, expense, notification, settlement, setup, sharing, snapshot,
+    exchange_rate, expense, notification, settlement, sharing, snapshot,
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -141,12 +141,8 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             axum::routing::post(auth::logout).fallback(api_method_not_allowed),
         )
         .route(
-            "/setup/status",
-            get(setup::status).fallback(api_method_not_allowed),
-        )
-        .route(
-            "/setup",
-            axum::routing::post(setup::initialize).fallback(api_method_not_allowed),
+            "/me/username",
+            axum::routing::put(auth::change_username).fallback(api_method_not_allowed),
         )
         .route(
             "/me/password",

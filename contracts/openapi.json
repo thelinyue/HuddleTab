@@ -3581,6 +3581,96 @@
         }
       }
     },
+    "/api/me/username": {
+      "put": {
+        "tags": [
+          "super::auth"
+        ],
+        "operationId": "change_username",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeUsernameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "用户名已修改，保持当前登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeUsernameEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "用户名无效或当前密码错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "登录已失效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "用户名已占用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "请求过于频繁",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务暂时不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/notifications": {
       "get": {
         "tags": [],
@@ -3840,146 +3930,6 @@
           },
           "404": {
             "description": "通知不存在",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/setup": {
-      "post": {
-        "tags": [],
-        "operationId": "initialize",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetupRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "首位系统管理员创建成功",
-            "headers": {
-              "Cache-Control": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "no-store"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SetupInitializeEnvelope"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "初始化输入无效",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "CSRF 校验失败",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "系统已完成初始化",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "请求频率过高",
-            "headers": {
-              "Retry-After": {
-                "schema": {
-                  "type": "integer",
-                  "format": "int64",
-                  "minimum": 0
-                },
-                "description": "等待秒数"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "初始化服务内部错误",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/setup/status": {
-      "get": {
-        "tags": [],
-        "operationId": "status",
-        "responses": {
-          "200": {
-            "description": "只读初始化状态",
-            "headers": {
-              "Cache-Control": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "no-store"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SetupStatusEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "初始化状态暂时不可用",
-            "headers": {
-              "Cache-Control": {
-                "schema": {
-                  "type": "string"
-                },
-                "description": "no-store"
-              }
-            },
             "content": {
               "application/json": {
                 "schema": {
@@ -4571,6 +4521,44 @@
             "type": "string"
           },
           "newPassword": {
+            "type": "string"
+          }
+        }
+      },
+      "ChangeUsernameData": {
+        "type": "object",
+        "required": [
+          "username"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "ChangeUsernameEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ChangeUsernameData"
+          }
+        }
+      },
+      "ChangeUsernameRequest": {
+        "type": "object",
+        "description": "登录凭据修改输入只在显式密码验证中使用，调试输出不得泄漏密码。",
+        "required": [
+          "newUsername",
+          "currentPassword"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string"
+          },
+          "newUsername": {
             "type": "string"
           }
         }
@@ -6248,71 +6236,6 @@
             "items": {
               "$ref": "#/components/schemas/SettlementData"
             }
-          }
-        }
-      },
-      "SetupInitializeData": {
-        "type": "object",
-        "required": [
-          "initialized"
-        ],
-        "properties": {
-          "initialized": {
-            "type": "boolean"
-          }
-        }
-      },
-      "SetupInitializeEnvelope": {
-        "type": "object",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/SetupInitializeData"
-          }
-        }
-      },
-      "SetupRequest": {
-        "type": "object",
-        "required": [
-          "displayName",
-          "username",
-          "password"
-        ],
-        "properties": {
-          "displayName": {
-            "type": "string"
-          },
-          "password": {
-            "type": "string"
-          },
-          "username": {
-            "type": "string"
-          }
-        }
-      },
-      "SetupStatusData": {
-        "type": "object",
-        "description": "初始化状态是部署边界，前端不得将其持久化到 `IndexedDB` 或 Service Worker。",
-        "required": [
-          "setupRequired"
-        ],
-        "properties": {
-          "setupRequired": {
-            "type": "boolean"
-          }
-        }
-      },
-      "SetupStatusEnvelope": {
-        "type": "object",
-        "description": "公开初始化状态只暴露是否需要网页初始化，不返回用户数量或账号资料。",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/SetupStatusData"
           }
         }
       },

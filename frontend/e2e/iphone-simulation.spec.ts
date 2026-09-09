@@ -32,19 +32,15 @@ test("独立 PWA 冷启动先展示品牌接管层，再交给活动首页", asy
     const registrations = await navigator.serviceWorker.getRegistrations();
     await Promise.all(registrations.map((registration) => registration.unregister()));
   });
-  let setupStatusRequestIntercepted = false;
-  await page.route("**/api/setup/status**", async (route) => {
-    setupStatusRequestIntercepted = true;
+  let sessionRequestIntercepted = false;
+  await page.route("**/api/auth/session**", async (route) => {
+    sessionRequestIntercepted = true;
     await new Promise((resolve) => setTimeout(resolve, 3_000));
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ data: { setupRequired: false } }),
-    });
+    await route.continue();
   });
   await page.reload();
 
-  await expect.poll(() => setupStatusRequestIntercepted).toBe(true);
+  await expect.poll(() => sessionRequestIntercepted).toBe(true);
   const launchScreen = page.getByRole("status", { name: "正在准备伙记" });
   await expect(launchScreen).toBeVisible();
   await expect(page.locator(".pwa-launch-screen__status")).toBeVisible();

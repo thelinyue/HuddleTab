@@ -18,7 +18,7 @@ pub struct BootstrapUserInput {
     pub display_name: String,
 }
 
-/// 首位用户输入允许记录调用上下文，但绝不能把网页提交的明文密码写进日志。
+/// 首位用户输入允许记录调用上下文，但默认调试输出绝不能包含明文密码。
 impl fmt::Debug for BootstrapUserInput {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -112,13 +112,76 @@ pub async fn bootstrap_first_user(
     })
 }
 
-/// 页面初始化守卫只需要知道数据库是否仍为空；不暴露用户数量或任何账号资料。
+/// 服务启动时检查是否为空库；已有用户时不再读取或应用初始化配置。
 ///
 /// # Errors
 ///
-/// 数据库查询失败时返回原始 `SQLx` 错误，由 HTTP 层转换为统一中文错误。
-pub async fn setup_required(pool: &PgPool) -> Result<bool, sqlx::Error> {
+/// 数据库查询失败时返回原始 `SQLx` 错误，由启动流程补充中文诊断并退出。
+pub async fn database_is_empty(pool: &PgPool) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar::<_, bool>("SELECT NOT EXISTS (SELECT 1 FROM users)")
         .fetch_one(pool)
         .await
+}
+
+/// 只在空库解析环境配置；生成的密码仅由成功提交初始化事务的实例输出一次。
+///
+/// # Errors
+/// 配置非法、随机源不可用或数据库写入失败时终止启动。
+pub async fn initialize_admin(pool: &PgPool) -> anyhow::Result<()> {
+    use crate::infrastructure::{clock::SystemClock, password::Argon2PasswordHasher};
+    use anyhow::Context;
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use rand_core::{OsRng, RngCore};
+
+    if !database_is_empty(pool)
+        .await
+        .context("无法检查管理员初始化状态")?
+    {
+        return Ok(());
+    }
+    let read = |name| match std::env::var(name) {
+        Ok(value) => Ok(value),
+        Err(std::env::VarError::NotPresent) => Ok(String::new()),
+        Err(_) => anyhow::bail!("环境变量 {name} 必须为有效文本"),
+    };
+    let username = read("ADMIN_USERNAME")?;
+    let password = read("ADMIN_PASSWORD")?;
+    let generated = password.is_empty();
+    let password = if generated {
+        let mut bytes = [0_u8; 24];
+        OsRng
+            .try_fill_bytes(&mut bytes)
+            .context("无法生成管理员随机密码")?;
+        URL_SAFE_NO_PAD.encode(bytes)
+    } else {
+        password
+    };
+    let result = bootstrap_first_user(
+        pool,
+        &Argon2PasswordHasher,
+        &SystemClock,
+        BootstrapUserInput {
+            username: if username.is_empty() {
+                "admin".to_owned()
+            } else {
+                username
+            },
+            password: password.clone(),
+            display_name: "管理员".to_owned(),
+        },
+    )
+    .await;
+    match result {
+        Ok(user) => {
+            tracing::info!(username = %user.username, "管理员账号已创建");
+            if generated {
+                tracing::info!("管理员初始随机密码：{password}；请登录后修改并妥善保管此日志");
+            }
+            Ok(())
+        }
+        Err(BootstrapUserError::AlreadyBootstrapped) => Ok(()),
+        Err(error) => {
+            Err(error).context("管理员初始化失败，请检查 ADMIN_USERNAME 和 ADMIN_PASSWORD 配置")
+        }
+    }
 }

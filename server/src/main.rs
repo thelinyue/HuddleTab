@@ -48,6 +48,7 @@ async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {
         std::env::var("DATABASE_URL").context("缺少 DATABASE_URL，无法连接 HuddleTab 数据库")?;
     let database =
         huddletab_server::infrastructure::database::connect_and_migrate(&database_url).await?;
+    huddletab_server::application::bootstrap_user::initialize_admin(&database).await?;
     let data_dir =
         std::env::var_os("DATA_DIR").map_or_else(|| PathBuf::from("/data"), PathBuf::from);
     let app_secret = huddletab_server::infrastructure::app_secret::AppSecret::load_or_create(

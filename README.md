@@ -1,10 +1,10 @@
 # HuddleTab
 
- HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.13`，运行栈为 React/Vite 与 Rust/Axum。
+ HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.14`，运行栈为 React/Vite 与 Rust/Axum。
 
 ## 当前源码运行
 
-正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.13`，对应 Git tag `v0.0.13`。该版本使用 Rust/Axum 运行栈。
+正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.14`，对应 Git tag `v0.0.14`。该版本使用 Rust/Axum 运行栈。
 
 ## Compose 直接部署
 
@@ -29,7 +29,7 @@ services:
 
   app:
     container_name: huddletab
-    image: ghcr.io/thelinyue/huddletab:0.0.13
+    image: ghcr.io/thelinyue/huddletab:0.0.14
     restart: unless-stopped
     depends_on:
       postgres:
@@ -37,6 +37,8 @@ services:
     environment:
       DATABASE_URL: postgresql://huddletab:huddletab@postgres:5432/huddletab
       APP_BASE_URL: http://localhost:5660
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       DATA_DIR: /data
       PUID: "1000"
       PGID: "1000"
@@ -77,9 +79,11 @@ docker compose ps
 
 默认数据库密码是 `huddletab`，仅适合本机或受控网络。开放公网前，必须修改 Compose 配置中的 `POSTGRES_PASSWORD`，并同步修改 `DATABASE_URL` 中的数据库密码。公开访问地址通过 `APP_BASE_URL` 设置；HTTPS 和可信代理边界见[HTTPS 与反向代理](docs/deployment/https.md)。
 
-首次空数据库打开网页会进入独立的管理员初始化页，按“管理员昵称、用户名、密码、确认密码”的顺序填写并点击“完成初始化”。成功后页面会自动登录并进入活动列表；失败时表单草稿会保留。初始化请求使用同源 CSRF/Origin 校验、认证限流和数据库事务锁，首个成功提交者成为系统管理员。
+当前源码中的账号初始化与修改用户名功能尚未发布，请使用源码构建的镜像验证。
 
-由于当前没有 Setup Token 或其他无界面初始化入口，首次初始化完成前必须限制实例的网络访问，不要把未初始化的地址暴露给不可信网络；部署者应在受控网络内立即完成初始化。已初始化的实例访问 `/setup` 会回到登录页。
+首次启动时，服务会在开放 HTTP 端口前创建管理员。可通过环境变量 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 指定账号密码；用户名留空默认使用 `admin`，密码留空则安全随机生成。昵称默认为“管理员”。
+
+仅自动生成的密码会在首次创建成功后打印到应用日志；请登录后在“我的 → 账户与安全”修改用户名或密码。手动配置的密码不会打印。已有用户时跳过初始化，重启或改变环境变量不会覆盖网页修改后的凭据。当前没有网页初始化入口。
 
 完成后打开 <http://localhost:5660>。初始化、迁移或数据库连接失败时查看中文日志：
 
@@ -87,7 +91,7 @@ docker compose ps
 docker compose logs -f app
 ```
 
-自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.13` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外。
+自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.14` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外。
 
 容器支持可选的 `PUID`/`PGID` 环境变量，默认值为 `10001`。将它们设置为 NAS 宿主用户的数字 UID/GID 后，入口会短暂以 root 修正 `/data`、`app-secret` 和 `uploads` 的属主，然后立即以该非 root 身份运行 Rust 服务；不会处理 PostgreSQL 目录，也不会递归改写 `/data` 中未知文件。切换 UID/GID 时，旧 app-secret 和附件会自动迁移属主。`PUID`/`PGID` 不能设置为 `0`，也不要在 Compose 中额外设置 `user:`。
 

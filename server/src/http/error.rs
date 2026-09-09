@@ -33,6 +33,25 @@ pub enum ApiError {
 
 impl ApiError {
     #[must_use]
+    pub fn invalid_username(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INVALID_USERNAME",
+            "用户名须为 3–32 位小写字母、数字、点、下划线或连字符。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn incorrect_current_password(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INCORRECT_CURRENT_PASSWORD",
+            "当前密码错误，请重新输入。",
+            request_id,
+        )
+    }
+    #[must_use]
     pub fn not_found(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
@@ -186,26 +205,6 @@ impl ApiError {
             StatusCode::FORBIDDEN,
             "REGISTRATION_INVITE_REQUIRED",
             "当前系统仅允许受邀用户注册。",
-            request_id,
-        )
-    }
-
-    #[must_use]
-    pub fn invalid_setup_input(request_id: RequestId) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "INVALID_SETUP_INPUT",
-            "管理员昵称、用户名或密码不符合要求。",
-            request_id,
-        )
-    }
-
-    #[must_use]
-    pub fn setup_completed(request_id: RequestId) -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            "SETUP_COMPLETED",
-            "系统管理员已完成初始化。",
             request_id,
         )
     }

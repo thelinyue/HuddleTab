@@ -1,8 +1,8 @@
 Set-StrictMode -Version Latest
 
 function New-Phase1EForwardedWslEnv {
-  # 只向 WSL 转发 Compose 构建与运行必需的环境变量，E2E 登录凭据保留在 Windows Playwright 进程。
-  "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION:PUID:PGID:TRUST_PROXY"
+  # 只向 WSL 转发 Compose 构建与运行必需的环境变量，管理员凭据用于容器首次启动。
+  "ADMIN_USERNAME:ADMIN_PASSWORD:POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION:PUID:PGID:TRUST_PROXY"
 }
 
 function New-Phase1EPlaywrightArguments {

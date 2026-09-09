@@ -39,11 +39,6 @@ function rememberedOfflineSession(): Session | null {
   }
 }
 
-/** 仅用于离线活动深链的路由前置判断；身份仍会由 Session query 读取并交给受保护路由校验。 */
-export function hasRememberedOfflineSession(): boolean {
-  return rememberedOfflineSession() !== null;
-}
-
 async function loadSession(): Promise<Session | null> {
   try {
     const result = await apiClient.GET("/api/auth/session");
@@ -242,5 +237,21 @@ export function useJoinRequestQuery(userId: string, requestId: string) {
     queryFn: () => getJoinRequest(requestId),
     enabled: userId.length > 0 && requestId.length > 0,
     retry: false,
+  });
+}
+
+/** 按稳定用户 ID 更新身份缓存，保留离线账单草稿；关联列表在下一次读取时刷新。 */
+export function useChangeUsernameMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: components["schemas"]["ChangeUsernameRequest"]) => unwrap(await apiClient.PUT("/api/me/username", { body: input, headers: await mutationHeaders() })).data,
+    onSuccess: ({ username }) => {
+      const current = queryClient.getQueryData<Session | null>(queryKeys.session);
+      if (!current) return;
+      const next = { ...current, username };
+      queryClient.setQueryData(queryKeys.session, next);
+      rememberOfflineSession(next);
+      return queryClient.invalidateQueries({ queryKey: ["users", current.userId] });
+    },
   });
 }

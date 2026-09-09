@@ -21,7 +21,7 @@ Assert-True ($null -eq $earlyCleanup) "早期失败仍执行了 Compose cleanup�
 $attemptedCleanup = Invoke-Phase1EComposeCleanup -ComposeAttempted $true -Cleanup { "cleanup-called" }
 Assert-True ($attemptedCleanup -eq "cleanup-called") "up 已尝试后没有执行 Compose cleanup。"
 $forwarded = New-Phase1EForwardedWslEnv
-Assert-True ($forwarded -eq "POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION:PUID:PGID:TRUST_PROXY") "WSLENV 转发集合不符合最小构建配置边界。"
+Assert-True ($forwarded -eq "ADMIN_USERNAME:ADMIN_PASSWORD:POSTGRES_PASSWORD:DATA_HOST_DIR:APP_PORT:APP_BASE_URL:APP_VERSION:PUID:PGID:TRUST_PROXY") "WSLENV 转发集合不符合最小构建配置边界。"
 
 $defaultPlaywright = New-Phase1EPlaywrightArguments -AttachmentOnly $false -NotificationOwnershipOnly $false
 Assert-True (($defaultPlaywright -join " ") -eq "run test:e2e -- --project=chromium-desktop --project=chromium-mobile --project=webkit-smoke") "默认模式不再是原 Phase 1E 浏览器矩阵。"
@@ -72,11 +72,11 @@ Assert-True ($null -ne $releaseExclusiveFailure) "ReleaseVerification 与其他�
 $runnerPath = Join-Path $PSScriptRoot "..\run-phase1e.ps1"
 $runnerSource = Get-Content -Raw $runnerPath
 Assert-True (-not $runnerSource.Contains("bootstrap-user")) "runner 仍包含已移除的 CLI bootstrap。"
-Assert-True ($runnerSource.Contains("setup.spec.ts")) "runner 没有固定网页初始化场景。"
-Assert-True ($runnerSource.Contains("artifact-sanitizer.mjs")) "runner 没有在网页初始化后立即执行 artifact 脱敏。"
+Assert-True ($runnerSource.Contains("account-credentials.spec.ts")) "runner 没有固定启动账号场景。"
+Assert-True ($runnerSource.Contains("artifact-sanitizer.mjs")) "runner 没有在启动账号后立即执行 artifact 脱敏。"
 $playwrightConfigPath = Join-Path $PSScriptRoot "..\..\playwright.config.ts"
 $playwrightConfigSource = Get-Content -Raw $playwrightConfigPath
-Assert-True ($playwrightConfigSource.Contains('dependencies: ["chromium-setup-desktop"]')) "网页初始化移动项目没有固定依赖桌面表单检查。"
+Assert-True ($playwrightConfigSource.Contains('dependencies: ["chromium-account-desktop"]')) "启动账号移动项目没有固定依赖桌面账号检查。"
 
 $primary = [System.Management.Automation.ErrorRecord]::new(
   [System.InvalidOperationException]::new("主流程失败标记"),

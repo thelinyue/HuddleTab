@@ -38,6 +38,91 @@ const SESSION_COOKIE: &str = "huddletab_session";
 // 浏览器 Cookie 与服务端 absolute deadline 同为 90 天；idle 过期仍由每次 Session 校验独立执行。
 const SESSION_COOKIE_MAX_AGE: Duration = Duration::days(90);
 
+/// 登录凭据修改输入只在显式密码验证中使用，调试输出不得泄漏密码。
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeUsernameRequest {
+    pub new_username: String,
+    pub current_password: String,
+}
+
+impl std::fmt::Debug for ChangeUsernameRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChangeUsernameRequest")
+            .field("new_username", &self.new_username)
+            .field("current_password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ChangeUsernameData {
+    pub username: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ChangeUsernameEnvelope {
+    pub data: ChangeUsernameData,
+}
+
+#[utoipa::path(
+    put, path = "/api/me/username", request_body = ChangeUsernameRequest,
+    responses(
+        (status = 200, description = "用户名已修改，保持当前登录", body = ChangeUsernameEnvelope),
+        (status = 400, description = "用户名无效或当前密码错误", body = super::error::ErrorEnvelope),
+        (status = 401, description = "登录已失效", body = super::error::ErrorEnvelope),
+        (status = 403, description = "CSRF 校验失败", body = super::error::ErrorEnvelope),
+        (status = 409, description = "用户名已占用", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求过于频繁", body = super::error::ErrorEnvelope),
+        (status = 500, description = "服务暂时不可用", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn change_username(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<ChangeUsernameRequest>,
+) -> Result<Json<ChangeUsernameEnvelope>, ApiError> {
+    use crate::application::username::{ChangeUsernameError, change_username as rename};
+    let token = validate_session_csrf(&state, &jar, &headers, request_id.clone())?;
+    let repository = PostgresAuthRepository::new(state.pool.clone());
+    let session = current_session(&repository, &SystemClock, &token)
+        .await
+        .map_err(|error| match error {
+            CurrentSessionError::Unauthenticated => ApiError::unauthenticated(request_id.clone()),
+            CurrentSessionError::Unavailable => ApiError::internal(request_id.clone()),
+        })?;
+    state
+        .rate_limiter
+        .check(
+            RateLimitCategory::SensitiveAuthenticated,
+            session.user_id.to_string(),
+        )
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
+    let username = rename(
+        &state.pool,
+        &Argon2PasswordHasher,
+        session.user_id,
+        &token.sha256_hash(),
+        &request.new_username,
+        &request.current_password,
+    )
+    .await
+    .map_err(|error| match error {
+        ChangeUsernameError::InvalidUsername => ApiError::invalid_username(request_id.clone()),
+        ChangeUsernameError::InvalidPassword => {
+            ApiError::incorrect_current_password(request_id.clone())
+        }
+        ChangeUsernameError::Taken => ApiError::username_taken(request_id.clone()),
+        ChangeUsernameError::Unauthenticated => ApiError::unauthenticated(request_id.clone()),
+        ChangeUsernameError::Unavailable => ApiError::internal(request_id.clone()),
+    })?;
+    Ok(Json(ChangeUsernameEnvelope {
+        data: ChangeUsernameData { username },
+    }))
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct CsrfEnvelope {
     pub data: CsrfData,

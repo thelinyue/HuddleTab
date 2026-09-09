@@ -10,10 +10,10 @@ function expectExportedPng(bytes: Buffer) {
   expect(bytes.readUInt32BE(16)).toBe(1600);
 }
 
-test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持一屏分享与真实账务数据", async ({ page }, testInfo) => {
+test("Task 30 摘要复制分享、PNG 与 CSV 保持一屏分享与真实账务数据", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await installArtifactVisualRedaction(page.context());
-  await page.goto("/setup");
+  await page.goto("/login");
   await expect(page).toHaveURL(/\/login$/);
   await login(page);
 

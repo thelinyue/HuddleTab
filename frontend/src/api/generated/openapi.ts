@@ -711,6 +711,22 @@ export interface paths {
         patch: operations["update_profile"];
         trace?: never;
     };
+    "/api/me/username": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["change_username"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notifications": {
         parameters: {
             query?: never;
@@ -769,38 +785,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["mark_read"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/setup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["initialize"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/setup/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["status"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -955,6 +939,17 @@ export interface components {
         ChangePasswordRequest: {
             currentPassword: string;
             newPassword: string;
+        };
+        ChangeUsernameData: {
+            username: string;
+        };
+        ChangeUsernameEnvelope: {
+            data: components["schemas"]["ChangeUsernameData"];
+        };
+        /** @description 登录凭据修改输入只在显式密码验证中使用，调试输出不得泄漏密码。 */
+        ChangeUsernameRequest: {
+            currentPassword: string;
+            newUsername: string;
         };
         ClearNotificationsRequest: {
             filter: components["schemas"]["NotificationFilterData"];
@@ -1382,25 +1377,6 @@ export interface components {
         };
         SettlementListEnvelope: {
             data: components["schemas"]["SettlementData"][];
-        };
-        SetupInitializeData: {
-            initialized: boolean;
-        };
-        SetupInitializeEnvelope: {
-            data: components["schemas"]["SetupInitializeData"];
-        };
-        SetupRequest: {
-            displayName: string;
-            password: string;
-            username: string;
-        };
-        /** @description 初始化状态是部署边界，前端不得将其持久化到 `IndexedDB` 或 Service Worker。 */
-        SetupStatusData: {
-            setupRequired: boolean;
-        };
-        /** @description 公开初始化状态只暴露是否需要网页初始化，不返回用户数量或账号资料。 */
-        SetupStatusEnvelope: {
-            data: components["schemas"]["SetupStatusData"];
         };
         StorageData: {
             databaseBytes: string;
@@ -4260,6 +4236,84 @@ export interface operations {
             };
         };
     };
+    change_username: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeUsernameRequest"];
+            };
+        };
+        responses: {
+            /** @description 用户名已修改，保持当前登录 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeUsernameEnvelope"];
+                };
+            };
+            /** @description 用户名无效或当前密码错误 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 登录已失效 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 校验失败 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 用户名已占用 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求过于频繁 */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 服务暂时不可用 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: never;
@@ -4473,112 +4527,6 @@ export interface operations {
             /** @description 通知不存在 */
             404: {
                 headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    initialize: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetupRequest"];
-            };
-        };
-        responses: {
-            /** @description 首位系统管理员创建成功 */
-            201: {
-                headers: {
-                    /** @description no-store */
-                    "Cache-Control"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SetupInitializeEnvelope"];
-                };
-            };
-            /** @description 初始化输入无效 */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description CSRF 校验失败 */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description 系统已完成初始化 */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description 请求频率过高 */
-            429: {
-                headers: {
-                    /** @description 等待秒数 */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description 初始化服务内部错误 */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description 只读初始化状态 */
-            200: {
-                headers: {
-                    /** @description no-store */
-                    "Cache-Control"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SetupStatusEnvelope"];
-                };
-            };
-            /** @description 初始化状态暂时不可用 */
-            500: {
-                headers: {
-                    /** @description no-store */
-                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {

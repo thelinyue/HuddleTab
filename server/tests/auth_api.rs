@@ -1080,3 +1080,181 @@ async fn update_profile_syncs_bound_members_and_advances_each_activity_once() {
         assert_eq!(revision, 2);
     }
 }
+use huddletab_server::application::username::{ChangeUsernameError, change_username};
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn username_change_checks_password_preserves_session_and_revokes_direct_invites() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let (pool, app, token, csrf, user_id) = seed_authenticated_actor().await;
+    let password = "current password";
+    let hash = Argon2PasswordHasher
+        .hash(&Password::parse(password).unwrap())
+        .unwrap();
+    sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
+        .bind(user_id)
+        .bind(&hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let activity = create_activity(app.clone(), &token, &csrf).await;
+    let activity_id = Uuid::parse_str(activity["activityId"].as_str().unwrap()).unwrap();
+    sqlx::query("INSERT INTO activity_invites (id, activity_id, created_by_member_id, token_hash, kind, target_username, expires_at, max_uses, created_at) SELECT $1, id, owner_member_id, $2, 'DIRECT', 'alice', NOW() + interval '1 day', 1, NOW() FROM activities WHERE id = $3")
+        .bind(Uuid::new_v4()).bind(vec![42_u8;32]).bind(activity_id).execute(&pool).await.unwrap();
+    let request = |name: &str, pass: &str| {
+        authenticated_request(
+            &token,
+            &csrf,
+            "PUT",
+            "/api/me/username",
+            &serde_json::json!({"newUsername":name,"currentPassword":pass}).to_string(),
+        )
+    };
+    let (status, json) = json_response(app.clone(), request("bob", "wrong password")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["error"]["code"], "INCORRECT_CURRENT_PASSWORD");
+    let (status, _) = json_response(app.clone(), request("!", password)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = json_response(app.clone(), request(" ALICE ", password)).await;
+    assert_eq!(status, StatusCode::OK);
+    let revoked: bool = sqlx::query_scalar(
+        "SELECT revoked_at IS NOT NULL FROM activity_invites WHERE token_hash = $1",
+    )
+    .bind(vec![42_u8; 32])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!revoked, "无变化不应撤销邀请");
+    let (status, json) = json_response(app.clone(), request(" ＢＯＢ ", password)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["data"]["username"], "bob");
+    let revoked: bool = sqlx::query_scalar(
+        "SELECT revoked_at IS NOT NULL FROM activity_invites WHERE token_hash = $1",
+    )
+    .bind(vec![42_u8; 32])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(revoked);
+    let (status, session) = json_response(
+        app.clone(),
+        authenticated_request(&token, &csrf, "GET", "/api/auth/session", ""),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(session["data"]["username"], "bob");
+    // 释放的旧用户名可再次注册，但旧定向邀请仍保持撤销状态。
+    sqlx::query("INSERT INTO users(id, username, display_name, password_hash, created_at, updated_at) VALUES ($1,'alice','Other',$2,NOW(),NOW())").bind(Uuid::new_v4()).bind(&hash).execute(&pool).await.unwrap();
+    let (status, _) = json_response(app.clone(), request("alice", password)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = json_response(
+        app.clone(),
+        Request::builder()
+            .method("PUT")
+            .uri("/api/me/username")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"newUsername":"bob","currentPassword":"current password"}"#,
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let mut invalid_csrf = request("carol", password);
+    invalid_csrf.headers_mut().remove("x-csrf-token");
+    let (status, _) = json_response(app.clone(), invalid_csrf).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let mut limited = false;
+    for _ in 0..11 {
+        let (status, _) = json_response(app.clone(), request("bob", "wrong password")).await;
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            limited = true;
+            break;
+        }
+    }
+    assert!(limited);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn concurrent_username_claims_have_one_winner_and_old_password_cannot_commit() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let (pool, _, token, _, user_id) = seed_authenticated_actor().await;
+    let hash = Argon2PasswordHasher
+        .hash(&Password::parse("current password").unwrap())
+        .unwrap();
+    sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
+        .bind(user_id)
+        .bind(&hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let other = Uuid::new_v4();
+    let second_token = SessionToken::generate();
+    sqlx::query("INSERT INTO users(id,username,display_name,password_hash,created_at,updated_at) VALUES ($1,'second','Second',$2,NOW(),NOW())").bind(other).bind(&hash).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO sessions(id,user_id,token_hash,created_at,last_seen_at,idle_expires_at,absolute_expires_at) VALUES ($1,$2,$3,NOW(),NOW(),NOW()+interval '1 day',NOW()+interval '2 days')").bind(Uuid::new_v4()).bind(other).bind(second_token.sha256_hash().as_slice()).execute(&pool).await.unwrap();
+    let first_hash = token.sha256_hash();
+    let second_hash = second_token.sha256_hash();
+    let (a, b) = tokio::join!(
+        change_username(
+            &pool,
+            &Argon2PasswordHasher,
+            user_id,
+            &first_hash,
+            "claimed",
+            "current password"
+        ),
+        change_username(
+            &pool,
+            &Argon2PasswordHasher,
+            other,
+            &second_hash,
+            "claimed",
+            "current password"
+        )
+    );
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    assert!(
+        matches!(a, Err(ChangeUsernameError::Taken))
+            || matches!(b, Err(ChangeUsernameError::Taken))
+    );
+    // 持有用户锁模拟改密：改名可读取并验证旧散列，但必须在获得锁后发现凭据变化。
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let rename_pool = pool.clone();
+    let pending = tokio::spawn(async move {
+        change_username(
+            &rename_pool,
+            &Argon2PasswordHasher,
+            user_id,
+            &first_hash,
+            "should-not-commit",
+            "current password",
+        )
+        .await
+    });
+    // 等待改名查询实际进入数据库锁等待，避免依赖密码散列耗时。
+    let mut waiting = false;
+    for _ in 0..100 {
+        waiting = sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT username, password_hash%')").fetch_one(&pool).await.unwrap();
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(waiting);
+    sqlx::query("UPDATE users SET password_hash = 'changed' WHERE id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert!(matches!(
+        pending.await.unwrap(),
+        Err(ChangeUsernameError::Unauthenticated)
+    ));
+}

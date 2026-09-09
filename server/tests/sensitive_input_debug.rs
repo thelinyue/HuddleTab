@@ -3,7 +3,7 @@ use huddletab_server::application::{
     bootstrap_user::BootstrapUserInput,
     collaboration::JoinInput,
 };
-use huddletab_server::http::setup::SetupRequest;
+use huddletab_server::http::auth::ChangeUsernameRequest;
 use uuid::Uuid;
 
 #[test]
@@ -11,9 +11,9 @@ fn bootstrap_input_debug_redacts_password() {
     let rendered = format!(
         "{:?}",
         BootstrapUserInput {
+            display_name: "管理员".to_owned(),
             username: "alice".to_owned(),
             password: "bootstrap-secret".to_owned(),
-            display_name: "管理员".to_owned(),
         }
     );
 
@@ -22,18 +22,16 @@ fn bootstrap_input_debug_redacts_password() {
 }
 
 #[test]
-fn setup_request_debug_redacts_password() {
+fn username_request_debug_redacts_password() {
     let rendered = format!(
         "{:?}",
-        SetupRequest {
-            display_name: "管理员".to_owned(),
-            username: "admin".to_owned(),
-            password: "setup-password-secret".to_owned(),
+        ChangeUsernameRequest {
+            new_username: "admin".to_owned(),
+            current_password: "setup-password-secret".to_owned(),
         }
     );
 
     assert!(!rendered.contains("setup-password-secret"));
-    assert!(rendered.contains("管理员"));
     assert!(rendered.contains("admin"));
     assert!(rendered.contains("[REDACTED]"));
 }

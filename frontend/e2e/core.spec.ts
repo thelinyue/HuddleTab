@@ -118,8 +118,8 @@ async function settlementConflict(browser: Browser, testInfo: TestInfo, storageS
     const url = `/activities/${activityId}?tab=settlement`;
     await Promise.all([pages.first.goto(url), pages.second.goto(url)]);
     await assertProjectViewport(pages.first, pages.second, testInfo);
-    const firstRow = pages.first.locator(".settlement-row").first();
-    const secondRow = pages.second.locator(".settlement-row").first();
+    const firstRow = pages.first.locator(".settlement-record").first();
+    const secondRow = pages.second.locator(".settlement-record").first();
     await Promise.all([
       firstRow.getByRole("button", { name: "修改" }).click(),
       secondRow.getByRole("button", { name: "修改" }).click(),

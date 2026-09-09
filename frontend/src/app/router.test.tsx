@@ -13,11 +13,9 @@ const authState = vi.hoisted((): {
   data: { userId: "user-1", username: "tester", displayName: "测试用户" },
   isPending: false,
 }));
-const setupState = vi.hoisted(() => ({ isPending: false, setupRequired: false, error: null as unknown }));
 
 vi.mock("../features/auth/api", () => ({
   useSessionQuery: () => ({ isPending: authState.isPending, data: authState.data }),
-  hasRememberedOfflineSession: () => false,
   useChangePasswordMutation: () => ({ isPending: false, mutateAsync: vi.fn() }),
 }));
 
@@ -27,14 +25,7 @@ vi.mock("../features/auth/pages", () => ({
   RegisterPage: () => null,
 }));
 
-vi.mock("../features/setup/api", () => ({
-  useSetupStatusQuery: () => ({ isPending: setupState.isPending, error: setupState.error, data: { setupRequired: setupState.setupRequired }, refetch: vi.fn() }),
-}));
 
-vi.mock("../features/setup/pages", () => ({
-  SetupPage: () => <p>初始化页</p>,
-  SetupStatusError: () => <p>初始化状态错误</p>,
-}));
 
 vi.mock("../features/me/page", () => ({ MePage: () => <p>我的</p> }));
 
@@ -74,11 +65,8 @@ function renderRoute(path: string) {
 afterEach(() => {
   cleanup();
   document.documentElement.classList.remove("pwa-standalone");
-  setupState.isPending = false;
   authState.isPending = false;
   authState.data = { userId: "user-1", username: "tester", displayName: "测试用户" };
-  setupState.setupRequired = false;
-  setupState.error = null;
 });
 
 describe("ApplicationRouter", () => {
@@ -123,24 +111,22 @@ describe("ApplicationRouter", () => {
     expect(screen.queryByRole("heading", { name: "结算分享摘要" })).not.toBeInTheDocument();
   });
 
-  it("空数据库访问任意产品深链时先进入初始化引导", async () => {
-    setupState.setupRequired = true;
-    renderRoute("/activities");
-    expect(await screen.findByText("初始化页")).toBeInTheDocument();
-    expect(screen.queryByText("活动列表")).not.toBeInTheDocument();
+  it("已移除初始化页", async () => {
+    renderRoute("/setup");
+    expect(await screen.findByRole("heading", { name: "找不到这个页面" })).toBeInTheDocument();
   });
 
-  it("独立 PWA 等待初始化状态时显示品牌启动层", () => {
+  it("独立 PWA 等待登录状态时显示品牌启动层", () => {
     document.documentElement.classList.add("pwa-standalone");
-    setupState.isPending = true;
 
+    authState.isPending = true;
     renderRoute("/activities");
 
     expect(screen.getByRole("status", { name: "正在准备伙记" })).toBeInTheDocument();
-    expect(screen.queryByText("正在确认初始化状态…")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在确认登录状态…")).not.toBeInTheDocument();
   });
 
-  it("独立 PWA 在初始化完成但登录态仍在确认时继续显示品牌启动层", () => {
+  it("独立 PWA 在登录态仍在确认时继续显示品牌启动层", () => {
     document.documentElement.classList.add("pwa-standalone");
     authState.isPending = true;
 
@@ -150,27 +136,27 @@ describe("ApplicationRouter", () => {
     expect(screen.queryByText("正在确认登录状态…")).not.toBeInTheDocument();
   });
 
-  it("普通浏览器等待初始化状态时保留原有加载提示", () => {
-    setupState.isPending = true;
+  it("普通浏览器等待登录状态时保留原有加载提示", () => {
+    authState.isPending = true;
 
     renderRoute("/activities");
 
-    expect(screen.getByText("正在确认初始化状态…")).toBeInTheDocument();
+    expect(screen.getByText("正在确认登录状态…")).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "正在准备伙记" })).not.toBeInTheDocument();
   });
 
-  it("同一文档后续重新等待初始化状态时不重复播放启动层", async () => {
+  it("同一文档后续重新等待登录状态时不重复播放启动层", async () => {
     document.documentElement.classList.add("pwa-standalone");
-    setupState.isPending = true;
+    authState.isPending = true;
     const rendered = renderRoute("/activities");
 
     expect(screen.getByRole("status", { name: "正在准备伙记" })).toBeInTheDocument();
 
-    setupState.isPending = false;
+    authState.isPending = false;
     act(() => rendered.rerenderApplication());
     await waitFor(() => expect(screen.queryByRole("status", { name: "正在准备伙记" })).not.toBeInTheDocument());
 
-    setupState.isPending = true;
+    authState.isPending = true;
     act(() => rendered.rerenderApplication());
     expect(screen.queryByRole("status", { name: "正在准备伙记" })).not.toBeInTheDocument();
   });

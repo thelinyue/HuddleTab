@@ -2,6 +2,7 @@ import {
   ChevronRight,
   Check,
   KeyRound,
+  UserRound,
   LogOut,
   LoaderCircle,
   Monitor,
@@ -120,6 +121,11 @@ export function MePage() {
         <section className="account-settings" aria-labelledby="account-security-heading">
           <h2 id="account-security-heading">账户与安全</h2>
           <div className="settings-list">
+            <Link className="settings-link" to="/me/username" aria-label="修改用户名">
+              <UserRound aria-hidden="true" size={18} />
+              <span><strong>修改用户名</strong><small>更新登录使用的用户名</small></span>
+              <ChevronRight aria-hidden="true" size={18} />
+            </Link>
             <Link className="settings-link" to="/me/password" aria-label="修改密码">
               <KeyRound aria-hidden="true" size={18} />
               <span><strong>修改密码</strong><small>更新当前登录凭证</small></span>

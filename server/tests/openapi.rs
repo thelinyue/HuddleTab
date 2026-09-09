@@ -45,15 +45,9 @@ fn profile_contracts_are_published_for_current_user_and_member_views() {
 }
 
 #[test]
-fn setup_status_and_summary_publish_task30_contract() {
+fn summary_publishes_task30_contract() {
     let document = serde_json::to_value(huddletab_server::http::openapi::document())
         .expect("OpenAPI 应可序列化");
-    let setup = &document["paths"]["/api/setup/status"]["get"];
-    assert!(setup.is_object());
-    assert_eq!(
-        setup["responses"]["200"]["headers"]["Cache-Control"]["schema"]["type"],
-        "string"
-    );
     let summary = &document["components"]["schemas"]["ActivitySummaryData"]["properties"];
     for property in [
         "startDate",
@@ -74,27 +68,14 @@ fn setup_status_and_summary_publish_task30_contract() {
 }
 
 #[test]
-fn web_setup_contract_publishes_form_and_race_errors() {
-    let value = serde_json::to_value(huddletab_server::http::openapi::document())
-        .expect("OpenAPI 应可序列化");
-    let operation = &value["paths"]["/api/setup"]["post"];
-    assert!(operation.is_object());
-    assert_eq!(
-        operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
-        "#/components/schemas/SetupRequest"
-    );
-    for status in ["201", "400", "403", "409", "429", "500"] {
+fn username_contract_replaces_web_setup() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document()).unwrap();
+    assert!(value["paths"]["/api/setup"].is_null());
+    assert!(value["paths"]["/api/setup/status"].is_null());
+    let operation = &value["paths"]["/api/me/username"]["put"];
+    for status in ["200", "400", "401", "403", "409", "429", "500"] {
         assert!(operation["responses"][status].is_object(), "缺少 {status}");
     }
-    assert_eq!(
-        operation["responses"]["201"]["headers"]["Cache-Control"]["schema"]["type"],
-        "string"
-    );
-    let request = &value["components"]["schemas"]["SetupRequest"];
-    assert_eq!(
-        request["required"],
-        json!(["displayName", "username", "password"])
-    );
 }
 
 #[test]

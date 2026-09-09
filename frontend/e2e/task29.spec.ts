@@ -36,7 +36,20 @@ async function registerOpenUser(browser: Browser, testInfo: TestInfo): Promise<{
   await page.getByLabel("昵称").fill(displayName);
   await page.locator("#register-password").fill(password);
   await page.locator("#register-confirm-password").fill(password);
-  await page.getByRole("button", { name: "注册", exact: true }).click();
+  const submitRegistration = async () => {
+    const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/auth/register") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "注册", exact: true }).click();
+    return responsePromise;
+  };
+  // 完整矩阵会连续创建多个账号；注册辅助函数必须等待服务端响应并尊重敏感操作限流，避免把 429 误判为导航失败。
+  let response = await submitRegistration();
+  if (response.status() === 429) {
+    const retryAfter = Number.parseInt(response.headers()["retry-after"] ?? "1", 10);
+    await page.waitForTimeout((Number.isFinite(retryAfter) ? Math.max(1, Math.min(retryAfter, 90)) : 1) * 1_000 + 250);
+    response = await submitRegistration();
+  }
+  if (!response.ok()) throw new Error(`开放注册失败，HTTP 状态码：${response.status()}。`);
+  await expect(page).toHaveURL(/\/activities$/);
   await expect(page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
   return { context, page, username, password, displayName };
 }
