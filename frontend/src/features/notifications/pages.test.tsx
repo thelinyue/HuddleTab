@@ -33,7 +33,6 @@ import {
   notificationDestination,
   notificationSwipeShouldOpen,
   NotificationsPage,
-  NotificationsSummary,
   projectNotificationSwipe,
 } from "./pages";
 import type { Notification } from "./api";
@@ -282,75 +281,7 @@ describe("NotificationsPage", () => {
   });
 });
 
-describe("通知摘要与滑动交互", () => {
-  it("按待决审批、其他未读、最新已读排序并最多显示五条", () => {
-    state.notifications.items = [
-      notification({
-        notificationId: "read-old",
-        kind: "ACTIVITY_STATUS_CHANGED",
-        createdAt: "2026-09-01T08:00:00Z",
-        readAt: "2026-09-01T09:00:00Z",
-        payload: { activityName: "旧活动", status: "ENDED" },
-      }),
-      notification({
-        notificationId: "unread-old",
-        kind: "SETTLEMENT_RECEIVED",
-        createdAt: "2026-09-03T08:00:00Z",
-        payload: { amountMinor: "1200", currency: "CNY" },
-      }),
-      notification({
-        notificationId: "pending-old",
-        createdAt: "2026-09-02T08:00:00Z",
-        readAt: "2026-09-02T09:00:00Z",
-        payload: { displayName: "待处理旧申请", requestId: "request-old", status: "PENDING" },
-      }),
-      notification({
-        notificationId: "pending-new",
-        createdAt: "2026-09-04T08:00:00Z",
-        payload: { displayName: "待处理新申请", requestId: "request-new", status: "PENDING" },
-      }),
-      notification({
-        notificationId: "unread-new",
-        kind: "ACTIVITY_STATUS_CHANGED",
-        createdAt: "2026-09-05T08:00:00Z",
-        payload: { activityName: "最新活动", status: "ENDED" },
-      }),
-      notification({
-        notificationId: "read-new",
-        kind: "MEMBER_JOINED",
-        createdAt: "2026-09-06T08:00:00Z",
-        readAt: "2026-09-06T09:00:00Z",
-        payload: { displayName: "已读成员", activityName: "活动" },
-      }),
-      notification({
-        notificationId: "read-extra",
-        kind: "OWNERSHIP_CHANGED",
-        createdAt: "2026-09-07T08:00:00Z",
-        readAt: "2026-09-07T09:00:00Z",
-        payload: { activityName: "超出摘要" },
-      }),
-    ];
-
-    render(<MemoryRouter><NotificationsSummary onViewAll={vi.fn()} /></MemoryRouter>);
-
-    expect(screen.getAllByRole("article")).toHaveLength(5);
-    expect(screen.getAllByRole("article").map((row) => row.getAttribute("data-testid"))).toEqual([
-      "notification-pending-new",
-      "notification-pending-old",
-      "notification-unread-new",
-      "notification-unread-old",
-      "notification-read-extra",
-    ]);
-  });
-
-  it("摘要通过查看全部回调进入完整通知页", () => {
-    const onViewAll = vi.fn();
-    render(<MemoryRouter><NotificationsSummary onViewAll={onViewAll} /></MemoryRouter>);
-
-    fireEvent.click(screen.getByRole("button", { name: /查看全部通知/ }));
-    expect(onViewAll).toHaveBeenCalledTimes(1);
-  });
-
+describe("通知滑动交互", () => {
   it("滑动使用十像素迟滞、投影速度和操作区阈值", () => {
     expect(projectNotificationSwipe(-20, -300)).toBe(-74);
     expect(notificationSwipeShouldOpen(-20, 128, -300)).toBe(true);

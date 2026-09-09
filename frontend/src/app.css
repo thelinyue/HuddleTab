@@ -1304,10 +1304,6 @@ body:has(.activities-page) .update-prompt { bottom: calc(164px + var(--safe-area
 .notification-action-menu [role="menuitem"] { display: flex; min-height: 44px; align-items: center; border-radius: 7px; padding: 0 10px; font-size: 13px; cursor: pointer; outline: none; }
 .notification-action-menu [role="menuitem"]:focus, .notification-action-menu [role="menuitem"][data-highlighted] { background: var(--surface-muted); }
 .notification-action-menu [role="menuitem"][data-disabled] { cursor: wait; opacity: .5; }
-.notification-summary { display: grid; min-width: 0; gap: 12px; }
-.notification-summary__list { margin: -18px -16px 0; border-top: 0; }
-.notification-summary__footer { display: flex; justify-content: center; padding-top: 2px; }
-.notification-summary__view-all { width: 100%; justify-content: center; }
 .notification-page__frame { padding-bottom: calc(32px + var(--safe-area-bottom)); }
 .notification-page .notification-header { align-items: center; }
 .notification-header__title { display: flex; min-width: 0; align-items: center; gap: 2px; }
@@ -1321,14 +1317,7 @@ body:has(.activities-page) .update-prompt { bottom: calc(164px + var(--safe-area
   .notification-row__menu-trigger:focus-visible { opacity: 1; pointer-events: auto; }
 }
 
-@media (min-width: 640px) {
-  .activity-notification-overlay { place-items: start end; padding-top: 64px; padding-right: max(20px, calc((100vw - 800px) / 2 + 20px)); }
-  .activity-notification-overlay .form-overlay__sheet { width: min(384px, calc(100vw - 40px)); max-height: min(80dvh, 720px); transform-origin: top right; }
-}
-
 @media (max-width: 639px) {
-  .activity-notification-overlay .form-overlay__body { padding: 18px 16px calc(18px + var(--safe-area-bottom)); }
-  .notification-summary__list { margin: -18px -16px 0; }
   .notification-row__menu-trigger { top: 18px; }
 }
 

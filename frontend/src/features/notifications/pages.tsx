@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Bell, BellRing, CheckCheck, CircleDollarSign, Crown, Ellipsis, Info, MailPlus, ReceiptText, Trash2, UserRoundPlus } from "lucide-react";
+import { ArrowLeft, Bell, BellRing, CheckCheck, CircleDollarSign, Crown, Ellipsis, Info, MailPlus, ReceiptText, Trash2, UserRoundPlus } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -398,108 +398,6 @@ function pendingApproval(notification: Notification, resolvedRequestIds: Readonl
     && !notification.activityDeleted
     && Boolean(notification.payload.requestId)
     && !resolvedRequestIds.has(notification.payload.requestId ?? "");
-}
-
-function notificationSummaryItems(items: readonly Notification[], resolvedRequestIds: ReadonlySet<string>): Notification[] {
-  return [...items]
-    .sort((left, right) => {
-      const priority = (item: Notification) => pendingApproval(item, resolvedRequestIds) ? 0 : item.readAt === null ? 1 : 2;
-      const priorityDelta = priority(left) - priority(right);
-      if (priorityDelta !== 0) return priorityDelta;
-      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-    })
-    .slice(0, 5);
-}
-
-export function NotificationsSummary({ onViewAll }: { onViewAll: () => void }) {
-  const session = useSessionQuery();
-  const userId = session.data?.userId ?? "";
-  const notifications = useNotificationsQuery(userId);
-  const markRead = useMarkNotificationReadMutation(userId);
-  const deleteNotification = useDeleteNotificationMutation(userId);
-  const decide = useDecideNotificationJoinRequestMutation(userId);
-  const navigate = useNavigate();
-  const [operationError, setOperationError] = useState<unknown>();
-  const [resolvedRequestIds, setResolvedRequestIds] = useState<Set<string>>(() => new Set());
-  const [openRowId, setOpenRowId] = useState<string | null>(null);
-  const operationBusy = markRead.isPending || deleteNotification.isPending || decide.isPending;
-
-  async function read(notificationId: string) {
-    setOperationError(undefined);
-    try { await markRead.mutateAsync(notificationId); } catch (reason) { setOperationError(reason); }
-  }
-
-  async function openNotification(notification: Notification, destination: string) {
-    setOperationError(undefined);
-    if (notification.readAt === null) {
-      try {
-        await markRead.mutateAsync(notification.notificationId);
-      } catch (reason) {
-        setOperationError(reason);
-        return;
-      }
-    }
-    navigate(destination);
-  }
-
-  async function deleteOne(notificationId: string) {
-    setOperationError(undefined);
-    try { await deleteNotification.mutateAsync(notificationId); toast.success("通知已删除"); } catch (reason) { setOperationError(reason); }
-  }
-
-  async function decideRequest(notification: Notification, decision: "APPROVE" | "REJECT") {
-    const requestId = notification.payload.requestId;
-    if (!requestId) return;
-    setOperationError(undefined);
-    setResolvedRequestIds((current) => new Set(current).add(requestId));
-    try { await decide.mutateAsync({ activityId: notification.activityId, requestId, decision }); }
-    catch (reason) {
-      setResolvedRequestIds((current) => {
-        const next = new Set(current);
-        next.delete(requestId);
-        return next;
-      });
-      setOperationError(reason);
-    }
-  }
-
-  if (session.isPending || notifications.isPending) return <LoadingState label="正在读取通知…" />;
-  if (session.error || notifications.error) return <ErrorNotice error={session.error ?? notifications.error} />;
-  const timeZone = notifications.data?.timeZone ?? "Asia/Shanghai";
-  const items = notificationSummaryItems(notifications.data?.items ?? [], resolvedRequestIds);
-
-  return (
-    <div className="notification-summary">
-      {operationError ? <ErrorNotice error={operationError} /> : null}
-      {!items.length ? <EmptyState icon={<Bell size={28} />} title="暂无通知" description="活动变化与结算消息会显示在这里。" /> : (
-        <div className="notification-list notification-summary__list">
-          {items.map((notification) => <NotificationRow
-            key={notification.notificationId}
-            notification={notification}
-            title={notificationTitle(notification)}
-            summary={notificationSummary(notification)}
-            icon={notificationIcon(notification)}
-            timeZone={timeZone}
-            destination={notificationDestination(notification)}
-            actionable={pendingApproval(notification, resolvedRequestIds)}
-            operationBusy={operationBusy}
-            readBusy={markRead.isPending && markRead.variables === notification.notificationId}
-            deleteBusy={deleteNotification.isPending && deleteNotification.variables === notification.notificationId}
-            decideBusy={decide.isPending}
-            openRowId={openRowId}
-            onOpenRow={setOpenRowId}
-            onRead={(notificationId) => void read(notificationId)}
-            onDelete={(notificationId) => void deleteOne(notificationId)}
-            onDecision={(current, decision) => void decideRequest(current, decision)}
-            onOpenNotification={(current, destination) => void openNotification(current, destination)}
-          />)}
-        </div>
-      )}
-      <div className="notification-summary__footer">
-        <Button className="notification-summary__view-all" variant="ghost" type="button" onClick={onViewAll}>查看全部通知 <ArrowRight aria-hidden="true" size={17} /></Button>
-      </div>
-    </div>
-  );
 }
 
 export function NotificationsPage() {

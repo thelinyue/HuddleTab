@@ -734,7 +734,7 @@ describe("活动列表空状态", () => {
     const { container } = renderActivitiesPage();
     const heading = screen.getByRole("heading", { name: "活动" });
     const deletedButton = screen.getByRole("button", { name: "已删除活动" });
-    const notificationButton = screen.getByRole("button", { name: "通知" });
+    const notificationButton = screen.getByRole("link", { name: "通知" });
     const actionButton = screen.getByRole("button", { name: "新建或加入活动" });
 
     expect(heading.parentElement).toHaveClass("home-header__title");
@@ -748,26 +748,17 @@ describe("活动列表空状态", () => {
     expect(container.querySelector(".deleted-activities-entry")).not.toBeInTheDocument();
   });
 
-  it("页头通知按钮提供未读数量文案并打开摘要 Sheet", () => {
+  it("页头通知入口提供未读数量文案并直接跳转通知页", () => {
     activityApiState.notifications.unreadCount = 3;
     renderActivitiesPage("/activities", true);
 
-    const trigger = screen.getByRole("button", { name: "通知，3 条未读" });
+    const trigger = screen.getByRole("link", { name: "通知，3 条未读" });
     expect(trigger.querySelector(".activity-notifications-trigger__badge")).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("href", "/notifications");
     fireEvent.click(trigger);
 
-    expect(screen.getByRole("dialog", { name: "通知" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=notifications");
-  });
-
-  it("活动摘要保留查看全部入口并通过浮动按钮打开创建选择页", () => {
-    renderActivitiesPage("/activities?panel=notifications");
-    const summary = screen.getByRole("dialog", { name: "通知" });
-    expect(within(summary).getByRole("button", { name: /查看全部通知/ })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "关闭通知" }));
-    fireEvent.click(screen.getByRole("button", { name: "新建或加入活动" }));
-    expect(screen.getByRole("dialog", { name: "新建或加入活动" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/notifications");
+    expect(screen.queryByRole("dialog", { name: "通知" })).not.toBeInTheDocument();
   });
 
   it("已有活动时不显示空状态插画", () => {

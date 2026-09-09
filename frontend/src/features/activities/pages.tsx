@@ -86,7 +86,6 @@ import { type Session, useLogoutMutation, useSessionQuery, useUpdateAvatarPreset
 import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
 import { inclusiveCalendarDays } from "../../lib/calendar-date";
 import { useThemePreference, type ThemePreference } from "../../components/theme-provider";
-import { NotificationsSummary } from "../notifications/pages";
 import { useNotificationsQuery } from "../notifications/api";
 
 type WorkspaceValue = { session: Session; activity: Activity; members: ActivityMember[]; offline: boolean; snapshot?: ReturnType<typeof useActivitySnapshotQuery>["data"] };
@@ -123,10 +122,10 @@ function localCalendarToday(): string {
 }
 
 /** 首页四种面板状态统一由 URL 驱动，便于系统返回和刷新后恢复可预测的入口层级。 */
-type ActivityPanel = "actions" | "create" | "join" | "deleted" | "notifications";
+type ActivityPanel = "actions" | "create" | "join" | "deleted";
 
 function activityPanelFromSearch(value: string | null): ActivityPanel | null {
-  return value === "actions" || value === "create" || value === "join" || value === "deleted" || value === "notifications" ? value : null;
+  return value === "actions" || value === "create" || value === "join" || value === "deleted" ? value : null;
 }
 
 function activityPanelDepth(state: unknown): number | null {
@@ -448,10 +447,10 @@ export function ActivitiesPage() {
             </button>
           </div>
           <div className="home-header__actions">
-            <button className="icon-button activity-notifications-trigger" type="button" aria-label={notificationsUnreadLabel} title="通知" onClick={() => openPanel("notifications")}>
+            <Link className="icon-button activity-notifications-trigger" to="/notifications" aria-label={notificationsUnreadLabel} title="通知">
               <Bell aria-hidden="true" size={20} />
               {notificationsUnreadCount > 0 ? <span className="activity-notifications-trigger__badge" aria-hidden="true" /> : null}
-            </button>
+            </Link>
           </div>
         </header>
         {!listPending && !listError ? summaries.map(([currency, summary]) => (
@@ -494,16 +493,6 @@ export function ActivitiesPage() {
           <Field label="邀请口令" hint="向活动所有者索取邀请口令后粘贴到这里。"><Input value={joinToken} onChange={(event) => setJoinToken(event.target.value)} autoComplete="off" autoFocus required /></Field>
           <Button type="submit">查看邀请 <ArrowRight aria-hidden="true" size={18} /></Button>
         </form> : null}
-      </Overlay>
-      <Overlay
-        open={panel === "notifications"}
-        title="通知"
-        onClose={closePanel}
-        focusKey={panel ?? "closed"}
-        mobileSheet={{ maxHeight: 0.92, detents: [0.72, 0.92], initialDetent: 0.72 }}
-        className="activity-home-overlay activity-notification-overlay"
-      >
-        <NotificationsSummary onViewAll={() => navigate("/notifications", { replace: true })} />
       </Overlay>
       <Overlay open={panel === "deleted"} title="已删除活动" onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay deleted-activities-overlay">
         {deletedActivities.isPending ? <LoadingState label="正在读取已删除活动…" /> : null}
