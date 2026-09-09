@@ -89,7 +89,7 @@ const discardMutation = vi.hoisted(() => ({
   mutateAsync: vi.fn().mockResolvedValue(undefined),
 }));
 const deleteAttachmentMutation = vi.hoisted(() => ({
-  error: null,
+  error: null as unknown,
   isPending: false,
   mutateAsync: vi.fn().mockResolvedValue(undefined),
   variables: undefined as string | undefined,
@@ -189,6 +189,7 @@ afterEach(() => {
   deleteExpenseMutation.mutateAsync.mockResolvedValue(undefined);
   discardMutation.mutateAsync.mockClear();
   deleteAttachmentMutation.mutateAsync.mockClear();
+  deleteAttachmentMutation.error = null;
   rateMutation.mutateAsync.mockClear();
   guestMutation.mutateAsync.mockClear();
   vi.restoreAllMocks();
@@ -705,6 +706,55 @@ describe("流水备注摘要", () => {
 });
 
 describe("Expense 附件选择与私有预览", () => {
+  it("追加图片时释放旧预览，卸载页面时释放所有当前预览", () => {
+    let nextUrl = 0;
+    const createUrl = vi.spyOn(URL, "createObjectURL")
+      .mockImplementation(() => `blob:receipt-${++nextUrl}`);
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const page = renderPage(<NewExpensePage />);
+    openNoteView();
+    const input = screen.getByLabelText("附件（最多三张）");
+    fireEvent.change(input, { target: { files: [new File(["a"], "a.png", { type: "image/png" })] } });
+    const previousUrls = createUrl.mock.results.map(({ value }) => value);
+
+    fireEvent.change(input, { target: { files: [new File(["b"], "b.png", { type: "image/png" })] } });
+    for (const url of previousUrls) expect(revoke).toHaveBeenCalledWith(url);
+    expect(screen.getByRole("img", { name: "a.png 缩略图" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "b.png 缩略图" })).toBeInTheDocument();
+
+    page.unmount();
+    for (const { value } of createUrl.mock.results) expect(revoke).toHaveBeenCalledWith(value);
+  });
+
+  it("取消删除保留附件且不发送请求", () => {
+    renderPage(<ExpenseDetailPage />);
+    openNoteView();
+    fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "删除附件" })).getByRole("button", { name: "取消" }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看附件 1" })).toBeInTheDocument();
+    expect(deleteAttachmentMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("删除失败保留附件和确认框并显示错误", async () => {
+    deleteAttachmentMutation.mutateAsync.mockImplementationOnce(async () => {
+      const error = new Error("附件删除失败");
+      deleteAttachmentMutation.error = error;
+      throw error;
+    });
+    const page = renderPage(<ExpenseDetailPage />);
+    openNoteView();
+    fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    await waitFor(() => expect(deleteAttachmentMutation.mutateAsync).toHaveBeenCalledWith("attachment-1"));
+    page.rerender(<MemoryRouter><ExpenseDetailPage /></MemoryRouter>);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("附件删除失败");
+    expect(screen.getByRole("alertdialog", { name: "删除附件" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看附件 1" })).toBeInTheDocument();
+  });
+
   it("新建模式限制为三张受支持图片，编辑模式不再选择附件", () => {
     const create = renderPage(<NewExpensePage />);
     openNoteView();
