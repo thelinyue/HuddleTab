@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../../components/theme-provider";
 import { ApiRequestError } from "../../api/error";
 
@@ -178,6 +178,10 @@ function LocationProbe() {
 function renderActivitiesPage(entry = "/activities", includeLocation = false) {
   return render(<MemoryRouter initialEntries={[entry]}><ActivitiesPage />{includeLocation ? <LocationProbe /> : null}</MemoryRouter>);
 }
+
+beforeEach(() => {
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+});
 
 afterEach(() => {
   cleanup();

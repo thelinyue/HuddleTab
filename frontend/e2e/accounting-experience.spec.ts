@@ -8,10 +8,10 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
   const recommendations = { recommendations: members.slice(1).map(member => ({ payerMemberId: member.memberId, receiverMemberId: 'm0', amountMinor: String(shareMinor) })) };
   const records = [{ settlementId: 's1', activityId: 'demo', payerMemberId: 'm1', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '8000', status: 'ACTIVE', createdAt: '2026-09-06T06:30:00Z', version: '1' }, { settlementId: 's2', activityId: 'demo', payerMemberId: 'm2', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '2000', status: 'VOID', createdAt: '2026-09-05T10:20:00Z', version: '1' }];
   const expenses = [{ expense: { expenseId: 'e1', activityId: 'demo', title: '湖边晚餐', note: '四个人一起吃杭帮菜', baseAmountMinor: '48000', originalAmountMinor: '48000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'FOOD', occurredAt: '2026-09-05T10:00:00Z', exchangeRate: '1', splitMode: 'EQUAL', version: '1' }, payments: [{ memberId: 'm0', originalAmountMinor: '48000' }], shares: members.map(member => ({ memberId: member.memberId, originalAmountMinor: '12000' })), attachments: [] }];
-  const controls = { historyPending: false, feedPending: false, snapshotPending: false, historyError: false, ledgerPending: false, failWrite: false, writes: [] as unknown[], summaryReads: 0, members, balances, activity };
+  const controls = { expenses, activityPending: false, historyPending: false, feedPending: false, snapshotPending: false, historyError: false, ledgerPending: false, failWrite: false, writes: [] as unknown[], summaryReads: 0, members, balances, activity };
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url()); const endpoint = url.pathname.split('/').at(-1);
-    while ((endpoint === 'settlements' && controls.historyPending) || (endpoint === 'expenses' && controls.feedPending) || (endpoint === 'snapshot' && controls.snapshotPending) || (endpoint === 'ledger' && controls.ledgerPending)) await new Promise(resolve => setTimeout(resolve, 30));
+    while ((endpoint === 'demo' && controls.activityPending) || (endpoint === 'settlements' && controls.historyPending) || (endpoint === 'expenses' && controls.feedPending) || (endpoint === 'snapshot' && controls.snapshotPending) || (endpoint === 'ledger' && controls.ledgerPending)) await new Promise(resolve => setTimeout(resolve, 30));
     if (endpoint === 'settlements' && controls.historyError) { await route.fulfill({ status: 503, json: { error: { message: '记录暂时无法读取' } } }); return; }
     if (route.request().method() !== 'GET') { controls.writes.push(route.request().postDataJSON()); await route.fulfill({ status: controls.failWrite ? 409 : 200, json: controls.failWrite ? { error: { message: '记录冲突，请重试' } } : { data: records[0] } }); return; }
     let data: unknown = [];
@@ -172,3 +172,129 @@ test('结算记录失败只影响本区域，可重试且不误报空记录', as
   control.snapshotPending = false;
 });
 
+
+/** 实测导航边缘和正文文档坐标，防止收起造成锚定抖动或只透明但仍挡住内容。 */
+async function headerGeometry(page: Page) {
+  return page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>('.workspace-header')!;
+    const metadata = header.querySelector<HTMLElement>('.workspace-header__metadata')!;
+    const nav = header.querySelector<HTMLElement>('.workspace-nav')!;
+    const content = document.querySelector<HTMLElement>('.workspace-content')!;
+    return { height: header.getBoundingClientRect().height, navBottom: nav.getBoundingClientRect().bottom, opacity: Number(getComputedStyle(metadata).opacity), documentTop: content.getBoundingClientRect().top + scrollY, scroll: scrollY, documentHeight: document.documentElement.scrollHeight };
+  });
+}
+
+async function scrollHeader(page: Page, y: number) {
+  await page.evaluate(async value => { window.scrollTo(0, value); await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); }, y);
+}
+
+test('活动页头：连续收起、回到顶部展开和入口保持稳定', async ({ page }, info) => {
+  const control = await installFixture(page);
+  Object.assign(control.activity, { fieldPermissions: { name: true, location: true, startDate: true, endDate: true, baseCurrency: false, inviteMode: true }, allowedLifecycleActions: ['END'], hasAccountingRecords: true, inviteMode: 'DIRECT_JOIN' });
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const first = control.expenses[0];
+  for (let i = 1; i < 25; i++) control.expenses.push({ ...first, expense: { ...first.expense, expenseId: `e${i + 1}`, title: `旅途支出 ${i + 1}` } });
+  await page.goto('/activities/demo');
+  await expect(page.locator('.expense-row')).toHaveCount(25);
+  const expanded = await headerGeometry(page);
+  await page.screenshot({ path: info.outputPath('header-expanded.png') });
+  expect(expanded.height).toBe(128);
+  for (const y of [8, 16, 24, 32, 180, 64, 32, 16, 0, 120, 0]) {
+    await scrollHeader(page, y);
+    const current = await headerGeometry(page);
+    expect(current.scroll).toBe(y);
+    expect(current.documentHeight).toBe(expanded.documentHeight);
+    expect(current.documentTop).toBe(expanded.documentTop);
+    expect(current.opacity).toBeCloseTo(1 - Math.min(y / 32, 1), 2);
+    expect(current.navBottom).toBeCloseTo(expanded.navBottom - Math.min(y, 32), 0);
+  }
+  await scrollHeader(page, 180);
+  await page.screenshot({ path: info.outputPath('header-collapsed.png') });
+  const collapsed = await headerGeometry(page);
+  expect(collapsed.navBottom).toBe(96);
+  // 裁剪外的旧占位不能继续覆盖正文或拦截点击。
+  expect(await page.evaluate(() => document.elementFromPoint(innerWidth / 2, 110)?.closest('.workspace-header') === null)).toBe(true);
+  await page.getByRole('link', { name: '成员 4', exact: true }).click();
+  const members = page.getByRole('dialog');
+  await expect(members).toBeVisible();
+  await members.locator('.form-overlay__body').evaluate(element => { element.scrollTop = 120; element.dispatchEvent(new Event('scroll')); });
+  expect((await headerGeometry(page)).navBottom).toBe(collapsed.navBottom);
+  await members.getByRole('button', { name: /^关闭/ }).click();
+  await expect(members).toHaveCount(0);
+  expect((await headerGeometry(page)).navBottom).toBe(collapsed.navBottom);
+  await page.getByRole('link', { name: '活动管理', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: /^关闭/ }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('navigation', { name: '活动导航' }).getByRole('link', { name: '结算', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '实际结算记录' })).toBeVisible();
+  const settlement = await headerGeometry(page);
+  expect(settlement.opacity).toBeCloseTo(1 - Math.min(settlement.scroll / 32, 1), 2);
+  await page.goBack();
+  await expect(page.locator('.expense-row')).toHaveCount(25);
+  await scrollHeader(page, 0);
+  expect((await headerGeometry(page)).navBottom).toBe(expanded.navBottom);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect.poll(async () => (await headerGeometry(page)).opacity).toBe(0);
+  await scrollHeader(page, -20);
+  expect((await headerGeometry(page)).opacity).toBe(1);
+  console.log(`${info.project.name}: 页头展开 ${expanded.height}px，收起 ${collapsed.navBottom}px`);
+  await page.getByRole('link', { name: '返回活动列表' }).click();
+  await expect(page).toHaveURL(/\/activities$/);
+  expect(errors).toEqual([]);
+});
+
+test('活动页头：长名称、大人数、深色安全区和放大字体无溢出', async ({ page }, info) => {
+  const control = await installFixture(page, 120);
+  control.activity.name = '这是一个需要省略显示的很长很长的周末杭州旅行活动名称';
+  await page.goto('/activities/demo');
+  await expect(page.locator('.workspace-header h1')).toHaveText(control.activity.name);
+  await page.evaluate(() => { document.documentElement.classList.add('dark', 'pwa-standalone'); document.documentElement.style.setProperty('--safe-area-top', '47px'); });
+  const buttons = page.locator('.workspace-header__actions > a');
+  for (const button of await buttons.all()) {
+    const box = (await button.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); expect(box.y).toBeGreaterThanOrEqual(47);
+  }
+  const title = (await page.locator('.workspace-header h1').boundingBox())!;
+  const member = (await page.getByRole('link', { name: '成员 120', exact: true }).boundingBox())!;
+  expect(title.x + title.width).toBeLessThanOrEqual(member.x);
+  const back = (await page.getByRole('link', { name: '返回活动列表' }).boundingBox())!;
+  expect(title.x).toBeGreaterThanOrEqual(back.x + back.width);
+  await page.screenshot({ path: info.outputPath('header-dark-safe-area.png') });
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('header-large-text.png') });
+});
+
+test('活动页头：减少动态效果静态切换，无日期和短内容不误收起', async ({ page }) => {
+  const control = await installFixture(page);
+  Object.assign(control.activity, { startDate: null, endDate: null });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/activities/demo');
+  await expect(page.locator('.workspace-header__metadata')).toHaveText('进行中');
+  expect((await headerGeometry(page)).opacity).toBe(1);
+  // 短内容先验收，再使用确定高度的测试内容验证滚动阈值。
+  await page.locator('.workspace-content').evaluate(element => { element.setAttribute('style', 'min-height: 1800px'); });
+  await scrollHeader(page, 16);
+  expect((await headerGeometry(page)).opacity).toBe(1);
+  await scrollHeader(page, 32);
+  expect((await headerGeometry(page)).opacity).toBe(0);
+  await scrollHeader(page, 16);
+  expect((await headerGeometry(page)).opacity).toBe(1);
+  await scrollHeader(page, 0);
+  expect((await headerGeometry(page)).navBottom).toBe(128);
+});
+
+test('活动页头：加载骨架与完成后的占位一致', async ({ page }) => {
+  const control = await installFixture(page);
+  control.activityPending = true; control.snapshotPending = true;
+  await page.goto('/activities/demo');
+  await expect(page.locator('.workspace-header')).toHaveAttribute('aria-busy', 'true');
+  const before = await headerGeometry(page);
+  control.activityPending = false; control.snapshotPending = false;
+  await expect(page.locator('.workspace-header h1')).toHaveText(control.activity.name);
+  const after = await headerGeometry(page);
+  expect(after.height).toBe(before.height);
+  expect(after.documentTop).toBe(before.documentTop);
+});

@@ -336,16 +336,20 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .notice--success { color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, var(--border)); background: color-mix(in srgb, var(--success) 8%, var(--surface)); }
 
 .workspace { min-height: 100dvh; background: var(--background); }
-.workspace-header { position: sticky; top: 0; z-index: 20; width: min(100%, 800px); margin-inline: auto; border-bottom: 1px solid var(--border); padding: var(--safe-area-top) max(16px, var(--safe-area-right)) 0 max(16px, var(--safe-area-left)); background: var(--background); }
+.workspace-header { position: sticky; top: 0; z-index: 20; width: min(100%, 800px); margin-inline: auto; padding: var(--safe-area-top) max(16px, var(--safe-area-right)) 0 max(16px, var(--safe-area-left)); background: var(--background); }
 .workspace-header__inner { display: grid; width: min(100%, 800px); min-height: 56px; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; margin-inline: auto; padding-inline: 12px; }
 .workspace-header__title { display: grid; min-width: 0; justify-items: center; }
 .workspace-header__title strong, .workspace-header__title small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-header__actions { display: flex; min-height: 52px; align-items: center; gap: 2px; }
-.workspace-header__spacer { min-width: 0; flex: 1; }
-.workspace-header__members { display: inline-flex; min-height: 44px; align-items: center; gap: 6px; padding-inline: 10px; font-size: 13px; font-weight: 650; }
-.workspace-header__identity { padding: 2px 4px 12px; }
-.workspace-header__identity h1 { overflow: hidden; font-size: 19px; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-header__identity p { margin-top: 2px; color: var(--muted-foreground); font-size: 13px; }
+.workspace-header__actions > .back-link, .workspace-header__actions > .icon-button { flex: 0 0 44px; min-width: 44px; min-height: 44px; }
+.workspace-header__members { display: inline-flex; flex-shrink: 0; min-width: 44px; min-height: 44px; align-items: center; gap: 4px; padding-inline: 6px; font-size: 13px; font-weight: 650; white-space: nowrap; }
+.workspace-header__identity { min-width: 0; flex: 1; }
+.workspace-header__identity h1 { overflow: hidden; font-size: 20px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+/* 独立信息行默认占 32px；字体放大时可自然增高，滚动裁剪量由实际高度决定。 */
+.workspace-header__metadata { display: flex; align-items: start; min-height: 32px; padding: 0 0 8px 46px; }
+.workspace-header__metadata p { margin: 0; color: var(--muted-foreground); font-size: .8125rem; overflow-wrap: anywhere; }
+.workspace-header .workspace-nav { position: relative; background: inherit; }
+.workspace-header .workspace-nav::after { position: absolute; right: -16px; bottom: 0; left: -16px; height: 1px; background: var(--border); content: ""; }
 .back-link { display: grid; width: 44px; height: 44px; place-items: center start; border-radius: 8px; padding-left: 4px; }
 .back-link:hover { background: var(--surface-muted); }
 .workspace-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -866,8 +870,6 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 /* 工作台页头和流水/结算保持旧版的连续表面；Sheet 采用半透明 scrim。 */
 .workspace { background: var(--background); }
 .workspace-header { padding-right: max(16px, var(--safe-area-right)); padding-left: max(16px, var(--safe-area-left)); border-bottom-color: var(--border); background: var(--background); }
-.workspace-header__identity { padding-top: 4px; }
-.workspace-header__identity h1 { font-size: 20px; font-weight: 750; }
 .workspace-nav a { min-height: 44px; font-size: 14px; transition: transform 100ms ease-out, color 160ms ease, border-color 160ms ease; }
 .workspace-page { padding-right: max(16px, var(--safe-area-right)); padding-left: max(16px, var(--safe-area-left)); }
 .expense-summary, .settlement-summary { border-radius: 12px; padding: 16px; }

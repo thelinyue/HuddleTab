@@ -85,7 +85,7 @@ test("活动首页、工作台和记账入口保持远程基线信息路径", as
   expect(activityHeader.backLeft).toBeGreaterThanOrEqual(0);
   expect(activityHeader.backWidth).toBe(44);
   expect(activityHeader.backHeight).toBe(44);
-  expect(Math.abs(activityHeader.arrowLeft - activityHeader.titleLeft)).toBeLessThanOrEqual(1);
+  expect(activityHeader.titleLeft).toBeGreaterThanOrEqual(activityHeader.backLeft + activityHeader.backWidth);
 
   const activityNavigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(activityNavigation.getByRole("link")).toHaveText(["流水", "结算"]);

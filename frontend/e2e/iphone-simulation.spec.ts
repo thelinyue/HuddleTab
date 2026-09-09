@@ -158,7 +158,7 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   expect(portraitChrome.headerButtonLeft).toBeGreaterThanOrEqual(11);
   expect(portraitChrome.headerButtonWidth).toBe(44);
   expect(portraitChrome.headerButtonHeight).toBe(44);
-  expect(Math.abs(portraitChrome.headerArrowLeft - portraitChrome.activityTitleLeft)).toBeLessThanOrEqual(1);
+  expect(portraitChrome.activityTitleLeft).toBeGreaterThanOrEqual(portraitChrome.headerButtonLeft + portraitChrome.headerButtonWidth);
   expect(portraitChrome.fabRightGap).toBeGreaterThanOrEqual(29);
   expect(portraitChrome.fabBottomGap).toBeGreaterThanOrEqual(52);
 
