@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - 关键设计与非显然实现使用中文注释；用户错误与部署日志使用明确中文。
-- 不进入 Phase 2，不修改旧 Next.js E2E，不新增产品 API。
+- 不进入 Phase 2，不移植旧 Next.js E2E，不新增产品 API；旧测试后来已随旧栈从当前分支移除。
 - PostgreSQL/Docker 验收只使用 WSL 中的独立可丢弃环境。
 - 不使用 Redis 或 PostgreSQL 保存限流状态，不删除遗留 `security_rate_limits` 表。
 - 不记录密码、Session、CSRF、邀请 token、app-secret 或临时验收凭据。

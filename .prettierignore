@@ -1,9 +1,0 @@
-.next/
-.worktrees/
-artifacts/
-coverage/
-design-system/
-docs/
-node_modules/
-playwright-report/
-test-results/

@@ -1,6 +1,6 @@
 # 升级
 
-HuddleTab 升级只执行已提交的 SQL Migration。禁止用 `drizzle-kit push` 修改生产数据库。
+HuddleTab 升级只执行 `server/migrations/` 中已提交的 SQLx Migration。禁止绕过 Migration 直接修改生产数据库结构。
 
 ## 标准流程
 

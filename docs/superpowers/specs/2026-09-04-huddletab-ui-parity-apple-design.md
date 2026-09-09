@@ -16,4 +16,4 @@
 
 ## 范围边界
 
-只调整 Rust 新栈已有页面的结构、样式和交互，不修改 Rust API、数据库、OpenAPI 或旧 Next.js E2E；附件、汇率、离线队列、审批、所有权和管理功能继续沿用现有实现。视觉对照不引入像素 baseline、hash 或 contract freeze。
+只调整 Rust 新栈已有页面的结构、样式和交互，不修改 Rust API、数据库或 OpenAPI，也不移植仅存在于 Git 历史中的旧 Next.js E2E；附件、汇率、离线队列、审批、所有权和管理功能继续沿用现有实现。视觉对照不引入像素 baseline、hash 或 contract freeze。

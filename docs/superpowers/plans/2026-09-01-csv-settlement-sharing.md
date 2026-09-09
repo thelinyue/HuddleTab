@@ -16,7 +16,7 @@
 - 不新增数据库 migration、公开分享 Token、匿名访问、Web Share API 或服务端 PNG。
 - 金额、Ledger、Balance 和 Recommendation 只由 Rust 权威计算；TypeScript 只做展示状态映射。
 - API DTO 由 Rust/utoipa 导出 OpenAPI，再生成 TypeScript client；组件不直接 `fetch`。
-- 只修改本功能需要的文件，不重构旧 Next.js 只读参考代码。
+- 只修改本功能需要的文件；旧 Next.js 参考实现通过 Git 历史或 `v0.0.2` tag 只读查看。
 
 ---
 

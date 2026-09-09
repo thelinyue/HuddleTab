@@ -1,6 +1,6 @@
 # HuddleTab React/Vite + Rust/Axum Replatform Implementation Plan
 
-> **For agentic workers:** 在 `codex/rust-replatform` 隔离工作树中顺序执行。每个行为变更遵循 RED -> GREEN -> regression；配置、生成文件和纯脚手架只执行相应 build/serve 验证。旧 Next 服务端只读，直到 Phase 1A 的新运行基础独立通过后才删除。
+> **Historical implementation record:** 本计划记录 React/Vite + Rust/Axum 迁移过程。旧 Next.js 源码已从当前分支移除，需要追溯时只能通过 Git 历史或 `v0.0.2` tag 查看。
 
 > 当前初始化入口以 2026-09-04 网页管理员初始化修正为准：空库使用 `/setup` 表单和 `POST /api/setup`，不使用 CLI、stdin 或 Setup Token。本文件早期的 `bootstrap-user`/CLI 描述仅作历史实施记录，不是当前操作指引。
 
@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- 遵守仓库 `AGENTS.md`：关键类和非显然设计补充中文注释，用户可见错误与关键部署日志使用明确中文。
-- 只修改迁移直接需要的文件；不顺手重构旧 Next 代码。
+- 关键类和非显然设计补充中文注释，用户可见错误与关键部署日志使用明确中文。
+- 只修改迁移直接需要的文件；旧 Next.js 源码在迁移完成后整体移除。
 - SQLx row、Domain entity、HTTP DTO 分离；只为 Repository、Clock、PasswordHasher、Session token 等真实边界建立 trait。
 - Rust 使用 `i64` 金额与 checked `i128` 中间值；HTTP 金额、version 和 revision 使用十进制字符串。
 - 组件不得直接 fetch 或手写重复 DTO；所有请求经 generated client、feature adapter 和 Query hook。
@@ -23,7 +23,7 @@
 
 ## Baseline
 
-迁移前记录：
+迁移前的旧 Next.js 基线记录如下；对应根命令与旧源码现已移除，仅作为历史验证结果保留：
 
 - `npm run test:unit`：123 files passed，499 passed / 1 skipped。
 - `npm run typecheck`：通过。
@@ -184,7 +184,7 @@ docker compose exec app sh -lc "! command -v node && ! find /app -iname '*next*'
 docker compose down
 ```
 
-**Phase 1A exit:** Vite build、Rust build/test、Axum serve、OpenAPI generation、fresh migration 和 Compose 启动全部通过。只有到此时才能删除旧 Next 运行基础。
+**Phase 1A exit:** Vite build、Rust build/test、Axum serve、OpenAPI generation、fresh migration 和 Compose 启动全部通过。该门禁通过后，旧 Next.js 运行基础已在迁移收口阶段移除。
 
 ---
 

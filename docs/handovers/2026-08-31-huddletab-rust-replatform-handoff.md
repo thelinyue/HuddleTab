@@ -34,7 +34,7 @@ git diff --stat
 - 服务端固定为单 Rust crate，使用 Axum、SQLx 和 PostgreSQL。
 - PostgreSQL 与 Docker 验证必须在 WSL 环境执行。
 - 项目尚未正式发布，不实现旧 Next.js API、Session、数据库或路由兼容层。
-- 旧 Next.js 服务端仅可作为只读参考，不再增加功能。
+- 旧 Next.js 源码已从当前分支移除；需要追溯时只通过 Git 历史或 `v0.0.2` tag 只读查看。
 - UI 以远程 `v0.0.2` 源码和实际运行页面为唯一基准，不能使用旧版四标签活动页截图。任何 UI 功能开发或调整都必须先对照 `v0.0.2` 对应页面，再开始编码；新栈应保持其视觉风格、信息层级和交互习惯统一。
 - 活动工作台只有“流水”和“结算”两个主视图；成员和活动管理由页头 Overlay 打开，不是活动标签。
 - 只运行与本次改动相关的测试，不重复执行已经通过且未受影响的重型流程。
@@ -44,7 +44,7 @@ git diff --stat
 
 ## 4. 正确的 UI 基线
 
-远程 `v0.0.2` 中与活动页相关的权威文件：
+远程 `v0.0.2` 中与活动页相关的权威文件如下；这些路径不再存在于当前工作树，只能通过 `git show v0.0.2:<文件路径>` 查看：
 
 ```text
 src/features/activities/components/activity-workspace.tsx
@@ -54,7 +54,7 @@ src/features/expenses/components/expense-feed.tsx
 src/features/settlements/components/settlement-page.tsx
 ```
 
-可以用 `git show v0.0.2:<文件路径>` 查看原始实现。旧的 `activity-desktop.png` 四标签页面已过期，不能作为验收依据。
+旧的 `activity-desktop.png` 四标签页面已过期，不能作为验收依据。
 
 后续对接任何可见 UI 功能时，必须先完成以下对照，再进入开发：
 
@@ -550,8 +550,6 @@ cargo test --manifest-path server/Cargo.toml --test openapi --test http_shell --
 npm --prefix frontend run test:unit -- --run
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
-npm run typecheck
-npm run build
 pwsh -NoProfile -File frontend/e2e/support/run-phase1e-safety.test.ps1
 & ./frontend/e2e/run-phase1e.ps1 -Task31Only
 git diff --check
@@ -564,7 +562,7 @@ cargo run --manifest-path server/Cargo.toml -- openapi --output contracts/openap
 npm --prefix frontend run api:generate
 ```
 
-实际结果：Rust `system_information` 单元 1 个通过；HTTP shell 6 个、OpenAPI 13 个通过，`cargo test --all-targets --no-run` 和严格 Clippy 通过。Frontend 全量 31 个文件、186 个测试通过，typecheck、production build 通过；根目录 legacy unit 122 个文件、498 个测试通过（1 个跳过），根目录 typecheck 和旧 Next 构建也通过。`Task31Only` Compose/Playwright 在 Chromium Desktop `1440x1000` 与 Mobile `390x844` 为 `2/2` 通过；普通用户访问管理接口得到 403，系统信息/存储响应的 `private, no-store`、离线提示、无横向溢出、fresh migration、stdin bootstrap、非 root/无 Node runtime、app 与 PostgreSQL 重启持久性、中文冷启动错误、artifact 脱敏和 finally 限定清理均通过。OpenAPI/client 连续生成无差异；旧 SMTP 路由、测试邮件、Schema 字段、Nodemailer 依赖和 stale 运行时测试已删除，旧生成的 `public/sw.js` 不再保留。报告保留在 `frontend/artifacts/playwright-report/index.html`。
+实际结果：Rust `system_information` 单元 1 个通过；HTTP shell 6 个、OpenAPI 13 个通过，`cargo test --all-targets --no-run` 和严格 Clippy 通过。Frontend 全量 31 个文件、186 个测试通过，typecheck、production build 通过；清理前的根目录 legacy unit 122 个文件、498 个测试通过（1 个跳过），根目录 typecheck 和旧 Next 构建也通过，这些旧源码与测试现已从当前分支移除。`Task31Only` Compose/Playwright 在 Chromium Desktop `1440x1000` 与 Mobile `390x844` 为 `2/2` 通过；普通用户访问管理接口得到 403，系统信息/存储响应的 `private, no-store`、离线提示、无横向溢出、fresh migration、stdin bootstrap、非 root/无 Node runtime、app 与 PostgreSQL 重启持久性、中文冷启动错误、artifact 脱敏和 finally 限定清理均通过。OpenAPI/client 连续生成无差异；旧 SMTP 路由、测试邮件、Schema 字段、Nodemailer 依赖和 stale 运行时测试已删除，旧生成的 `public/sw.js` 不再保留。报告保留在 `frontend/artifacts/playwright-report/index.html`。
 
 完成结论严格为：“Phase 3 Task 31 完成，Phase 3 exit gate 通过，可以进入最终 Release Verification。”真机 iPhone Safari/Home Screen PWA、后台清理 Job、最终 Release Verification 和正式 `v0.0.3` 发布仍未完成；本轮没有创建 tag、发布镜像或宣称正式镜像可用。
 

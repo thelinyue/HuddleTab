@@ -20,7 +20,7 @@
 - 不保存或返回 SHA-256，不新增附件删除、替换、对象存储、通知或 Service Worker 业务写入。
 - 首次附件上传恰好推进一次 Activity revision 并写一次 Audit；幂等 replay 和失败不推进。
 - 关键事务、路径安全和队列状态机使用简洁中文注释；用户错误和部署日志使用明确中文。
-- 不修改旧根目录 Next.js E2E；浏览器测试只放在 `frontend/e2e/`。
+- 不移植旧根目录 Next.js E2E；当前浏览器测试只放在 `frontend/e2e/`，旧测试已从当前分支移除。
 - PostgreSQL 和 Docker 验证只使用 WSL 可丢弃环境；不把凭据、Session、CSRF 或图片私有路径写入文档、报告和日志。
 - 不发布、不 tag、不推送 GHCR，不宣称 `0.0.3` 可用或达到正式发布状态。
 
