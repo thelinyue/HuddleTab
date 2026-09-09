@@ -1,3 +1,8 @@
+#[path = "support/http.rs"]
+mod http_support;
+
+use http_support::{authenticated_request, json_response};
+
 use axum::{
     body::Body,
     http::{
@@ -74,41 +79,6 @@ async fn seed_authenticated_actor() -> (PgPool, axum::Router, SessionToken, Csrf
         AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
     );
     (pool, app, session, csrf, user_id)
-}
-
-fn authenticated_request(
-    session: &SessionToken,
-    csrf: &CsrfToken,
-    method: &str,
-    uri: &str,
-    body: &str,
-) -> Request<Body> {
-    Request::builder()
-        .method(method)
-        .uri(uri)
-        .header(CONTENT_TYPE, "application/json")
-        .header(
-            COOKIE,
-            format!("huddletab_session={}", session.expose_for_cookie()),
-        )
-        .header(ORIGIN, "http://localhost:5660")
-        .header("sec-fetch-site", "same-origin")
-        .header("x-csrf-token", csrf.expose_for_header())
-        .body(Body::from(body.to_owned()))
-        .expect("请求应可构造")
-}
-
-async fn json_response(app: axum::Router, request: Request<Body>) -> (StatusCode, Value) {
-    let response = app.oneshot(request).await.expect("router 应响应");
-    let status = response.status();
-    let body = response
-        .into_body()
-        .collect()
-        .await
-        .expect("应读取响应")
-        .to_bytes();
-    let json = serde_json::from_slice(&body).expect("响应应为 JSON");
-    (status, json)
 }
 
 async fn create_activity(app: axum::Router, session: &SessionToken, csrf: &CsrfToken) -> Value {

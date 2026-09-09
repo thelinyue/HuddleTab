@@ -1,3 +1,4 @@
+use super::formatting::format_time;
 use axum::{
     Extension, Json,
     extract::{Path, State},
@@ -512,10 +513,6 @@ pub(crate) fn format_attachment(attachment: ExpenseAttachmentRecord) -> ExpenseA
     }
 }
 
-fn format_time(value: OffsetDateTime) -> String {
-    value.format(&Rfc3339).expect("数据库时间始终可格式化")
-}
-
 fn parse_uuid(value: &str, request_id: RequestId) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value).map_err(|_| ApiError::invalid_expense(request_id))
 }
@@ -530,5 +527,29 @@ fn map_error(error: ExpenseError, request_id: RequestId) -> ApiError {
         ExpenseError::VersionConflict => ApiError::version_conflict(request_id),
         ExpenseError::MutationConflict => ApiError::mutation_conflict(request_id),
         ExpenseError::Unavailable => ApiError::internal(request_id),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attachment_timestamp_preserves_rfc3339_offset_and_fraction() {
+        for expected in [
+            "2026-09-09T06:07:08Z",
+            "2026-09-09T14:07:08.123456789+08:00",
+        ] {
+            let attachment = ExpenseAttachmentRecord {
+                id: Uuid::nil(),
+                mime_type: "image/webp".into(),
+                width: 1,
+                height: 1,
+                byte_size: 1,
+                created_at: OffsetDateTime::parse(expected, &Rfc3339).unwrap(),
+            };
+            let json = serde_json::to_value(format_attachment(attachment)).unwrap();
+            assert_eq!(json["createdAt"], expected);
+        }
     }
 }

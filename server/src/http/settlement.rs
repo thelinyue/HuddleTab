@@ -1,3 +1,4 @@
+use super::formatting::format_time;
 use axum::{
     Extension, Json,
     extract::{Path, State},
@@ -5,7 +6,6 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -311,10 +311,6 @@ pub(crate) fn settlement_data(record: SettlementRecord) -> SettlementData {
     }
 }
 
-fn format_time(value: OffsetDateTime) -> String {
-    value.format(&Rfc3339).expect("数据库时间始终可格式化")
-}
-
 fn parse_uuid(value: &str, request_id: RequestId) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value).map_err(|_| ApiError::invalid_expense(request_id))
 }
@@ -327,5 +323,46 @@ fn map_error(error: SettlementError, request_id: RequestId) -> ApiError {
         SettlementError::VersionConflict => ApiError::version_conflict(request_id),
         SettlementError::MutationConflict => ApiError::mutation_conflict(request_id),
         SettlementError::Unavailable => ApiError::internal(request_id),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+    #[test]
+    fn settlement_timestamps_preserve_rfc3339_and_nulls() {
+        for expected in [
+            "2026-09-09T06:07:08Z",
+            "2026-09-09T14:07:08.123456789+08:00",
+        ] {
+            let timestamp = OffsetDateTime::parse(expected, &Rfc3339).unwrap();
+            for voided_at in [None, Some(timestamp)] {
+                let record = SettlementRecord {
+                    id: Uuid::nil(),
+                    activity_id: Uuid::nil(),
+                    created_by_user_id: Uuid::nil(),
+                    client_mutation_id: Uuid::nil(),
+                    payer_member_id: Uuid::nil(),
+                    receiver_member_id: Uuid::nil(),
+                    currency: "CNY".into(),
+                    amount_minor: 1,
+                    status: "ACTIVE".into(),
+                    version: 1,
+                    revision: 1,
+                    created_at: timestamp,
+                    updated_at: timestamp,
+                    voided_at,
+                };
+                let json = serde_json::to_value(settlement_data(record)).unwrap();
+                assert_eq!(json["createdAt"], expected);
+                assert_eq!(json["updatedAt"], expected);
+                assert_eq!(
+                    json["voidedAt"],
+                    serde_json::json!(voided_at.map(|_| expected))
+                );
+            }
+        }
     }
 }

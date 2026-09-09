@@ -7,6 +7,7 @@ pub mod collaboration;
 pub mod error;
 pub mod exchange_rate;
 pub mod expense;
+mod formatting;
 pub mod notification;
 pub mod openapi;
 pub(crate) mod rate_limit;

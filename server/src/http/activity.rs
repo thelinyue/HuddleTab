@@ -1,3 +1,4 @@
+use super::formatting::format_time;
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
@@ -599,12 +600,6 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
     }
 }
 
-fn format_time(value: time::OffsetDateTime) -> String {
-    value
-        .format(&time::format_description::well_known::Rfc3339)
-        .expect("数据库时间始终可格式化")
-}
-
 pub(crate) fn member_data(member: ActivityMemberView) -> ActivityMemberData {
     ActivityMemberData {
         member_id: member.member_id.to_string(),
@@ -662,4 +657,43 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339, macros::date};
+
+    #[test]
+    fn activity_timestamps_preserve_rfc3339_and_nulls() {
+        for expected in [
+            None,
+            Some("2026-09-09T06:07:08Z"),
+            Some("2026-09-09T14:07:08.123456789+08:00"),
+        ] {
+            let timestamp = expected.map(|text| OffsetDateTime::parse(text, &Rfc3339).unwrap());
+            let activity = ActivityView {
+                activity_id: uuid::Uuid::nil(),
+                owner_member_id: uuid::Uuid::nil(),
+                name: "测试活动".into(),
+                location: None,
+                base_currency: "CNY".into(),
+                start_date: date!(2026 - 09 - 09),
+                end_date: None,
+                invite_mode: "DIRECT_JOIN".into(),
+                status: "ACTIVE".into(),
+                version: 1,
+                revision: 1,
+                current_member_id: uuid::Uuid::nil(),
+                current_member_role: "OWNER".into(),
+                deleted_at: timestamp,
+                purge_after: timestamp,
+                has_accounting_records: false,
+                earliest_expense_date: None,
+            };
+            let json = serde_json::to_value(activity_data(activity)).unwrap();
+            assert_eq!(json["deletedAt"], serde_json::json!(expected));
+            assert_eq!(json["purgeAfter"], serde_json::json!(expected));
+        }
+    }
 }
