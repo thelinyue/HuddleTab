@@ -18,6 +18,16 @@ huddletab.example.com {
 }
 ```
 
+## Nginx / Nginx Proxy Manager 上传上限
+
+附件原图最多 10 MiB，应用额外预留 multipart 协议开销，因此反向代理必须允许至少 11 MiB 的请求体。Nginx 默认请求体上限通常为 1 MiB；通过 Nginx 或 Nginx Proxy Manager 的域名访问时，请在对应 `server` 或 Proxy Host 的 Advanced 配置中加入：
+
+```nginx
+client_max_body_size 11m;
+```
+
+保存并重新加载代理后，再通过公开域名上传附件。若代理仍返回 HTTP 413，请检查 CDN、网关或第二层反向代理是否设置了更小的上限。HuddleTab 自身仍会拒绝超过 10 MiB、格式不允许、内容签名不匹配、损坏或超过像素安全限制的图片。
+
 将 Compose 的应用端口限制为回环地址：
 
 ```yaml

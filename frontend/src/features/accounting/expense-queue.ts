@@ -56,7 +56,14 @@ function queueError(error: unknown) {
 
 function attachmentQueueError(error: unknown) {
   if (error instanceof ApiRequestError) {
-    return { code: error.code, message: "附件被服务器拒绝。" };
+    // 代理通常用 413 拒绝请求体；应用自身的附件体积错误会返回标准 422 envelope。
+    if (error.status === 413) {
+      return {
+        code: error.code,
+        message: "附件超过服务器允许的上传大小，请联系管理员检查反向代理上传限制。",
+      };
+    }
+    return { code: error.code, message: error.message };
   }
   return {
     code: "NETWORK_ERROR",

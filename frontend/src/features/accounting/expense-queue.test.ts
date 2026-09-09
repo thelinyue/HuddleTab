@@ -228,9 +228,9 @@ it("Expense 先同步成功，附件网络失败只重试附件", async () => {
   });
 });
 
-it("附件业务 4xx 保留 Blob 并显示明确拒绝状态", async () => {
+it("代理返回 413 时保留 Blob 并显示上传上限提示", async () => {
   const sendAttachment = vi.fn().mockRejectedValue(
-    new ApiRequestError(422),
+    new ApiRequestError(413),
   );
   const queue = new ExpenseQueue("user-1", {
     send: vi.fn().mockResolvedValue({ expenseId: "expense-2" }),
@@ -248,7 +248,43 @@ it("附件业务 4xx 保留 Blob 并显示明确拒绝状态", async () => {
     .listByMutation("mutation-rejected-attachment");
   expect(attachment).toMatchObject({
     status: "REJECTED",
-    lastError: { message: "附件被服务器拒绝。" },
+    lastError: {
+      message: "附件超过服务器允许的上传大小，请联系管理员检查反向代理上传限制。",
+    },
+  });
+  expect(attachment.blob).toBeDefined();
+  expect(sendAttachment).toHaveBeenCalledTimes(1);
+});
+
+it("服务端附件 422 保留具体中文错误并保留 Blob", async () => {
+  const sendAttachment = vi.fn().mockRejectedValue(
+    new ApiRequestError(422, {
+      error: {
+        code: "ATTACHMENT_IMAGE_INVALID",
+        details: {},
+        fieldErrors: {},
+        message: "图片内容损坏或尺寸超过安全限制。",
+        requestId: "request-attachment",
+      },
+    }),
+  );
+  const queue = new ExpenseQueue("user-1", {
+    send: vi.fn().mockResolvedValue({ expenseId: "expense-3" }),
+    sendAttachment,
+    now: () => 750,
+  });
+  await queue.enqueue("activity-1", {
+    ...expensePayload,
+    clientMutationId: "mutation-rejected-attachment-422",
+  }, [new File(["image"], "receipt.webp", { type: "image/webp" })]);
+
+  await queue.flush();
+
+  const [attachment] = await new AttachmentRepository("user-1")
+    .listByMutation("mutation-rejected-attachment-422");
+  expect(attachment).toMatchObject({
+    status: "REJECTED",
+    lastError: { message: "图片内容损坏或尺寸超过安全限制。" },
   });
   expect(attachment.blob).toBeDefined();
   expect(sendAttachment).toHaveBeenCalledTimes(1);
