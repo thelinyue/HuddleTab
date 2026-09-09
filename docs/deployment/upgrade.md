@@ -1,33 +1,27 @@
-# 升级
+# 全新安装与旧部署保留
 
-HuddleTab 升级只执行 `server/migrations/` 中已提交的 SQLx Migration。禁止绕过 Migration 直接修改生产数据库结构。
+本次发布切断此前版本的升级路径，仅支持全新安装，不提供旧数据库、附件、账号、Session 或离线草稿的迁移与导入。这不代表后续每个版本都需要重装；后续版本以各自发布说明为准。
 
-## 标准流程
+## 安装流程
 
-1. 使用 NAS / Docker 宿主的备份机制保护 `data/postgres`、`data/app`、Compose 文件、`.env` 和部署密钥。
-2. 记录当前应用镜像 ID，保留它作为回退目标。
-3. 拉取或构建新版本。按 NAS 宿主用户设置 `PUID`/`PGID`；未设置时保持默认 `10001:10001`。容器入口会在启动阶段修正 `/data`、`app-secret` 和 `uploads` 的属主，不会递归改写未知文件或 PostgreSQL 目录。
-4. 启动 Compose。容器入口先完成权限初始化，再以非 root 身份启动服务并自动执行已提交的 SQL migration；迁移失败时应用不会继续启动。
-5. 检查 `docker compose ps` 与应用健康检查。
-6. 使用具备测试活动和附件权限的会话运行 Smoke。
-7. 确认业务访问正常后，再清理旧镜像。
+1. 使用 NAS / Docker 宿主的备份机制保护旧 PostgreSQL 数据、应用数据、Compose 文件、`.env` 和部署密钥，并记录对应的旧镜像版本。将旧部署与新安装分开保留，不删除或覆盖旧数据。
+2. 为新安装准备独立的部署目录和配置，将 `DATA_HOST_DIR` 设置为新的空目录。PostgreSQL 和应用必须分别使用新目录下的 `postgres`、`app`；外置数据库部署必须使用新的空数据库。不要复用旧上传目录或认证密钥。
+3. 按 NAS 宿主用户设置 `PUID`/`PGID`，未设置时默认 `10001:10001`。使用目标发布版本的 Compose 配置拉取镜像并启动：
 
-PowerShell 部署者可运行：
+   ```bash
+   docker compose pull
+   docker compose up -d
+   docker compose ps
+   ```
 
-```powershell
-npm run verify:upgrade
-```
+4. 服务在监听 HTTP 前完成数据库初始化。SQLx 保留事务、锁与迁移记录检查，本版本重启不会重复建表。指向旧版本数据库时服务会拒绝启动，不会自动清库；请修正新部署的数据配置，不要删除或伪造迁移记录。
+5. 如果沿用旧域名，先关闭旧页面，在浏览器中清理该站点的 Cookie、IndexedDB、缓存和 Service Worker；已安装的 PWA 也应移除并重新安装。清理会移除本机未同步草稿，旧草稿不会迁移，应在停用旧部署前处理。
+6. 打开页面重新初始化管理员，检查登录、活动创建和附件功能；重启容器后确认数据仍然存在。
 
-脚本会要求显式提供管理员测试会话 Cookie，记录旧镜像、构建并启动新版本，再执行 Smoke。它会输出旧镜像的回退命令，但不会自动回退或删除任何数据。
+旧版 `verify:upgrade` 演练入口已移除。现有 `npm run smoke` 仍可在显式提供测试会话和已有记录坐标后检查新部署，不负责创建账号或迁移数据。
 
-运行前需要设置以下环境变量：`VERIFY_SESSION_COOKIE`，以及 Smoke 要读取的既有测试记录 `SMOKE_ACTIVITY_ID`、`SMOKE_EXPENSE_ID` 和 `SMOKE_ATTACHMENT_ID`。脚本会将前者复用给 Smoke，并将 `BaseUrl` 传递给 Smoke；不会输出任何 Cookie。
+## 恢复旧部署
 
-## 回退
+恢复旧数据必须使用其对应的旧应用版本，并成套恢复数据库、应用数据、配置和密钥；不能把旧备份恢复到本次新安装中。若切回旧域名，先停止新实例以避免端口冲突，并重新清理该站点的浏览器数据。
 
-迁移失败时，应用容器不会启动。停止新容器后，可用升级脚本打印的旧镜像重新启动应用：
-
-```powershell
-docker compose up -d --no-deps app
-```
-
-如果迁移已成功执行，是否可以安全回退取决于该版本的 Migration 兼容性。不要在没有宿主恢复演练的情况下覆盖 `./data/postgres` 或 `./data/app`。默认 Compose 将 PostgreSQL 数据保存在 `./data/postgres`，将上传文件和自动生成的认证密钥保存在 `./data/app`；核心 Compose 不使用 Docker 命名卷。
+全新安装产生的数据与旧部署互相独立，不提供自动合并或跨版本回退。宿主恢复操作见 [数据保护与恢复](data-protection.md)。

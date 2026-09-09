@@ -5,7 +5,6 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "smoke": "node scripts/smoke.mjs",
-    "verify:upgrade": "powershell -ExecutionPolicy Bypass -File scripts/verify-upgrade.ps1"
+    "smoke": "node scripts/smoke.mjs"
   }
 }

@@ -1,10 +1,10 @@
 # HuddleTab
 
-HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.12`，运行栈为 React/Vite 与 Rust/Axum。
+ HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.13`，运行栈为 React/Vite 与 Rust/Axum。
 
 ## 当前源码运行
 
-正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.12`，对应 Git tag `v0.0.12`。该版本使用 Rust/Axum 运行栈。
+正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.13`，对应 Git tag `v0.0.13`。该版本使用 Rust/Axum 运行栈。
 
 ## Compose 直接部署
 
@@ -29,7 +29,7 @@ services:
 
   app:
     container_name: huddletab
-    image: ghcr.io/thelinyue/huddletab:0.0.12
+    image: ghcr.io/thelinyue/huddletab:0.0.13
     restart: unless-stopped
     depends_on:
       postgres:
@@ -87,7 +87,7 @@ docker compose ps
 docker compose logs -f app
 ```
 
-自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.12` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外。
+自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.13` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外。
 
 容器支持可选的 `PUID`/`PGID` 环境变量，默认值为 `10001`。将它们设置为 NAS 宿主用户的数字 UID/GID 后，入口会短暂以 root 修正 `/data`、`app-secret` 和 `uploads` 的属主，然后立即以该非 root 身份运行 Rust 服务；不会处理 PostgreSQL 目录，也不会递归改写 `/data` 中未知文件。切换 UID/GID 时，旧 app-secret 和附件会自动迁移属主。`PUID`/`PGID` 不能设置为 `0`，也不要在 Compose 中额外设置 `user:`。
 
@@ -119,7 +119,7 @@ docker compose up -d
 docker compose ps
 ```
 
-容器启动时会自动执行已提交的数据库迁移。升级前请先使用 NAS / Docker 宿主的备份机制保护 `data/postgres`、`data/app`、Compose 文件和 `.env`，并阅读 [升级说明](docs/deployment/upgrade.md) 与 [数据保护与恢复](docs/deployment/data-protection.md)。
+本次安装起点仅支持全新安装，不支持从此前版本原地升级或导入旧数据。请使用新的 PostgreSQL 和应用数据目录，重新初始化管理员；不要将新镜像指向旧数据目录。同域名重新安装还需清理浏览器站点数据与旧 PWA 缓存，未同步草稿不会迁移。旧部署及备份应单独保留，恢复时使用匹配的旧版本。具体操作见 [全新安装与旧部署保留](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
 
 前端热更新要求 Rust API 已运行在 `127.0.0.1:5660`：
 

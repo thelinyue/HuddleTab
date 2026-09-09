@@ -1,3 +1,0 @@
-ALTER TABLE users
-ADD COLUMN avatar_preset SMALLINT NOT NULL DEFAULT 2
-CHECK (avatar_preset BETWEEN 1 AND 6);

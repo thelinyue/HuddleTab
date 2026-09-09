@@ -155,7 +155,7 @@ try {
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
   $env:APP_BASE_URL = $baseUrl
-  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.12" } else { "dev" }
+  $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.13" } else { "dev" }
   $env:PUID = "10001"
   $env:PGID = "10001"
   $env:TRUST_PROXY = "false"
@@ -213,9 +213,7 @@ try {
   if ($setupSanitizerExitCode -ne 0) { throw "初始化场景 artifact 脱敏或扫描失败。" }
   if ($setupExitCode -ne 0) { throw "网页初始化表单浏览器检查失败，脱敏后的报告已留在 frontend/artifacts。" }
   $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
-  if ($ReleaseVerification) {
-    if ([int] $migration.Output.Trim() -ne 10) { throw "候选镜像 fresh migration 数量不是预期的 10 条。" }
-  } elseif ([int] $migration.Output.Trim() -lt 3) { throw "fresh migration 未完整应用。" }
+  if ([int] $migration.Output.Trim() -ne 1) { throw "全新安装应完成 1 条数据库初始化 migration。" }
   $matrixLabel = if ($Phase2Only) {
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
   } elseif ($IPhoneSimulationOnly) {
@@ -229,7 +227,7 @@ try {
   } elseif ($Task31Only) {
     "Task 31 Chromium Desktop/Mobile 系统信息矩阵"
   } elseif ($ReleaseVerification) {
-    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.12）"
+    "最终 Release Verification 完整 Chromium/WebKit 矩阵（候选版本 0.0.13）"
   } elseif ($AttachmentOnly) {
     "Chromium Desktop/Mobile 附件矩阵"
   } elseif ($NotificationOwnershipOnly) {

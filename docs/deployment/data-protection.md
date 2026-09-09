@@ -13,7 +13,7 @@ Compose 将 `./data/app`（发布 Compose 为 `./huddletab-data/app`）挂载到
 
 ## 恢复流程
 
-1. 停止 HuddleTab 应用和 PostgreSQL 容器，按照宿主备份工具的流程恢复 Compose 文件、密钥、PostgreSQL 数据目录和应用数据目录。
+1. 确认备份对应的应用版本，并使用该版本的镜像；停止 HuddleTab 应用和 PostgreSQL 容器，按照宿主备份工具的流程成套恢复 Compose 文件、密钥、PostgreSQL 数据目录和应用数据目录。本次全新安装不支持恢复此前版本的数据，旧备份只能用于独立的旧版本部署，不能覆盖新安装目录。
 2. 检查 PostgreSQL 数据目录或 volume 的属主、权限和可读写状态，并确保恢复工具保留 `./data/app` 内已有文件的属主。
 3. 如果应用挂载点是在新宿主创建的，设置与 NAS 宿主用户匹配的 `PUID`/`PGID`（未设置时默认 `10001:10001`）。容器首次启动会自动准备 `/data`、`app-secret` 和 `uploads`；不会修改 PostgreSQL 目录或 `/data` 中未知文件。
 
@@ -30,7 +30,7 @@ Compose 将 `./data/app`（发布 Compose 为 `./huddletab-data/app`）挂载到
    docker compose logs -f app
    ```
 
-5. 如果应用版本发生变化，容器入口会在服务监听前自动执行已提交的数据库 migration。migration 失败时应用不会继续启动。
+5. 服务在监听前检查 SQLx 迁移记录；匹配版本的已初始化数据库不会重复建表。校验失败时应用不会继续启动，不要删除迁移记录强行启动，也不要改用新版本镜像尝试恢复旧备份。
 6. 通过登录、活动列表、附件读取和关键业务流程确认恢复结果。
 
 恢复前后的快照和归档由宿主备份体系管理；HuddleTab 不会上传、下载、列出或删除这些备份文件。
