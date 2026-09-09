@@ -435,8 +435,6 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .expense-date-group > h3 { border-bottom: 1px solid var(--border); padding-bottom: 7px; font-size: 13px; }
 .expense-list { padding: 0; overflow: visible; }
 .expense-row { min-height: 68px; padding: 9px 4px; }
-.quick-expense-trigger { position: fixed; right: max(20px, calc((100vw - 800px) / 2 + 20px), calc(var(--safe-area-right) + 20px)); bottom: max(24px, calc(var(--safe-area-bottom) + 24px)); z-index: 30; display: grid; width: 56px; height: 56px; place-items: center; border: 0; border-radius: 50%; color: var(--primary-foreground); background: var(--primary); box-shadow: 0 6px 18px rgb(13 55 42 / 28%); }
-
 .form-overlay { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px max(20px, var(--safe-area-right)) 20px max(20px, var(--safe-area-left)); }
 .form-overlay__scrim { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgb(8 20 15 / 46%); }
 .form-overlay__sheet { position: relative; display: flex; width: min(100%, 720px); max-height: 88dvh; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-overlay); }
@@ -689,7 +687,7 @@ button.settings-row:hover { background: var(--surface-muted); }
 
 .update-prompt { position: fixed; right: max(16px, var(--safe-area-right)); bottom: max(16px, calc(var(--safe-area-bottom) + 16px)); left: max(16px, var(--safe-area-left)); z-index: 100; display: flex; width: auto; max-width: 520px; align-items: center; gap: 12px; margin-left: auto; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface); box-shadow: var(--shadow-overlay); }
 body:has(.product-bottom-nav) .update-prompt { bottom: calc(var(--safe-area-bottom) + 84px); }
-body:has(.quick-expense-trigger) .update-prompt { bottom: calc(var(--safe-area-bottom) + 96px); }
+body:has(.activity-add-fab) .update-prompt { bottom: calc(var(--safe-area-bottom) + 164px); }
 
 .setup-page { display: grid; min-height: 100dvh; place-items: center; padding: 24px 16px; background: var(--workspace); }
 .setup-panel { display: grid; width: min(100%, 520px); gap: 16px; border: 1px solid var(--border); border-radius: 12px; padding: 28px; background: var(--surface); box-shadow: var(--shadow-overlay); }
@@ -778,7 +776,6 @@ body:has(.quick-expense-trigger) .update-prompt { bottom: calc(var(--safe-area-b
   .admin-settings-card { padding: 14px; }
   .deleted-activity-row { grid-template-columns: 1fr; }
   .deleted-activity-row .button { width: 100%; }
-  .quick-expense-trigger { right: max(16px, calc(var(--safe-area-right) + 16px)); bottom: calc(var(--safe-area-bottom) + 18px); }
   .expense-attachments__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -875,7 +872,6 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .expense-summary, .settlement-summary { border-radius: 12px; padding: 16px; }
 .expense-row { min-height: 72px; border-radius: 10px; padding-inline: 8px; transition: transform 100ms ease-out, background-color 160ms ease; }
 .expense-row:hover { background: var(--surface); }
-.quick-expense-trigger { width: 56px; height: 56px; box-shadow: 0 8px 20px rgb(13 55 42 / 28%); transition: transform 100ms ease-out, box-shadow 160ms ease; }
 
 .form-overlay { padding: 20px max(20px, var(--safe-area-right)) 20px max(20px, var(--safe-area-left)); }
 .form-overlay__scrim { background: rgb(23 33 29 / 42%); backdrop-filter: blur(2px); }
@@ -1276,15 +1272,15 @@ html.dark.pwa-standalone .update-prompt {
   .management-field > .notice { margin-left: 38px; }
 }
 
-/* 活动层级统一使用右下角主操作：列表页需要避开悬浮底栏，详情页保持安全区间距。 */
+/* 活动层级统一使用同一条右下角主操作锚点，列表页和流水页切换时保持空间连续。 */
 .home-header__actions { display: flex; align-items: center; gap: 8px; }
 .activity-notifications-trigger { position: relative; display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; }
 .activity-notifications-trigger__badge { position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border: 2px solid var(--surface); border-radius: 50%; background: var(--danger); }
-.activity-add-fab { position: fixed; right: max(20px, calc((100vw - 800px) / 2 + 20px), calc(var(--safe-area-right) + 20px)); bottom: max(24px, calc(var(--safe-area-bottom) + 24px)); z-index: 30; display: grid; width: 56px; height: 56px; place-items: center; border: 0; border-radius: 50%; color: var(--primary-foreground); background: var(--primary); box-shadow: 0 8px 20px rgb(13 55 42 / 28%); transition: transform 100ms ease-out, box-shadow 160ms ease, background-color 160ms ease; }
+.activity-add-fab { position: fixed; right: max(20px, calc((100vw - 800px) / 2 + 20px), calc(var(--safe-area-right) + 20px)); bottom: calc(84px + var(--safe-area-bottom)); z-index: 30; display: grid; width: 56px; height: 56px; place-items: center; border: 0; border-radius: 50%; color: var(--primary-foreground); background: var(--primary); box-shadow: 0 8px 20px rgb(13 55 42 / 28%); transition: transform 100ms ease-out, box-shadow 160ms ease, background-color 160ms ease; }
 .activity-add-fab:active:not(:disabled) { transform: scale(.96); }
-.activities-page .activity-add-fab { bottom: calc(84px + var(--safe-area-bottom)); }
 .activities-page .app-frame { padding-bottom: calc(164px + var(--safe-area-bottom)); }
 body:has(.activities-page) .update-prompt { bottom: calc(164px + var(--safe-area-bottom)); }
+.expense-feed-page { padding-bottom: calc(164px + var(--safe-area-bottom)); }
 .product-bottom-nav ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* 通知行是可横向揭示的连续表面；正文移动时，操作轨道留在行底层。 */
