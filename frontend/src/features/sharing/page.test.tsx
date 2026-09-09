@@ -53,21 +53,22 @@ describe("ShareSummaryPage", () => {
     queryState.data = { activityName: "零金额活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
     renderPage();
     expect(screen.getAllByText("当前总消费为零，无需转账")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "下载 PNG" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "保存本页图片" })).toBeEnabled();
   });
 
-  it("下载 PNG 成功后显示准确反馈并清理旧预览", async () => {
+  it("保存本页图片 成功后显示准确反馈并清理旧预览", async () => {
     const revokeObjectURL = vi.fn();
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
     queryState.data = { activityName: "可下载活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
     exportSummaryCard.mockResolvedValueOnce({ kind: "preview", url: "blob:first", shareFailed: false }).mockResolvedValueOnce({ kind: "downloaded" });
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "下载 PNG" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存本页图片" }));
     expect(await screen.findByRole("img", { name: /PNG 预览/ })).toHaveAttribute("src", "blob:first");
-    fireEvent.click(screen.getByRole("button", { name: "下载 PNG" }));
+    fireEvent.click(screen.getByRole("button", { name: "返回摘要" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存本页图片" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("PNG 已开始下载");
+    expect(await screen.findByRole("status")).toHaveTextContent("本页图片已开始下载");
     expect(screen.queryByRole("img", { name: /PNG 预览/ })).not.toBeInTheDocument();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:first");
   });
@@ -79,10 +80,10 @@ describe("ShareSummaryPage", () => {
     exportSummaryCard.mockResolvedValueOnce({ kind: "preview", url: "blob:mobile", shareFailed: true });
     const view = renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "下载 PNG" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存本页图片" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("系统分享未能打开");
-    expect(screen.getByText(/长按图片即可保存/)).toBeVisible();
+    expect(screen.getByRole("img", { name: /PNG 预览/ })).toBeVisible();
     expect(screen.getByRole("link", { name: "打开原图" })).toHaveAttribute("href", "blob:mobile");
     view.unmount();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:mobile");
@@ -94,39 +95,39 @@ describe("ShareSummaryPage", () => {
     queryState.data = { activityName: "手机活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "下载 PNG" }));
-    const busyButton = screen.getByRole("button", { name: "正在生成图片…" });
+    fireEvent.click(screen.getByRole("button", { name: "保存本页图片" }));
+    const busyButton = screen.getByRole("button", { name: "保存本页图片" });
     expect(busyButton).toBeDisabled();
     fireEvent.click(busyButton);
     expect(exportSummaryCard).toHaveBeenCalledOnce();
 
     finishExport!({ kind: "cancelled" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "下载 PNG" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存本页图片" })).toBeEnabled());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText(/PNG 已/)).not.toBeInTheDocument();
   });
 
-  it("支持复制摘要，并在浏览器没有系统分享时回退复制", async () => {
+  it("复制完整摘要，并通过图片导出进行系统分享", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText }, share: undefined });
     queryState.data = { activityName: "可分享活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "复制摘要" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制完整摘要" }));
     expect(writeText).toHaveBeenCalledOnce();
-    expect(await screen.findByRole("status")).toHaveTextContent("摘要已复制");
-    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
-    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("status")).toHaveTextContent("完整摘要已复制");
+    fireEvent.click(screen.getByRole("button", { name: "分享本页图片" }));
+    await waitFor(() => expect(exportSummaryCard).toHaveBeenCalledWith(expect.objectContaining({ delivery: "share", page: 1 })));
   });
 
-  it("系统分享取消不产生错误，真实失败保留页面并显示中文提示", async () => {
-    Object.assign(navigator, { clipboard: { writeText: vi.fn() }, share: vi.fn().mockRejectedValue(new DOMException("cancel", "AbortError")) });
+  it("图片分享取消不产生错误，导出失败可重试", async () => {
     queryState.data = { activityName: "可分享活动", balances: [], currency: "CNY", currentUserBalanceMinor: "0", memberCount: 1, recommendations: [], state: "zero", totalExpenseMinor: "0", startDate: "2026-08-30", endDate: null, expenseCount: 0, participatingMemberCount: 0, averageExpenseMinor: "0", originalCurrencyTotals: [], categoryTotals: [] };
+    exportSummaryCard.mockResolvedValueOnce({ kind: "cancelled" });
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
-    await Promise.resolve();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    Object.assign(navigator, { share: vi.fn().mockRejectedValue(new Error("denied")) });
-    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("系统分享失败");
+    fireEvent.click(screen.getByRole("button", { name: "分享本页图片" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享本页图片" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).toBeNull();
+    exportSummaryCard.mockRejectedValueOnce(new Error("生成失败"));
+    fireEvent.click(screen.getByRole("button", { name: "分享本页图片" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("生成失败");
   });
 });

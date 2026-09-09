@@ -10,7 +10,7 @@ function expectExportedPng(bytes: Buffer) {
   expect(bytes.readUInt32BE(16)).toBe(1600);
 }
 
-test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持 v0.0.2 交互密度", async ({ page }, testInfo) => {
+test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持一屏分享与真实账务数据", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await installArtifactVisualRedaction(page.context());
   await page.goto("/setup");
@@ -26,17 +26,15 @@ test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持 v0.0.2 交互�
 
   await page.goto(`/share-summary/${activityId}`);
   await expect(page.getByRole("heading", { name: "结算分享摘要" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "活动概览" })).toBeVisible();
-  await expect(page.getByText(/1 笔账单/)).toBeVisible();
+  await expect(page.locator("#share-summary-preview-card")).toBeVisible();
+  await expect(page.locator("#share-summary-preview-card").getByText(/1笔账单/)).toBeVisible();
   expect(await page.getByText("¥42.00").count()).toBeGreaterThanOrEqual(2);
 
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => undefined } });
   });
-  await page.getByRole("button", { name: "复制摘要" }).click();
-  await expect(page.getByRole("status")).toHaveText("摘要已复制。");
-  await page.getByRole("button", { name: "系统分享" }).click();
-  await expect(page.getByRole("status")).toHaveText("摘要已复制。");
+  await page.getByRole("button", { name: "复制完整摘要" }).click();
+  await expect(page.getByRole("status")).toHaveText("完整摘要已复制。");
 
   if (testInfo.project.name.endsWith("-mobile")) {
     await page.evaluate(() => {
@@ -51,8 +49,8 @@ test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持 v0.0.2 交互�
         },
       });
     });
-    await page.getByRole("button", { name: "下载 PNG" }).click();
-    await expect(page.getByRole("status")).toHaveText("PNG 已生成，请长按下方图片保存。");
+    await page.getByRole("button", { name: "保存本页图片" }).click();
+    await expect(page.getByRole("status")).toHaveText("长按图片保存，或打开原图。");
     const preview = page.getByRole("img", { name: /PNG 预览/ });
     await expect(preview).toHaveAttribute("src", /^blob:/);
     await expect(preview).toHaveJSProperty("naturalWidth", 1600);
@@ -64,9 +62,9 @@ test("Task 30 初始化、摘要复制分享、PNG 与 CSV 保持 v0.0.2 交互�
     expectExportedPng(Buffer.from(pngHeader));
   } else {
     const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "下载 PNG" }).click();
+    await page.getByRole("button", { name: "保存本页图片" }).click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe("huddletab-settlement-summary.png");
+    expect(download.suggestedFilename()).toBe("huddletab-settlement-summary-1.png");
     const downloadPath = await download.path();
     expect(downloadPath).not.toBeNull();
     expectExportedPng(await readFile(downloadPath!));

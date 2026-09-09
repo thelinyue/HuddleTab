@@ -16,40 +16,27 @@ const readySummary = {
 
 describe("ShareSummaryCard", () => {
   afterEach(cleanup);
-
-  it("完整展示 v0.0.2 的结算结论、说明和品牌区", () => {
-    render(<ShareSummaryCard summary={readySummary} id="summary-card" />);
-    const card = screen.getByRole("article", { name: /结算摘要/ });
-    expect(card).toHaveAttribute("id", "summary-card");
-    expect(within(card).getByText("结算摘要")).toBeVisible();
-    expect(within(card).getByRole("heading", { name: readySummary.activityName })).toBeVisible();
-    expect(within(card).getByText(/2人 · 总支出/)).toHaveTextContent("¥64.00");
-
-    const viewer = within(card).getByRole("region", { name: "我的结算" });
-    expect(viewer).toHaveTextContent("应付¥32.00");
-    const recommendations = within(card).getByRole("list", { name: "推荐结算" });
-    expect(within(recommendations).getByRole("listitem")).toHaveTextContent("付款方名字特别长的成员 向 收款方名字特别长的成员 支付¥32.00");
-    const balances = within(card).getByRole("list", { name: "成员余额" });
-    expect(within(balances).getAllByRole("listitem")[2]).toHaveTextContent("已经结清的成员已结清¥0.00");
-    expect(within(card).getByRole("region", { name: "结算说明" })).toHaveTextContent("推荐结算已尽量减少转账次数");
-    expect(within(card).getByText("一起消费，清楚结算")).toBeVisible();
-  });
-
-  it.each([
-    ["zero", "当前总消费为零，无需转账"],
-    ["settled", "当前无需推荐转账"],
-  ] as const)("%s 状态保留完整模板并显示明确空状态", (state, emptyMessage) => {
-    render(<ShareSummaryCard summary={{ ...readySummary, state, currentUserBalanceMinor: "0", totalExpenseMinor: state === "zero" ? "0" : "6400", recommendations: [] }} />);
+  it("群聊摘要保留完整姓名、转账方向、余额和币种，不展示个人视角", () => {
+    render(<ShareSummaryCard summary={readySummary} />);
     const card = screen.getByRole("article");
-    expect(card).toHaveAttribute("data-state", state);
-    expect(within(card).getByRole("region", { name: "我的结算" })).toHaveTextContent("已结清¥0.00");
-    expect(within(card).getByRole("list", { name: "推荐结算" })).toHaveTextContent(emptyMessage);
-    expect(within(card).getByText("当前无需转账")).toBeVisible();
+    expect(card).toHaveTextContent(readySummary.activityName);
+    expect(card).toHaveTextContent("付款方名字特别长的成员 → 收款方名字特别长的成员");
+    expect(card).toHaveTextContent("应收");
+    expect(card).toHaveTextContent("应付");
+    expect(card).toHaveTextContent("已结清");
+    expect(card).toHaveTextContent("CNY");
+    expect(card).toHaveTextContent("第 1 / 1 页");
+    expect(within(card).queryByText("我的结算")).toBeNull();
+    expect(card.querySelector("img")).toBeNull();
   });
-
-  it("预览和导出实例使用各自的标题关联 ID", () => {
-    render(<><ShareSummaryCard summary={readySummary} /><ShareSummaryCard summary={readySummary} id="share-summary-card" /></>);
-    expect(document.querySelectorAll("#share-summary-preview-card-viewer")).toHaveLength(1);
-    expect(document.querySelectorAll("#share-summary-card-viewer")).toHaveLength(1);
+  it("当前页只展示指定条目，并重复活动信息与页码", () => {
+    render(<ShareSummaryCard summary={readySummary} items={[{ key: "balance-member-a", kind: "balance", index: 1 }]} page={2} pageCount={3} />);
+    expect(screen.getByRole("article")).toHaveTextContent("第 2 / 3 页");
+    expect(screen.queryByText("付款方名字特别长的成员")).toBeNull();
+    expect(screen.getByText("收款方名字特别长的成员")).toBeVisible();
+  });
+  it.each(["zero", "settled"] as const)("%s 显示明确结清状态", state => {
+    render(<ShareSummaryCard summary={{ ...readySummary, state, recommendations: [] }} />);
+    expect(screen.getByText(state === "zero" ? "当前总消费为零，无需转账" : "全部已结清，无需转账")).toBeVisible();
   });
 });

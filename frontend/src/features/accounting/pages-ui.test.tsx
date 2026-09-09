@@ -275,18 +275,20 @@ describe("人均消费说明", () => {
 });
 
 describe("快捷记账 v0.0.2 信息路径", () => {
-  function openQuickExpense() {
+  async function openQuickExpense() {
     renderPage(<ExpenseFeedPage />);
     const trigger = screen.getByRole("button", { name: "记一笔" });
     expect(trigger).toHaveClass("activity-add-fab", "quick-expense-trigger");
     expect(trigger).toHaveAttribute("title", "记一笔");
     trigger.focus();
     fireEvent.click(trigger);
-    return { trigger, dialog: screen.getByRole("dialog", { name: "记一笔" }) };
+    const dialog = screen.getByRole("dialog", { name: "记一笔" });
+    await within(dialog).findByLabelText("金额");
+    return { trigger, dialog };
   }
 
   it("根表单直接提供时间选择、独立备注入口和悬浮保存按钮", async () => {
-    const { dialog } = openQuickExpense();
+    const { dialog } = await openQuickExpense();
     await waitFor(() => expect(within(dialog).getByLabelText("金额")).toBeInTheDocument());
     const labels = [...dialog.querySelectorAll(".quick-expense-field-button__label")]
       .map((element) => element.textContent);
@@ -327,7 +329,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   });
 
   it("子视图使用动态标题，Back 保持草稿并把焦点还给原入口，Close 后焦点回到 FAB", async () => {
-    const { trigger, dialog } = openQuickExpense();
+    const { trigger, dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "晚餐" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
@@ -345,8 +347,8 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("备注子视图使用中文附件入口并沿用悬浮操作 Dock", () => {
-    const { dialog } = openQuickExpense();
+  it("备注子视图使用中文附件入口并沿用悬浮操作 Dock", async () => {
+    const { dialog } = await openQuickExpense();
     expect(within(dialog).getByRole("button", { name: "保存" }).parentElement).toHaveClass("quick-expense-action-dock");
     const noteDialog = openNoteView(dialog);
     expect(within(noteDialog).getByText("选择图片")).toBeInTheDocument();
@@ -355,8 +357,8 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     expect(within(noteDialog).getByRole("button", { name: "完成" }).parentElement).toHaveClass("quick-expense-action-dock");
   });
 
-  it("参与人确认、分类和币种确认都回到根表单并保留其他字段", () => {
-    const { dialog } = openQuickExpense();
+  it("参与人确认、分类和币种确认都回到根表单并保留其他字段", async () => {
+    const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^参与人：/ }));
     const participantDialog = screen.getByRole("dialog", { name: "参与人" });
@@ -384,7 +386,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   });
 
   it("多人付款严格校验守恒，提交时传递每个付款人的最小单位金额", async () => {
-    const { dialog } = openQuickExpense();
+    const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "多人晚餐" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
@@ -413,8 +415,8 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     })));
   });
 
-  it("精确分摊实时显示守恒汇总，参与人变更会清空旧的精确值", () => {
-    const { dialog } = openQuickExpense();
+  it("精确分摊实时显示守恒汇总，参与人变更会清空旧的精确值", async () => {
+    const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^分摊设置：/ }));
     const splitDialog = screen.getByRole("dialog", { name: "分摊设置" });
@@ -433,8 +435,8 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     expect(within(resetSplitDialog).getByLabelText("甲按金额")).toHaveValue("");
   });
 
-  it("按份数支持整数步进和小数手输，按比例使用百分比符号占位", () => {
-    const { dialog } = openQuickExpense();
+  it("按份数支持整数步进和小数手输，按比例使用百分比符号占位", async () => {
+    const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^分摊设置：/ }));
     const splitDialog = screen.getByRole("dialog", { name: "分摊设置" });
@@ -461,7 +463,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   });
 
   it("Owner 在线可添加临时成员，离线时添加入口禁用", async () => {
-    const { dialog } = openQuickExpense();
+    const { dialog } = await openQuickExpense();
     fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
     const payerDialog = screen.getByRole("dialog", { name: "付款人" });
     fireEvent.click(within(payerDialog).getByRole("button", { name: "添加临时成员" }));
@@ -475,20 +477,20 @@ describe("快捷记账 v0.0.2 信息路径", () => {
 
     workspaceState.offline = true;
     cleanup();
-    const offline = openQuickExpense();
+    const offline = await openQuickExpense();
     fireEvent.click(within(offline.dialog).getByRole("button", { name: /^付款人：/ }));
     expect(within(screen.getByRole("dialog", { name: "付款人" })).getByRole("button", { name: "添加临时成员" })).toBeDisabled();
   });
 
-  it("金额为空时就地展示错误并把焦点交给金额输入", () => {
-    const { dialog } = openQuickExpense();
+  it("金额为空时就地展示错误并把焦点交给金额输入", async () => {
+    const { dialog } = await openQuickExpense();
     fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("金额不能为空");
     expect(document.activeElement).toBe(within(dialog).getByLabelText("金额"));
   });
 
-  it("金额格式错误仍定位到金额字段", () => {
-    const { dialog } = openQuickExpense();
+  it("金额格式错误仍定位到金额字段", async () => {
+    const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "1.234" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "格式校验" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
@@ -497,7 +499,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   });
 
   it("提交时付款守恒失败会回到付款子视图并保留错误", async () => {
-    const { dialog } = openQuickExpense();
+    const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "付款校验" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^付款人：/ }));
@@ -516,7 +518,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   });
 
   it("提交时分摊守恒失败会回到分摊子视图并保留错误", async () => {
-    const { dialog } = openQuickExpense();
+    const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "分摊校验" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^分摊设置：/ }));
@@ -607,16 +609,16 @@ describe("统一账单编辑器", () => {
 });
 
 describe("流水内修改账单 Sheet", () => {
-  function openExpenseEditor() {
+  async function openExpenseEditor() {
     renderPage(<ExpenseFeedPage />, ["/activities/activity-1"]);
     const expenseLink = screen.getByRole("link", { name: /午餐/ });
     expenseLink.focus();
     fireEvent.click(expenseLink);
-    return { expenseLink, dialog: screen.getByRole("dialog", { name: "修改账单" }) };
+    return { expenseLink, dialog: await screen.findByRole("dialog", { name: "修改账单" }) };
   }
 
   it("保留流水上下文、复用完整表单，并从子视图返回修改任务", async () => {
-    const { expenseLink, dialog } = openExpenseEditor();
+    const { expenseLink, dialog } = await openExpenseEditor();
 
     expect(screen.getByRole("heading", { name: "全部流水" })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("金额")).toHaveValue("10.00");
@@ -634,7 +636,7 @@ describe("流水内修改账单 Sheet", () => {
   });
 
   it("保存成功后关闭 Sheet 并沿用原账单版本", async () => {
-    const { dialog } = openExpenseEditor();
+    const { dialog } = await openExpenseEditor();
     fireEvent.change(within(dialog).getByLabelText("用途"), { target: { value: "修改后的午餐" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
 
@@ -646,7 +648,7 @@ describe("流水内修改账单 Sheet", () => {
   });
 
   it("删除继续二次确认，成功后关闭 Sheet", async () => {
-    const { dialog } = openExpenseEditor();
+    const { dialog } = await openExpenseEditor();
     fireEvent.click(within(dialog).getByRole("button", { name: "删除账单" }));
     const confirmation = screen.getByRole("alertdialog", { name: "删除账单" });
     fireEvent.click(within(confirmation).getByRole("button", { name: "确认删除" }));
@@ -1020,6 +1022,7 @@ describe("Expense pending 流水隔离", () => {
 
     renderPage(<ExpenseFeedPage />);
     fireEvent.click(screen.getByRole("button", { name: "修改后重试" }));
+    await screen.findByLabelText("金额");
     const dialog = screen.getByRole("dialog", { name: "修改被拒账单" });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "修改后重试" }).parentElement).toHaveClass("quick-expense-action-dock");
@@ -1116,6 +1119,7 @@ describe("Activity 生命周期写权限", () => {
     activity.status = "ENDED";
     renderPage(<SettlementsPage />);
 
+    fireEvent.click(screen.getByRole("button", { name: "补记结算" }));
     expect(screen.getByRole("button", { name: "记录结算" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "补记结算" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "修改" })).toBeInTheDocument();

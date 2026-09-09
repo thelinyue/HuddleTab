@@ -247,10 +247,10 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
       },
     });
   });
-  await page.getByRole("button", { name: "下载 PNG" }).click();
-  await expect(page.getByRole("status")).toHaveText("PNG 已交给系统分享。");
+  await page.getByRole("button", { name: "保存本页图片" }).click();
+  await expect(page.getByRole("status")).toHaveText("本页图片已交给系统分享。");
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __sharedPng?: unknown }).__sharedPng)).toEqual({
-    name: "huddletab-settlement-summary.png",
+    name: "huddletab-settlement-summary-1.png",
     type: "image/png",
     signature: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
   });
@@ -258,8 +258,8 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await page.evaluate(() => {
     Object.defineProperty(navigator, "share", { configurable: true, value: async () => { throw new Error("share unavailable"); } });
   });
-  await page.getByRole("button", { name: "下载 PNG" }).click();
-  await expect(page.getByRole("alert")).toHaveText("系统分享未能打开，已改为显示 PNG 原图。");
+  await page.getByRole("button", { name: "保存本页图片" }).click();
+  await expect(page.getByRole("alert")).toHaveText("系统分享未能打开，可长按图片保存。");
   await expect(page.getByRole("img", { name: /PNG 预览/ })).toHaveAttribute("src", /^blob:/);
   await expect(page.getByRole("link", { name: "打开原图" })).toHaveAttribute("href", /^blob:/);
   await assertNoHorizontalOverflow(page);

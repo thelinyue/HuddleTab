@@ -49,12 +49,9 @@ vi.mock("../features/notifications/pages", () => ({
   NotificationsPage: () => <p>通知</p>,
 }));
 
-vi.mock("../features/accounting/pages", () => ({
-  ExpenseDetailPage: () => <p>账单详情</p>,
-  ExpenseFeedPage: () => <p>流水页</p>,
-  NewExpensePage: () => <p>新增账单</p>,
-  SettlementsPage: () => <p>结算页</p>,
-}));
+vi.mock("../features/accounting/feed-page", () => ({ ExpenseFeedPage: () => <p>流水页</p> }));
+vi.mock("../features/accounting/settlement-page", () => ({ SettlementsPage: () => <p>结算页</p> }));
+vi.mock("../features/accounting/expense-editor", () => ({ ExpenseDetailPage: () => <p>账单详情</p>, NewExpensePage: () => <p>记账页</p> }));
 
 vi.mock("../features/sharing/page", () => ({ ShareSummaryPage: () => <h1>结算分享摘要</h1> }));
 

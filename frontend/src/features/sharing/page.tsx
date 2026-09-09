@@ -1,130 +1,96 @@
-import { ArrowLeft, Check, Copy, ImageDown, Share2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { Button, LoadingState, Money } from "../../components/ui";
-import { formatMoney } from "../../domain-preview/money";
-import { useSessionQuery } from "../auth/api";
-import { useActivitySummaryQuery, type ShareSummary } from "./adapter";
-import { ShareSummaryCard } from "./card";
-import { exportSummaryCard } from "./image-export";
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { Button, LoadingState } from '../../components/ui';
+import { formatMoney } from '../../domain-preview/money';
+import { useSessionQuery } from '../auth/api';
+import { useActivitySummaryQuery, type ShareSummary } from './adapter';
+import { ShareSummaryCard } from './card';
+import { exportSummaryCard } from './image-export';
+import { paginateSummary, summaryItems, type SummaryItem } from './pagination';
 
-const categoryLabels: Record<string, string> = {
-  FOOD: "餐饮",
-  TRANSPORT: "交通",
-  LODGING: "住宿",
-  TICKET: "门票",
-  SHOPPING: "购物",
-  ENTERTAINMENT: "娱乐",
-  OTHER: "其他",
-};
+export function summaryText(summary: ShareSummary): string {
+  return [summary.activityName, `活动日期：${summary.startDate}${summary.endDate ? ` 至 ${summary.endDate}` : ''}`,
+    `${summary.memberCount} 人 · ${summary.expenseCount} 笔账单 · 总支出 ${formatMoney(summary.currency, summary.totalExpenseMinor)} · 人均 ${formatMoney(summary.currency, summary.averageExpenseMinor)}`,
+    '推荐转账：', ...(summary.recommendations.length ? summary.recommendations.map(item => `${item.payerName} 向 ${item.receiverName} 支付 ${formatMoney(summary.currency, item.amountMinor)}`) : ['当前无需推荐转账。']),
+    '成员余额：', ...summary.balances.map(item => `${item.displayName} ${item.state === 'receivable' ? '应收' : item.state === 'payable' ? '应付' : '已结清'} ${formatMoney(summary.currency, item.amountMinor)}`),
+  ].join('\n');
+}
 
-function summaryText(summary: ShareSummary): string {
-  const date = summary.endDate ? `${summary.startDate} 至 ${summary.endDate}` : summary.startDate;
-  const lines = [
-    summary.activityName,
-    `活动日期：${date}`,
-    `成员 ${summary.memberCount} 人 · 账单 ${summary.expenseCount} 笔 · 总支出 ${formatMoney(summary.currency, summary.totalExpenseMinor)}`,
-    `参与成员 ${summary.participatingMemberCount} 人 · 人均 ${formatMoney(summary.currency, summary.averageExpenseMinor)}`,
-    `我的余额：${formatMoney(summary.currency, summary.currentUserBalanceMinor)}`,
-    "推荐结算：",
-    ...(summary.recommendations.length ? summary.recommendations.map((item) => `${item.payerName} 向 ${item.receiverName} 支付 ${formatMoney(summary.currency, item.amountMinor)}`) : ["当前无需推荐转账。"]),
-  ];
-  if (summary.originalCurrencyTotals.length) {
-    lines.push("原币种汇总：", ...summary.originalCurrencyTotals.map((item) => `${item.currency} ${formatMoney(item.currency, item.amountMinor)}`));
+/** 独立预览区域占满剩余视口；先测量真实换行，再分页，导出直接捕获可见卡片。 */
+function SummaryPreview({ summary, activityId }: { summary: ShareSummary; activityId: string }) {
+  const stage = useRef<HTMLDivElement>(null);
+  const measurement = useRef<HTMLDivElement>(null);
+  const anchor = useRef<string | undefined>(undefined);
+  const [pages, setPages] = useState<SummaryItem[][]>(() => [summaryItems(summary)]);
+  const [page, setPage] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const [preview, setPreview] = useState<string>();
+  const previewUrl = useRef<string | undefined>(undefined);
+  function replacePreview(url?: string) { if (previewUrl.current) URL.revokeObjectURL(previewUrl.current); previewUrl.current = url; setPreview(url); }
+  useEffect(() => () => { if (previewUrl.current) URL.revokeObjectURL(previewUrl.current); }, []);
+  useLayoutEffect(() => {
+    let active = true;
+    const measure = () => {
+      if (!active || !stage.current || !measurement.current) return;
+      const card = measurement.current.querySelector<HTMLElement>('.share-summary-card');
+      const body = card?.querySelector<HTMLElement>('.share-card-body');
+      if (!card || !body || !stage.current.clientHeight) return;
+      const heights = new Map([...body.querySelectorAll<HTMLElement>('[data-summary-row]')].map(row => [row.dataset.summaryRow!, row.getBoundingClientRect().height]));
+      const heading = body.querySelector<HTMLElement>('.share-card-section-heading');
+      const emptyHeight = [...body.querySelectorAll<HTMLElement>('.share-card-empty')].reduce((sum, node) => sum + node.getBoundingClientRect().height, 0);
+      const available = stage.current.clientHeight - (card.getBoundingClientRect().height - body.getBoundingClientRect().height) - emptyHeight - 2;
+      const next = paginateSummary(summaryItems(summary), heights, available, heading?.getBoundingClientRect().height ?? 28);
+      const nextPage = Math.max(0, next.findIndex(items => items.some(item => item.key === anchor.current)));
+      setPages(next); setPage(nextPage);
+    };
+    measure();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : undefined;
+    if (stage.current) observer?.observe(stage.current);
+    if (measurement.current) observer?.observe(measurement.current);
+    window.visualViewport?.addEventListener('resize', measure);
+    void document.fonts?.ready.then(measure);
+    return () => { active = false; observer?.disconnect(); window.visualViewport?.removeEventListener('resize', measure); };
+  }, [summary]);
+  async function imageAction(delivery: 'save' | 'share') {
+    const card = document.getElementById('share-summary-preview-card');
+    if (!(card instanceof HTMLElement)) return;
+    setExporting(true); setError(''); setNotice('');
+    try {
+      const result = await exportSummaryCard({ card, width: card.offsetWidth, height: card.offsetHeight, page: page + 1, delivery });
+      if (result.kind === 'cancelled') return;
+      if (result.kind === 'preview') { replacePreview(result.url); setNotice('长按图片保存，或打开原图。'); if (result.shareFailed) setError('系统分享未能打开，可长按图片保存。'); }
+      else { replacePreview(); setNotice(result.kind === 'shared' ? '本页图片已交给系统分享。' : '本页图片已开始下载。'); }
+    } catch (reason) { setError(reason instanceof Error ? `导出失败：${reason.message}` : '导出失败，请重试。'); }
+    finally { setExporting(false); }
   }
-  if (summary.categoryTotals.length) {
-    lines.push("分类汇总：", ...summary.categoryTotals.map((item) => `${categoryLabels[item.category] ?? item.category} ${formatMoney(summary.currency, item.amountMinor)}`));
+  async function copy() {
+    setError('');
+    try { await navigator.clipboard.writeText(summaryText(summary)); setNotice('完整摘要已复制。'); } catch { setError('复制失败，请检查浏览器权限后重试。'); }
   }
-  return lines.join("\n");
+  function turn(next: number) { anchor.current = pages[next]?.[0]?.key; setPage(next); replacePreview(); setNotice(''); setError(''); }
+  return <main className="share-summary-page">
+    <header className="share-summary-page__header"><Link className="inline-back" to={`/activities/${encodeURIComponent(activityId)}?tab=settlement`}><ArrowLeft size={18} aria-hidden="true" />返回结算</Link><h1>结算分享摘要</h1></header>
+    <div className="share-summary-preview" ref={stage}>
+      <div style={{ visibility: preview ? 'hidden' : undefined }}><ShareSummaryCard summary={summary} items={pages[page] ?? []} page={page + 1} pageCount={pages.length} /></div>
+      {preview ? <div className="share-summary-save-preview"><img src={preview} alt={`${summary.activityName}结算摘要 PNG 预览`} /><div><a href={preview} target="_blank" rel="noreferrer">打开原图</a><Button variant="ghost" onClick={() => replacePreview()}>返回摘要</Button></div></div> : null}
+    </div>
+    <div className="share-summary-toolbar">
+      <div className="share-summary-pagination">{pages.length > 1 ? <><Button variant="ghost" aria-label="上一页" disabled={page === 0 || exporting} onClick={() => turn(page - 1)}><ChevronLeft size={18} /></Button><span aria-live="polite">{page + 1} / {pages.length}</span><Button variant="ghost" aria-label="下一页" disabled={page === pages.length - 1 || exporting} onClick={() => turn(page + 1)}><ChevronRight size={18} /></Button></> : <span>可直接截图分享到群聊</span>}</div>
+      <div className="share-summary-actions"><Button variant="secondary" disabled={exporting} onClick={() => void copy()}>复制完整摘要</Button><Button variant="secondary" disabled={exporting || Boolean(preview)} onClick={() => void imageAction('share')}>分享本页图片</Button><Button busy={exporting} disabled={Boolean(preview)} onClick={() => void imageAction('save')}>保存本页图片</Button></div>
+    </div>
+    {notice || error ? <div className={`share-summary-feedback${error ? ' share-summary-feedback--error' : ''}`} role={error ? 'alert' : 'status'} onClick={() => { setNotice(''); setError(''); }}>{error || notice}</div> : null}
+    <div className="share-summary-measure" ref={measurement} aria-hidden="true"><ShareSummaryCard id="share-summary-measure-card" summary={summary} /></div>
+  </main>;
 }
 
 export function ShareSummaryPage() {
-  const { activityId = "" } = useParams();
+  const { activityId = '' } = useParams();
   const session = useSessionQuery();
-  const summary = useActivitySummaryQuery(session.data?.userId ?? "", activityId);
-  const [exporting, setExporting] = useState(false);
-  const [notice, setNotice] = useState<string>();
-  const [actionError, setActionError] = useState<string>();
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>();
-  const imagePreviewUrlRef = useRef<string | undefined>(undefined);
-
-  useEffect(() => () => {
-    if (imagePreviewUrlRef.current) URL.revokeObjectURL(imagePreviewUrlRef.current);
-  }, []);
-
-  function replaceImagePreview(nextUrl?: string) {
-    if (imagePreviewUrlRef.current && imagePreviewUrlRef.current !== nextUrl) URL.revokeObjectURL(imagePreviewUrlRef.current);
-    imagePreviewUrlRef.current = nextUrl;
-    setImagePreviewUrl(nextUrl);
-  }
-
-  async function downloadImage() {
-    setActionError(undefined);
-    setNotice(undefined);
-    setExporting(true);
-    try {
-      const result = await exportSummaryCard();
-      if (result.kind === "cancelled") return;
-      if (result.kind === "preview") {
-        replaceImagePreview(result.url);
-        setNotice("PNG 已生成，请长按下方图片保存。");
-        if (result.shareFailed) setActionError("系统分享未能打开，已改为显示 PNG 原图。");
-        return;
-      }
-      replaceImagePreview();
-      setNotice(result.kind === "shared" ? "PNG 已交给系统分享。" : "PNG 已开始下载。");
-    } catch (error) {
-      setActionError(error instanceof Error ? `导出图片失败：${error.message}` : "导出图片失败，请刷新页面后重试。");
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  async function copySummary() {
-    if (!summary.data) return;
-    setActionError(undefined);
-    try {
-      await navigator.clipboard.writeText(summaryText(summary.data));
-      setNotice("摘要已复制。");
-    } catch {
-      setActionError("复制摘要失败，请检查浏览器权限后重试。");
-    }
-  }
-
-  async function shareSummary() {
-    if (!summary.data) return;
-    setActionError(undefined);
-    if (!navigator.share) {
-      await copySummary();
-      return;
-    }
-    try {
-      await navigator.share({ title: `${summary.data.activityName}结算摘要`, text: summaryText(summary.data) });
-      setNotice("摘要已分享。");
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      setActionError("系统分享失败，请稍后重试。");
-    }
-  }
-
+  const summary = useActivitySummaryQuery(session.data?.userId ?? '', activityId);
   if (session.isPending || summary.isPending) return <main className="share-summary-page"><LoadingState label="正在生成结算摘要…" /></main>;
   if (summary.error || !summary.data) return <main className="share-summary-page"><section className="share-summary-message"><h1>结算分享摘要</h1><p role="alert">无法读取结算摘要，请检查网络后重试。</p><Button onClick={() => void summary.refetch()}>重新加载</Button></section></main>;
-  return (
-    <main className="share-summary-page">
-      <header className="share-summary-page__header"><Link className="inline-back" to={`/activities/${encodeURIComponent(activityId)}?tab=settlement`}><ArrowLeft aria-hidden="true" size={18} />返回结算</Link><h1>结算分享摘要</h1><p>生成一张清晰的结算图片，方便发到群里确认。</p></header>
-      <section className="share-summary-overview" aria-labelledby="share-summary-overview-title">
-        <h2 id="share-summary-overview-title">活动概览</h2>
-        <p>{summary.data.startDate}{summary.data.endDate ? ` 至 ${summary.data.endDate}` : ""} · {summary.data.expenseCount} 笔账单 · {summary.data.participatingMemberCount} 位参与成员</p>
-        <div className="share-summary-overview__stats"><span><strong>总支出</strong><Money value={formatMoney(summary.data.currency, summary.data.totalExpenseMinor)} /></span><span><strong>人均</strong><Money value={formatMoney(summary.data.currency, summary.data.averageExpenseMinor)} /></span></div>
-        {summary.data.originalCurrencyTotals.length ? <div><strong>原币种汇总</strong><ul>{summary.data.originalCurrencyTotals.map((item) => <li key={item.currency}>{item.currency}<Money value={formatMoney(item.currency, item.amountMinor)} /></li>)}</ul></div> : null}
-        {summary.data.categoryTotals.length ? <div><strong>分类汇总</strong><ul>{summary.data.categoryTotals.map((item) => <li key={item.category}>{categoryLabels[item.category] ?? item.category}<Money value={formatMoney(summary.data.currency, item.amountMinor)} /></li>)}</ul></div> : null}
-      </section>
-      <section className="share-summary-preview" aria-label="结算摘要预览"><ShareSummaryCard id="share-summary-preview-card" summary={summary.data} /></section>
-      {notice ? <p className="notice notice--success" role="status"><Check aria-hidden="true" size={17} />{notice}</p> : null}
-      <div className="share-summary-actions"><Button variant="secondary" onClick={() => void copySummary()}><Copy aria-hidden="true" size={18} />复制摘要</Button><Button variant="secondary" onClick={() => void shareSummary()}><Share2 aria-hidden="true" size={18} />系统分享</Button><Button busy={exporting} onClick={() => void downloadImage()}><ImageDown aria-hidden="true" size={18} />{exporting ? "正在生成图片…" : "下载 PNG"}</Button></div>
-      {actionError ? <p className="notice notice--error" role="alert">{actionError}</p> : null}
-      {imagePreviewUrl ? <section className="share-summary-save-preview" aria-labelledby="share-summary-save-preview-title"><h2 id="share-summary-save-preview-title">保存 PNG</h2><p>长按图片即可保存；也可以打开原图后使用浏览器的分享或存储操作。</p><img src={imagePreviewUrl} alt={`${summary.data.activityName}结算摘要 PNG 预览`} /><a className="button button--secondary" href={imagePreviewUrl} target="_blank" rel="noreferrer">打开原图</a></section> : null}
-      <div className="share-summary-export-canvas" aria-hidden="true"><ShareSummaryCard id="share-summary-card" summary={summary.data} /></div>
-    </main>
-  );
+  return <SummaryPreview key={activityId} summary={summary.data} activityId={activityId} />;
 }

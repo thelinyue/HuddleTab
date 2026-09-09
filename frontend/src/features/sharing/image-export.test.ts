@@ -4,7 +4,11 @@ const pngBlob = new Blob(["png"], { type: "image/png" });
 const toBlob = vi.hoisted(() => vi.fn());
 vi.mock("html-to-image", () => ({ toBlob }));
 
-import { exportSummaryCard } from "./image-export";
+import { exportSummaryCard as captureSummary } from "./image-export";
+
+function exportSummaryCard() {
+  return captureSummary({ card: document.getElementById("share-summary-card") as HTMLElement, width: 800, height: 600, page: 1, delivery: "save" });
+}
 
 function setCoarsePointer(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -58,7 +62,7 @@ describe("exportSummaryCard", () => {
 
     const payload = share.mock.calls[0]?.[0] as ShareData;
     expect(payload.files).toHaveLength(1);
-    expect(payload.files?.[0]).toMatchObject({ name: "huddletab-settlement-summary.png", type: "image/png" });
+    expect(payload.files?.[0]).toMatchObject({ name: "huddletab-settlement-summary-1.png", type: "image/png" });
     expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
@@ -76,6 +80,14 @@ describe("exportSummaryCard", () => {
 
     setFileSharing(true, vi.fn().mockRejectedValueOnce(new DOMException("cancel", "AbortError")));
     await expect(exportSummaryCard()).resolves.toEqual({ kind: "cancelled" });
+  });
+
+  it("桌面分享当前页使用可见尺寸和页码生成文件", async () => {
+    const share = setFileSharing(true);
+    const card = document.getElementById("share-summary-card") as HTMLElement;
+    await expect(captureSummary({ card, width: 320, height: 450, page: 3, delivery: "share" })).resolves.toEqual({ kind: "shared" });
+    expect(toBlob).toHaveBeenCalledWith(card, expect.objectContaining({ width: 320, height: 450, pixelRatio: 5 }));
+    expect(share.mock.calls[0][0].files[0].name).toBe("huddletab-settlement-summary-3.png");
   });
 
   it("浏览器没有生成 Blob 时提供明确错误", async () => {

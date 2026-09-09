@@ -1,0 +1,93 @@
+/* 分享卡的可用宽度在可见预览与测量节点间保持一致，避免导出时重新换行。 */
+.share-summary-page { --share-width: min(100%, 560px); box-sizing: border-box; height: 100dvh; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: max(8px, var(--safe-area-top)) max(10px, var(--safe-area-right)) max(8px, var(--safe-area-bottom)) max(10px, var(--safe-area-left)); background: var(--workspace); }
+.share-summary-page__header { width: var(--share-width); min-width: 0; margin-inline: auto; min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.share-summary-page__header h1 { margin: 0; font-size: 14px; font-weight: 600; }
+.share-summary-page__header .inline-back { min-height: 36px; font-size: 13px; }
+.share-summary-preview { width: var(--share-width); min-height: 0; margin-inline: auto; position: relative; }
+.share-summary-card { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; box-sizing: border-box; width: 100%; border: 1px solid #dce5df; border-radius: 12px; padding: 12px; background: #fffefb; color: #1d3028; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: .875rem; line-height: 1.4; }
+.share-summary-card h2, .share-summary-card h3, .share-summary-card p { margin: 0; }
+.share-card-heading > p { display: flex; justify-content: space-between; color: #276950; font-size: .75rem; font-weight: 650; }
+.share-card-heading h2 { font-size: 1.2rem; line-height: 1.3; margin-block: 3px; overflow-wrap: anywhere; }
+.share-card-heading > small { display: block; font-size: .6875rem; color: #58675f; }
+.share-card-stats { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-top: 8px; padding-bottom: 6px; border-bottom: 1px solid #dce5df; font-size: .75rem; }
+.share-card-stats strong { margin-left: 4px; font-size: .9375rem; font-variant-numeric: tabular-nums; }
+.share-card-section-heading { box-sizing: border-box; padding-block: 8px 4px; font-size: .75rem; color: #52675a; line-height: 1.4; }
+.share-card-row { display: flex; align-items: baseline; column-gap: 8px; padding-block: 4px; border-bottom: 1px solid #edf0eb; }
+.share-card-row > span { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.share-card-row > strong { flex: 0 0 auto; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .875rem; }
+.share-card-row > small { flex: 0 0 auto; font-size: .6875rem; color: #68716a; white-space: nowrap; }
+.share-card-row > small[data-balance-state="receivable"] { color: #276950; }
+.share-card-row > small[data-balance-state="payable"] { color: #975014; }
+
+.share-card-direction { color: #61766a; }
+.share-card-empty { font-size: .8125rem; padding-block: 8px; color: #52675a; }
+.share-card-footer { display: flex; justify-content: space-between; gap: 12px; padding-top: 10px; color: #617167; font-size: .6875rem; }
+.share-summary-toolbar { width: var(--share-width); margin-inline: auto; }
+.share-summary-pagination { display: flex; justify-content: center; align-items: center; gap: 14px; height: 44px; color: var(--muted-foreground); font-size: 12px; }
+.share-summary-pagination .button { min-width: 44px; min-height: 44px; padding: 8px; }
+.share-summary-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.share-summary-actions .button { min-width: 0; min-height: 44px; padding: 6px 3px; font-size: 12px; }
+.share-summary-measure { position: fixed; left: -10000px; top: 0; width: min(calc(100vw - max(10px, var(--safe-area-left)) - max(10px, var(--safe-area-right))), 560px); pointer-events: none; visibility: hidden; }
+.share-summary-save-preview { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.share-summary-save-preview img { display: block; min-height: 0; max-height: calc(100% - 44px); max-width: 100%; object-fit: contain; }
+.share-summary-save-preview > div { display: flex; gap: 20px; align-items: center; height: 44px; }
+.share-summary-feedback { position: fixed; left: 50%; bottom: calc(106px + var(--safe-area-bottom)); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: var(--surface); color: var(--foreground); box-shadow: var(--shadow-overlay); font-size: 13px; z-index: 5; }
+.share-summary-feedback--error { color: var(--destructive); }
+.share-summary-message { align-self: center; grid-row: 1 / -1; text-align: center; }
+
+/* 结算沿用工作区颜色与成员行；原地表单不会覆盖当前转账上下文。 */
+.settlement-summary > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; }
+.settlement-summary > header p { margin: 0; color: var(--muted-foreground); font-size: 12px; font-weight: 650; }
+.settlement-share-entry { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; font-size: 12px; color: var(--primary); }
+.settlement-page .balance-entry { margin-top: 0; }
+.balance-entry .is-expanded { transform: rotate(180deg); }
+.settlement-recommendation-item + .settlement-recommendation-item { border-top: 1px solid var(--border); }
+.settlement-recommendation-trigger { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; border: 0; padding: 12px; background: var(--surface); color: var(--foreground); text-align: left; }
+button.settlement-recommendation-trigger:hover { background: var(--surface-muted); }
+.settlement-transfer { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; min-width: 0; }
+.settlement-transfer > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.settlement-transfer strong { font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
+.settlement-transfer > small { color: var(--muted-foreground); white-space: nowrap; }
+.settlement-inline-form { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); animation: settlement-reveal 140ms ease-out; }
+.settlement-inline-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 12px; }
+.settlement-form-actions, .settlement-record__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.settlement-parties { display: grid; gap: 8px; }
+.settlement-party-trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 64px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--foreground); text-align: left; }
+.settlement-party-trigger > span { min-width: 0; }
+.settlement-party-trigger small { display: block; color: var(--muted-foreground); font-size: 12px; }
+.settlement-party-trigger strong { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.settlement-member-options { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-top: 0; background: var(--surface); }
+.settlement-member-options .quick-member-row__button { min-height: 48px; }
+.settlement-member-options .quick-member-row__button > span { white-space: normal; overflow-wrap: anywhere; }
+.settlement-member-options small { display: block; font-size: 11px; }
+.settlement-member-options button[aria-pressed="true"] { background: var(--surface-muted); color: var(--primary); }
+.settlement-member-options button:disabled { opacity: .6; cursor: not-allowed; }
+.settlement-record { padding-block: 14px; border-bottom: 1px solid var(--border); }
+.settlement-record__main { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.settlement-record__amount { display: grid; text-align: right; }
+.settlement-record__amount small { font-size: 11px; color: var(--muted-foreground); }
+.settlement-record__meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted-foreground); }
+.settlement-record__status { padding-inline: 6px; border-radius: 4px; background: var(--surface-muted); }
+.settlement-record--void { padding-inline: 10px; background: var(--surface-muted); }
+.settlement-record--void .settlement-record__status { border: 1px solid var(--border); }
+.settlement-record__actions { margin-top: 4px; }
+.settlement-record__actions .button, .settlement-form-actions .button { min-height: 44px; }
+.settlement-record .settlement-inline-form { margin-top: 12px; }
+.settlement-balance-list .balance-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; }
+.settlement-balance-list .balance-row > strong { overflow-wrap: anywhere; }
+.settlement-load-error { display: grid; justify-items: start; gap: 4px; }
+@keyframes settlement-reveal { from { opacity: .5; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+.accounting-skeleton i { display: block; min-height: 14px; border-radius: 4px; background: color-mix(in srgb, var(--muted-foreground) 14%, var(--surface)); animation: activity-skeleton-pulse 1.4s ease-in-out infinite; }
+.accounting-skeleton__summary { display: grid; gap: 10px; padding: 16px; min-height: 100px; background: var(--summary); }
+.accounting-skeleton__summary i:first-child { width: 70px; }
+.accounting-skeleton__summary i:nth-child(2) { width: 130px; height: 28px; }
+.accounting-skeleton__summary i:last-child { width: 100px; }
+.accounting-skeleton__heading { padding-block: 20px 10px; }
+.accounting-skeleton__heading i { width: 100px; }
+.accounting-skeleton__row { display: grid; grid-template-columns: 36px minmax(0, 1fr) 60px; gap: 12px; align-items: center; padding-block: 14px; border-bottom: 1px solid var(--border); }
+.accounting-skeleton__row > i:first-child { height: 36px; border-radius: 8px; }
+.accounting-skeleton__row > span { display: grid; gap: 8px; }
+.accounting-skeleton__row > span i { max-width: 160px; }
+.accounting-skeleton__row > span i:last-child { width: 60%; }
+@media (max-width: 360px) { .settlement-record__main { grid-template-columns: minmax(0, 1fr); } .settlement-record__amount { justify-self: end; } .settlement-transfer .member-avatar { width: 24px; height: 24px; } }
+@media (prefers-reduced-motion: reduce) { .accounting-skeleton i { animation: none; } .settlement-inline-form { animation: none; } }

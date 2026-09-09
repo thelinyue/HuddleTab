@@ -1,3 +1,5 @@
+import { retryableLazy } from "../components/retryable-lazy";
+import { AccountingSkeleton } from "../features/accounting/skeleton";
 import { FileQuestion } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { type ReactNode, lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -14,10 +16,10 @@ import { PwaLaunchScreen } from "./pwa-launch-screen";
 import { SetupPage, SetupStatusError } from "../features/setup/pages";
 import { useSetupStatusQuery } from "../features/setup/api";
 
-const ExpenseDetailPage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.ExpenseDetailPage })));
-const ExpenseFeedPage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.ExpenseFeedPage })));
-const NewExpensePage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.NewExpensePage })));
-const SettlementsPage = lazy(() => import("../features/accounting/pages").then((module) => ({ default: module.SettlementsPage })));
+const ExpenseDetailPage = retryableLazy(() => import("../features/accounting/expense-editor").then((module) => ({ default: module.ExpenseDetailPage })));
+const ExpenseFeedPage = retryableLazy(() => import("../features/accounting/feed-page").then((module) => ({ default: module.ExpenseFeedPage })), <AccountingSkeleton />);
+const NewExpensePage = retryableLazy(() => import("../features/accounting/expense-editor").then((module) => ({ default: module.NewExpensePage })));
+const SettlementsPage = retryableLazy(() => import("../features/accounting/settlement-page").then((module) => ({ default: module.SettlementsPage })), <AccountingSkeleton kind="settlement" />);
 const AdminHomePage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminHomePage })));
 const AdminSettingsPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSettingsPage })));
 const AdminSystemInformationPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSystemInformationPage })));

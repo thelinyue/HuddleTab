@@ -1,3 +1,4 @@
+import { AccountingSkeleton } from "../accounting/skeleton";
 import {
   Archive,
   ArchiveRestore,
@@ -157,7 +158,10 @@ export function ActivityWorkspace() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  if (session.isPending || (online ? activity.isPending : snapshot.isPending)) return <LoadingState label="正在打开活动…" />;
+  if (session.isPending || (online ? activity.isPending && !snapshot.data : snapshot.isPending)) return <section className="workspace">
+    <header className="workspace-header" aria-busy="true"><div className="workspace-header__actions"><Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft size={20} /></Link></div><div className="workspace-header__identity accounting-skeleton"><i style={{ width: 160, height: 28 }} /></div><nav className="workspace-nav" aria-label="活动导航"><Link to={tabUrl(activityId ?? "", "feed")} className={searchParams.get("tab") !== "settlement" ? "active" : ""}>流水</Link><Link to={tabUrl(activityId ?? "", "settlement")} className={searchParams.get("tab") === "settlement" ? "active" : ""}>结算</Link></nav></header>
+    <main className="workspace-content"><AccountingSkeleton kind={searchParams.get("tab") === "settlement" ? "settlement" : "feed"} /></main>
+  </section>;
   const definitiveError = [activity.error, snapshot.error].find(isDefinitiveActivityError);
   if (session.error || definitiveError || (activity.error && !snapshot.data) || snapshot.error && !online) return <ErrorNotice error={session.error ?? definitiveError ?? activity.error ?? snapshot.error} />;
   if (!session.data) return null;

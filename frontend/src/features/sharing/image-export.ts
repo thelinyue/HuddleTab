@@ -1,7 +1,5 @@
 import { toBlob } from "html-to-image";
 
-const exportFileName = "huddletab-settlement-summary.png";
-
 export type SummaryImageExportResult =
   | { kind: "shared" | "downloaded" | "cancelled" }
   | { kind: "preview"; url: string; shareFailed: boolean };
@@ -48,16 +46,17 @@ function createPreview(blob: Blob, shareFailed = false): SummaryImageExportResul
  * 导出前等待字体与图片稳定，再按设备能力交付 Blob。
  * 触控设备优先使用系统文件分享；不支持时保留预览 URL，让 iPhone 用户仍可长按保存。
  */
-export async function exportSummaryCard(): Promise<SummaryImageExportResult> {
-  const card = document.getElementById("share-summary-card");
+export async function exportSummaryCard(options: { card: HTMLElement; width: number; height: number; page: number; delivery: "save" | "share" }): Promise<SummaryImageExportResult> {
+  const card = options.card;
+  const filename = `huddletab-settlement-summary-${options.page}.png`;
   if (!(card instanceof HTMLElement)) throw new Error("找不到分享摘要卡片，请刷新页面后重试。");
   await waitForCardAssets(card);
-  const blob = await toBlob(card, { cacheBust: true, pixelRatio: 2, width: 800 });
+  const blob = await toBlob(card, { cacheBust: true, pixelRatio: Math.max(2, 1600 / options.width), width: options.width, height: options.height });
   if (!blob) throw new Error("浏览器未能生成 PNG 文件，请刷新页面后重试。");
 
-  if (usesCoarsePointer()) {
+  if (options.delivery === "share" || usesCoarsePointer()) {
     if (typeof File === "undefined") return createPreview(blob);
-    const file = new File([blob], exportFileName, { type: "image/png" });
+    const file = new File([blob], filename, { type: "image/png" });
     if (!canShareFile(file)) return createPreview(blob);
     try {
       await navigator.share({ files: [file], title: "HuddleTab 结算摘要" });
@@ -70,7 +69,7 @@ export async function exportSummaryCard(): Promise<SummaryImageExportResult> {
 
   const url = URL.createObjectURL(blob);
   const download = document.createElement("a");
-  download.download = exportFileName;
+  download.download = filename;
   download.href = url;
   download.hidden = true;
   document.body.append(download);

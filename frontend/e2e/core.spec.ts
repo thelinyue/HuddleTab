@@ -73,7 +73,7 @@ async function createForeignExpense(page: Page, title: string): Promise<void> {
 
 async function recordSettlement(page: Page, amount: string): Promise<void> {
   await page.locator(".settlement-recommendations button").first().click();
-  const dialog = page.getByRole("dialog", { name: "记录结算" });
+  const dialog = page.getByRole("form", { name: "记录推荐转账" });
   await dialog.getByLabel(/金额/).fill(amount);
   await dialog.getByRole("button", { name: "记录结算", exact: true }).click();
   await expect(dialog).toBeHidden();
