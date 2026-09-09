@@ -6,7 +6,7 @@ import { MemberAvatar } from "../../components/member-avatar";
 import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money } from "../../components/ui";
 import { amountToMinor, formatMoney, minorToInput } from "../../domain-preview/money";
 import { type ActivityMember, useMembersQuery } from "../activities/api";
-import { useWorkspace } from "../activities/pages";
+import { useWorkspace } from "../activities/workspace-context";
 import { type Settlement, useCreateSettlementMutation, useLedgerQuery, useRecommendationsQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
 import { memberAvatarPreset, memberName } from "./shared";
 import { AccountingSkeleton } from "./skeleton";

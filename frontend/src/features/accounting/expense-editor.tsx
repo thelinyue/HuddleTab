@@ -8,7 +8,7 @@ import { Button, ConfirmDialog, ErrorNotice, Field, Input, LoadingState, Money, 
 import { amountToMinor, decimalToHundredths, formatMoney, minorToInput, normalizeCurrency } from "../../domain-preview/money";
 import type { PendingAttachmentDraft } from "../../pwa/indexed-db/schema";
 import { type ActivityMember, useCreateGuestMutation, useMembersQuery } from "../activities/api";
-import { useWorkspace } from "../activities/pages";
+import { useWorkspace } from "../activities/workspace-context";
 import {
   type ExpenseAggregate,
   type ExpenseDraft,

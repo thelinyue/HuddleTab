@@ -7,7 +7,9 @@ import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "r
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState } from "../components/ui";
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
-import { ActivitiesPage, ActivityWorkspace, MePage } from "../features/activities/pages";
+import { ActivitiesPage } from "../features/activities/activities-page";
+import { ActivityWorkspace } from "../features/activities/activity-workspace";
+import { MePage } from "../features/me/page";
 import { useOnlineStatus } from "../features/activities/offline-workspace";
 import { hasRememberedOfflineSession, useSessionQuery } from "../features/auth/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";

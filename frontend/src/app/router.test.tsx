@@ -36,13 +36,12 @@ vi.mock("../features/setup/pages", () => ({
   SetupStatusError: () => <p>初始化状态错误</p>,
 }));
 
-vi.mock("../features/activities/pages", async () => {
+vi.mock("../features/me/page", () => ({ MePage: () => <p>我的</p> }));
+
+vi.mock("../features/activities/activities-page", () => ({ ActivitiesPage: () => <p>活动列表</p> }));
+vi.mock("../features/activities/activity-workspace", async () => {
   const { Outlet } = await import("react-router-dom");
-  return {
-    ActivitiesPage: () => <p>活动列表</p>,
-    ActivityWorkspace: () => <Outlet />,
-    MePage: () => <p>我的</p>,
-  };
+  return { ActivityWorkspace: () => <Outlet /> };
 });
 
 vi.mock("../features/notifications/pages", () => ({

@@ -24,14 +24,12 @@ vi.mock("../features/setup/api", () => ({
     refetch: vi.fn(),
   }),
 }));
-vi.mock("../features/activities/pages", async () => {
+vi.mock("../features/me/page", () => ({ MePage: () => <h1>我的</h1> }));
+
+vi.mock("../features/activities/activities-page", () => ({ ActivitiesPage: () => <h1>活动</h1> }));
+vi.mock("../features/activities/activity-workspace", async () => {
   const { Outlet } = await import("react-router-dom");
-  return {
-    ActivitiesPage: () => <h1>活动</h1>,
-    ActivityWorkspace: () => <Outlet />,
-    MePage: () => <h1>我的</h1>,
-    NotificationsPage: () => <h1>通知</h1>,
-  };
+  return { ActivityWorkspace: () => <Outlet /> };
 });
 
 const session = {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExpenseAggregate } from "./api";
-import { groupExpensesByDate } from "./pages";
+import { groupExpensesByDate } from "./feed-page";
 
 function aggregate(expenseId: string, occurredAt: string): ExpenseAggregate {
   return {

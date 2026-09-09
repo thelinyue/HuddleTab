@@ -15,7 +15,6 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../auth/api", () => ({ useSessionQuery: () => ({ data: state.session, isPending: false }) }));
 vi.mock("../activities/offline-workspace", () => ({ useOnlineStatus: () => state.online }));
-vi.mock("../activities/pages", () => ({ Overlay: ({ children, title }: { children: React.ReactNode; title: string }) => <section role="dialog" aria-label={title}>{children}</section> }));
 vi.mock("../../components/product-bottom-navigation", () => ({ ProductBottomNavigation: () => null }));
 vi.mock("./api", () => ({
   useAdminUsersQuery: () => ({ data: state.users, isPending: false, error: null }),

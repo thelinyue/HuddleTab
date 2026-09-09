@@ -167,7 +167,11 @@ vi.mock("./api", async (importOriginal) => {
   };
 });
 
-import { ActivitiesPage, ActivityWorkspace, MemberInvitationPanel, MePage } from "./pages";
+import { ActivitiesPage } from "./activities-page";
+import { ActivityWorkspace } from "./activity-workspace";
+import { MemberInvitationPanel } from "./members-panel";
+import { MePage } from "../me/page";
+import { useWorkspace } from "./workspace-context";
 
 function renderWorkspace(entry = "/activities/activity-1?panel=members", includeLocation = false) {
   return render(
@@ -1352,6 +1356,26 @@ describe("活动管理 Overlay", () => {
 });
 
 describe("活动工作台访问边界", () => {
+  it("嵌套路由通过真实 Context 读取当前用户、活动、成员和快照", () => {
+    const snapshot = { fromCache: true, snapshot: { activity: activityApiState.activity, members: activityApiState.members } };
+    activityApiState.snapshotData = snapshot;
+    function WorkspaceConsumer() {
+      const workspace = useWorkspace();
+      expect(workspace.session.userId).toBe("user-1");
+      expect(workspace.activity).toBe(activityApiState.activity);
+      expect(workspace.members).toBe(activityApiState.members);
+      expect(workspace.offline).toBe(false);
+      expect(workspace.snapshot).toBe(snapshot);
+      return <p>工作区上下文已连接</p>;
+    }
+    render(<MemoryRouter initialEntries={["/activities/activity-1"]}><Routes>
+      <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
+        <Route index element={<WorkspaceConsumer />} />
+      </Route>
+    </Routes></MemoryRouter>);
+    expect(screen.getByText("工作区上下文已连接")).toBeVisible();
+  });
+
   it("在线收到服务端 404 时不使用已有 Snapshot 渲染旧活动", () => {
     activityApiState.activityError = new ApiRequestError(404);
     activityApiState.snapshotData = {

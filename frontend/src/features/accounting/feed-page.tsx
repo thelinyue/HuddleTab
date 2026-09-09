@@ -7,7 +7,7 @@ import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, Select } from "../../components/ui";
 import { formatMoney } from "../../domain-preview/money";
 import { useMembersQuery } from "../activities/api";
-import { useWorkspace } from "../activities/pages";
+import { useWorkspace } from "../activities/workspace-context";
 import {
   type ExpenseAggregate,
   useDiscardPendingExpenseMutation,

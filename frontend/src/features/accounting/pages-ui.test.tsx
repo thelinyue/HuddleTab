@@ -116,7 +116,7 @@ const guestMutation = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("../activities/pages", () => ({
+vi.mock("../activities/workspace-context", () => ({
   useWorkspace: () => ({
     activity,
     offline: workspaceState.offline,
@@ -155,7 +155,9 @@ vi.mock("./expense-queue-sync", () => ({
   }),
 }));
 
-import { ExpenseDetailPage, ExpenseFeedPage, NewExpensePage, SettlementsPage } from "./pages";
+import { ExpenseDetailPage, NewExpensePage } from "./expense-editor";
+import { ExpenseFeedPage } from "./feed-page";
+import { SettlementsPage } from "./settlement-page";
 
 function renderPage(node: ReactNode, initialEntries?: string[]) {
   return render(<MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>);
