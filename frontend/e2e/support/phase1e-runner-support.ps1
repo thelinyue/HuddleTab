@@ -72,9 +72,13 @@ function New-Phase1EPlaywrightArguments {
       "test:e2e",
       "--",
       "ui-parity.spec.ts",
+      "activity-management-layout.spec.ts",
       "--project=chromium-ui-parity-desktop",
       "--project=chromium-ui-parity-mobile",
-      "--project=chromium-ui-parity-compact"
+      "--project=chromium-ui-parity-compact",
+      "--project=chromium-management-desktop",
+      "--project=chromium-management-mobile",
+      "--project=chromium-management-compact"
     )
   }
   if ($Task29Only) {

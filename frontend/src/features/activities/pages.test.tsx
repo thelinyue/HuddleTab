@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../../components/theme-provider";
 import { ApiRequestError } from "../../api/error";
 
+const testNavigator = globalThis.navigator;
+const testUrl = globalThis.URL;
+
 const activityApiState = vi.hoisted(() => ({
   activity: {
     activityId: "activity-1",
@@ -91,6 +94,8 @@ const activityApiState = vi.hoisted(() => ({
   avatar: { error: null as unknown, isPending: false, mutateAsync: vi.fn(), reset: vi.fn() },
   displayName: { error: null as unknown, isPending: false, mutateAsync: vi.fn(), reset: vi.fn() },
   logout: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
+  exportCsv: vi.fn(),
+  pwaStandalone: false,
 }));
 
 vi.mock("../accounting/api", () => ({
@@ -119,6 +124,10 @@ vi.mock("./offline-workspace", () => ({
   useActivitySnapshotQuery: () => ({ data: activityApiState.snapshotData, error: activityApiState.snapshotError, isPending: false }),
 }));
 
+vi.mock("../../app/pwa-standalone", () => ({
+  isPwaStandalone: () => activityApiState.pwaStandalone,
+}));
+
 vi.mock("./api", async (importOriginal) => {
   const original = await importOriginal<typeof import("./api")>();
   return {
@@ -133,6 +142,7 @@ vi.mock("./api", async (importOriginal) => {
       };
     },
     useActivityQuery: () => ({ data: activityApiState.activity, error: activityApiState.activityError, isPending: false }),
+    exportActivityCsv: activityApiState.exportCsv,
     useCreateActivityMutation: () => activityApiState.create,
     useUpdateActivityMutation: () => activityApiState.update,
     useActivityLifecycleMutation: () => activityApiState.lifecycle,
@@ -159,13 +169,14 @@ vi.mock("./api", async (importOriginal) => {
 
 import { ActivitiesPage, ActivityWorkspace, MemberInvitationPanel, MePage } from "./pages";
 
-function renderWorkspace(entry = "/activities/activity-1?panel=members") {
+function renderWorkspace(entry = "/activities/activity-1?panel=members", includeLocation = false) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/activities/:activityId" element={<ActivityWorkspace />} />
         <Route path="/activities" element={<p>活动列表页</p>} />
       </Routes>
+      {includeLocation ? <LocationProbe /> : null}
     </MemoryRouter>,
   );
 }
@@ -194,6 +205,7 @@ afterEach(() => {
   activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: true, inviteMode: true, location: true, name: true, startDate: true };
   activityApiState.activity.hasAccountingRecords = true;
   activityApiState.activity.location = "杭州";
+  activityApiState.activity.inviteMode = "DIRECT_JOIN";
   activityApiState.activities = [];
   activityApiState.notifications = { items: [], timeZone: "Asia/Shanghai", unreadCount: 0 };
   for (const mutation of [activityApiState.notificationMarkRead, activityApiState.notificationDelete, activityApiState.notificationDecide]) {
@@ -212,6 +224,9 @@ afterEach(() => {
   activityApiState.deletedQueryPending = false;
   activityApiState.snapshotData = undefined;
   activityApiState.snapshotError = null;
+  activityApiState.exportCsv.mockReset();
+  activityApiState.exportCsv.mockResolvedValue(new Blob(["csv"], { type: "text/csv" }));
+  activityApiState.pwaStandalone = false;
   for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.removeGuest, activityApiState.restore, activityApiState.transfer]) {
     mutation.error = null;
     mutation.isPending = false;
@@ -252,6 +267,8 @@ afterEach(() => {
   activityApiState.logout.error = null;
   activityApiState.logout.isPending = false;
   activityApiState.logout.mutateAsync.mockReset().mockResolvedValue(undefined);
+  vi.stubGlobal("navigator", testNavigator);
+  vi.stubGlobal("URL", testUrl);
 });
 
 function renderMePage(entry = "/me") {
@@ -385,12 +402,74 @@ describe("MePage", () => {
 });
 
 describe("活动管理导出", () => {
-  it.each(["ACTIVE", "ENDED", "ARCHIVED"])("%s 活动在管理 Overlay 提供同源 CSV 下载链接", (status) => {
+  it.each(["ACTIVE", "ENDED", "ARCHIVED"])("%s 活动在管理 Overlay 提供应用内 CSV 导出按钮", (status) => {
     activityApiState.activity.status = status;
     renderWorkspace("/activities/activity-1?panel=manage");
 
     expect(screen.getByRole("heading", { name: "活动管理" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "导出 CSV" })).toHaveAttribute("href", "/api/activities/activity-1/export.csv");
+    expect(screen.getByRole("button", { name: "导出 CSV" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "导出 CSV" })).not.toBeInTheDocument();
+  });
+
+  it("standalone PWA 支持文件分享时保持当前 URL 和管理 Sheet", async () => {
+    activityApiState.pwaStandalone = true;
+    const share = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, canShare: vi.fn(() => true), share });
+    renderWorkspace("/activities/activity-1?panel=manage", true);
+
+    fireEvent.click(screen.getByRole("button", { name: "导出 CSV" }));
+
+    await waitFor(() => expect(activityApiState.exportCsv).toHaveBeenCalledWith("activity-1"));
+    expect(share).toHaveBeenCalledWith(expect.objectContaining({ files: [expect.any(File)] }));
+    expect((share.mock.calls[0][0].files[0] as File).name).toBe("activity-export.csv");
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities/activity-1?panel=manage");
+  });
+
+  it("用户取消系统分享时不显示错误且管理上下文不变", async () => {
+    activityApiState.pwaStandalone = true;
+    const share = vi.fn().mockRejectedValue(new DOMException("用户取消", "AbortError"));
+    vi.stubGlobal("navigator", { ...navigator, canShare: vi.fn(() => true), share });
+    renderWorkspace("/activities/activity-1?panel=manage", true);
+
+    fireEvent.click(screen.getByRole("button", { name: "导出 CSV" }));
+
+    await waitFor(() => expect(share).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("?panel=manage");
+  });
+
+  it("普通浏览器使用临时 Blob URL 下载并立即清理", async () => {
+    const createObjectURL = vi.fn(() => "blob:activity-export");
+    const revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    renderWorkspace("/activities/activity-1?panel=manage", true);
+
+    fireEvent.click(screen.getByRole("button", { name: "导出 CSV" }));
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob)));
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:activity-export");
+    expect(screen.getByText("CSV 已开始下载。")).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("?panel=manage");
+  });
+
+  it("导出准备期间锁定其他写操作并显示固定状态", async () => {
+    let resolveExport!: (blob: Blob) => void;
+    activityApiState.exportCsv.mockImplementation(() => new Promise<Blob>((resolve) => { resolveExport = resolve; }));
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:activity-export"), revokeObjectURL: vi.fn() });
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    fireEvent.click(screen.getByRole("button", { name: "导出 CSV" }));
+
+    expect(await screen.findByText("正在准备 CSV…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^结束活动/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^删除活动/ })).toBeDisabled();
+    resolveExport(new Blob(["csv"], { type: "text/csv" }));
+    await waitFor(() => expect(screen.queryByText("正在准备 CSV…")).not.toBeInTheDocument());
   });
 });
 
@@ -959,19 +1038,21 @@ describe("创建活动 Overlay", () => {
 });
 
 describe("活动管理 Overlay", () => {
-  it("根列表按常用顺序分组，状态与危险操作独立呈现", () => {
+  it("根视图使用一张连续列表并移除可见组名", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
 
     const dialog = screen.getByRole("dialog", { name: "活动管理" });
-    expect([...dialog.querySelectorAll(".activity-more > section > h2")].map((heading) => heading.textContent)).toEqual([
-      "活动信息",
-      "协作与数据",
-      "活动状态",
-      "成员与权限",
-      "危险操作",
-    ]);
+    expect(within(dialog).getAllByRole("list")).toHaveLength(1);
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(11);
+    expect(dialog.querySelectorAll(".activity-more > section > h2")).toHaveLength(0);
+    for (const heading of ["活动信息", "协作与数据", "活动状态", "成员与权限", "危险操作"]) {
+      expect(within(dialog).queryByText(heading)).not.toBeInTheDocument();
+    }
     expect(within(dialog).getByText("当前状态")).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "导出 CSV" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "导出 CSV" })).toBeInTheDocument();
+    expect([...dialog.querySelectorAll(".management-field__heading strong, .management-action-row strong")].map((node) => node.textContent)).toEqual([
+      "活动名称", "地点", "开始日期", "结束日期", "主币种", "加入方式", "导出 CSV", "当前状态", "结束活动", "转让所有权", "删除活动",
+    ]);
   });
 
   it("直接渲染可编辑资料，不展示编辑按钮或字段二级视图", () => {
@@ -986,7 +1067,7 @@ describe("活动管理 Overlay", () => {
     expect(screen.queryByText("字段权限")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑活动资料" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^编辑/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^需要审批$/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "直接加入" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: /^结束活动/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^删除活动/ })).toBeInTheDocument();
   });
@@ -1038,14 +1119,45 @@ describe("活动管理 Overlay", () => {
     expect(screen.getByRole("textbox", { name: "地点" })).toHaveValue("苏州");
   });
 
-  it("加入方式在主 Sheet 内选择后立即提交", async () => {
+  it("加入方式在主 Sheet 原地展开并选择后立即提交", async () => {
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.click(screen.getByRole("button", { name: "需要审批" }));
+    fireEvent.click(screen.getByRole("button", { name: "直接加入" }));
+    const options = screen.getByRole("radiogroup", { name: "加入方式选项" });
+    expect(within(options).getByRole("radio", { name: /直接加入.*访问有效邀请后直接成为成员/ })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(options).getByRole("radio", { name: /需要审批/ }));
 
     await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
       inviteMode: "REQUIRE_APPROVAL",
       version: "7",
     }));
+  });
+
+  it("主币种与加入方式互斥展开，重复选择当前加入方式不提交", () => {
+    activityApiState.activity.hasAccountingRecords = false;
+    activityApiState.activity.fieldPermissions.baseCurrency = true;
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    fireEvent.click(screen.getByRole("button", { name: "CNY 人民币" }));
+    expect(screen.getByRole("radiogroup", { name: "主币种选项" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "直接加入" }));
+    expect(screen.queryByRole("radiogroup", { name: "主币种选项" })).not.toBeInTheDocument();
+    const joinOptions = screen.getByRole("radiogroup", { name: "加入方式选项" });
+    fireEvent.click(within(joinOptions).getByRole("radio", { name: /直接加入/ }));
+
+    expect(screen.queryByRole("radiogroup", { name: "加入方式选项" })).not.toBeInTheDocument();
+    expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("加入方式保存失败时保留草稿、展开选项和中文错误", async () => {
+    activityApiState.update.mutateAsync.mockRejectedValue(new Error("加入方式保存失败"));
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    fireEvent.click(screen.getByRole("button", { name: "直接加入" }));
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "加入方式选项" })).getByRole("radio", { name: /需要审批/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("加入方式保存失败");
+    expect(screen.getByRole("button", { name: "需要审批" })).toHaveAttribute("aria-expanded", "true");
+    expect(within(screen.getByRole("radiogroup", { name: "加入方式选项" })).getByRole("radio", { name: /需要审批/ })).toHaveAttribute("aria-checked", "true");
   });
 
   it("主币种在当前 Sheet 原地展开并按选项立即保存", async () => {
@@ -1121,10 +1233,29 @@ describe("活动管理 Overlay", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "活动管理" })).not.toBeInTheDocument());
   });
 
-  it("生命周期命令始终携带当前版本", async () => {
+  it("结束活动确认后始终携带当前版本", async () => {
     renderWorkspace("/activities/activity-1?panel=manage");
     fireEvent.click(screen.getByRole("button", { name: /^结束活动/ }));
+    expect(activityApiState.lifecycle.mutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: "确认结束活动" })).toHaveTextContent("仍可查看活动并处理实际结算");
+    fireEvent.click(screen.getByRole("button", { name: "确认结束活动" }));
     await waitFor(() => expect(activityApiState.lifecycle.mutateAsync).toHaveBeenCalledWith({ action: "END", version: "7" }));
+  });
+
+  it("归档需要确认，重新开启和取消归档直接执行", async () => {
+    activityApiState.activity.allowedLifecycleActions = ["ARCHIVE", "REOPEN", "UNARCHIVE"];
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    fireEvent.click(screen.getByRole("button", { name: /^归档活动/ }));
+    expect(screen.getByRole("alertdialog", { name: "确认归档活动" })).toHaveTextContent("需要取消归档后才能继续处理");
+    expect(activityApiState.lifecycle.mutateAsync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /^重新开启活动/ }));
+    await waitFor(() => expect(activityApiState.lifecycle.mutateAsync).toHaveBeenCalledWith({ action: "REOPEN", version: "7" }));
+    activityApiState.lifecycle.mutateAsync.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /^取消归档/ }));
+    await waitFor(() => expect(activityApiState.lifecycle.mutateAsync).toHaveBeenCalledWith({ action: "UNARCHIVE", version: "7" }));
   });
 
   it("所有权转让进入子视图，只列出 ACTIVE 账号成员并保留失败选择", async () => {
@@ -1181,6 +1312,23 @@ describe("活动管理 Overlay", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "确认删除活动" })).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
     expect(activityApiState.remove.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("删除执行期间禁止取消、Escape 和重复提交", async () => {
+    let resolveDelete!: () => void;
+    activityApiState.remove.mutateAsync.mockImplementation(() => new Promise<void>((resolve) => { resolveDelete = resolve; }));
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除活动" }));
+
+    const confirmation = screen.getByRole("alertdialog", { name: "确认删除活动" });
+    expect(within(confirmation).getByRole("button", { name: "取消" })).toBeDisabled();
+    expect(within(confirmation).getByRole("button", { name: "确认删除活动" })).toBeDisabled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("alertdialog", { name: "确认删除活动" })).toBeInTheDocument();
+    expect(activityApiState.remove.mutateAsync).toHaveBeenCalledOnce();
+    resolveDelete();
+    await waitFor(() => expect(screen.getByText("活动列表页")).toBeInTheDocument());
   });
 
   it("删除使用资料保存后得到的最新版本", async () => {

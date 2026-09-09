@@ -114,7 +114,9 @@ export function ConfirmDialog({
   const descriptionId = useId();
   const dialogRef = useRef<HTMLElement | null>(null);
   const onCancelRef = useRef(onCancel);
+  const busyRef = useRef(busy);
   onCancelRef.current = onCancel;
+  busyRef.current = busy;
 
   useEffect(() => {
     if (!open) return;
@@ -126,7 +128,7 @@ export function ConfirmDialog({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onCancelRef.current();
+        if (!busyRef.current) onCancelRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialog) return;
@@ -155,14 +157,14 @@ export function ConfirmDialog({
   if (!open) return null;
   return (
     <div className="confirm-overlay" role="presentation">
-      <button className="confirm-overlay__scrim" type="button" tabIndex={-1} aria-label={`取消${title}`} onClick={onCancel} />
+      <button className="confirm-overlay__scrim" type="button" tabIndex={-1} aria-label={`取消${title}`} disabled={busy} onClick={onCancel} />
       <section ref={dialogRef} className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <h2 id={titleId}>{title}</h2>
         <div id={descriptionId} className="confirm-dialog__message">{message}</div>
         {error ? <div className="confirm-dialog__error">{error}</div> : null}
         <div className="confirm-dialog__actions">
-          <Button variant="secondary" type="button" onClick={onCancel}>取消</Button>
-          <Button variant="danger" type="button" busy={busy} onClick={onConfirm}>{confirmLabel}</Button>
+          <Button variant="secondary" type="button" disabled={busy} onClick={onCancel}>取消</Button>
+          <Button variant="danger" type="button" busy={busy} disabled={busy} onClick={onConfirm}>{confirmLabel}</Button>
         </div>
       </section>
     </div>

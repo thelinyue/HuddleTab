@@ -488,51 +488,48 @@ button.settings-row:hover { background: var(--surface-muted); }
 .settings-row__value strong, .settings-row__value small { max-width: 100%; overflow-wrap: anywhere; }
 .settings-row__value small { color: var(--muted-foreground); font-size: 12px; }
 .management-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.management-danger { border-top: 1px solid var(--border); padding-top: 20px; }
 .delete-confirmation { display: grid; gap: 16px; }
 .management-list { overflow: hidden; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.management-field { display: grid; min-width: 0; min-height: 64px; grid-template-columns: minmax(112px, .72fr) minmax(0, 1.28fr); align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 10px 4px; }
-.management-field:last-child { border-bottom: 0; }
+.management-field { display: grid; min-width: 0; min-height: 64px; grid-template-columns: 132px minmax(0, 1fr) 18px; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 10px 4px; }
 .management-field__heading { display: flex; min-width: 0; align-items: flex-start; gap: 10px; color: var(--primary); }
 .management-field__heading > span { display: grid; min-width: 0; gap: 2px; }
 .management-field__heading strong { color: var(--foreground); font-size: 14px; font-weight: 650; line-height: 1.35; }
 .management-field__heading small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
-.management-field__control, .management-field__choice, .management-field__segmented { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
-.management-field__control > .input { width: min(100%, 228px); min-width: 0; border-color: transparent; background: transparent; text-align: right; }
-.management-field__control > .input:focus { border-color: var(--ring); background: var(--surface); text-align: left; }
-.management-field__control > svg, .management-field__choice > svg, .management-field__segmented > svg { flex: 0 0 auto; color: var(--primary); }
-.management-field__status { display: grid; flex: 0 0 auto; width: 18px; height: 18px; place-items: center; color: var(--primary); }
-.management-field__readonly { min-width: 0; justify-self: end; overflow-wrap: anywhere; color: var(--muted-foreground); font-size: 14px; line-height: 1.4; text-align: right; }
-.management-choice-trigger { display: flex; min-width: 0; min-height: 44px; align-items: center; justify-content: flex-end; gap: 8px; border: 1px solid transparent; border-radius: 10px; padding: 7px 8px; color: var(--foreground); background: transparent; font-size: 14px; text-align: right; touch-action: manipulation; }
+.management-field__control { grid-column: 2 / -1; display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) 18px; align-items: center; gap: 12px; }
+.management-field__choice { grid-column: 2 / -1; min-width: 0; }
+.management-field__control > .input { width: min(100%, 228px); min-width: 0; justify-self: end; border-color: transparent; padding-right: 6px; background: transparent; text-align: right; }
+.management-field__control > .input:focus { border-color: var(--ring); background: var(--surface); text-align: right; }
+.management-field__control > svg, .management-field__choice > svg { flex: 0 0 auto; color: var(--primary); }
+.management-field__status { display: grid; width: 18px; height: 18px; place-items: center; color: var(--primary); pointer-events: none; }
+.management-field__readonly { min-width: 0; justify-self: stretch; overflow-wrap: anywhere; padding-right: 6px; color: var(--muted-foreground); font-size: 14px; line-height: 1.4; text-align: right; }
+.management-choice-trigger { display: grid; width: 100%; min-width: 0; min-height: 44px; grid-template-columns: minmax(0, 1fr) 18px; align-items: center; gap: 12px; border: 1px solid transparent; border-radius: 10px; padding: 7px 0 7px 8px; color: var(--foreground); background: transparent; font-size: 14px; text-align: right; touch-action: manipulation; }
 .management-choice-trigger:hover { background: var(--surface-muted); }
 .management-choice-trigger:focus-visible { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 22%, transparent); outline-offset: 0; }
-.management-choice-trigger > span { min-width: 0; overflow-wrap: anywhere; }
-.management-choice-trigger > svg { flex: 0 0 auto; color: var(--muted-foreground); transition: transform 160ms ease; }
-.management-choice-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
-.management-choice-list { grid-column: 2; display: grid; min-width: 0; margin: 0 0 4px; border-top: 1px solid var(--border); }
+.management-choice-trigger > span:not(.management-field__status) { min-width: 0; overflow-wrap: anywhere; padding-right: 6px; }
+.management-field__chevron { color: var(--muted-foreground); transition: transform 160ms ease; }
+.management-field__chevron--open { transform: rotate(180deg); }
+.management-date-input { cursor: pointer; }
+.management-date-input::-webkit-calendar-picker-indicator { width: 0; margin: 0; padding: 0; opacity: 0; }
+.management-choice-list { grid-column: 2 / -1; display: grid; min-width: 0; margin: 0 0 4px; border-top: 1px solid var(--border); }
 .management-choice-list button { display: grid; min-width: 0; min-height: 52px; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--border); padding: 6px 8px; color: var(--foreground); background: transparent; text-align: left; touch-action: manipulation; }
 .management-choice-list button:hover, .management-choice-list button[aria-checked="true"] { background: var(--surface-muted); }
-.management-choice-list button > span { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
-.management-choice-list button strong { font-family: var(--font-money-family); font-size: 13px; }
-.management-choice-list button small { color: var(--muted-foreground); font-size: 13px; }
+.management-choice-list button > span { display: grid; min-width: 0; gap: 2px; }
+.management-choice-list button strong { font-size: 13px; }
+.management-choice-list button small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .management-choice-list button > svg { color: var(--primary); }
 .management-field > .notice { grid-column: 1 / -1; margin: 2px 0 0 28px; }
-.management-field__segmented .segmented { width: min(100%, 280px); }
-.management-field__segmented .segmented button { min-height: 44px; }
-.management-action-list { display: grid; }
-.management-action-row { display: grid; width: 100%; min-width: 0; min-height: 62px; grid-template-columns: 28px minmax(0, 1fr) 20px; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--border); padding: 10px 4px; color: var(--foreground); background: transparent; text-align: left; text-decoration: none; touch-action: manipulation; }
-.management-action-row--command { grid-template-columns: 28px minmax(0, 1fr); }
-.management-action-row--navigate { grid-template-columns: 28px minmax(0, 1fr) 20px; }
-.management-list > .management-action-row:last-child, .management-list > .management-action-list:last-child .management-action-row:last-child { border-bottom: 0; }
+.management-action-item { border-bottom: 1px solid var(--border); }
+.management-action-item:last-child { border-bottom: 0; }
+.management-action-row { display: grid; width: 100%; min-width: 0; min-height: 62px; grid-template-columns: 17px minmax(0, 1fr) 20px; align-items: center; gap: 10px; border: 0; padding: 10px 4px; color: var(--foreground); background: transparent; text-align: left; text-decoration: none; touch-action: manipulation; }
 .management-action-row:hover { background: var(--surface-muted); }
-.management-action-row:active, .management-choice-trigger:active, .management-choice-list button:active, .management-member-list button:active, .management-field__segmented .segmented button:active { transform: scale(.985); transition: transform 90ms ease-out; }
-.management-action-row:disabled, .management-choice-trigger:disabled, .management-choice-list button:disabled, .management-member-list button:disabled, .management-field__segmented .segmented button:disabled { cursor: not-allowed; opacity: .48; }
+.management-action-row:active, .management-choice-trigger:active, .management-choice-list button:active, .management-member-list button:active { transform: scale(.985); transition: transform 90ms ease-out; }
+.management-action-row:disabled, .management-choice-trigger:disabled, .management-choice-list button:disabled, .management-member-list button:disabled { cursor: not-allowed; opacity: .48; }
 .management-action-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.management-action-row > svg:first-child { color: var(--primary); }
+.management-action-row > svg:first-child { width: 17px; height: 17px; color: var(--primary); }
 .management-action-row > span { display: grid; min-width: 0; gap: 2px; }
 .management-action-row strong { font-size: 14px; font-weight: 650; line-height: 1.35; }
 .management-action-row small { color: var(--muted-foreground); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-.management-action-row > svg:last-child { color: var(--muted-foreground); }
+.management-action-row__status { width: 20px; height: 20px; place-items: center; color: var(--muted-foreground); }
 .management-action-row--danger > svg:first-child, .management-action-row--danger strong { color: var(--danger); }
 .management-expansion__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .management-member-list { display: grid; border-top: 1px solid var(--border); }
@@ -1034,8 +1031,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .activity-skeleton-block, .activity-balance-skeleton, .home-summary__skeleton { animation: none; }
   button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disabled):active, .icon-button:not(:disabled):active, .settings-link:active, .settings-row:active, .activity-list-item:active, .workspace-nav a:active, .balance-entry:active, .settlement-recommendations button:active, .member-row:active { transform: none; }
   .quick-expense-action-dock > .button:active:not(:disabled) { transform: none; transition: none; }
-  .management-action-row:active, .management-choice-trigger:active, .management-choice-list button:active, .management-member-list button:active, .management-field__segmented .segmented button:active { transform: none; transition: none; }
-  .management-choice-trigger > svg { transition: none; }
+  .management-action-row:active, .management-choice-trigger:active, .management-choice-list button:active, .management-member-list button:active { transform: none; transition: none; }
+  .management-field__chevron { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .product-bottom-nav { background: var(--surface); backdrop-filter: none; }
@@ -1048,7 +1045,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .button--secondary { border-color: var(--foreground); }
   .quick-expense-action-dock > .button, .quick-weight-stepper > button, .quick-expense-attachment__surface { border-color: var(--foreground); }
   .quick-expense-action-dock > .button { border: 1px solid var(--foreground); }
-  .management-list, .management-field, .management-choice-list, .management-action-row, .management-member-list { border-color: var(--foreground); }
+  .management-list, .management-field, .management-choice-list, .management-action-item, .management-member-list { border-color: var(--foreground); }
 }
 @media (min-width: 640px) {
   .account-page { padding: 32px 24px; }
@@ -1255,21 +1252,10 @@ html.dark.pwa-standalone .update-prompt {
   .deleted-activities-overlay .deleted-activity-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .deleted-activities-overlay .deleted-activity-row > .button { width: auto; min-width: 80px; padding-inline: 12px; }
   .activity-management-overlay .form-overlay__sheet { max-height: 92%; padding-bottom: var(--safe-area-bottom); }
-  .management-field { grid-template-columns: minmax(100px, .82fr) minmax(0, 1.18fr); gap: 8px; padding-inline: 0; }
+  .management-field { grid-template-columns: 104px minmax(0, 1fr) 18px; gap: 8px; padding-inline: 0; }
+  .management-field__control, .management-choice-trigger { gap: 8px; }
   .management-field__control > .input { width: min(100%, 208px); }
   .management-action-row { padding-inline: 0; }
-}
-
-@media (max-width: 359px) {
-  .management-field { grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 6px 10px; padding-block: 12px; }
-  .management-field__heading { grid-column: 1 / -1; align-items: center; }
-  .management-field__control, .management-field__choice, .management-field__segmented, .management-field__readonly { grid-column: 2; justify-self: stretch; width: 100%; }
-  .management-field__control, .management-field__choice, .management-field__segmented { justify-content: stretch; }
-  .management-field__control > .input { width: 100%; text-align: left; }
-  .management-field__readonly { text-align: left; }
-  .management-choice-trigger { width: 100%; justify-content: space-between; padding-inline: 0; text-align: left; }
-  .management-choice-list { grid-column: 1 / -1; margin-left: 38px; }
-  .management-field > .notice { margin-left: 38px; }
 }
 
 /* 活动层级统一使用同一条右下角主操作锚点，列表页和流水页切换时保持空间连续。 */

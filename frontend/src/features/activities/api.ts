@@ -48,6 +48,16 @@ async function getActivity(activityId: string): Promise<Activity> {
   ).data;
 }
 
+/** CSV 仍由受认证的同源 API 生成；以 Blob 返回，交由界面按浏览器能力下载或分享。 */
+export async function exportActivityCsv(activityId: string): Promise<Blob> {
+  return unwrap(
+    await apiClient.GET("/api/activities/{activity_id}/export.csv", {
+      params: { path: { activity_id: activityId } },
+      parseAs: "blob",
+    }),
+  );
+}
+
 async function createActivity(input: CreateActivityInput): Promise<Activity> {
   return unwrap(
     await apiClient.POST("/api/activities", {

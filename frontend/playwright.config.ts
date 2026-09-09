@@ -49,6 +49,21 @@ export default defineConfig({
       use: { ...devices["Pixel 5"], viewport: { width: 320, height: 568 } },
     },
     {
+      name: "chromium-management-desktop",
+      testMatch: "activity-management-layout.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "chromium-management-mobile",
+      testMatch: "activity-management-layout.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } },
+    },
+    {
+      name: "chromium-management-compact",
+      testMatch: "activity-management-layout.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 320, height: 844 } },
+    },
+    {
       name: "webkit-smoke",
       testMatch: "smoke.spec.ts",
       use: { ...devices["Desktop Safari"], viewport: { width: 1440, height: 1000 } },
