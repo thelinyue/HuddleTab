@@ -485,7 +485,12 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
         .expect("应结束活动");
     let (ended_status, _) = json_response(
         &app,
-        authenticated_request(&owner, "POST", binding_uri, r#"{"targetDisplayName":"bob"}"#),
+        authenticated_request(
+            &owner,
+            "POST",
+            binding_uri,
+            r#"{"targetDisplayName":"bob"}"#,
+        ),
     )
     .await;
     assert_eq!(ended_status, StatusCode::FORBIDDEN);
@@ -1686,7 +1691,7 @@ async fn ended_and_deleted_activities_reject_collaboration_mutations() {
                 &owner,
                 "POST",
                 format!("/api/activities/{activity_id}/invitations"),
-            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
+                r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
             ),
         )
         .await;
@@ -1725,7 +1730,7 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
                 &owner,
                 "POST",
                 format!("/api/activities/{activity_id}/invitations"),
-            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
+                r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
             ),
         )
         .await;
@@ -1948,7 +1953,7 @@ async fn remove_guest_marks_referenced_members_left_and_revokes_binding_invites(
             &owner,
             activity_id,
             invitation_guest,
-        r#"{"targetDisplayName":"pending-user"}"#,
+            r#"{"targetDisplayName":"pending-user"}"#,
         )
         .await;
         let invitation_id: Uuid = sqlx::query_scalar(
