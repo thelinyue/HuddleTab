@@ -466,17 +466,17 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
         assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
     }
 
-    let (invalid_username_status, _) = json_response(
+    let (invalid_display_name_status, _) = json_response(
         &app,
         authenticated_request(
             &owner,
             "POST",
             binding_uri.clone(),
-            r#"{"targetDisplayName":"??"}"#,
+            r#"{"targetDisplayName":""}"#,
         ),
     )
     .await;
-    assert_eq!(invalid_username_status, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid_display_name_status, StatusCode::BAD_REQUEST);
 
     sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
         .bind(activity_id)
