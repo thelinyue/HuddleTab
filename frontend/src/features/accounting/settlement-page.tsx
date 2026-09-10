@@ -3,7 +3,7 @@ import { type FormEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
-import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money } from "../../components/ui";
+import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, StateIllustration } from "../../components/ui";
 import { amountToMinor, formatMoney, minorToInput } from "../../domain-preview/money";
 import { type ActivityMember, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
@@ -147,7 +147,7 @@ export function SettlementsPage() {
     <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{writable && !fullySettled ? <Button variant="ghost" onClick={() => setForm(form?.key === 'manual' ? undefined : { key: 'manual' })}>补记结算</Button> : null}</header>
       {writable && form?.key === 'manual' ? <SettlementForm members={memberData} onClose={closeForm} /> : null}
       <RefreshError error={settlements.error} retry={() => void settlements.refetch()} />
-      {records && memberReady ? records.length ? <div className="settlement-list">{records.map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} writable={writable} />)}</div> : <EmptyState icon={<UsersRound size={24} />} title="还没有结算记录" description="完成转账后，在这里补记结算。" /> : !settlements.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null}
+      {records && memberReady ? records.length ? <div className="settlement-list">{records.map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} writable={writable} />)}</div> : <EmptyState icon={<UsersRound size={24} />} visual={<StateIllustration src="/illustrations/settlement-history-empty.webp" size="compact" />} title="还没有结算记录" description="完成转账后，在这里补记结算。" /> : !settlements.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null}
     </section>
   </div>;
 }

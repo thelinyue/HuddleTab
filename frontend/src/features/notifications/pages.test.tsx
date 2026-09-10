@@ -86,6 +86,23 @@ afterEach(() => {
 });
 
 describe("NotificationsPage", () => {
+  it("仅在全部通知确实为空时显示通知插画", () => {
+    state.notifications.items = [];
+    const { container } = render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+
+    expect(container.querySelector('img[src="/illustrations/notifications-empty.webp"]')).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector(".empty-state__icon")).not.toBeInTheDocument();
+  });
+
+  it("筛选无结果时保留紧凑图标而不显示插画", () => {
+    state.notifications.items = [notification()];
+    const { container } = render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "结算" }));
+
+    expect(container.querySelector('img[src="/illustrations/notifications-empty.webp"]')).not.toBeInTheDocument();
+    expect(container.querySelector(".empty-state__icon")).toBeInTheDocument();
+  });
+
   it.each([
     "JOIN_APPROVAL_REQUESTED",
     "JOIN_APPROVAL_RESOLVED",

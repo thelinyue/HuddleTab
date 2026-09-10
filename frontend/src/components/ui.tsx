@@ -73,6 +73,36 @@ export function LoadingState({ label = "正在加载…" }: { label?: string }) 
 }
 
 /**
+ * 状态插画只承担装饰作用，状态含义仍由相邻标题、说明和操作表达。
+ * 固定宽高与响应式 sizes 可以避免图片解码前后发生布局跳动。
+ */
+export function StateIllustration({
+  src,
+  size = "large",
+  loading = "lazy",
+  className,
+}: {
+  src: string;
+  size?: "large" | "compact";
+  loading?: "eager" | "lazy";
+  className?: string;
+}) {
+  return (
+    <img
+      className={classes("state-illustration", `state-illustration--${size}`, className)}
+      src={src}
+      alt=""
+      aria-hidden="true"
+      width={960}
+      height={640}
+      loading={loading}
+      decoding="async"
+      sizes={size === "compact" ? "(max-width: 520px) calc(100vw - 64px), 240px" : "(max-width: 351px) calc(100vw - 32px), 320px"}
+    />
+  );
+}
+
+/**
  * 通用空状态保留默认图标，同时允许特定页面提供装饰性场景图。
  * 视觉内容不会改变标题、说明和恢复操作的语义层级。
  */

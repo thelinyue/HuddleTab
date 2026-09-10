@@ -1240,6 +1240,15 @@ describe("活动工作台访问边界", () => {
 });
 
 describe("已删除活动", () => {
+  it("没有可恢复活动时在 Overlay 内显示紧凑插画", () => {
+    const { container } = renderActivitiesPage("/activities?panel=deleted", true);
+
+    const illustration = container.querySelector('img[src="/illustrations/deleted-activities-empty.webp"]');
+    expect(illustration).toHaveClass("state-illustration--compact");
+    expect(illustration).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("heading", { name: "没有可恢复的活动" })).toBeInTheDocument();
+  });
+
   it("通过查询参数打开时只显示一个标题，并保留紧凑的右侧恢复操作", () => {
     activityApiState.deletedActivities = [
       { ...activityApiState.activity, activityId: "deleted-mobile", canDelete: false, canRestore: true, deletedAt: "2026-08-20T08:00:00Z", name: "移动端已删除活动", purgeAfter: "2999-09-20T08:00:00Z", status: "ENDED", version: "9" },

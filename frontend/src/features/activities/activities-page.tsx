@@ -11,6 +11,7 @@ import {
   LoadingState,
   Money,
   Select,
+  StateIllustration,
 } from "../../components/ui";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Overlay } from "../../components/overlay";
@@ -187,7 +188,7 @@ function DeletedActivities({ activities, userId }: { activities: readonly Activi
   );
   return (
     <section className="activity-group deleted-activities" aria-label="可恢复的活动">
-      {visible.length ? <ul className="deleted-activity-list">{visible.map((activity) => <DeletedActivityRow key={activity.activityId} activity={activity} userId={userId} />)}</ul> : <p className="muted-copy">当前没有可恢复的活动。</p>}
+      {visible.length ? <ul className="deleted-activity-list">{visible.map((activity) => <DeletedActivityRow key={activity.activityId} activity={activity} userId={userId} />)}</ul> : <EmptyState icon={<Trash2 size={24} />} visual={<StateIllustration src="/illustrations/deleted-activities-empty.webp" size="compact" />} title="没有可恢复的活动" description="仍在恢复期内的已删除活动会显示在这里。" />}
     </section>
   );
 }
@@ -316,7 +317,7 @@ export function ActivitiesPage() {
         {listError ? <ErrorNotice error={listError} /> : null}
         {!listPending && !listError && !items.length ? <EmptyState
           icon={<Plus size={28} />}
-          visual={<img className="activity-empty-illustration" src="/illustrations/activity-list-empty.webp" alt="" aria-hidden="true" width={960} height={640} loading="eager" sizes="(max-width: 351px) calc(100vw - 32px), 320px" />}
+          visual={<StateIllustration className="activity-empty-illustration" src="/illustrations/activity-list-empty.webp" loading="eager" />}
           title="还没有活动"
           description="创建第一个活动后，就可以开始记录消费。"
           action={<div className="empty-state__actions"><Button className="activity-empty-create" onClick={openCreate}>创建活动</Button><Button className="activity-empty-join" variant="ghost" onClick={openJoin}>加入已有活动</Button></div>}

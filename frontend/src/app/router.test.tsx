@@ -112,8 +112,11 @@ describe("ApplicationRouter", () => {
   });
 
   it("已移除初始化页", async () => {
-    renderRoute("/setup");
+    const { container } = renderRoute("/setup");
     expect(await screen.findByRole("heading", { name: "找不到这个页面" })).toBeInTheDocument();
+    const illustration = container.querySelector('img[src="/illustrations/not-found.webp"]');
+    expect(illustration).toHaveAttribute("alt", "");
+    expect(illustration).toHaveAttribute("aria-hidden", "true");
   });
 
   it("独立 PWA 等待登录状态时显示品牌启动层", () => {

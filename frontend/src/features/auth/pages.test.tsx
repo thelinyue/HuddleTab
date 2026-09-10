@@ -136,6 +136,26 @@ describe("JoinPage Guest Binding", () => {
 });
 
 describe("JoinPage approval states", () => {
+  it("有效邀请使用装饰插画，进入审批状态后不继续占用状态区域", async () => {
+    const { container } = renderJoin();
+    const illustration = container.querySelector('img[src="/illustrations/invitation.webp"]');
+    expect(illustration).toHaveAttribute("alt", "");
+    expect(illustration).toHaveAttribute("aria-hidden", "true");
+
+    state.join.mutateAsync.mockResolvedValue({
+      activityId: "activity-1",
+      memberId: null,
+      requestId: "request-1",
+      revision: "3",
+      status: "PENDING_APPROVAL",
+    });
+    state.joinRequest = { activityId: "activity-1", requestId: "request-1", status: "PENDING" };
+    fireEvent.click(screen.getByRole("button", { name: /加入活动/ }));
+
+    expect(await screen.findByText("等待活动所有者审批")).toBeInTheDocument();
+    expect(container.querySelector('img[src="/illustrations/invitation.webp"]')).not.toBeInTheDocument();
+  });
+
   it("Pending 留在邀请页并显示等待审批", async () => {
     state.join.mutateAsync.mockResolvedValue({
       activityId: "activity-1",

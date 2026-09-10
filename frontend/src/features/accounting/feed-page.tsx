@@ -4,7 +4,7 @@ import { Popover } from "radix-ui";
 import { useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Overlay } from "../../components/overlay";
-import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, Select } from "../../components/ui";
+import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, Select, StateIllustration } from "../../components/ui";
 import { formatMoney } from "../../domain-preview/money";
 import { useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
@@ -207,7 +207,7 @@ export function ExpenseFeedPage() {
               })}
             </div>
           </section>
-        )) : <EmptyState icon={<ReceiptText size={28} />} title={allExpenses.length ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length ? "调整筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} />}
+        )) : <EmptyState icon={<ReceiptText size={28} />} visual={allExpenses.length ? undefined : <StateIllustration src="/illustrations/expense-feed-empty.webp" />} title={allExpenses.length ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length ? "调整筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} />}
       </section>
 
       {expenseWritable ? <button className="activity-add-fab quick-expense-trigger" type="button" aria-label="记一笔" title="记一笔" onClick={() => { setQuickView("entry"); setEntryOpen(true); }}><Plus aria-hidden="true" size={24} /></button> : null}

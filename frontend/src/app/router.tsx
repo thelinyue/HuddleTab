@@ -5,7 +5,7 @@ import { AnimatePresence } from "motion/react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
-import { EmptyState, LoadingState } from "../components/ui";
+import { EmptyState, LoadingState, StateIllustration } from "../components/ui";
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
 import { ActivitiesPage } from "../features/activities/activities-page";
 import { ActivityWorkspace } from "../features/activities/activity-workspace";
@@ -66,7 +66,7 @@ function NotFoundPage() {
   return (
     <main className="center-page">
       <Brand />
-      <EmptyState icon={<FileQuestion size={30} />} title="找不到这个页面" description="链接可能已过期，或页面地址输入有误。" action={<a className="button button--primary" href="/">返回首页</a>} />
+      <EmptyState icon={<FileQuestion size={30} />} visual={<StateIllustration src="/illustrations/not-found.webp" loading="eager" />} title="找不到这个页面" description="链接可能已过期，或页面地址输入有误。" action={<a className="button button--primary" href="/">返回首页</a>} />
     </main>
   );
 }

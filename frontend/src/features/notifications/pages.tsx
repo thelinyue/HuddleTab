@@ -3,7 +3,7 @@ import { DropdownMenu } from "radix-ui";
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Button, ConfirmDialog, EmptyState, ErrorNotice, LoadingState } from "../../components/ui";
+import { Button, ConfirmDialog, EmptyState, ErrorNotice, LoadingState, StateIllustration } from "../../components/ui";
 import { formatMoney } from "../../domain-preview/money";
 import { errorMessage } from "../../api/error";
 import { useSessionQuery } from "../auth/api";
@@ -504,7 +504,7 @@ export function NotificationsPage() {
       </header>
       <div className="notification-filters" role="group" aria-label="通知筛选">{filters.map(([value, label]) => <button type="button" aria-pressed={filter === value} key={value} onClick={() => setFilter(value)}>{label}</button>)}</div>
       {operationError && !clearOpen ? <ErrorNotice error={operationError} /> : null}
-      {!items.length ? <EmptyState icon={<Bell size={28} />} title="暂无通知" description={filter === "ALL" ? "活动变化与结算消息会显示在这里。" : "当前筛选下没有通知。"} /> : groups.map(({ group, items: groupItems }) => <section className="notification-group" aria-labelledby={`notification-group-${group}`} key={group}>
+      {!items.length ? <EmptyState icon={<Bell size={28} />} visual={filter === "ALL" && !allItems.length ? <StateIllustration src="/illustrations/notifications-empty.webp" /> : undefined} title="暂无通知" description={filter === "ALL" ? "活动变化与结算消息会显示在这里。" : "当前筛选下没有通知。"} /> : groups.map(({ group, items: groupItems }) => <section className="notification-group" aria-labelledby={`notification-group-${group}`} key={group}>
         <h2 id={`notification-group-${group}`}>{groupLabels[group]}</h2>
         <div className="notification-list">{groupItems.map((notification) => <NotificationRow
           key={notification.notificationId}

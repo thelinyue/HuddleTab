@@ -103,6 +103,7 @@ const rateMutation = vi.hoisted(() => ({
 }));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 const workspaceState = vi.hoisted(() => ({ offline: false }));
+const accountingQueryState = vi.hoisted(() => ({ emptyExpenses: false, emptySettlements: false }));
 const guestMutation = vi.hoisted(() => ({
   error: null,
   isPending: false,
@@ -138,10 +139,10 @@ vi.mock("./api", () => ({
   useDeleteAttachmentMutation: () => deleteAttachmentMutation,
   useExpenseQuery: () => ({ data: expense, isPending: false }),
   useExchangeRateSuggestionMutation: () => rateMutation,
-  useExpensesQuery: () => ({ data: [expense], isPending: false }),
+  useExpensesQuery: () => ({ data: accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
   useLedgerQuery: () => ({ data: { balances: [{ memberId: "member-1", netMinor: "-500" }, { memberId: "member-2", netMinor: "500" }] }, isPending: false }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
-  useSettlementsQuery: () => ({ data: [settlement], isPending: false }),
+  useSettlementsQuery: () => ({ data: accountingQueryState.emptySettlements ? [] : [settlement], isPending: false }),
   useUpdateExpenseMutation: () => updateMutation,
   useUpdateSettlementMutation: mutation,
   useVoidSettlementMutation: mutation,
@@ -179,6 +180,8 @@ afterEach(() => {
   activity.status = "ACTIVE";
   pendingMutations.records = [];
   workspaceState.offline = false;
+  accountingQueryState.emptyExpenses = false;
+  accountingQueryState.emptySettlements = false;
   createMutation.mutateAsync.mockClear();
   reviseMutation.mutateAsync.mockClear();
   updateMutation.error = null;
@@ -1127,6 +1130,34 @@ describe("Expense pending 流水隔离", () => {
       mutationId: "rejected-discard",
       activityId: "activity-1",
     }));
+  });
+});
+
+describe("账务空状态插画", () => {
+  it("首次流水为空时显示插画", () => {
+    accountingQueryState.emptyExpenses = true;
+    const { container } = renderPage(<ExpenseFeedPage />);
+
+    expect(screen.getByRole("heading", { name: "还没有流水" })).toBeInTheDocument();
+    expect(container.querySelector('img[src="/illustrations/expense-feed-empty.webp"]')).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("筛选无结果时不显示首次流水插画", () => {
+    const { container } = renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
+    fireEvent.change(screen.getByLabelText("搜索"), { target: { value: "不存在的流水" } });
+
+    expect(screen.getByRole("heading", { name: "没有符合条件的流水" })).toBeInTheDocument();
+    expect(container.querySelector('img[src="/illustrations/expense-feed-empty.webp"]')).not.toBeInTheDocument();
+    expect(container.querySelector(".empty-state__icon")).toBeInTheDocument();
+  });
+
+  it("结算记录为空时显示紧凑插画", () => {
+    accountingQueryState.emptySettlements = true;
+    const { container } = renderPage(<SettlementsPage />);
+
+    expect(screen.getByRole("heading", { name: "还没有结算记录" })).toBeInTheDocument();
+    expect(container.querySelector('img[src="/illustrations/settlement-history-empty.webp"]')).toHaveClass("state-illustration--compact");
   });
 });
 
