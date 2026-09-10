@@ -962,7 +962,7 @@ export interface components {
             startDate: string;
         };
         CreateGuestBindingInvitationRequest: {
-            targetUsername: string;
+            targetDisplayName: string;
         };
         CreateGuestRequest: {
             displayName: string;
@@ -971,7 +971,7 @@ export interface components {
             kind: string;
             /** Format: int32 */
             maxUses?: number | null;
-            targetUsername?: string | null;
+            targetDisplayName?: string | null;
         };
         CreateSettlementRequest: {
             amountMinor: string;
@@ -999,7 +999,7 @@ export interface components {
             maxUses?: number | null;
             purpose: string;
             revision: string;
-            targetUsername?: string | null;
+            targetDisplayName?: string | null;
             token: string;
             /** Format: int32 */
             useCount: number;
@@ -1184,7 +1184,7 @@ export interface components {
             purpose: string;
             revision: string;
             revokedAt?: string | null;
-            targetUsername?: string | null;
+            targetDisplayName?: string | null;
             /** Format: int32 */
             useCount: number;
             version: string;

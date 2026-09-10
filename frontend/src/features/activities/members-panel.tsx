@@ -40,8 +40,9 @@ export function MemberInvitationPanel({
   onCreate: (intent: InvitationIntent) => Promise<CreatedInvitation>;
 }) {
   const [mode, setMode] = useState<"link" | "direct">("link");
-  const [targetUsername, setTargetUsername] = useState("");
+  const [targetDisplayName, setTargetDisplayName] = useState("");
   const [createdToken, setCreatedToken] = useState<string>();
+  const inviteUrl = createdToken ? `${window.location.origin}/join/${encodeURIComponent(createdToken)}` : undefined;
   const [error, setError] = useState<unknown>();
   const [submitting, setSubmitting] = useState(false);
 
@@ -78,15 +79,13 @@ export function MemberInvitationPanel({
           <Button busy={submitting} onClick={() => void create({ mode: "link" })}><LinkIcon aria-hidden="true" size={18} />生成链接邀请</Button>
         </section>
       ) : (
-        <form className="invite-mode-panel" onSubmit={(event) => { event.preventDefault(); void create({ mode: "direct", targetUsername }); }}>
-          <Field label="目标用户名" hint="只有该用户名可使用此口令；对方可以登录或注册。">
+        <form className="invite-mode-panel" onSubmit={(event) => { event.preventDefault(); void create({ mode: "direct", targetDisplayName }); }}>
+          <Field label="目标昵称" hint="对方可使用此邀请注册账号并自行设置用户名。">
             <Input
-              value={targetUsername}
-              onChange={(event) => setTargetUsername(event.target.value)}
-              autoComplete="username"
-              autoCapitalize="none"
-              minLength={3}
-              maxLength={32}
+              value={targetDisplayName}
+              onChange={(event) => setTargetDisplayName(event.target.value)}
+              autoComplete="name"
+              maxLength={64}
               required
               autoFocus
             />
@@ -95,7 +94,7 @@ export function MemberInvitationPanel({
         </form>
       )}
 
-      {createdToken ? <div className="issued-invite" role="status" aria-live="polite"><strong>邀请口令已创建</strong><code>{createdToken}</code><small>口令只在本次创建后显示，请及时发送给对方。</small></div> : null}
+      {createdToken ? <div className="issued-invite" role="status" aria-live="polite"><strong>邀请链接已创建</strong><a href={inviteUrl}>{inviteUrl}</a><button type="button" onClick={() => void navigator.clipboard?.writeText(inviteUrl ?? "")}>复制邀请链接</button><code>{createdToken}</code><small>链接和口令只在本次创建后显示，请及时发送给对方。</small></div> : null}
       {error ? <ErrorNotice error={error} /> : null}
     </div>
   );
@@ -146,7 +145,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
     try {
       const invitation = await createGuestBinding.mutateAsync({
         memberId,
-        targetUsername: bindingUsername,
+        targetDisplayName: bindingUsername,
       });
       setBindingToken(invitation.token);
     } catch (reason) {
@@ -325,8 +324,8 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
       {visibleInvitations.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{visibleInvitations.map((invite) => {
         const guestName = memberData?.find((member) => member.memberId === invite.guestMemberId)?.displayName ?? "临时成员";
         const label = invite.purpose === "GUEST_BINDING"
-          ? `绑定「${guestName}」给 @${invite.targetUsername ?? "目标用户"}`
-          : invite.kind === "DIRECT" ? invite.targetUsername ?? "定向邀请" : "链接加入";
+          ? `绑定「${guestName}」给 ${invite.targetDisplayName ?? "目标用户"}`
+          : invite.kind === "DIRECT" ? invite.targetDisplayName ?? "定向邀请" : "链接加入";
         return <div key={invite.invitationId}><span><strong>{label}</strong><small>已使用 {invite.useCount}{invite.maxUses ? ` / ${invite.maxUses}` : ""}</small></span><Button variant="ghost" busy={revokeInvitation.isPending} onClick={() => revokeInvitation.mutate(invite.invitationId)}>撤销</Button></div>;
       })}</div></section> : null}
       <ConfirmDialog

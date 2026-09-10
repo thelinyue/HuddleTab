@@ -61,14 +61,14 @@ afterEach(() => {
 
 describe("invitationRequest", () => {
   it("将链接邀请映射为不限次数的 LINK 请求", () => {
-    expect(invitationRequest({ mode: "link" })).toEqual({ kind: "LINK", maxUses: null, targetUsername: null });
+    expect(invitationRequest({ mode: "link" })).toEqual({ kind: "LINK", maxUses: null, targetDisplayName: null });
   });
 
   it("将定向邀请映射为指定用户名的一次性 DIRECT 请求", () => {
-    expect(invitationRequest({ mode: "direct", targetUsername: "invitee" })).toEqual({
+    expect(invitationRequest({ mode: "direct", targetDisplayName: "invitee" })).toEqual({
       kind: "DIRECT",
       maxUses: 1,
-      targetUsername: "invitee",
+      targetDisplayName: "invitee",
     });
   });
 });
@@ -84,7 +84,7 @@ describe("Guest Binding invitation adapter", () => {
       maxUses: 1,
       purpose: "GUEST_BINDING",
       revision: "8",
-      targetUsername: "alice",
+      targetDisplayName: "alice",
       token: "one-time-token",
       useCount: 0,
       version: "1",
@@ -95,18 +95,18 @@ describe("Guest Binding invitation adapter", () => {
       userId: string,
       activityId: string,
     ) => {
-      mutateAsync: (input: { memberId: string; targetUsername: string }) => Promise<unknown>;
+      mutateAsync: (input: { memberId: string; targetDisplayName: string }) => Promise<unknown>;
     };
     const { result } = renderHook(() => hook("user-1", "activity-1"), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync({ memberId: "guest-1", targetUsername: "alice" });
+      await result.current.mutateAsync({ memberId: "guest-1", targetDisplayName: "alice" });
     });
 
     expect(client.POST).toHaveBeenCalledWith(
       "/api/activities/{activity_id}/members/{member_id}/binding-invitations",
       {
-        body: { targetUsername: "alice" },
+        body: { targetDisplayName: "alice" },
         params: {
           header: { "x-csrf-token": "csrf-token" },
           path: { activity_id: "activity-1", member_id: "guest-1" },

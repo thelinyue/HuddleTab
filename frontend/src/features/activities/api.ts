@@ -18,19 +18,19 @@ export type GuestRemoval = components["schemas"]["GuestRemovalData"];
 export type CreateInvitationInput = components["schemas"]["CreateInvitationRequest"];
 export type InvitationIntent =
   | { mode: "link" }
-  | { mode: "direct"; targetUsername: string };
+  | { mode: "direct"; targetDisplayName: string };
 export type JoinRequest = components["schemas"]["JoinRequestData"];
 export type JoinDecision = "APPROVE" | "REJECT";
 
 /** 将界面邀请意图集中映射为 OpenAPI 请求，避免组件散落协议常量和使用次数规则。 */
 export function invitationRequest(intent: InvitationIntent): CreateInvitationInput {
   if (intent.mode === "link") {
-    return { kind: "LINK", maxUses: null, targetUsername: null };
+    return { kind: "LINK", maxUses: null, targetDisplayName: null };
   }
   return {
     kind: "DIRECT",
     maxUses: 1,
-    targetUsername: intent.targetUsername,
+    targetDisplayName: intent.targetDisplayName,
   };
 }
 
@@ -177,7 +177,7 @@ async function createInvitation(
 async function createGuestBindingInvitation(
   activityId: string,
   memberId: string,
-  targetUsername: string,
+  targetDisplayName: string,
 ): Promise<CreatedInvitation> {
   const headers = await mutationHeaders();
   return unwrap(
@@ -188,7 +188,7 @@ async function createGuestBindingInvitation(
           header: { "x-csrf-token": headers["X-CSRF-Token"] },
           path: { activity_id: activityId, member_id: memberId },
         },
-        body: { targetUsername },
+        body: { targetDisplayName },
       },
     ),
   ).data;
@@ -392,8 +392,8 @@ export function useCreateGuestBindingInvitationMutation(
 ) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ memberId, targetUsername }: { memberId: string; targetUsername: string }) =>
-      createGuestBindingInvitation(activityId, memberId, targetUsername),
+    mutationFn: ({ memberId, targetDisplayName }: { memberId: string; targetDisplayName: string }) =>
+      createGuestBindingInvitation(activityId, memberId, targetDisplayName),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
   });
