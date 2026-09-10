@@ -290,6 +290,43 @@ it("服务端附件 422 保留具体中文错误并保留 Blob", async () => {
   expect(sendAttachment).toHaveBeenCalledTimes(1);
 });
 
+it("服务端 multipart 格式错误立即 REJECTED 并保留 Blob", async () => {
+  const sendAttachment = vi.fn().mockRejectedValue(
+    new ApiRequestError(400, {
+      error: {
+        code: "INVALID_ATTACHMENT",
+        details: {},
+        fieldErrors: {},
+        message: "附件请求格式无效。",
+        requestId: "request-invalid-attachment",
+      },
+    }),
+  );
+  const queue = new ExpenseQueue("user-1", {
+    send: vi.fn().mockResolvedValue({ expenseId: "expense-invalid-attachment" }),
+    sendAttachment,
+    now: () => 775,
+  });
+  await queue.enqueue("activity-1", {
+    ...expensePayload,
+    clientMutationId: "mutation-invalid-attachment",
+  }, [new File(["image"], "receipt.png", { type: "image/png" })]);
+
+  await queue.flush();
+
+  const [attachment] = await new AttachmentRepository("user-1")
+    .listByMutation("mutation-invalid-attachment");
+  expect(attachment).toMatchObject({
+    status: "REJECTED",
+    lastError: {
+      code: "INVALID_ATTACHMENT",
+      message: "附件请求格式无效。",
+    },
+  });
+  expect(attachment.blob).toBeDefined();
+  expect(sendAttachment).toHaveBeenCalledTimes(1);
+});
+
 it("两个附件按本地创建顺序串行上传", async () => {
   const first = deferred<{ id: string }>();
   const second = deferred<{ id: string }>();

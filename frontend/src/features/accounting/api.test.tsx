@@ -3,7 +3,9 @@ import "fake-indexeddb/auto";
 import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { deleteDB } from "idb";
+import { Blob as NativeBlob } from "node:buffer";
 import { createElement, type PropsWithChildren } from "react";
+import { FormData as NativeFormData, Request as NativeRequest } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { databaseName } from "../../pwa/indexed-db/database";
 import { AttachmentRepository } from "../../pwa/indexed-db/attachment-repository";
@@ -157,9 +159,7 @@ describe("Expense Create Queue", () => {
   });
 
   it("附件 adapter 发送原始文件、稳定 client ID 与 CSRF", async () => {
-    const blob = new Blob([new Uint8Array([1, 2, 3])], {
-      type: "image/png",
-    });
+    const blob = new Blob([new Uint8Array([1, 2, 3])]);
     const attachment: PendingAttachment = {
       id: "local-attachment-1",
       userId: "user-1",
@@ -201,6 +201,7 @@ describe("Expense Create Queue", () => {
       new Uint8Array([1, 2, 3]),
     );
     expect(sentFile.name).toBe("receipt.png");
+    expect(sentFile.type).toBe("image/png");
     expect(body.get("clientAttachmentId")).toBe("client-attachment-1");
     expect(options).toMatchObject({
       params: {
@@ -209,6 +210,60 @@ describe("Expense Create Queue", () => {
       },
     });
     expect(result).toEqual(metadata);
+  });
+
+  it("附件 adapter 让浏览器生成带 boundary 的 multipart 请求", async () => {
+    const attachment: PendingAttachment = {
+      id: "local-attachment-request",
+      userId: "user-1",
+      activityId: "activity-1",
+      mutationId: "mutation-1",
+      clientAttachmentId: "client-attachment-request",
+      fileName: "receipt.webp",
+      mimeType: "image/webp",
+      blob: new Blob([new Uint8Array([4, 5, 6])]),
+      status: "PENDING",
+      attemptCount: 0,
+      nextAttemptAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    client.POST.mockResolvedValue({
+      data: { data: { id: "server-attachment-request" } },
+      response: new Response(null, { status: 201 }),
+    });
+
+    await uploadExpenseAttachment("activity-1", "expense-1", attachment);
+
+    const [, options] = client.POST.mock.calls[0];
+    const formData = options.bodySerializer() as FormData;
+    const sourceFile = formData.get("file") as File;
+    // jsdom 的 FormData 不能直接作为 Node Request body；按同一字段重建浏览器原生
+    // FormData，只用于验证 Request 的 boundary 和最终 multipart 字段。
+    const requestFormData = new NativeFormData();
+    requestFormData.set(
+      "file",
+      new NativeBlob([await sourceFile.arrayBuffer()], { type: sourceFile.type }),
+      sourceFile.name,
+    );
+    requestFormData.set(
+      "clientAttachmentId",
+      formData.get("clientAttachmentId") as string,
+    );
+    const request = new NativeRequest("http://localhost/api/attachments", {
+      method: "POST",
+      headers: { "X-CSRF-Token": "csrf-token" },
+      body: requestFormData,
+    });
+    const contentType = request.headers.get("content-type");
+    expect(contentType).toMatch(/^multipart\/form-data; boundary=/);
+    expect(contentType).not.toBe("multipart/form-data");
+    const requestBody = new TextDecoder().decode(
+      await request.clone().arrayBuffer(),
+    );
+    expect(requestBody).toContain('name="file"; filename="receipt.webp"');
+    expect(requestBody).toContain("Content-Type: image/webp");
+    expect(requestBody).toContain("client-attachment-request");
   });
 
   it("附件删除 adapter 发送嵌套 ID 与 CSRF 并接受 204", async () => {

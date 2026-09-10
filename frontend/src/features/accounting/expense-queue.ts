@@ -91,14 +91,23 @@ async function sendExpense(
   return { expenseId: data.expense.expenseId };
 }
 
-/** 附件只通过生成客户端发送 multipart；页面组件不直接接触 fetch。 */
+/**
+ * 附件只通过生成客户端发送 multipart；页面组件不直接接触 fetch。
+ * IndexedDB 恢复的 Blob 在部分浏览器中可能丢失 type，因此以持久化的
+ * mimeType 重建 File，确保服务端能读取文件 part 的 Content-Type。
+ */
 export async function uploadExpenseAttachment(
   activityId: string,
   expenseId: string,
   attachment: PendingAttachment,
 ) {
   const formData = new FormData();
-  formData.set("file", attachment.blob, attachment.fileName);
+  const file = new File(
+    [attachment.blob],
+    attachment.fileName,
+    { type: attachment.mimeType || attachment.blob.type || "application/octet-stream" },
+  );
+  formData.set("file", file, attachment.fileName);
   formData.set("clientAttachmentId", attachment.clientAttachmentId);
   const headers = await mutationHeaders();
   return unwrap(
