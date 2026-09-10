@@ -212,7 +212,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         }
         sqlx::query(
             "INSERT INTO activity_invites (id, activity_id, created_by_member_id, token_hash, \
-             kind, target_username, guest_member_id, expires_at, max_uses, created_at) \
+             kind, target_display_name, guest_member_id, expires_at, max_uses, created_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(invitation.id)
@@ -220,7 +220,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .bind(actor_member_id)
         .bind(invitation.token_hash.as_slice())
         .bind(invitation.kind.as_str())
-        .bind(&invitation.target_username)
+        .bind(&invitation.target_display_name)
         .bind(invitation.guest_member_id)
         .bind(invitation.expires_at)
         .bind(invitation.max_uses)
@@ -246,7 +246,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             id: invitation.id,
             activity_id: invitation.activity_id,
             kind: invitation.kind,
-            target_username: invitation.target_username,
+            target_display_name: invitation.target_display_name,
             guest_member_id: invitation.guest_member_id,
             expires_at: invitation.expires_at,
             max_uses: invitation.max_uses,
@@ -278,7 +278,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 i64,
             ),
         >(
-            "SELECT id, kind, target_username, guest_member_id, expires_at, max_uses, use_count, revoked_at, version \
+            "SELECT id, kind, target_display_name, guest_member_id, expires_at, max_uses, use_count, revoked_at, version \
              FROM activity_invites WHERE activity_id = $1 ORDER BY created_at DESC, id",
         )
         .bind(activity_id)
@@ -319,7 +319,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 i64,
             ),
         >(
-            "SELECT kind, target_username, guest_member_id, expires_at, max_uses, use_count, revoked_at, version \
+            "SELECT kind, target_display_name, guest_member_id, expires_at, max_uses, use_count, revoked_at, version \
              FROM activity_invites WHERE activity_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(activity_id)
@@ -362,7 +362,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             id: invitation_id,
             activity_id,
             kind: parse_kind(&row.0)?,
-            target_username: row.1,
+            target_display_name: row.1,
             guest_member_id: row.2,
             expires_at: row.3,
             max_uses: row.4,
@@ -465,7 +465,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 i32,
             ),
         >(
-            "SELECT i.id, i.activity_id, i.kind, i.target_username, a.invite_mode, \
+            "SELECT i.id, i.activity_id, i.kind, i.target_display_name, a.invite_mode, \
                     i.guest_member_id, i.use_count \
              FROM activity_invites i JOIN activities a ON a.id = i.activity_id \
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $3 \
@@ -856,7 +856,7 @@ struct LockedActivityRow {
 #[derive(sqlx::FromRow)]
 struct LockedInvitationRow {
     kind: String,
-    target_username: Option<String>,
+    target_display_name: Option<String>,
     expires_at: OffsetDateTime,
     max_uses: Option<i32>,
     use_count: i32,
@@ -884,7 +884,7 @@ fn invitation_from_row(
         id: row.0,
         activity_id,
         kind: parse_kind(&row.1)?,
-        target_username: row.2,
+        target_display_name: row.2,
         guest_member_id: row.3,
         expires_at: row.4,
         max_uses: row.5,
@@ -959,7 +959,7 @@ async fn approve_join_request(
     now: OffsetDateTime,
 ) -> Result<(), CollaborationRepositoryError> {
     let invitation = sqlx::query_as::<_, LockedInvitationRow>(
-        "SELECT kind, target_username, expires_at, max_uses, use_count, revoked_at
+        "SELECT kind, target_display_name, expires_at, max_uses, use_count, revoked_at
          FROM activity_invites WHERE id = $1 AND activity_id = $2 FOR UPDATE",
     )
     .bind(request.invitation_id)
@@ -986,7 +986,7 @@ async fn approve_join_request(
     .ok_or(CollaborationRepositoryError::NotFound)?;
     let kind = parse_kind(&invitation.kind)?;
     if kind == InvitationKind::Direct
-        && invitation.target_username.as_deref() != Some(applicant.0.as_str())
+        && invitation.target_display_name.as_deref() != Some(applicant.0.as_str())
     {
         return Err(CollaborationRepositoryError::InvalidInvitation);
     }
@@ -1292,3 +1292,4 @@ fn log_repository_error(error: sqlx::Error) -> CollaborationRepositoryError {
     drop(error);
     CollaborationRepositoryError::Unavailable
 }
+

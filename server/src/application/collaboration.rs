@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::{
     application::ports::Clock,
     domain::{
-        identity::Username,
         join_request::{JoinDecision, JoinRequestStatus},
     },
 };
@@ -125,7 +124,7 @@ pub struct NewInvitation {
     pub actor_user_id: Uuid,
     pub token_hash: [u8; 32],
     pub kind: InvitationKind,
-    pub target_username: Option<String>,
+    pub target_display_name: Option<String>,
     pub guest_member_id: Option<Uuid>,
     pub expires_at: OffsetDateTime,
     pub max_uses: Option<i32>,
@@ -137,7 +136,7 @@ pub struct Invitation {
     pub id: Uuid,
     pub activity_id: Uuid,
     pub kind: InvitationKind,
-    pub target_username: Option<String>,
+    pub target_display_name: Option<String>,
     pub guest_member_id: Option<Uuid>,
     pub expires_at: OffsetDateTime,
     pub max_uses: Option<i32>,
@@ -316,7 +315,7 @@ pub struct CreateInvitationInput {
     pub activity_id: Uuid,
     pub actor_user_id: Uuid,
     pub kind: String,
-    pub target_username: Option<String>,
+    pub target_display_name: Option<String>,
     pub max_uses: Option<i32>,
 }
 
@@ -325,7 +324,7 @@ pub struct CreateGuestBindingInvitationInput {
     pub activity_id: Uuid,
     pub guest_member_id: Uuid,
     pub actor_user_id: Uuid,
-    pub target_username: String,
+    pub target_display_name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -441,14 +440,13 @@ pub async fn create_invitation(
         "DIRECT" => InvitationKind::Direct,
         _ => return Err(CollaborationError::InvalidInput),
     };
-    let target_username = match (kind, input.target_username) {
+    let target_display_name = match (kind, input.target_display_name) {
         (InvitationKind::Link, None) => None,
-        (InvitationKind::Direct, Some(username)) => Some(
-            Username::parse(&username)
-                .map_err(|_| CollaborationError::InvalidInput)?
-                .as_str()
-                .to_owned(),
-        ),
+        (InvitationKind::Direct, Some(name)) => {
+            let name = name.trim();
+            if name.is_empty() { return Err(CollaborationError::InvalidInput); }
+            Some(name.to_owned())
+        }
         _ => return Err(CollaborationError::InvalidInput),
     };
     if input
@@ -469,7 +467,7 @@ pub async fn create_invitation(
             actor_user_id: input.actor_user_id,
             token_hash: token.hash,
             kind,
-            target_username,
+            target_display_name,
             guest_member_id: None,
             expires_at,
             max_uses: input.max_uses,
@@ -491,10 +489,8 @@ pub async fn create_guest_binding_invitation(
     clock: &dyn Clock,
     input: CreateGuestBindingInvitationInput,
 ) -> Result<CreatedInvitation, CollaborationError> {
-    let target_username = Username::parse(&input.target_username)
-        .map_err(|_| CollaborationError::InvalidInput)?
-        .as_str()
-        .to_owned();
+    let target_display_name = input.target_display_name.trim().to_owned();
+    if target_display_name.is_empty() { return Err(CollaborationError::InvalidInput); }
     let now = clock.now();
     let expires_at = now
         .checked_add(INVITATION_LIFETIME)
@@ -507,7 +503,7 @@ pub async fn create_guest_binding_invitation(
             actor_user_id: input.actor_user_id,
             token_hash: token.hash,
             kind: InvitationKind::Direct,
-            target_username: Some(target_username),
+            target_display_name: Some(target_display_name),
             guest_member_id: Some(input.guest_member_id),
             expires_at,
             max_uses: Some(1),
@@ -679,3 +675,4 @@ fn map_repository_error(error: CollaborationRepositoryError) -> CollaborationErr
         CollaborationRepositoryError::Unavailable => CollaborationError::Unavailable,
     }
 }
+

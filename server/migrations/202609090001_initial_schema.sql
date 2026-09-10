@@ -105,7 +105,7 @@ CREATE TABLE activity_invites (
     created_by_member_id UUID NOT NULL,
     token_hash BYTEA NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
     kind TEXT NOT NULL CHECK (kind IN ('LINK', 'DIRECT')),
-    target_username TEXT,
+    target_display_name TEXT,
     expires_at TIMESTAMPTZ NOT NULL,
     max_uses INTEGER CHECK (max_uses IS NULL OR max_uses > 0),
     use_count INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
@@ -119,13 +119,13 @@ CREATE TABLE activity_invites (
         REFERENCES activity_members(activity_id, id) ON DELETE RESTRICT,
     CONSTRAINT activity_invites_guest_binding_shape CHECK (
         guest_member_id IS NULL
-        OR (kind = 'DIRECT' AND target_username IS NOT NULL AND max_uses = 1)
+        OR (kind = 'DIRECT' AND target_display_name IS NOT NULL AND max_uses = 1)
     ),
     FOREIGN KEY (activity_id, created_by_member_id)
         REFERENCES activity_members(activity_id, id) ON DELETE RESTRICT,
     CONSTRAINT activity_invites_kind_target CHECK (
-        (kind = 'LINK' AND target_username IS NULL)
-        OR (kind = 'DIRECT' AND target_username IS NOT NULL)
+        (kind = 'LINK' AND target_display_name IS NULL)
+        OR (kind = 'DIRECT' AND target_display_name IS NOT NULL)
     ),
     CONSTRAINT activity_invites_usage CHECK (max_uses IS NULL OR use_count <= max_uses)
 );
@@ -382,3 +382,4 @@ CREATE TABLE system_settings (
 
 INSERT INTO system_settings (id, registration_policy, version, updated_at)
 VALUES ('singleton', 'INVITE_ONLY', 1, CURRENT_TIMESTAMP);
+

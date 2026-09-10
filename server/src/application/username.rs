@@ -71,7 +71,7 @@ pub async fn change_username(
                     ChangeUsernameError::Taken
                 } else { database_error(error) }
             })?;
-        sqlx::query("UPDATE activity_invites SET revoked_at = NOW(), version = version + 1 WHERE kind = 'DIRECT' AND target_username = $1 AND revoked_at IS NULL AND use_count = 0")
+        sqlx::query("UPDATE activity_invites SET revoked_at = NOW(), version = version + 1 WHERE kind = 'DIRECT' AND target_display_name = $1 AND revoked_at IS NULL AND use_count = 0")
             .bind(&current.0).execute(&mut *tx).await.map_err(database_error)?;
     }
     tx.commit().await.map_err(database_error)?;
@@ -83,3 +83,4 @@ fn database_error(error: sqlx::Error) -> ChangeUsernameError {
     drop(error);
     ChangeUsernameError::Unavailable
 }
+

@@ -86,14 +86,14 @@ pub struct GuestData {
 #[serde(rename_all = "camelCase")]
 pub struct CreateInvitationRequest {
     pub kind: String,
-    pub target_username: Option<String>,
+    pub target_display_name: Option<String>,
     pub max_uses: Option<i32>,
 }
 
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateGuestBindingInvitationRequest {
-    pub target_username: String,
+    pub target_display_name: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -108,7 +108,7 @@ pub struct CreatedInvitationData {
     pub activity_id: String,
     pub kind: &'static str,
     pub purpose: &'static str,
-    pub target_username: Option<String>,
+    pub target_display_name: Option<String>,
     pub guest_member_id: Option<String>,
     pub token: String,
     pub expires_at: String,
@@ -135,7 +135,7 @@ pub struct InvitationData {
     pub activity_id: String,
     pub kind: &'static str,
     pub purpose: &'static str,
-    pub target_username: Option<String>,
+    pub target_display_name: Option<String>,
     pub guest_member_id: Option<String>,
     pub expires_at: String,
     pub max_uses: Option<i32>,
@@ -351,7 +351,7 @@ pub(crate) async fn create_guest_binding_invitation(
             activity_id,
             guest_member_id,
             actor_user_id: actor.user_id,
-            target_username: request.target_username,
+            target_display_name: request.target_display_name,
         },
     )
     .await
@@ -365,7 +365,7 @@ pub(crate) async fn create_guest_binding_invitation(
                 activity_id: invitation.activity_id.to_string(),
                 kind: invitation.kind.as_str(),
                 purpose: invitation.purpose().as_str(),
-                target_username: invitation.target_username,
+                target_display_name: invitation.target_display_name,
                 guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
                 token: created.token.expose_once().to_owned(),
                 expires_at: invitation.expires_at.to_string(),
@@ -417,7 +417,7 @@ pub(crate) async fn create_invitation(
             activity_id,
             actor_user_id: actor.user_id,
             kind: request.kind,
-            target_username: request.target_username,
+            target_display_name: request.target_display_name,
             max_uses: request.max_uses,
         },
     )
@@ -432,7 +432,7 @@ pub(crate) async fn create_invitation(
                 activity_id: invitation.activity_id.to_string(),
                 kind: invitation.kind.as_str(),
                 purpose: invitation.purpose().as_str(),
-                target_username: invitation.target_username,
+                target_display_name: invitation.target_display_name,
                 guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
                 token: created.token.expose_once().to_owned(),
                 expires_at: invitation.expires_at.to_string(),
@@ -765,7 +765,7 @@ fn invitation_data(invitation: Invitation) -> InvitationData {
         activity_id: invitation.activity_id.to_string(),
         kind: invitation.kind.as_str(),
         purpose: invitation.purpose().as_str(),
-        target_username: invitation.target_username,
+        target_display_name: invitation.target_display_name,
         guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
         expires_at: invitation.expires_at.to_string(),
         max_uses: invitation.max_uses,
@@ -816,3 +816,4 @@ fn map_decision_error(error: CollaborationError, request_id: RequestId) -> ApiEr
         other => map_error(other, request_id),
     }
 }
+

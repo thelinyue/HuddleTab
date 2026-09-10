@@ -45,12 +45,11 @@ impl RegistrationRepository for PostgresRegistrationRepository {
                  JOIN activities a ON a.id = i.activity_id \
                  WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
                    AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE' \
-                   AND a.deleted_at IS NULL AND (i.kind = 'LINK' OR i.target_username = $3) \
+                   AND a.deleted_at IS NULL \
                    FOR SHARE OF i, a",
             )
             .bind(invitation_hash.as_slice())
             .bind(registration.created_at)
-            .bind(&registration.username)
             .fetch_optional(&mut *transaction)
             .await
             .map_err(log_repository_error)?;
@@ -104,3 +103,4 @@ fn log_repository_error(error: sqlx::Error) -> RegistrationRepositoryError {
     drop(error);
     RegistrationRepositoryError::Unavailable
 }
+
