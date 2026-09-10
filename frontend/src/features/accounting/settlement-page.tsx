@@ -129,7 +129,8 @@ export function SettlementsPage() {
     {offline ? <div className="notice" role="status"><Info size={18} /><span>当前离线，以下结算使用最近一次同步的只读快照。</span></div> : null}
     <RefreshError error={members.error} retry={() => void members.refetch()} />
     <section className="settlement-summary" aria-label="我的结算">
-      <header><p>我的结算</p><Link className="settlement-share-entry" to={`/share-summary/${encodeURIComponent(activity.activityId)}`}><ImageDown size={17} aria-hidden="true" />生成分享摘要</Link></header>
+      {/* 与流水摘要共用标题行，分享入口作为标题行右侧操作保留。 */}
+      <header className="accounting-summary__header"><p>我的结算</p><Link className="settlement-share-entry" to={`/share-summary/${encodeURIComponent(activity.activityId)}`}><ImageDown size={17} aria-hidden="true" />生成分享摘要</Link></header>
       {currentAmount !== undefined ? <><div><strong>{currentAmount > 0n ? '应收' : currentAmount < 0n ? '应付' : '已结清'}</strong>{currentAmount !== 0n ? <Money value={formatMoney(activity.baseCurrency, (currentAmount < 0n ? -currentAmount : currentAmount).toString())} tone={currentAmount > 0n ? 'positive' : 'negative'} /> : null}</div><small>{balances!.filter(balance => BigInt(balance.netMinor) !== 0n).length} 人未结清 · {balances!.filter(balance => BigInt(balance.netMinor) === 0n).length} 人已结清</small></> : ledger.error ? null : <AccountingSkeleton kind="settlement" section />}
       <RefreshError error={ledger.error} retry={() => void ledger.refetch()} />
     </section>

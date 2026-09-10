@@ -125,7 +125,8 @@ export function ExpenseFeedPage() {
       {expenses.error && (expenses.data !== undefined || snapshot !== undefined) ? <div role="alert" className="notice">流水更新失败，当前显示已加载内容。<Button variant="ghost" onClick={() => void expenses.refetch()}>重试</Button></div> : null}
       {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，以下流水使用最近一次同步的只读快照；新账单仍可先保存在本机。</span></div> : null}
       <section className="expense-summary" aria-label="消费摘要">
-        <p>总消费</p>
+        {/* 与结算摘要共用标题行，保证两个工作台页面的卡片视觉基准一致。 */}
+        <header className="accounting-summary__header"><p>总消费</p></header>
         <Money value={formatMoney(activity.baseCurrency, total.toString())} />
         {[...foreignTotals].length ? <p className="expense-summary__foreign">其中外币消费 {[...foreignTotals].map(([currencyCode, amount]) => formatMoney(currencyCode, amount.toString())).join(" · ")} · 已折算</p> : null}
         <p className="expense-summary__meta">

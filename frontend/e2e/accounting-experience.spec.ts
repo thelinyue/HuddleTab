@@ -249,6 +249,12 @@ test('活动页头：长名称、大人数、深色安全区和放大字体无�
   control.activity.name = '这是一个需要省略显示的很长很长的周末杭州旅行活动名称';
   await page.goto('/activities/demo');
   await expect(page.locator('.workspace-header h1')).toHaveText(control.activity.name);
+  expect(await page.evaluate(() => {
+    const header = getComputedStyle(document.querySelector<HTMLElement>('.workspace-header')!).backgroundColor;
+    const pageBackground = getComputedStyle(document.body).backgroundColor;
+    const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content;
+    return { header, pageBackground, themeColor };
+  })).toMatchObject({ header: 'rgb(246, 248, 247)', pageBackground: 'rgb(246, 248, 247)', themeColor: '#f6f8f7' });
   await page.evaluate(() => { document.documentElement.classList.add('dark', 'pwa-standalone'); document.documentElement.style.setProperty('--safe-area-top', '47px'); });
   const buttons = page.locator('.workspace-header__actions > a');
   for (const button of await buttons.all()) {
