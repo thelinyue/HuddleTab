@@ -2,7 +2,7 @@
 export function AccountingSkeleton({ kind = "feed", section = false }: { kind?: "feed" | "settlement"; section?: boolean }) {
   return <div className={section ? "accounting-skeleton" : "workspace-page accounting-skeleton"} aria-busy="true" role="status" aria-label={kind === "feed" ? "正在读取流水…" : "正在读取结算…"}>
     <div aria-hidden="true">
-      {!section ? <div className="accounting-skeleton__summary"><i /><i /><i /></div> : null}
+      {!section ? <div className="accounting-skeleton__summary"><i /><i /><i /></div> : kind === "settlement" ? <div className="accounting-skeleton__inline-summary"><i /><i /></div> : null}
       <div className="accounting-skeleton__heading"><i /></div>
       {[0, 1, 2].map(index => <div className="accounting-skeleton__row" key={index}><i /><span><i /><i /></span><i /></div>)}
     </div>
