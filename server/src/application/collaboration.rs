@@ -7,9 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     application::ports::Clock,
-    domain::{
-        join_request::{JoinDecision, JoinRequestStatus},
-    },
+    domain::join_request::{JoinDecision, JoinRequestStatus},
 };
 
 const INVITATION_LIFETIME: Duration = Duration::days(7);
@@ -444,7 +442,9 @@ pub async fn create_invitation(
         (InvitationKind::Link, None) => None,
         (InvitationKind::Direct, Some(name)) => {
             let name = name.trim();
-            if name.is_empty() { return Err(CollaborationError::InvalidInput); }
+            if name.is_empty() {
+                return Err(CollaborationError::InvalidInput);
+            }
             Some(name.to_owned())
         }
         _ => return Err(CollaborationError::InvalidInput),
@@ -490,7 +490,9 @@ pub async fn create_guest_binding_invitation(
     input: CreateGuestBindingInvitationInput,
 ) -> Result<CreatedInvitation, CollaborationError> {
     let target_display_name = input.target_display_name.trim().to_owned();
-    if target_display_name.is_empty() { return Err(CollaborationError::InvalidInput); }
+    if target_display_name.is_empty() {
+        return Err(CollaborationError::InvalidInput);
+    }
     let now = clock.now();
     let expires_at = now
         .checked_add(INVITATION_LIFETIME)
@@ -675,4 +677,3 @@ fn map_repository_error(error: CollaborationRepositoryError) -> CollaborationErr
         CollaborationRepositoryError::Unavailable => CollaborationError::Unavailable,
     }
 }
-

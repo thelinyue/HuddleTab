@@ -816,4 +816,3 @@ fn map_decision_error(error: CollaborationError, request_id: RequestId) -> ApiEr
         other => map_error(other, request_id),
     }
 }
-

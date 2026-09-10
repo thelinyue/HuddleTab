@@ -83,4 +83,3 @@ fn database_error(error: sqlx::Error) -> ChangeUsernameError {
     drop(error);
     ChangeUsernameError::Unavailable
 }
-

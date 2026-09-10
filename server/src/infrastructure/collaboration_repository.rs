@@ -1292,4 +1292,3 @@ fn log_repository_error(error: sqlx::Error) -> CollaborationRepositoryError {
     drop(error);
     CollaborationRepositoryError::Unavailable
 }
-

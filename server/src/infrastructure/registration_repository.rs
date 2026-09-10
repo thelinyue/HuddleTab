@@ -103,4 +103,3 @@ fn log_repository_error(error: sqlx::Error) -> RegistrationRepositoryError {
     drop(error);
     RegistrationRepositoryError::Unavailable
 }
-

@@ -82,7 +82,8 @@ const activityApiState = vi.hoisted(() => ({
     purpose?: string;
     revision: string;
     revokedAt: string | null;
-    targetUsername: string | null;
+    targetUsername?: string | null;
+    targetDisplayName?: string | null;
     useCount: number;
     version: string;
   }>,
@@ -343,11 +344,11 @@ describe("MemberInvitationPanel", () => {
     render(<MemberInvitationPanel onCreate={onCreate} />);
 
     fireEvent.click(screen.getByRole("button", { name: "定向邀请" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /目标用户名/ }), { target: { value: "invitee" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /目标昵称/ }), { target: { value: "invitee" } });
     fireEvent.click(screen.getByRole("button", { name: "创建定向邀请" }));
 
     expect(await screen.findByText("secret-token")).toBeInTheDocument();
-    expect(onCreate).toHaveBeenCalledWith({ mode: "direct", targetUsername: "invitee" });
+    expect(onCreate).toHaveBeenCalledWith({ mode: "direct", targetDisplayName: "invitee" });
   });
 
   it("创建失败时保留定向用户名并显示错误", async () => {
@@ -355,11 +356,11 @@ describe("MemberInvitationPanel", () => {
     render(<MemberInvitationPanel onCreate={onCreate} />);
 
     fireEvent.click(screen.getByRole("button", { name: "定向邀请" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /目标用户名/ }), { target: { value: "invitee" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /目标昵称/ }), { target: { value: "invitee" } });
     fireEvent.click(screen.getByRole("button", { name: "创建定向邀请" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("定向邀请创建失败");
-    expect(screen.getByRole("textbox", { name: /目标用户名/ })).toHaveValue("invitee");
+    expect(screen.getByRole("textbox", { name: /目标昵称/ })).toHaveValue("invitee");
   });
 });
 
@@ -428,7 +429,7 @@ describe("成员 Overlay", () => {
     expect(await screen.findAllByText("binding-token")).toHaveLength(1);
     expect(activityApiState.createGuestBinding.mutateAsync).toHaveBeenLastCalledWith({
       memberId: "guest-1",
-      targetUsername: "alice",
+      targetDisplayName: "alice",
     });
   });
 
@@ -539,13 +540,13 @@ describe("成员 Overlay", () => {
       purpose: "GUEST_BINDING",
       revision: "2",
       revokedAt: null,
-      targetUsername: "alice",
+      targetDisplayName: "alice",
       useCount: 0,
       version: "1",
     }];
     renderWorkspace();
 
-    expect(screen.getByText("绑定「临时成员」给 @alice")).toBeInTheDocument();
+    expect(screen.getByText("绑定「临时成员」给 alice")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "撤销" })).toBeInTheDocument();
   });
 
@@ -586,7 +587,7 @@ describe("成员 Overlay", () => {
         maxUses: 1,
         revision: "2",
         revokedAt: null,
-        targetUsername: "active-user",
+      targetDisplayName: "active-user",
         useCount: 0,
         version: "1",
       },
@@ -598,7 +599,7 @@ describe("成员 Overlay", () => {
         maxUses: 1,
         revision: "3",
         revokedAt: null,
-        targetUsername: "used-user",
+      targetDisplayName: "used-user",
         useCount: 1,
         version: "1",
       },
@@ -610,7 +611,7 @@ describe("成员 Overlay", () => {
         maxUses: 1,
         revision: "4",
         revokedAt: null,
-        targetUsername: "expired-user",
+      targetDisplayName: "expired-user",
         useCount: 0,
         version: "1",
       },
@@ -622,7 +623,7 @@ describe("成员 Overlay", () => {
         maxUses: 1,
         revision: "5",
         revokedAt: "2026-09-01T00:00:00Z",
-        targetUsername: "revoked-user",
+      targetDisplayName: "revoked-user",
         useCount: 0,
         version: "2",
       },
