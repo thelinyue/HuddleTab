@@ -299,7 +299,7 @@ async fn create_link_invitation(
             owner,
             "POST",
             format!("/api/activities/{activity_id}/invitations"),
-            r#"{"kind":"LINK","targetUsername":null,"maxUses":null}"#,
+            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
         ),
     )
     .await;
@@ -395,7 +395,7 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
             &owner,
             "POST",
             binding_uri.clone(),
-            r#"{"targetUsername":"bob"}"#,
+            r#"{"targetDisplayName":"bob"}"#,
         ),
     )
     .await;
@@ -403,7 +403,7 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
     assert_eq!(created["data"]["purpose"], "GUEST_BINDING");
     assert_eq!(created["data"]["guestMemberId"], guest_member_id);
     assert_eq!(created["data"]["kind"], "DIRECT");
-    assert_eq!(created["data"]["targetUsername"], "bob");
+    assert_eq!(created["data"]["targetDisplayName"], "bob");
     assert_eq!(created["data"]["maxUses"], 1);
     assert_eq!(created["data"]["useCount"], 0);
     assert_eq!(created["data"]["revision"], "3");
@@ -443,7 +443,7 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
             &member,
             "POST",
             binding_uri.clone(),
-            r#"{"targetUsername":"bob"}"#,
+            r#"{"targetDisplayName":"bob"}"#,
         ),
     )
     .await;
@@ -458,7 +458,7 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
                 format!(
                     "/api/activities/{activity_id}/members/{invalid_member_id}/binding-invitations"
                 ),
-                r#"{"targetUsername":"bob"}"#,
+                r#"{"targetDisplayName":"bob"}"#,
             ),
         )
         .await;
@@ -472,7 +472,7 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
             &owner,
             "POST",
             binding_uri.clone(),
-            r#"{"targetUsername":"??"}"#,
+            r#"{"targetDisplayName":"??"}"#,
         ),
     )
     .await;
@@ -485,7 +485,7 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
         .expect("应结束活动");
     let (ended_status, _) = json_response(
         &app,
-        authenticated_request(&owner, "POST", binding_uri, r#"{"targetUsername":"bob"}"#),
+        authenticated_request(&owner, "POST", binding_uri, r#"{"targetDisplayName":"bob"}"#),
     )
     .await;
     assert_eq!(ended_status, StatusCode::FORBIDDEN);
@@ -627,7 +627,7 @@ async fn guest_binding_preserves_identity_bypasses_approval_and_replays_once() {
         &owner,
         activity_id,
         guest_member_id,
-        r#"{"targetUsername":"bob"}"#,
+        r#"{"targetDisplayName":"bob"}"#,
     )
     .await;
     let (preview_status, preview) = json_response(
@@ -754,7 +754,7 @@ async fn guest_binding_rejects_existing_member_and_wrong_target() {
         &owner,
         activity_id,
         guest_member_id,
-        r#"{"targetUsername":"bob"}"#,
+        r#"{"targetDisplayName":"bob"}"#,
     )
     .await;
 
@@ -815,7 +815,7 @@ async fn guest_binding_concurrent_confirmations_have_one_winner() {
         &owner,
         activity_id,
         guest_member_id,
-        r#"{"targetUsername":"bob"}"#,
+        r#"{"targetDisplayName":"bob"}"#,
     )
     .await;
     let second_token = create_binding_token(
@@ -823,7 +823,7 @@ async fn guest_binding_concurrent_confirmations_have_one_winner() {
         &owner,
         activity_id,
         guest_member_id,
-        r#"{"targetUsername":"carol"}"#,
+        r#"{"targetDisplayName":"carol"}"#,
     )
     .await;
     let first_request = authenticated_request(
@@ -1520,7 +1520,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
             &owner,
             "POST",
             format!("/api/activities/{activity_id}/invitations"),
-            r#"{"kind":"DIRECT","targetUsername":"bob","maxUses":1}"#,
+            r#"{"kind":"DIRECT","targetDisplayName":"bob","maxUses":1}"#,
         ),
     )
     .await;
@@ -1686,7 +1686,7 @@ async fn ended_and_deleted_activities_reject_collaboration_mutations() {
                 &owner,
                 "POST",
                 format!("/api/activities/{activity_id}/invitations"),
-                r#"{"kind":"LINK","targetUsername":null,"maxUses":null}"#,
+            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
             ),
         )
         .await;
@@ -1725,7 +1725,7 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
                 &owner,
                 "POST",
                 format!("/api/activities/{activity_id}/invitations"),
-                r#"{"kind":"LINK","targetUsername":null,"maxUses":null}"#,
+            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
             ),
         )
         .await;
@@ -1948,7 +1948,7 @@ async fn remove_guest_marks_referenced_members_left_and_revokes_binding_invites(
             &owner,
             activity_id,
             invitation_guest,
-            r#"{"targetUsername":"pending-user"}"#,
+        r#"{"targetDisplayName":"pending-user"}"#,
         )
         .await;
         let invitation_id: Uuid = sqlx::query_scalar(
@@ -2225,7 +2225,7 @@ async fn remove_guest_and_binding_race_has_one_successful_operation() {
         &owner,
         activity_id,
         guest_member_id,
-        r#"{"targetUsername":"bob"}"#,
+        r#"{"targetDisplayName":"bob"}"#,
     )
     .await;
     let delete_request = authenticated_request(

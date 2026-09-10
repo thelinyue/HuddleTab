@@ -650,7 +650,7 @@ async fn sensitive_authenticated_bucket_includes_guest_binding_invites() {
         .oneshot(mutation_request(
             "POST",
             &binding_uri,
-            Body::from(r#"{"targetUsername":"target-user"}"#),
+            Body::from(r#"{"targetDisplayName":"target-user"}"#),
             &owner,
         ))
         .await
@@ -662,7 +662,7 @@ async fn sensitive_authenticated_bucket_includes_guest_binding_invites() {
         .oneshot(mutation_request(
             "POST",
             &binding_uri,
-            Body::from(r#"{"targetUsername":"target-user"}"#),
+            Body::from(r#"{"targetDisplayName":"target-user"}"#),
             &owner,
         ))
         .await
@@ -673,7 +673,7 @@ async fn sensitive_authenticated_bucket_includes_guest_binding_invites() {
         .oneshot(mutation_request(
             "POST",
             &binding_uri,
-            Body::from(r#"{"targetUsername":"target-user"}"#),
+            Body::from(r#"{"targetDisplayName":"target-user"}"#),
             &other,
         ))
         .await

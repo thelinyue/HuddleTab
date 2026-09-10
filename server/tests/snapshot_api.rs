@@ -450,7 +450,7 @@ async fn guest_binding_updates_snapshot_without_changing_member_identity() {
                 .header(ORIGIN, "http://localhost:5660")
                 .header("sec-fetch-site", "same-origin")
                 .header("x-csrf-token", owner_csrf.expose_for_header())
-                .body(Body::from(r#"{"targetUsername":"binding-target"}"#))
+                .body(Body::from(r#"{"targetDisplayName":"binding-target"}"#))
                 .expect("创建绑定邀请请求应可构造"),
         )
         .await
