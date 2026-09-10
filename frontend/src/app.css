@@ -872,7 +872,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .form-overlay__header h2 { font-size: 17px; font-weight: 750; }
 .form-overlay__body { padding: 18px; }
 .quick-expense-overlay .form-overlay__sheet { width: min(100%, 384px); max-width: 100%; }
-.quick-expense-overlay .form-overlay__body { display: flex; width: 100%; max-width: 100%; padding: 0 20px 20px; }
+/* 账单 Sheet 的内容区使用纵向主轴，让加载状态占满宽度后再进行水平居中。 */
+.quick-expense-overlay .form-overlay__body { display: flex; width: 100%; max-width: 100%; flex-direction: column; padding: 0 20px 20px; }
 .quick-expense-overlay--view-entry .form-overlay__body { padding-bottom: 8px; }
 .quick-expense-overlay .form-overlay__header { justify-content: center; padding-inline: 52px; }
 .quick-expense-overlay .form-overlay__header h2 { text-align: center; }
