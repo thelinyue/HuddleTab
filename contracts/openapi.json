@@ -4608,10 +4608,10 @@
       "CreateGuestBindingInvitationRequest": {
         "type": "object",
         "required": [
-          "targetUsername"
+          "targetDisplayName"
         ],
         "properties": {
-          "targetUsername": {
+          "targetDisplayName": {
             "type": "string"
           }
         }
@@ -4643,7 +4643,7 @@
             ],
             "format": "int32"
           },
-          "targetUsername": {
+          "targetDisplayName": {
             "type": [
               "string",
               "null"
@@ -4763,7 +4763,7 @@
           "revision": {
             "type": "string"
           },
-          "targetUsername": {
+          "targetDisplayName": {
             "type": [
               "string",
               "null"
@@ -5496,7 +5496,7 @@
               "null"
             ]
           },
-          "targetUsername": {
+          "targetDisplayName": {
             "type": [
               "string",
               "null"
