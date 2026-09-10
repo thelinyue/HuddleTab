@@ -103,7 +103,7 @@ const rateMutation = vi.hoisted(() => ({
 }));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 const workspaceState = vi.hoisted(() => ({ offline: false }));
-const accountingQueryState = vi.hoisted(() => ({ emptyExpenses: false, emptySettlements: false }));
+const accountingQueryState = vi.hoisted(() => ({ emptyExpenses: false, emptySettlements: false, netMinor: '-500', ledgerPending: false }));
 const guestMutation = vi.hoisted(() => ({
   error: null,
   isPending: false,
@@ -140,7 +140,7 @@ vi.mock("./api", () => ({
   useExpenseQuery: () => ({ data: expense, isPending: false }),
   useExchangeRateSuggestionMutation: () => rateMutation,
   useExpensesQuery: () => ({ data: accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
-  useLedgerQuery: () => ({ data: { balances: [{ memberId: "member-1", netMinor: "-500" }, { memberId: "member-2", netMinor: "500" }] }, isPending: false }),
+  useLedgerQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : { balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }] }, isPending: accountingQueryState.ledgerPending }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
   useSettlementsQuery: () => ({ data: accountingQueryState.emptySettlements ? [] : [settlement], isPending: false }),
   useUpdateExpenseMutation: () => updateMutation,
@@ -182,6 +182,8 @@ afterEach(() => {
   workspaceState.offline = false;
   accountingQueryState.emptyExpenses = false;
   accountingQueryState.emptySettlements = false;
+  accountingQueryState.netMinor = '-500';
+  accountingQueryState.ledgerPending = false;
   createMutation.mutateAsync.mockClear();
   reviseMutation.mutateAsync.mockClear();
   updateMutation.error = null;
@@ -1158,6 +1160,28 @@ describe("账务空状态插画", () => {
 
     expect(screen.getByRole("heading", { name: "还没有结算记录" })).toBeInTheDocument();
     expect(container.querySelector('img[src="/illustrations/settlement-history-empty.webp"]')).toHaveClass("state-illustration--compact");
+  });
+});
+
+describe("我的结算摘要", () => {
+  it.each([['500', '应收', 'positive'], ['-500', '应付', 'negative'], ['0', '已结清', null]] as const)("余额 %s 保留正确金额、状态与说明", (netMinor, label, tone) => {
+    accountingQueryState.netMinor = netMinor;
+    renderPage(<SettlementsPage />);
+    const summary = screen.getByRole('region', { name: '我的结算' });
+    expect(within(summary).getByText(label, { exact: true })).toBeVisible();
+    if (tone) expect(within(summary).getByText('¥5.00')).toHaveClass(`money--${tone}`);
+    else expect(summary.querySelector('.money')).toBeNull();
+    expect(within(summary).getByText(netMinor === '0' ? '0 人未结清 · 2 人已结清' : '2 人未结清 · 0 人已结清')).toBeVisible();
+    expect(within(summary).getByRole('link', { name: '生成分享摘要' })).toHaveAttribute('href', '/share-summary/activity-1');
+  });
+
+  it("余额未知时只显示摘要占位，不宣告已结清", () => {
+    accountingQueryState.ledgerPending = true;
+    renderPage(<SettlementsPage />);
+    const summary = screen.getByRole('region', { name: '我的结算' });
+    expect(within(summary).getByRole('status', { name: '正在读取我的结算…' })).toBeVisible();
+    expect(within(summary).queryByText('已结清')).toBeNull();
+    expect(summary.querySelector('.accounting-skeleton__row')).toBeNull();
   });
 });
 

@@ -127,9 +127,9 @@ export function ExpenseFeedPage() {
       <section className="expense-summary" aria-label="消费摘要">
         {/* 与结算摘要共用标题行，保证两个工作台页面的卡片视觉基准一致。 */}
         <header className="accounting-summary__header"><p>总消费</p></header>
-        <Money value={formatMoney(activity.baseCurrency, total.toString())} />
+        <div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div>
         {[...foreignTotals].length ? <p className="expense-summary__foreign">其中外币消费 {[...foreignTotals].map(([currencyCode, amount]) => formatMoney(currencyCode, amount.toString())).join(" · ")} · 已折算</p> : null}
-        <p className="expense-summary__meta">
+        <p className="expense-summary__meta accounting-summary__meta">
           <span>{allExpenses.length} 笔消费 · 人均消费 <strong>{formatMoney(activity.baseCurrency, average.toString())}</strong></span>
           <Popover.Root>
             <Popover.Trigger asChild>

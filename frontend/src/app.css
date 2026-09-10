@@ -429,7 +429,13 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .expense-summary, .settlement-summary { border-radius: 4px; padding: 16px; background: var(--summary); }
 .accounting-summary__header { display: flex; min-height: 24px; align-items: center; justify-content: space-between; gap: 12px; }
 .accounting-summary__header > p { margin: 0; color: var(--muted-foreground); font-size: 12px; font-weight: 650; line-height: 1.4; }
-.expense-summary > .money { display: block; margin-top: 2px; font-size: 24px; }
+/* 两页共用金额与说明的行高；状态标签不占据金额左侧，加载时也保留同样空间。 */
+.accounting-summary__value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-height: 2.25rem; margin-top: 2px; font-size: 1.5rem; font-weight: 650; line-height: 1.5; }
+.accounting-summary__value > .money { font-size: inherit; line-height: inherit; }
+.accounting-summary__state { font-size: .875rem; font-weight: 650; }
+.accounting-summary__meta { display: flex; align-items: center; min-height: 1.5rem; margin-top: 10px; color: var(--muted-foreground); font-size: .75rem; line-height: 1.5; }
+.accounting-summary__value > i { width: 110px; height: 28px; align-self: center; }
+.accounting-summary__meta > i { width: 150px; height: 16px; }
 .expense-summary__foreign, .expense-summary__meta { margin-top: 10px; color: var(--muted-foreground); font-size: 12px; }
 .expense-summary__meta { display: flex; align-items: center; gap: 4px; }
 .expense-summary__meta > span { min-width: 0; }
@@ -445,8 +451,12 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 @media (prefers-reduced-transparency: reduce) { .expense-summary__info-popover { background: var(--surface); } }
 .expense-feed-section { margin-top: 24px; }
 .expense-feed-section > header, .settlement-section > header { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; }
+/* 筛选保留独立触控区，标题按自身行高排版，使下方日期与推荐卡片共享内容起点。 */
+.expense-feed-section > header { position: relative; min-height: 0; padding-right: 110px; }
+.expense-feed-section > header > .button { position: absolute; right: 0; top: 50%; translate: 0 -50%; }
 .expense-feed-section > header h2, .settlement-section h2 { font-size: 16px; }
 .expense-date-group { margin-top: 14px; }
+.expense-feed-section > header + .expense-date-group { margin-top: 8px; }
 .expense-date-group > h3 { border-bottom: 1px solid var(--border); padding-bottom: 7px; font-size: 13px; }
 .expense-list { padding: 0; overflow: visible; }
 .expense-row { min-height: 68px; padding: 9px 4px; }
@@ -459,10 +469,6 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .form-overlay__header h2 { font-size: 17px; }
 .form-overlay__body { width: 100%; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior-x: none; padding: 18px; }
 
-.settlement-summary > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; margin-top: 2px; }
-.settlement-summary > div strong { font-size: 20px; }
-.settlement-summary > div .money { font-size: 23px; }
-.settlement-summary > small { display: block; margin-top: 8px; }
 .accounting-skeleton__inline-summary { display: flex; gap: 10px; align-items: baseline; margin-top: 4px; }
 .accounting-skeleton__inline-summary i:first-child { width: 48px; height: 18px; }
 .accounting-skeleton__inline-summary i:last-child { width: 110px; height: 28px; }

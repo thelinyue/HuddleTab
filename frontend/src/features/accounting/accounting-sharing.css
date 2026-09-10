@@ -36,9 +36,9 @@
 .share-summary-message { align-self: center; grid-row: 1 / -1; text-align: center; }
 
 /* 结算沿用工作区颜色与成员行；原地表单不会覆盖当前转账上下文。 */
-.settlement-summary > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; }
-.settlement-summary > header p { margin: 0; color: var(--muted-foreground); font-size: 12px; font-weight: 650; }
-.settlement-share-entry { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; font-size: 12px; color: var(--primary); }
+/* 扩大触控范围而不撑高标题行，确保“我的结算”与“总消费”的文字基线一致。 */
+.settlement-share-entry { position: relative; display: inline-flex; align-items: center; gap: 5px; min-height: 24px; font-size: 12px; color: var(--primary); }
+.settlement-share-entry::before { position: absolute; inset: 50% 0 auto; min-height: 44px; height: 100%; transform: translateY(-50%); content: ""; }
 .settlement-page .balance-entry { margin-top: 0; }
 .balance-entry .is-expanded { transform: rotate(180deg); }
 .settlement-recommendation-item + .settlement-recommendation-item { border-top: 1px solid var(--border); }

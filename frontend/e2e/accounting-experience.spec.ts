@@ -15,7 +15,7 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
     if (endpoint === 'settlements' && controls.historyError) { await route.fulfill({ status: 503, json: { error: { message: '记录暂时无法读取' } } }); return; }
     if (route.request().method() !== 'GET') { controls.writes.push(route.request().postDataJSON()); await route.fulfill({ status: controls.failWrite ? 409 : 200, json: controls.failWrite ? { error: { message: '记录冲突，请重试' } } : { data: records[0] } }); return; }
     let data: unknown = [];
-    else if (endpoint === 'session') data = { userId: 'u0', username: 'demo', displayName: '小林', isSystemAdmin: false };
+    if (endpoint === 'session') data = { userId: 'u0', username: 'demo', displayName: '小林', isSystemAdmin: false };
     else if (endpoint === 'csrf') data = { token: 'fixture' };
     else if (endpoint === 'demo') data = activity;
     else if (endpoint === 'members') data = members;
@@ -45,6 +45,75 @@ async function fitsScreen(page: Page) {
   const bounds = await card.boundingBox(); const area = await stage.boundingBox();
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(area!.y + area!.height + 1);
 }
+
+/** 对照真实排版坐标，而不是仅检查是否挂上相同类名。 */
+async function summaryGeometry(page: Page) {
+  return page.locator('.expense-summary, .settlement-summary').evaluate(card => {
+    const box = (element: Element) => { const { x, y, height } = element.getBoundingClientRect(); return { x, y, height }; };
+    const value = card.querySelector('.accounting-summary__value')!;
+    const amount = value.firstElementChild!;
+    const style = getComputedStyle(amount);
+    return { card: box(card), title: box(card.querySelector('header > p')!), value: box(value), amount: box(amount), meta: box(card.querySelector('.accounting-summary__meta')!), fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight };
+  });
+}
+
+test('流水与结算摘要：标题、金额、说明对齐且三种状态等高', async ({ page }, info) => {
+  const control = await installFixture(page);
+  await page.goto('/activities/demo');
+  await expect(page.locator('.expense-summary .money').first()).toHaveText('¥480.00');
+  const feed = await summaryGeometry(page);
+  const feedTitle = (await page.getByRole('heading', { name: '全部流水' }).boundingBox())!;
+  const dateTop = (await page.locator('.expense-date-group > h3').first().boundingBox())!.y;
+  // 日期文字不能落入右侧筛选按钮的命中范围。
+  expect(await page.locator('.expense-date-group > h3').first().evaluate(element => {
+    const range = document.createRange(); range.selectNodeContents(element);
+    const text = range.getBoundingClientRect();
+    const filter = document.querySelector('.expense-feed-section > header > .button')!.getBoundingClientRect();
+    return text.right <= filter.left || text.top >= filter.bottom;
+  })).toBe(true);
+  const filter = page.getByRole('button', { name: '筛选', exact: true });
+  const filterBox = (await filter.boundingBox())!;
+  expect(filterBox.height).toBeGreaterThanOrEqual(44);
+  expect(filterBox.y + filterBox.height / 2).toBeCloseTo(feedTitle.y + feedTitle.height / 2, 0);
+  await filter.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: /^关闭/ }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('alignment-feed.png') });
+  for (const [net, label, name] of [['36000', '应收', 'receivable'], ['-36000', '应付', 'payable'], ['0', '已结清', 'settled']]) {
+    control.balances.forEach((balance, index) => { balance.netMinor = index ? String(-Number(net) / 3) : net; });
+    await page.goto('/activities/demo?tab=settlement');
+    await expect(page.getByRole('region', { name: '我的结算' }).getByText(label, { exact: true })).toBeVisible();
+    expect(Math.abs((await page.getByRole('heading', { name: '推荐转账' }).boundingBox())!.y - feedTitle.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs((await page.locator('.settlement-recommendations').boundingBox())!.y - dateTop)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => {
+      const settlement = await summaryGeometry(page);
+      return [settlement.card, settlement.title, settlement.value, settlement.meta];
+    }).toEqual([feed.card, feed.title, feed.value, feed.meta]);
+    if (net !== '0') {
+      const settlement = await summaryGeometry(page);
+      expect(settlement.amount).toEqual(feed.amount);
+      expect([settlement.fontSize, settlement.lineHeight, settlement.fontWeight]).toEqual([feed.fontSize, feed.lineHeight, feed.fontWeight]);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.getByRole('navigation', { name: '活动导航' }).getByRole('link')).toHaveText(['流水', '结算']);
+    await page.screenshot({ path: info.outputPath(`alignment-${name}.png`) });
+  }
+  await page.getByRole('link', { name: '生成分享摘要' }).click();
+  await expect(page).toHaveURL(/\/share-summary\/demo$/);
+});
+
+test('结算摘要：首次余额加载前后卡片高度不跳动', async ({ page }) => {
+  const control = await installFixture(page);
+  control.ledgerPending = true; control.snapshotPending = true;
+  await page.goto('/activities/demo?tab=settlement');
+  await expect(page.getByRole('status', { name: '正在读取我的结算…' })).toBeVisible();
+  const loading = await summaryGeometry(page);
+  control.ledgerPending = false; control.snapshotPending = false;
+  await expect(page.getByRole('region', { name: '我的结算' })).toContainText('¥360.00');
+  const ready = await summaryGeometry(page);
+  expect([ready.card, ready.value, ready.meta]).toEqual([loading.card, loading.value, loading.meta]);
+});
 
 test('四人摘要一屏完整，当前页图片与屏幕一致', async ({ page }, info) => {
   await installFixture(page);
