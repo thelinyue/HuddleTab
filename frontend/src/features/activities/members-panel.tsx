@@ -42,6 +42,7 @@ export function MemberInvitationPanel({
   const [mode, setMode] = useState<"link" | "direct">("link");
   const [targetDisplayName, setTargetDisplayName] = useState("");
   const [createdToken, setCreatedToken] = useState<string>();
+  const [copyMessage, setCopyMessage] = useState("");
   const inviteUrl = createdToken ? `${window.location.origin}/join/${encodeURIComponent(createdToken)}` : undefined;
   const [error, setError] = useState<unknown>();
   const [submitting, setSubmitting] = useState(false);
@@ -49,11 +50,13 @@ export function MemberInvitationPanel({
   const selectMode = (nextMode: "link" | "direct") => {
     setMode(nextMode);
     setCreatedToken(undefined);
+    setCopyMessage("");
     setError(undefined);
   };
 
   const create = async (intent: InvitationIntent) => {
     setSubmitting(true);
+    setCopyMessage("");
     setCreatedToken(undefined);
     setError(undefined);
     try {
@@ -75,7 +78,7 @@ export function MemberInvitationPanel({
 
       {mode === "link" ? (
         <section className="invite-mode-panel" aria-label="链接邀请">
-          <p>生成可分享的邀请口令，对方登录或注册后即可加入活动。</p>
+          <p>生成可分享的邀请链接，对方登录或注册后即可加入活动。</p>
           <Button busy={submitting} onClick={() => void create({ mode: "link" })}><LinkIcon aria-hidden="true" size={18} />生成链接邀请</Button>
         </section>
       ) : (
@@ -94,7 +97,23 @@ export function MemberInvitationPanel({
         </form>
       )}
 
-      {createdToken ? <div className="issued-invite" role="status" aria-live="polite"><strong>邀请链接已创建</strong><a href={inviteUrl}>{inviteUrl}</a><button type="button" onClick={() => void navigator.clipboard?.writeText(inviteUrl ?? "")}>复制邀请链接</button><code>{createdToken}</code><small>链接和口令只在本次创建后显示，请及时发送给对方。</small></div> : null}
+      {createdToken ? (
+        <div className="issued-invite" role="status" aria-live="polite">
+          <strong>邀请链接已创建</strong>
+          <a href={inviteUrl} aria-label="邀请链接，可左右滑动查看完整地址">{inviteUrl}</a>
+          <Button variant="secondary" type="button" onClick={async () => {
+            try {
+              if (!navigator.clipboard) throw new Error("剪贴板不可用");
+              await navigator.clipboard.writeText(inviteUrl ?? "");
+              setCopyMessage("邀请链接已复制");
+            } catch {
+              setCopyMessage("复制失败，请长按或选择上方链接手动复制。");
+            }
+          }}>复制邀请链接</Button>
+          {copyMessage ? <small>{copyMessage}</small> : null}
+          <small>邀请链接只在本次创建后显示，请及时发送给对方。</small>
+        </div>
+      ) : null}
       {error ? <ErrorNotice error={error} /> : null}
     </div>
   );

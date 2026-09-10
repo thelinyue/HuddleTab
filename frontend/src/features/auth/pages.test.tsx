@@ -136,10 +136,29 @@ describe("JoinPage Guest Binding", () => {
 });
 
 describe("JoinPage approval states", () => {
-  it("邀请页使用左侧插画品牌标题，并在审批状态持续显示", async () => {
+  it("有效期使用可读日期，异常日期不泄露 Invalid Date", () => {
+    const view = renderJoin();
+    expect(screen.getByText("邀请有效期至 2026/9/8")).toBeInTheDocument();
+    view.unmount();
+    state.preview.expiresAt = "invalid";
+    renderJoin();
+    expect(screen.getByText("有效期暂无法显示")).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument();
+  });
+
+  it("匿名邀请保留携带口令的注册入口", () => {
+    state.session = undefined;
+    renderJoin();
+    expect(screen.getByRole("link", { name: "注册并加入" })).toHaveAttribute("href", "/register?invite=token-1");
+    expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login");
+  });
+
+  it("应用图标和独立邀请插画在审批状态持续显示", async () => {
     const { container } = renderJoin();
     const brand = container.querySelector(".join-panel__brand");
-    const illustration = brand?.querySelector('img[src="/illustrations/invitation.webp"]');
+    const illustration = container.querySelector('.join-panel__illustration');
+    expect(brand?.querySelector('img[src="/icons/icon-192.png"]')).toBeInTheDocument();
+    expect(brand?.contains(illustration)).toBe(false);
     expect(brand).toBeInTheDocument();
     expect(illustration).toHaveAttribute("alt", "");
     expect(illustration).toHaveAttribute("aria-hidden", "true");
@@ -157,7 +176,7 @@ describe("JoinPage approval states", () => {
     fireEvent.click(screen.getByRole("button", { name: /加入活动/ }));
 
     expect(await screen.findByText("等待活动所有者审批")).toBeInTheDocument();
-    expect(container.querySelector('.join-panel__brand img[src="/illustrations/invitation.webp"]')).toBeInTheDocument();
+    expect(container.querySelector('.join-panel__illustration[src="/illustrations/invitation.webp"]')).toBeInTheDocument();
   });
 
   it("Pending 留在邀请页并显示等待审批", async () => {

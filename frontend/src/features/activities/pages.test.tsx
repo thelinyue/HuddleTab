@@ -328,7 +328,32 @@ describe("活动管理导出", () => {
 });
 
 describe("MemberInvitationPanel", () => {
-  it("按用户名创建一次性定向邀请并显示明文口令", async () => {
+  it("复制完整链接并反馈失败，切换方式清除结果", async () => {
+    const token = "a".repeat(96);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    try {
+      render(<MemberInvitationPanel onCreate={vi.fn().mockResolvedValue({ token })} />);
+      fireEvent.click(screen.getByRole("button", { name: "生成链接邀请" }));
+      const copy = await screen.findByRole("button", { name: "复制邀请链接" });
+      expect(screen.queryByText(token)).not.toBeInTheDocument();
+      fireEvent.click(copy);
+      expect(await screen.findByText("邀请链接已复制")).toBeInTheDocument();
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/join/${token}`);
+      writeText.mockRejectedValue(new Error("denied"));
+      fireEvent.click(copy);
+      expect(await screen.findByText("复制失败，请长按或选择上方链接手动复制。")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "定向邀请" }));
+      expect(screen.queryByRole("link", { name: "邀请链接，可左右滑动查看完整地址" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/复制失败/)).not.toBeInTheDocument();
+    } finally {
+      if (original) Object.defineProperty(navigator, "clipboard", original);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("按昵称创建一次性定向邀请并仅显示邀请链接", async () => {
     const onCreate = vi.fn().mockResolvedValue({
       activityId: "activity-1",
       expiresAt: "2026-09-08T00:00:00Z",
@@ -347,7 +372,8 @@ describe("MemberInvitationPanel", () => {
     fireEvent.change(screen.getByRole("textbox", { name: /目标昵称/ }), { target: { value: "invitee" } });
     fireEvent.click(screen.getByRole("button", { name: "创建定向邀请" }));
 
-    expect(await screen.findByText("secret-token")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "邀请链接，可左右滑动查看完整地址" })).toHaveAttribute("href", `${window.location.origin}/join/secret-token`);
+    expect(screen.queryByText("secret-token")).not.toBeInTheDocument();
     expect(onCreate).toHaveBeenCalledWith({ mode: "direct", targetDisplayName: "invitee" });
   });
 

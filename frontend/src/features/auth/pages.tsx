@@ -176,21 +176,26 @@ export function JoinPage() {
   const navigate = useNavigate();
 
   if (preview.isPending || session.isPending) return <LoadingState label="正在读取邀请…" />;
+  const expiresAt = new Date(preview.data?.expiresAt ?? "");
+  const expiryLabel = Number.isNaN(expiresAt.getTime())
+    ? "有效期暂无法显示"
+    : `邀请有效期至 ${expiresAt.toLocaleDateString("zh-CN")}`;
 
   return (
-    <main className="center-page">
+    <main className="center-page join-page">
       <section className="join-panel">
-        {/* 邀请页品牌锁定独立于全站导航，插画仅作标题左侧的装饰，不承担状态信息。 */}
+        {/* 应用图标用于品牌识别，邀请插画独立展示，避免将场景插画误作标志。 */}
         <Link className="join-panel__brand" to="/activities" aria-label="伙记 HuddleTab 首页">
-          <img className="join-panel__brand-icon" src="/illustrations/invitation.webp" alt="" aria-hidden="true" width="96" height="64" loading="eager" decoding="async" />
+          <img className="join-panel__brand-icon" src="/icons/icon-192.png" alt="" aria-hidden="true" width="48" height="48" />
           <span className="join-panel__brand-copy"><strong>伙记</strong><small>HuddleTab</small></span>
         </Link>
+        <img className="join-panel__illustration" src="/illustrations/invitation.webp" alt="" aria-hidden="true" decoding="async" />
         {preview.error ? <ErrorNotice error={preview.error} /> : preview.data ? (
           <>
             <p className="eyebrow">{preview.data.purpose === "GUEST_BINDING" ? "绑定临时成员身份" : "活动邀请"}</p>
             <h1>{preview.data.activityName}</h1>
             {preview.data.purpose === "GUEST_BINDING" && preview.data.guestDisplayName ? <strong className="join-panel__guest">{preview.data.guestDisplayName}</strong> : null}
-            <p>已有 {preview.data.activeMemberCount} 位成员，邀请有效期至 {new Date(preview.data.expiresAt).toLocaleDateString("zh-CN")}。</p>
+            <div className="join-panel__details"><p>已有 {preview.data.activeMemberCount} 位成员</p><p>{expiryLabel}</p></div>
             {session.data ? (
               <>
                 {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
@@ -224,9 +229,9 @@ export function JoinPage() {
                 )}
               </>
             ) : (
-              <div className="button-row">
+              <div className="join-panel__actions">
                 <Link className="button button--primary" to={`/register?invite=${encodeURIComponent(token)}`}>{preview.data.purpose === "GUEST_BINDING" ? "注册并绑定" : "注册并加入"}</Link>
-                <Link className="button button--secondary" to="/login" state={{ from: `/join/${token}` }}>登录</Link>
+                <p>已有账号？<Link to="/login" state={{ from: `/join/${token}` }}>登录</Link></p>
               </div>
             )}
           </>

@@ -368,7 +368,7 @@ pub(crate) async fn create_guest_binding_invitation(
                 target_display_name: invitation.target_display_name,
                 guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
                 token: created.token.expose_once().to_owned(),
-                expires_at: invitation.expires_at.to_string(),
+                expires_at: super::formatting::format_time(invitation.expires_at),
                 max_uses: invitation.max_uses,
                 use_count: invitation.use_count,
                 version: invitation.version.to_string(),
@@ -435,7 +435,7 @@ pub(crate) async fn create_invitation(
                 target_display_name: invitation.target_display_name,
                 guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
                 token: created.token.expose_once().to_owned(),
-                expires_at: invitation.expires_at.to_string(),
+                expires_at: super::formatting::format_time(invitation.expires_at),
                 max_uses: invitation.max_uses,
                 use_count: invitation.use_count,
                 version: invitation.version.to_string(),
@@ -561,7 +561,7 @@ pub(crate) async fn preview_invitation(
             },
             guest_member_id: preview.guest_member_id.map(|value| value.to_string()),
             guest_display_name: preview.guest_display_name,
-            expires_at: preview.expires_at.to_string(),
+            expires_at: super::formatting::format_time(preview.expires_at),
         },
     }))
 }
@@ -767,12 +767,38 @@ fn invitation_data(invitation: Invitation) -> InvitationData {
         purpose: invitation.purpose().as_str(),
         target_display_name: invitation.target_display_name,
         guest_member_id: invitation.guest_member_id.map(|value| value.to_string()),
-        expires_at: invitation.expires_at.to_string(),
+        expires_at: super::formatting::format_time(invitation.expires_at),
         max_uses: invitation.max_uses,
         use_count: invitation.use_count,
         revoked_at: invitation.revoked_at.map(|value| value.to_string()),
         version: invitation.version.to_string(),
         revision: invitation.revision.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod invitation_time_tests {
+    use super::*;
+    use crate::application::collaboration::InvitationKind;
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+    #[test]
+    fn invitation_expiry_is_browser_readable_rfc3339() {
+        let expected = "2026-09-10T16:53:00+08:00";
+        let data = invitation_data(Invitation {
+            id: Uuid::nil(),
+            activity_id: Uuid::nil(),
+            kind: InvitationKind::Link,
+            target_display_name: None,
+            guest_member_id: None,
+            expires_at: OffsetDateTime::parse(expected, &Rfc3339).unwrap(),
+            max_uses: None,
+            use_count: 0,
+            revoked_at: None,
+            version: 1,
+            revision: 1,
+        });
+        assert_eq!(serde_json::to_value(data).unwrap()["expiresAt"], expected);
     }
 }
 
