@@ -136,11 +136,15 @@ describe("JoinPage Guest Binding", () => {
 });
 
 describe("JoinPage approval states", () => {
-  it("有效邀请使用装饰插画，进入审批状态后不继续占用状态区域", async () => {
+  it("邀请页使用左侧插画品牌标题，并在审批状态持续显示", async () => {
     const { container } = renderJoin();
-    const illustration = container.querySelector('img[src="/illustrations/invitation.webp"]');
+    const brand = container.querySelector(".join-panel__brand");
+    const illustration = brand?.querySelector('img[src="/illustrations/invitation.webp"]');
+    expect(brand).toBeInTheDocument();
     expect(illustration).toHaveAttribute("alt", "");
     expect(illustration).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("伙记")).toBeInTheDocument();
+    expect(screen.getByText("HuddleTab")).toBeInTheDocument();
 
     state.join.mutateAsync.mockResolvedValue({
       activityId: "activity-1",
@@ -153,7 +157,7 @@ describe("JoinPage approval states", () => {
     fireEvent.click(screen.getByRole("button", { name: /加入活动/ }));
 
     expect(await screen.findByText("等待活动所有者审批")).toBeInTheDocument();
-    expect(container.querySelector('img[src="/illustrations/invitation.webp"]')).not.toBeInTheDocument();
+    expect(container.querySelector('.join-panel__brand img[src="/illustrations/invitation.webp"]')).toBeInTheDocument();
   });
 
   it("Pending 留在邀请页并显示等待审批", async () => {

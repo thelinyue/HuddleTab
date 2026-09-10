@@ -1,8 +1,7 @@
 import { ArrowRight, Eye, EyeOff, LockKeyhole, LogIn, UserPlus, UserRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Brand } from "../../components/brand";
-import { Button, ErrorNotice, Field, Input, LoadingState, StateIllustration } from "../../components/ui";
+import { Button, ErrorNotice, Field, Input, LoadingState } from "../../components/ui";
 import { useInvitationPreviewQuery, useJoinInvitationMutation, useJoinRequestQuery, useLoginMutation, useRegisterMutation, useSessionQuery } from "./api";
 
 function AuthLayout({ children }: { children: React.ReactNode }) {
@@ -181,10 +180,13 @@ export function JoinPage() {
   return (
     <main className="center-page">
       <section className="join-panel">
-        <Brand />
+        {/* 邀请页品牌锁定独立于全站导航，插画仅作标题左侧的装饰，不承担状态信息。 */}
+        <Link className="join-panel__brand" to="/activities" aria-label="伙记 HuddleTab 首页">
+          <img className="join-panel__brand-icon" src="/illustrations/invitation.webp" alt="" aria-hidden="true" width="96" height="64" loading="eager" decoding="async" />
+          <span className="join-panel__brand-copy"><strong>伙记</strong><small>HuddleTab</small></span>
+        </Link>
         {preview.error ? <ErrorNotice error={preview.error} /> : preview.data ? (
           <>
-            {!requestId ? <StateIllustration className="join-panel__illustration" src="/illustrations/invitation.webp" size="compact" loading="eager" /> : null}
             <p className="eyebrow">{preview.data.purpose === "GUEST_BINDING" ? "绑定临时成员身份" : "活动邀请"}</p>
             <h1>{preview.data.activityName}</h1>
             {preview.data.purpose === "GUEST_BINDING" && preview.data.guestDisplayName ? <strong className="join-panel__guest">{preview.data.guestDisplayName}</strong> : null}
