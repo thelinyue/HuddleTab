@@ -546,7 +546,7 @@ async fn insert_binding_invitation(
     .concat();
     sqlx::query(
         "INSERT INTO activity_invites (
-            id, activity_id, created_by_member_id, token_hash, kind, target_username,
+        id, activity_id, created_by_member_id, token_hash, kind, target_display_name,
             expires_at, max_uses, guest_member_id, created_at
          ) VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '1 day', $7, $8, NOW())",
     )

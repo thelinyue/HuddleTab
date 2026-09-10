@@ -1099,7 +1099,7 @@ async fn username_change_checks_password_preserves_session_and_revokes_direct_in
         .unwrap();
     let activity = create_activity(app.clone(), &token, &csrf).await;
     let activity_id = Uuid::parse_str(activity["activityId"].as_str().unwrap()).unwrap();
-    sqlx::query("INSERT INTO activity_invites (id, activity_id, created_by_member_id, token_hash, kind, target_username, expires_at, max_uses, created_at) SELECT $1, id, owner_member_id, $2, 'DIRECT', 'alice', NOW() + interval '1 day', 1, NOW() FROM activities WHERE id = $3")
+    sqlx::query("INSERT INTO activity_invites (id, activity_id, created_by_member_id, token_hash, kind, target_display_name, expires_at, max_uses, created_at) SELECT $1, id, owner_member_id, $2, 'DIRECT', 'alice', NOW() + interval '1 day', 1, NOW() FROM activities WHERE id = $3")
         .bind(Uuid::new_v4()).bind(vec![42_u8;32]).bind(activity_id).execute(&pool).await.unwrap();
     let request = |name: &str, pass: &str| {
         authenticated_request(
