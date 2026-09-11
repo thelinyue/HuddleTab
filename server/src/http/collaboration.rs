@@ -777,6 +777,7 @@ fn invitation_data(invitation: Invitation) -> InvitationData {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod invitation_time_tests {
     use super::*;
     use crate::application::collaboration::InvitationKind;
