@@ -260,14 +260,14 @@ pub(crate) async fn create_guest(
     path = "/api/activities/{activity_id}/members/{member_id}",
     params(
         ("activity_id" = String, Path, description = "活动 UUID"),
-        ("member_id" = String, Path, description = "临时成员 UUID"),
+        ("member_id" = String, Path, description = "活动成员 UUID"),
         ("x-csrf-token" = String, Header, description = "当前 Session 的 CSRF token")
     ),
     responses(
-        (status = 200, description = "临时成员已移除", body = GuestRemovalEnvelope),
+        (status = 200, description = "成员已退出或被移除", body = GuestRemovalEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
         (status = 403, description = "无权限", body = super::error::ErrorEnvelope),
-        (status = 404, description = "临时成员不存在、已移除或已绑定账号", body = super::error::ErrorEnvelope)
+        (status = 404, description = "成员不存在、已移除或不是普通成员", body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn remove_guest(

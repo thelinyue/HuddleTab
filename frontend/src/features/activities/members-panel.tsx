@@ -1,4 +1,4 @@
-import { Link as LinkIcon, Trash2, UserPlus, UserRoundCheck } from "lucide-react";
+import { Link as LinkIcon, LogOut, Trash2, UserPlus, UserRoundCheck } from "lucide-react";
 import { useState } from "react";
 import { Button, ConfirmDialog, ErrorNotice, Field, Input, LoadingState } from "../../components/ui";
 import { MemberAvatar } from "../../components/member-avatar";
@@ -25,6 +25,7 @@ export function MembersOverlay({ onClose }: { onClose: () => void }) {
   return (
     <Overlay
       open
+      className="members-overlay"
       title={view === "list" ? "成员" : "邀请成员"}
       onBack={view === "invite" ? { label: "返回成员", onClick: () => setView("list") } : undefined}
       onClose={onClose}
@@ -265,10 +266,10 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
         <div className="member-list">
           {memberData?.map((member) => {
             const canBind = canManage && member.status === "ACTIVE" && member.userId == null;
-            const canRemove = canManage
-              && member.status === "ACTIVE"
-              && member.role === "MEMBER"
-              && member.userId == null;
+            const isSelf = member.memberId === activity.currentMemberId;
+            const canRemove = activity.status === "ACTIVE" && member.status === "ACTIVE" && member.role === "MEMBER" && (
+              isSelf ? !offline : canManage
+            );
             const editorOpen = bindingMemberId === member.memberId;
             const removed = member.status === "LEFT";
             return (
@@ -277,7 +278,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
                   <MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} />
                   <span>
                     <strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong>
-                    <small>{member.userId ? "正式成员" : removed ? "临时成员 · 已移除" : "临时成员"}</small>
+                    <small>{removed ? `${member.userId ? "正式成员" : "临时成员"} · 已移除` : member.userId ? "正式成员" : "临时成员"}</small>
                   </span>
                   <div className="member-row__actions">
                     <span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : "成员"}</span>
@@ -300,12 +301,12 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
                       <button
                         className="icon-button member-row__remove"
                         type="button"
-                        aria-label={`删除临时成员 ${member.displayName}`}
-                        title={`删除临时成员 ${member.displayName}`}
+                        aria-label={`${isSelf ? "退出活动" : "移除成员"} ${member.displayName}`}
+                        title={`${isSelf ? "退出活动" : "移除成员"} ${member.displayName}`}
                         onClick={() => openGuestRemoval(member.memberId)}
                         disabled={removeGuest.isPending || removalSubmitting}
                       >
-                        <Trash2 aria-hidden="true" size={18} />
+                        {isSelf ? <LogOut aria-hidden="true" size={18} /> : <Trash2 aria-hidden="true" size={18} />}
                       </button>
                     ) : null}
                   </div>
@@ -349,10 +350,10 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
       })}</div></section> : null}
       <ConfirmDialog
         open={Boolean(removalMember)}
-        title={removalMember ? `确认删除临时成员「${removalMember.displayName}」` : "确认删除临时成员"}
-        message="成员将不能再参与新账单或结算，已有账务会保留；无历史记录时会彻底删除。"
+        title={removalMember ? `确认${removalMember.memberId === activity.currentMemberId ? "退出活动" : "移除成员"}「${removalMember.displayName}」` : "确认操作"}
+        message="该成员将不能再参与新账单或结算，已有账务会保留；无历史记录时会彻底删除。"
         error={removalError ? <ErrorNotice error={removalError} /> : undefined}
-        confirmLabel="删除成员"
+        confirmLabel={removalMember?.memberId === activity.currentMemberId ? "退出活动" : "移除成员"}
         busy={removeGuest.isPending || removalSubmitting}
         onConfirm={() => void confirmGuestRemoval()}
         onCancel={cancelGuestRemoval}

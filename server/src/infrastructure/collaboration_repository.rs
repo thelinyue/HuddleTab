@@ -78,7 +78,19 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         now: OffsetDateTime,
     ) -> Result<RemovedGuest, CollaborationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let actor_member_id = authorize_owner(&mut transaction, activity_id, actor_user_id).await?;
+        // 退出和移除都必须锁住活动及操作者成员，确保生命周期与权限判断不会被并发写入绕过。
+        let actor_member = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT m.id, m.role FROM activities a JOIN activity_members m ON m.activity_id = a.id
+             WHERE a.id = $1 AND a.status = 'ACTIVE' AND a.deleted_at IS NULL
+               AND m.user_id = $2 AND m.status = 'ACTIVE' FOR UPDATE OF a, m",
+        )
+        .bind(activity_id)
+        .bind(actor_user_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .ok_or(CollaborationRepositoryError::Forbidden)?;
+        let actor_member_id = actor_member.0;
         let member = sqlx::query_as::<_, (Option<Uuid>, String, String)>(
             "SELECT user_id, role, status FROM activity_members
              WHERE id = $1 AND activity_id = $2 FOR UPDATE",
@@ -88,10 +100,17 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .fetch_optional(&mut *transaction)
         .await
         .map_err(log_repository_error)?
-        .filter(|(user_id, role, status)| {
-            user_id.is_none() && role == "MEMBER" && status == "ACTIVE"
-        })
         .ok_or(CollaborationRepositoryError::GuestNotFound)?;
+        let is_self = member.0 == Some(actor_user_id);
+        if member.1 == "OWNER" && is_self {
+            return Err(CollaborationRepositoryError::Forbidden);
+        }
+        if member.1 != "MEMBER" || member.2 != "ACTIVE" {
+            return Err(CollaborationRepositoryError::GuestNotFound);
+        }
+        if !is_self && actor_member.1 != "OWNER" {
+            return Err(CollaborationRepositoryError::Forbidden);
+        }
 
         // 账务、邀请和审计外键都属于成员历史的一部分；任一引用存在时只能标记 LEFT。
         let has_references = sqlx::query_scalar::<_, bool>(
@@ -167,7 +186,11 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 activity_id,
                 actor_user_id,
                 actor_member_id: Some(actor_member_id),
-                action: "MEMBER_GUEST_REMOVED",
+                action: if is_self {
+                    "MEMBER_LEFT"
+                } else {
+                    "MEMBER_REMOVED"
+                },
                 resource_type: "ACTIVITY_MEMBER",
                 resource_id: member_id,
                 now,

@@ -224,7 +224,7 @@ pub enum CollaborationRepositoryError {
     Forbidden,
     #[error("协作资源不存在")]
     NotFound,
-    #[error("临时成员不存在或已绑定账号")]
+    #[error("成员不存在、已移除或不是普通成员")]
     GuestNotFound,
     #[error("目标用户已存在活动成员身份")]
     GuestBindingConflict,
@@ -362,7 +362,7 @@ pub enum CollaborationError {
     Forbidden,
     #[error("协作资源不存在")]
     NotFound,
-    #[error("临时成员不存在或已绑定账号")]
+    #[error("成员不存在、已移除或不是普通成员")]
     GuestNotFound,
     #[error("目标用户已存在活动成员身份")]
     GuestBindingConflict,
@@ -404,11 +404,11 @@ pub async fn create_guest(
         .map_err(map_repository_error)
 }
 
-/// 删除 ACTIVE、未绑定账号的临时成员；已有引用的成员只退出后续协作并保留账务历史。
+/// 成员主动退出或由 Owner 移除 ACTIVE 普通成员；已有引用的成员只退出后续协作并保留账务历史。
 ///
 /// # Errors
 ///
-/// 操作者无权限、目标不是可删除的临时成员或存储失败时返回对应协作错误。
+/// 操作者无权限、目标不是可移除的普通成员或存储失败时返回对应协作错误。
 pub async fn remove_guest(
     repository: &dyn CollaborationRepository,
     clock: &dyn Clock,

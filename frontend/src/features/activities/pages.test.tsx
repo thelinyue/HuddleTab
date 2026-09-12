@@ -194,6 +194,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   activityApiState.activity.currentMemberRole = "OWNER";
+  activityApiState.activity.currentMemberId = "member-owner";
   activityApiState.activity.status = "ACTIVE";
   activityApiState.activity.allowedLifecycleActions = ["END"];
   activityApiState.activity.canDelete = true;
@@ -459,29 +460,49 @@ describe("成员 Overlay", () => {
     });
   });
 
-  it("仅 ACTIVE Owner 对未绑定临时成员显示带昵称的删除按钮", () => {
+  it("ACTIVE Owner 对普通成员显示带昵称的移除按钮", () => {
     renderWorkspace();
 
-    const removeButton = screen.getByRole("button", { name: "删除临时成员 临时成员" });
-    expect(removeButton).toHaveAttribute("title", "删除临时成员 临时成员");
+    const removeButton = screen.getByRole("button", { name: "移除成员 临时成员" });
+    expect(removeButton).toHaveAttribute("title", "移除成员 临时成员");
     expect(removeButton).toHaveClass("member-row__remove");
+
+    activityApiState.members[1] = { ...activityApiState.members[1], userId: "user-2" };
+    cleanup();
+    renderWorkspace();
+    expect(screen.getByRole("button", { name: "移除成员 临时成员" })).toBeInTheDocument();
 
     activityApiState.activity.currentMemberRole = "MEMBER";
     cleanup();
     renderWorkspace();
-    expect(screen.queryByRole("button", { name: "删除临时成员 临时成员" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "移除成员 临时成员" })).not.toBeInTheDocument();
+  });
+
+  it("普通成员只显示自己的退出活动入口，Owner 不显示退出入口", () => {
+    activityApiState.activity.currentMemberRole = "MEMBER";
+    activityApiState.activity.currentMemberId = "guest-1";
+    activityApiState.members[1] = { ...activityApiState.members[1], userId: "user-2" };
+    renderWorkspace();
+
+    expect(screen.getByRole("button", { name: "退出活动 临时成员" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /移除成员/ })).not.toBeInTheDocument();
+
+    cleanup();
+    activityApiState.activity.currentMemberRole = "OWNER";
+    activityApiState.activity.currentMemberId = "member-owner";
+    renderWorkspace();
+    expect(screen.queryByRole("button", { name: /退出活动/ })).not.toBeInTheDocument();
   });
 
   it.each([
     ["ENDED", null],
-    ["ACTIVE", "user-2"],
     ["ACTIVE", null, "LEFT"],
   ])("状态 %s、userId %s 或已移除成员不显示删除入口", (status, userId, memberStatus = "ACTIVE") => {
     activityApiState.activity.status = status;
     activityApiState.members[1] = { ...activityApiState.members[1], status: memberStatus, userId };
     renderWorkspace();
 
-    expect(screen.queryByRole("button", { name: /删除临时成员/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /移除成员|退出活动/ })).not.toBeInTheDocument();
   });
 
   it("确认删除时显示说明、支持焦点恢复并只提交一次", async () => {
@@ -490,18 +511,18 @@ describe("成员 Overlay", () => {
     );
     renderWorkspace();
 
-    const trigger = screen.getByRole("button", { name: "删除临时成员 临时成员" });
+    const trigger = screen.getByRole("button", { name: "移除成员 临时成员" });
     trigger.focus();
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("alertdialog", { name: "确认删除临时成员「临时成员」" });
+    const dialog = screen.getByRole("alertdialog", { name: "确认移除成员「临时成员」" });
     expect(within(dialog).getByText(/不能再参与新账单或结算/)).toBeInTheDocument();
     expect(within(dialog).getByText(/已有账务会保留/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "删除成员" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "删除成员" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "移除成员" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "移除成员" }));
     expect(mutateAsync).toHaveBeenCalledTimes(1);
-    expect(within(dialog).getByRole("button", { name: "删除成员" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "移除成员" })).toBeDisabled();
 
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
@@ -510,12 +531,12 @@ describe("成员 Overlay", () => {
     activityApiState.removeGuest.mutateAsync.mockRejectedValue(new Error("成员已被其他操作修改。"));
     renderWorkspace();
 
-    fireEvent.click(screen.getByRole("button", { name: "删除临时成员 临时成员" }));
-    const dialog = screen.getByRole("alertdialog", { name: "确认删除临时成员「临时成员」" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "删除成员" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除成员 临时成员" }));
+    const dialog = screen.getByRole("alertdialog", { name: "确认移除成员「临时成员」" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "移除成员" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("成员已被其他操作修改。");
-    expect(screen.getByRole("alertdialog", { name: "确认删除临时成员「临时成员」" })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "确认移除成员「临时成员」" })).toBeInTheDocument();
   });
 
   it("硬删除后成员消失，软删除后保留原位并标记只读状态", async () => {
@@ -524,8 +545,8 @@ describe("成员 Overlay", () => {
       return { data: { memberId: "guest-1", result: "DELETED", revision: "2" } };
     });
     renderWorkspace();
-    fireEvent.click(screen.getByRole("button", { name: "删除临时成员 临时成员" }));
-    fireEvent.click(screen.getByRole("button", { name: "删除成员" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除成员 临时成员" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除成员" }));
 
     await waitFor(() => expect(screen.queryByText("临时成员")).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "活动成员 · 1人" })).toBeInTheDocument();
@@ -545,13 +566,13 @@ describe("成员 Overlay", () => {
       return { data: { memberId: "guest-1", result: "LEFT", revision: "3" } };
     });
     renderWorkspace();
-    fireEvent.click(screen.getByRole("button", { name: "删除临时成员 临时成员" }));
-    fireEvent.click(screen.getByRole("button", { name: "删除成员" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除成员 临时成员" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除成员" }));
 
     await waitFor(() => expect(screen.getByText("临时成员 · 已移除")).toBeInTheDocument());
     expect(screen.getByText("已移除")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "活动成员 · 1人 · 已移除 1人" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /删除临时成员/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /移除成员|退出活动/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "绑定账号" })).not.toBeInTheDocument();
   });
 

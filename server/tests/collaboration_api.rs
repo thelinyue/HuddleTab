@@ -1904,7 +1904,7 @@ async fn remove_guest_hard_deletes_unreferenced_guest_and_records_audit() {
     .fetch_one(&pool)
     .await
     .expect("应读取 Guest 删除审计");
-    assert_eq!(audit.0, "MEMBER_GUEST_REMOVED");
+    assert_eq!(audit.0, "MEMBER_REMOVED");
     assert_eq!(audit.1, 3);
     assert_eq!(audit.2, guest_member_id);
     assert!(audit.3.is_some());
@@ -2034,7 +2034,7 @@ async fn remove_guest_marks_referenced_members_left_and_revokes_binding_invites(
     assert_eq!(invite_state.1, 2);
     let removal_audits: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM activity_audit_logs
-         WHERE activity_id = $1 AND action = 'MEMBER_GUEST_REMOVED'",
+         WHERE activity_id = $1 AND action = 'MEMBER_REMOVED'",
     )
     .bind(activity_id)
     .fetch_one(&pool)
@@ -2045,7 +2045,7 @@ async fn remove_guest_marks_referenced_members_left_and_revokes_binding_invites(
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-// 覆盖认证、Owner、目标类型、跨活动和生命周期边界，所有非法目标统一返回 GUEST_NOT_FOUND。
+// 覆盖认证、Owner、自主退出、目标类型、跨活动和生命周期边界。
 #[allow(clippy::too_many_lines)]
 async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
@@ -2060,7 +2060,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let outsider = seed_actor(&pool, &secret, "bob", "Bob").await;
     let bound_actor = seed_actor(&pool, &secret, "carol", "Carol").await;
-    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let (activity_id, owner_member_id) = seed_activity(&pool, &owner).await;
     let formal_member_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at)
@@ -2121,20 +2121,58 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], "UNAUTHENTICATED");
 
-    for target_member_id in [formal_member_id, Uuid::new_v4()] {
-        let (status, body) = json_response(
-            &app,
-            authenticated_request(
-                &owner,
-                "DELETE",
-                format!("/api/activities/{activity_id}/members/{target_member_id}"),
-                "{}",
-            ),
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
-    }
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{owner_member_id}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "FORBIDDEN");
+
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{formal_member_id}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["result"], "DELETED");
+
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{}", Uuid::new_v4()),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
+
+    let missing_member_id = Uuid::new_v4();
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{missing_member_id}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
 
     let bound_guest = create_binding_guest(&app, &owner, activity_id).await;
     sqlx::query("UPDATE activity_members SET user_id = $1 WHERE id = $2")
@@ -2150,7 +2188,33 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
         .execute(&pool)
         .await
         .expect("应建立已移除 Guest");
-    for target_member_id in [bound_guest, left_guest] {
+
+    let self_member_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at)
+         VALUES ($1, $2, $3, 'Carol', 'MEMBER', $4)",
+    )
+    .bind(self_member_id)
+    .bind(activity_id)
+    .bind(bound_actor.user_id)
+    .bind(OffsetDateTime::now_utc())
+    .execute(&pool)
+    .await
+    .expect("应建立可主动退出的正式成员");
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{bound_guest}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["result"], "DELETED");
+
+    for target_member_id in [left_guest] {
         let (status, body) = json_response(
             &app,
             authenticated_request(
@@ -2164,6 +2228,19 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"]["code"], "GUEST_NOT_FOUND");
     }
+
+    let (status, body) = json_response(
+        &app,
+        authenticated_request(
+            &bound_actor,
+            "DELETE",
+            format!("/api/activities/{activity_id}/members/{self_member_id}"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["result"], "DELETED");
 
     let (other_activity_id, _) = seed_activity(&pool, &owner).await;
     let cross_activity_guest = create_binding_guest(&app, &owner, other_activity_id).await;

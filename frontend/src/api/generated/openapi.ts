@@ -2690,14 +2690,14 @@ export interface operations {
             path: {
                 /** @description 活动 UUID */
                 activity_id: string;
-                /** @description 临时成员 UUID */
+                /** @description 活动成员 UUID */
                 member_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description 临时成员已移除 */
+            /** @description 成员已退出或被移除 */
             200: {
                 headers: {
                     [name: string]: unknown;
