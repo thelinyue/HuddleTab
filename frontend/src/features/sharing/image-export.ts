@@ -78,3 +78,34 @@ export async function exportSummaryCard(options: { card: HTMLElement; width: num
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   return { kind: "downloaded" };
 }
+
+/** 导出流水小票；长小票保持完整高度，不分页。 */
+export async function exportReceiptCard(options: { card: HTMLElement; width: number; height: number; delivery: "save" | "share" }): Promise<SummaryImageExportResult> {
+  const card = options.card;
+  if (!(card instanceof HTMLElement)) throw new Error("找不到流水小票，请刷新页面后重试。");
+  await waitForCardAssets(card);
+  const blob = await toBlob(card, { cacheBust: true, pixelRatio: Math.max(2, 1600 / options.width), width: options.width, height: options.height });
+  if (!blob) throw new Error("浏览器未能生成小票图片，请刷新页面后重试。");
+  if (options.delivery === "share" || usesCoarsePointer()) {
+    if (typeof File === "undefined") return createPreview(blob);
+    const file = new File([blob], "huddletab-expense-receipt.png", { type: "image/png" });
+    if (!canShareFile(file)) return createPreview(blob);
+    try {
+      await navigator.share({ files: [file], title: "HuddleTab 流水小票" });
+      return { kind: "shared" };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return { kind: "cancelled" };
+      return createPreview(blob, true);
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const download = document.createElement("a");
+  download.download = "huddletab-expense-receipt.png";
+  download.href = url;
+  download.hidden = true;
+  document.body.append(download);
+  download.click();
+  download.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  return { kind: "downloaded" };
+}

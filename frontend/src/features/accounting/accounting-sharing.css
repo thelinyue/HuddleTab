@@ -34,6 +34,32 @@
 .share-summary-feedback { position: fixed; left: 50%; bottom: calc(106px + var(--safe-area-bottom)); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: var(--surface); color: var(--foreground); box-shadow: var(--shadow-overlay); font-size: 13px; z-index: 5; }
 .share-summary-feedback--error { color: var(--destructive); }
 .share-summary-message { align-self: center; grid-row: 1 / -1; text-align: center; }
+.expense-receipt-controls { width: var(--share-width); margin-inline: auto; display: grid; gap: 8px; }
+.expense-receipt-page { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.expense-receipt-page .share-summary-toolbar { padding-top: 8px; padding-bottom: max(0px, var(--safe-area-bottom)); }
+.expense-receipt-page .share-summary-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 4px; border: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--surface-muted) 82%, transparent); backdrop-filter: blur(16px) saturate(150%); }
+.expense-receipt-page .share-summary-actions .button { min-height: 44px; border-radius: 10px; transition: transform 100ms ease-out, background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+.expense-receipt-page .share-summary-actions .button:first-child { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); box-shadow: 0 1px 3px rgb(0 0 0 / 16%); }
+.expense-receipt-page .share-summary-actions .button:last-child { border: 1px solid var(--border); background: var(--surface); color: var(--foreground); }
+.expense-receipt-page .share-summary-actions .button:active { transform: scale(.97); }
+.expense-receipt-page .share-summary-actions .button:disabled { opacity: .55; box-shadow: none; }
+.expense-receipt-mode { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 13px; background: color-mix(in srgb, var(--surface-muted) 82%, transparent); box-shadow: inset 0 1px 2px rgb(0 0 0 / 5%); }
+.expense-receipt-mode button { min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 13px; transition: transform 100ms ease-out, color 160ms ease, background 160ms ease, box-shadow 160ms ease; }
+.expense-receipt-mode button:active { transform: scale(.97); }
+.expense-receipt-mode button[aria-pressed="true"] { background: var(--surface); color: var(--foreground); font-weight: 650; box-shadow: 0 1px 3px rgb(0 0 0 / 12%), 0 1px 1px rgb(0 0 0 / 6%); }
+.expense-receipt-date { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.expense-receipt-date input { min-height: 44px; border: 1px solid var(--border); border-radius: 8px; padding-inline: 10px; background: var(--surface); color: var(--foreground); font: inherit; }
+.expense-receipt-preview { overflow: auto; padding-inline: 2px; }
+.expense-receipt-card { box-sizing: border-box; width: 100%; padding: 18px 14px; background: #fffefb; color: #1d3028; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; box-shadow: 0 8px 24px rgb(29 48 40 / 10%); }
+.expense-receipt-card header { text-align: center; }.expense-receipt-card header p { margin: 0; font-size: 12px; }.expense-receipt-card h1 { margin: 4px 0 10px; font-size: 17px; letter-spacing: .08em; }.expense-receipt-card h2 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }.expense-receipt-card header small { color: #68716a; font-size: 11px; }
+.expense-receipt-card__rule { margin-block: 12px; border-top: 1px dashed #aeb8af; }.expense-receipt-entry { padding-block: 2px 10px; }.expense-receipt-entry p { margin: 3px 0; font-size: 11px; overflow-wrap: anywhere; }.expense-receipt-entry__title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }.expense-receipt-entry__title strong { overflow-wrap: anywhere; }.expense-receipt-entry__title b { flex: 0 0 auto; white-space: nowrap; }.expense-receipt-empty { margin: 26px 0; text-align: center; color: #68716a; }.expense-receipt-card footer { display: grid; gap: 5px; font-size: 11px; }.expense-receipt-card footer strong { text-align: right; font-size: 14px; }.expense-receipt-card footer small { padding-top: 12px; text-align: center; color: #68716a; }
+@media (prefers-reduced-transparency: reduce) { .expense-receipt-mode { background: var(--surface-muted); } }
+@media (prefers-contrast: more) { .expense-receipt-mode button[aria-pressed="true"], .expense-receipt-date input { border: 2px solid currentColor; } }
+@media (prefers-reduced-motion: reduce) { .expense-receipt-mode button { transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease; } .expense-receipt-mode button:active { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .expense-receipt-page .share-summary-actions .button { transition: background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease; } .expense-receipt-page .share-summary-actions .button:active { transform: none; } }
+@media (prefers-reduced-transparency: reduce) { .expense-receipt-page .share-summary-actions { background: var(--surface-muted); backdrop-filter: none; } }
+@media (prefers-contrast: more) { .expense-receipt-page .share-summary-actions { border: 2px solid currentColor; } }
+@media (prefers-color-scheme: dark) { .expense-receipt-card { background: #fffefb; color: #1d3028; } }
 
 /* 结算沿用工作区颜色与成员行；原地表单不会覆盖当前转账上下文。 */
 /* 扩大触控范围而不撑高标题行，确保“我的结算”与“总消费”的文字基线一致。 */

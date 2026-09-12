@@ -27,6 +27,7 @@ const ChangeUsernamePage = lazy(() => import("../features/me/username-page").the
 const ChangePasswordPage = lazy(() => import("../features/me/password-page").then((module) => ({ default: module.ChangePasswordPage })));
 const NotificationsPage = lazy(() => import("../features/notifications/pages").then((module) => ({ default: module.NotificationsPage })));
 const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));
+const ReceiptSharePage = lazy(() => import("../features/sharing/receipt-page").then((module) => ({ default: module.ReceiptSharePage })));
 
 function RootRedirect() {
   const session = useSessionQuery();
@@ -117,7 +118,8 @@ export function ApplicationRouter() {
             <Route path="/admin/settings" element={<Suspense fallback={<LoadingState label="正在打开系统设置…" />}><AdminSettingsPage /></Suspense>} />
             <Route path="/admin/system" element={<Suspense fallback={<LoadingState label="正在打开系统信息…" />}><AdminSystemInformationPage /></Suspense>} />
           </Route>
-            <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
+          <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />
+          <Route path="/share-feed/:activityId" element={<Suspense fallback={<LoadingState label="正在打开流水小票…" />}><ReceiptSharePage /></Suspense>} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Route>

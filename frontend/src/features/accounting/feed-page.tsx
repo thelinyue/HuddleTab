@@ -1,5 +1,5 @@
 import { ApiRequestError } from "../../api/error";
-import { Filter, Info, Plus, ReceiptText } from "lucide-react";
+import { Filter, Info, Plus, ReceiptText, ImageDown } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -126,7 +126,7 @@ export function ExpenseFeedPage() {
       {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，以下流水使用最近一次同步的只读快照；新账单仍可先保存在本机。</span></div> : null}
       <section className="expense-summary" aria-label="消费摘要">
         {/* 与结算摘要共用标题行，保证两个工作台页面的卡片视觉基准一致。 */}
-        <header className="accounting-summary__header"><p>总消费</p></header>
+        <header className="accounting-summary__header"><p>总消费</p><Link className="settlement-share-entry" to={`/share-feed/${encodeURIComponent(activity.activityId)}`}><ImageDown aria-hidden="true" size={17} />分享流水小票</Link></header>
         <div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div>
         {[...foreignTotals].length ? <p className="expense-summary__foreign">其中外币消费 {[...foreignTotals].map(([currencyCode, amount]) => formatMoney(currencyCode, amount.toString())).join(" · ")} · 已折算</p> : null}
         <p className="expense-summary__meta accounting-summary__meta">
