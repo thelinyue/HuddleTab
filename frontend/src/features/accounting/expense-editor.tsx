@@ -5,7 +5,7 @@ import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
 import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, ErrorNotice, Field, Input, LoadingState, Money, Textarea } from "../../components/ui";
-import { amountToMinor, decimalToHundredths, formatMoney, minorToInput, normalizeCurrency } from "../../domain-preview/money";
+import { amountToMinor, formatMoney, minorToInput, normalizeCurrency } from "../../domain-preview/money";
 import type { PendingAttachmentDraft } from "../../pwa/indexed-db/schema";
 import { type ActivityMember, useCreateGuestMutation, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
@@ -25,7 +25,7 @@ import { attachmentAccept, ExpenseAttachments, SelectedAttachmentPreviews, valid
 
 import { categories, memberAvatarPreset, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
 const splitModes = [
-  ["EQUAL", "均摊"], ["EXACT", "按金额"], ["PERCENTAGE", "按比例"], ["WEIGHT", "按权重"],
+  ["EQUAL", "均摊"], ["EXACT", "按金额"], ["PERCENTAGE", "按比例"], ["WEIGHT", "按份数"],
 ] as const;
 const quickSplitModes = [
   ["EQUAL", "均摊"], ["EXACT", "按金额"], ["PERCENTAGE", "按比例"], ["WEIGHT", "按份数"],
@@ -160,8 +160,14 @@ function quickAllocate(totalMinor: bigint, weights: readonly { memberId: string;
   return result;
 }
 
-function formatHundredths(value: bigint): string {
-  return `${value / 100n}.${(value % 100n).toString().padStart(2, "0")}`;
+function parseQuickInteger(value: string, label: string): bigint {
+  const normalized = value.trim();
+  if (!/^(0|[1-9]\d*)$/.test(normalized)) throw new Error(`${label}必须是整数。`);
+  return BigInt(normalized);
+}
+
+function formatQuickInteger(value: bigint): string {
+  return value.toString();
 }
 
 /** 快捷记账只在展示层预览分摊，最终金额仍由 Rust 领域层再次校验。 */
@@ -181,10 +187,10 @@ function previewQuickSplit(totalMinor: bigint | null, currency: string, memberId
         ? { allocations: [...allocations].sort((left, right) => left.memberId < right.memberId ? -1 : 1), allocatedMinor, valid: true }
         : { allocations, allocatedMinor, valid: false, error: "指定金额合计必须等于消费总额" };
     }
-    const weights = memberIds.map((memberId) => ({ memberId, weight: BigInt(decimalToHundredths(values[memberId] ?? "", mode === "PERCENTAGE" ? "比例" : "份数")) }));
+    const weights = memberIds.map((memberId) => ({ memberId, weight: parseQuickInteger(values[memberId] ?? "", mode === "PERCENTAGE" ? "比例" : "份数") }));
     if (weights.some((row) => row.weight <= 0n)) return { allocations: [], allocatedMinor: 0n, valid: false, error: "分摊值必须大于零" };
     const weightTotal = weights.reduce((sum, row) => sum + row.weight, 0n);
-    if (mode === "PERCENTAGE" && weightTotal !== 10_000n) return { allocations: [], allocatedMinor: 0n, valid: false, error: "比例合计必须等于 100%" };
+    if (mode === "PERCENTAGE" && weightTotal !== 100n) return { allocations: [], allocatedMinor: 0n, valid: false, error: "比例合计必须等于 100%" };
     const allocations = quickAllocate(totalMinor, weights);
     return { allocations, allocatedMinor: allocations.reduce((sum, row) => sum + row.amountMinor, 0n), valid: true };
   } catch (error) {
@@ -197,7 +203,7 @@ function quickSplitProgress(currency: string, memberIds: readonly string[], mode
     return memberIds.reduce((sum, memberId) => {
       const value = (values[memberId] ?? "").trim();
       if (!value) return sum;
-      const units = mode === "EXACT" ? amountToMinor(value, currency) : decimalToHundredths(value, mode === "PERCENTAGE" ? "比例" : "份数");
+      const units = mode === "EXACT" ? amountToMinor(value, currency) : parseQuickInteger(value, mode === "PERCENTAGE" ? "比例" : "份数").toString();
       return sum + BigInt(units);
     }, 0n);
   } catch {
@@ -205,25 +211,71 @@ function quickSplitProgress(currency: string, memberIds: readonly string[], mode
   }
 }
 
-function QuickSplitSummary({ currency, memberIds, mode, values, totalMinor }: {
+function QuickSplitSummary({ currency, memberIds, mode, values, totalMinor, onFillRemainder }: {
   currency: string;
   memberIds: readonly string[];
   mode: SplitMode;
   values: Readonly<Record<string, string>>;
   totalMinor: bigint | null;
+  onFillRemainder?: () => void;
 }) {
   const totalLabel = totalMinor === null ? "待填写金额" : formatMoney(currency, totalMinor.toString());
   if (mode === "EQUAL") {
-    const average = totalMinor !== null && memberIds.length ? formatMoney(currency, (totalMinor / BigInt(memberIds.length)).toString()) : "待完成";
-    return <><p><span>合计</span><strong>{totalLabel}</strong></p><p><span>人均</span><strong>{average}</strong></p></>;
+    return <><p><span>消费总额</span><strong>{totalLabel}</strong></p><p><span>已分配</span><strong>{totalMinor === null ? "待完成" : `${totalLabel} · 差额 ${formatMoney(currency, "0")}`}</strong></p></>;
   }
   const progress = quickSplitProgress(currency, memberIds, mode, values);
   if (mode === "EXACT") {
-    return <p><span>已分配{" "}</span><strong>{progress === null ? "待完成" : `${formatMoney(currency, progress.toString())} / ${totalLabel}`}</strong></p>;
+    const emptyMembers = memberIds.filter((memberId) => !(values[memberId] ?? "").trim());
+    const remaining = totalMinor !== null && progress !== null ? totalMinor - progress : null;
+    return <>
+      <p><span>消费总额</span><strong>{totalLabel}</strong></p>
+      <p><span>已分配</span><strong>{progress === null ? "待完成" : `${formatMoney(currency, progress.toString())} · 差额 ${formatMoney(currency, remaining?.toString() ?? "0")}`}</strong></p>
+      {onFillRemainder && emptyMembers.length > 0 && remaining !== null && remaining >= 0n ? <button type="button" className="quick-split-remainder" onClick={onFillRemainder}>填入剩余金额</button> : null}
+    </>;
   }
-  const progressLabel = mode === "PERCENTAGE" ? "已分配" : "总份数";
-  const progressText = progress === null ? "待完成" : `${formatHundredths(progress)}${mode === "PERCENTAGE" ? "%" : ""}`;
-  return <><p><span>{progressLabel}</span><strong>{progressText}</strong></p><p><span>合计</span><strong>{totalLabel}</strong></p></>;
+  if (mode === "PERCENTAGE") {
+    const progressText = progress === null ? "待完成" : `${progress}%`;
+    const remaining = progress === null ? "待完成" : `${100n - progress}%`;
+    const emptyMembers = memberIds.filter((memberId) => !(values[memberId] ?? "").trim());
+    const remainingValue = progress === null ? null : 100n - progress;
+    return <>
+      <p><span>消费总额</span><strong>{totalLabel}</strong></p>
+      <p><span>已分配</span><strong>{progressText} · 剩余 {remaining}</strong></p>
+      {onFillRemainder && emptyMembers.length > 0 && remainingValue !== null && remainingValue > 0n ? <button type="button" className="quick-split-remainder" onClick={onFillRemainder}>分配剩余比例</button> : null}
+    </>;
+  }
+  const progressText = progress === null ? "待完成" : progress.toString();
+  const perUnit = totalMinor !== null && progress !== null && progress > 0n ? formatMoney(currency, (totalMinor / progress).toString()) : "待完成";
+  return <><p><span>消费总额</span><strong>{totalLabel}</strong></p><p><span>总份数</span><strong>{progressText} · 每份 {perUnit}</strong></p></>;
+}
+
+/** 为自定义模式生成一个可立即提交的平均起点，避免用户先面对一组无效的零值。 */
+function initialSplitValues(totalMinor: bigint | null, currency: string, memberIds: readonly string[], mode: Exclude<SplitMode, "EQUAL">): Record<string, string> {
+  if (mode === "WEIGHT") return Object.fromEntries(memberIds.map((memberId) => [memberId, "1"]));
+  if (mode === "PERCENTAGE") {
+    const count = BigInt(memberIds.length);
+    const base = count ? 100n / count : 0n;
+    const remainder = count ? 100n % count : 0n;
+    return Object.fromEntries(memberIds.map((memberId, index) => [memberId, (base + (BigInt(index) < remainder ? 1n : 0n)).toString()]));
+  }
+  if (totalMinor === null || memberIds.length === 0) return {};
+  const allocations = quickAllocate(totalMinor, memberIds.map((memberId) => ({ memberId, weight: 1n })));
+  return Object.fromEntries(allocations.map((allocation) => [allocation.memberId, minorToInput(allocation.amountMinor.toString(), currency)]));
+}
+
+/** 只给空白成员填入当前模式的剩余值，已填写的成员不会被悄悄改动。 */
+function fillSplitRemainder(totalMinor: bigint | null, currency: string, memberIds: readonly string[], mode: "EXACT" | "PERCENTAGE", values: Readonly<Record<string, string>>): Record<string, string> {
+  const emptyIds = memberIds.filter((memberId) => !(values[memberId] ?? "").trim());
+  if (!emptyIds.length) return { ...values };
+  const progress = quickSplitProgress(currency, memberIds, mode, values);
+  const remaining = mode === "EXACT" ? (totalMinor !== null && progress !== null ? totalMinor - progress : null) : (progress !== null ? 100n - progress : null);
+  if (remaining === null || remaining < 0n) return { ...values };
+  const allocations = quickAllocate(remaining, emptyIds.map((memberId) => ({ memberId, weight: 1n })));
+  return Object.fromEntries(memberIds.map((memberId) => {
+    const allocation = allocations.find((row) => row.memberId === memberId);
+    if (!allocation) return [memberId, values[memberId] ?? ""];
+    return [memberId, mode === "EXACT" ? minorToInput(allocation.amountMinor.toString(), currency) : allocation.amountMinor.toString()];
+  }));
 }
 
 type PayerSelection =
@@ -299,32 +351,21 @@ function QuickExpenseActionDock({ children, status }: { children: ReactNode; sta
   );
 }
 
-function parseQuickWeight(value: string): bigint | null {
-  try {
-    return BigInt(decimalToHundredths(value.trim() || "0", "份数"));
-  } catch {
-    return null;
-  }
-}
-
-function formatQuickWeight(value: bigint): string {
-  return value % 100n === 0n ? (value / 100n).toString() : formatHundredths(value);
-}
-
-/** 步进按钮使用整数份递增，但保留手动输入两位小数份数的现有能力。 */
-function QuickWeightStepper({ name, value, onChange }: { name: string; value: string; onChange: (value: string) => void }) {
-  const parsed = parseQuickWeight(value);
+/** 金额以外的两种离散分配都使用相同的整数步进控件，保证触控和键盘路径一致。 */
+function QuickIntegerStepper({ name, unit, value, max, onChange }: { name: string; unit: "比例" | "份数"; value: string; max?: bigint; onChange: (value: string) => void }) {
+  let parsed: bigint | null = null;
+  try { parsed = parseQuickInteger(value.trim() || "0", unit); } catch { /* 输入中的临时非法文本交给预览校验展示。 */ }
   const update = (delta: bigint) => {
     if (parsed === null) return;
     const next = parsed + delta;
-    if (next <= 0n) return;
-    onChange(formatQuickWeight(next));
+    if (next < 0n || (max !== undefined && next > max)) return;
+    onChange(formatQuickInteger(next));
   };
   return (
-    <div className="quick-weight-stepper" role="group" aria-label={`${name}份数`}>
-      <button type="button" aria-label={`减少${name}的份数`} disabled={parsed === null || parsed <= 100n} onClick={() => update(-100n)}><Minus aria-hidden="true" size={17} /></button>
-      <Input inputMode="decimal" aria-label={`${name}按份数`} value={value} placeholder="份数" onChange={(event) => onChange(event.target.value)} />
-      <button type="button" aria-label={`增加${name}的份数`} disabled={parsed === null} onClick={() => update(100n)}><Plus aria-hidden="true" size={17} /></button>
+    <div className="quick-weight-stepper" role="group" aria-label={`${name}${unit}`}>
+      <button type="button" aria-label={`减少${name}的${unit}`} disabled={parsed === null || parsed <= 0n} onClick={() => update(-1n)}><Minus aria-hidden="true" size={17} /></button>
+      <span className="quick-weight-stepper__value"><Input inputMode="numeric" aria-label={`${name}按${unit}`} value={value} placeholder="0" onChange={(event) => onChange(event.target.value)} />{unit === "比例" ? <span className="quick-weight-stepper__unit" aria-hidden="true">%</span> : null}</span>
+      <button type="button" aria-label={`增加${name}的${unit}`} disabled={parsed === null || (max !== undefined && parsed >= max)} onClick={() => update(1n)}><Plus aria-hidden="true" size={17} /></button>
     </div>
   );
 }
@@ -414,8 +455,8 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
   const [payerDraftValues, setPayerDraftValues] = useState<Record<string, string>>(initialPaymentValues);
   const [participantIds, setParticipantIds] = useState<string[]>(initialParticipants);
   const [participantDraft, setParticipantDraft] = useState<string[]>(initialParticipants);
-  // 服务端事实只保留最终金额，编辑时使用 EXACT 才能无损回填；被拒草稿仍保留原始模式。
-  const [splitMode, setSplitMode] = useState<SplitMode>(initial ? "EXACT" : (pendingPayload?.split.mode as SplitMode | undefined) ?? "EQUAL");
+  // 服务端事实只保留最终金额；已有均摊可安全回显，其余模式使用金额事实无损回填。
+  const [splitMode, setSplitMode] = useState<SplitMode>(initial ? (initial.expense.splitMode === "EQUAL" ? "EQUAL" : "EXACT") : (pendingPayload?.split.mode as SplitMode | undefined) ?? "EQUAL");
   const [splitValues, setSplitValues] = useState<Record<string, string>>(() => Object.fromEntries(
     initial ? initial.shares.map((share) => [share.memberId, minorToInput(share.originalAmountMinor, initial.expense.originalCurrency)])
       : pendingPayload?.split.entries?.map((entry) => [entry.memberId, entry.value]) ?? [],
@@ -535,9 +576,22 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
     if (participantDraft.length === 0) { setQuickError("至少选择一名参与成员"); return; }
     const changed = participantDraft.length !== participantIds.length || participantDraft.some((id) => !participantIds.includes(id));
     setParticipantIds([...participantDraft]);
-    if (changed && splitMode !== "EQUAL") setSplitValues({});
+    if (changed && splitMode !== "EQUAL") setSplitValues(initialSplitValues(totalMinor, currency, participantDraft, splitMode));
     setQuickError(undefined);
     onViewChange("entry");
+  }
+
+  function switchSplitMode(next: SplitMode) {
+    setQuickError(undefined);
+    setSplitMode(next);
+    if (next === "EQUAL") setSplitValues({});
+    else setSplitValues(initialSplitValues(totalMinor, currency, participantIds, next));
+  }
+
+  function fillRemainder() {
+    if (splitMode !== "EXACT" && splitMode !== "PERCENTAGE") return;
+    setQuickError(undefined);
+    setSplitValues((current) => fillSplitRemainder(totalMinor, currency, participantIds, splitMode, current));
   }
 
   async function submitGuest() {
@@ -632,7 +686,7 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
         exchangeRateReferenceDate: normalizedCurrency === activity.baseCurrency ? null : exchangeRateReferenceDate,
         exchangeRateProvider: normalizedCurrency === activity.baseCurrency ? null : exchangeRateProvider,
         payments: payments.payments,
-        split: splitMode === "EQUAL" ? { mode: splitMode, members: participantIds } : { mode: splitMode, entries: participantIds.map((memberId) => ({ memberId, value: splitMode === "EXACT" ? amountToMinor(splitValues[memberId] ?? "", normalizedCurrency) : splitMode === "WEIGHT" ? decimalToHundredths(splitValues[memberId] ?? "", "份数") : (splitValues[memberId] ?? "").trim() })) },
+        split: splitMode === "EQUAL" ? { mode: splitMode, members: participantIds } : { mode: splitMode, entries: participantIds.map((memberId) => ({ memberId, value: splitMode === "EXACT" ? amountToMinor(splitValues[memberId] ?? "", normalizedCurrency) : parseQuickInteger(splitValues[memberId] ?? "", splitMode === "PERCENTAGE" ? "比例" : "份数").toString() })) },
       };
       if (initial) {
         await update.mutateAsync({ ...draft, version: initial.expense.version });
@@ -704,25 +758,29 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
         : view === "currency-rate" ? <div className="quick-expense-subview" data-quick-expense-view="currency-rate"><Field label={`汇率（1 ${currency} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input data-overlay-initial-focus inputMode="decimal" value={exchangeRate} onChange={(event) => { setQuickError(undefined); setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} placeholder="例如 7.25" required /><Button type="button" variant="secondary" disabled={rateSuggestion.isPending} onClick={() => void requestReferenceRate()}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field><QuickExpenseActionDock><Button type="button" disabled={!exchangeRate.trim()} onClick={() => onViewChange("entry")}>完成</Button></QuickExpenseActionDock></div>
         : view === "note" ? <div className="quick-expense-subview quick-expense-note-view" data-quick-expense-view="note"><Field label="备注"><Textarea data-overlay-initial-focus value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={4} /></Field>{initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={setAttachmentToDelete} /> : <Field label="附件（最多三张）"><div className="quick-expense-attachment"><input id="quick-expense-attachments" className="quick-expense-attachment__input" aria-label="附件（最多三张）" type="file" accept={attachmentAccept} multiple disabled={selectedAttachments.length >= 3} onChange={(event) => { const files = Array.from(event.target.files ?? []); const error = validateAttachments([...selectedAttachments.map(({ file }) => file), ...files]); if (error) { setQuickError(error); return; } setSelectedAttachments((current) => [...current, ...files.map((file) => ({ id: crypto.randomUUID(), clientAttachmentId: crypto.randomUUID(), fileName: file.name, mimeType: file.type, blob: file, file }))]); event.target.value = ""; }} /><span className="quick-expense-attachment__surface"><ImagePlus aria-hidden="true" size={18} /><strong>选择图片</strong><small>{selectedAttachments.length ? `已选择 ${selectedAttachments.length}/3` : "未选择图片"}</small></span></div><SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field>}{deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}<QuickExpenseActionDock><Button type="button" onClick={() => onViewChange("entry")}>完成</Button></QuickExpenseActionDock><ConfirmDialog open={Boolean(attachmentToDelete)} title="删除附件" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} /></div>
         : <div className="quick-expense-subview" data-quick-expense-view="split">
-          <fieldset className="quick-split-modes" role="radiogroup" aria-label="分摊方式">{quickSplitModes.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={splitMode === value} onClick={() => { setQuickError(undefined); setSplitMode(value); }}>{label}</button>)}</fieldset>
+          <fieldset className="quick-split-modes" role="radiogroup" aria-label="分摊方式">{quickSplitModes.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={splitMode === value} onClick={() => switchSplitMode(value)}>{label}</button>)}</fieldset>
+          <div className="quick-split-summary" aria-live="polite"><QuickSplitSummary currency={currency} memberIds={participantIds} mode={splitMode} values={splitValues} totalMinor={totalMinor} onFillRemainder={fillRemainder} /></div>
           <div className="quick-split-list" role="list" aria-label="参与成员分摊">
             <div className="quick-split-list__rows">{participantIds.map((memberId) => {
               const name = memberName(memberId, activeMembers);
+              const allocation = splitPreview.allocations.find((row) => row.memberId === memberId);
               const updateSplitValue = (value: string) => {
                 setQuickError(undefined);
                 setSplitValues((current) => ({ ...current, [memberId]: value }));
               };
-              return <div className="quick-split-row" key={memberId}>
+              return <div className={`quick-split-row${splitMode === "EQUAL" ? " quick-split-row--equal" : ""}`} key={memberId}>
                 <MemberAvatar memberId={memberId} displayName={name} avatarPreset={memberAvatarPreset(memberId, activeMembers)} size="sm" />
-                <span>{name}</span>
-                {splitMode === "EQUAL"
-                  ? <strong>{splitPreview.valid ? formatMoney(currency, splitPreview.allocations.find((row) => row.memberId === memberId)?.amountMinor.toString() ?? "0") : "待完成"}</strong>
-                  : splitMode === "WEIGHT"
-                    ? <QuickWeightStepper name={name} value={splitValues[memberId] ?? ""} onChange={updateSplitValue} />
-                    : <Input inputMode="decimal" aria-label={`${name}${quickSplitModes.find(([value]) => value === splitMode)?.[1]}`} value={splitValues[memberId] ?? ""} placeholder={splitMode === "PERCENTAGE" ? "%" : "金额"} onChange={(event) => updateSplitValue(event.target.value)} />}
+                <span className="quick-split-row__name">{name}</span>
+                {splitMode === "WEIGHT"
+                  ? <div className="quick-split-row__control"><QuickIntegerStepper name={name} unit="份数" value={splitValues[memberId] ?? "1"} onChange={updateSplitValue} /></div>
+                  : splitMode === "PERCENTAGE"
+                    ? <div className="quick-split-row__control"><QuickIntegerStepper name={name} unit="比例" value={splitValues[memberId] ?? "0"} max={100n} onChange={updateSplitValue} /></div>
+                    : splitMode === "EXACT"
+                      ? <div className="quick-split-row__control"><Input inputMode="decimal" aria-label={`${name}${quickSplitModes.find(([value]) => value === splitMode)?.[1]}`} value={splitValues[memberId] ?? ""} placeholder="金额" onChange={(event) => updateSplitValue(event.target.value)} /></div>
+                      : null}
+                <strong className="quick-split-row__result">{allocation ? formatMoney(currency, allocation.amountMinor.toString()) : "待完成"}</strong>
               </div>;
             })}</div>
-            <div className="quick-expense-subview__summary" aria-live="polite"><QuickSplitSummary currency={currency} memberIds={participantIds} mode={splitMode} values={splitValues} totalMinor={totalMinor} /></div>
           </div>
           <QuickExpenseActionDock><Button type="button" disabled={!splitPreview.valid} onClick={() => { setQuickError(undefined); onViewChange("entry"); }}>完成</Button></QuickExpenseActionDock>
         </div>}
@@ -792,4 +850,3 @@ export function ExpenseDetailPage() {
     </div>
   );
 }
-

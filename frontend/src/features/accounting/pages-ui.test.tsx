@@ -423,7 +423,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     })));
   });
 
-  it("精确分摊实时显示守恒汇总，参与人变更会清空旧的精确值", async () => {
+  it("精确分摊实时显示守恒汇总，参与人变更会重新生成有效起点", async () => {
     const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^分摊设置：/ }));
@@ -431,7 +431,10 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     fireEvent.click(within(splitDialog).getByRole("radio", { name: "按金额" }));
     fireEvent.change(within(splitDialog).getByLabelText("甲按金额"), { target: { value: "60" } });
     fireEvent.change(within(splitDialog).getByLabelText("乙按金额"), { target: { value: "40" } });
-    expect(splitDialog).toHaveTextContent("已分配 ¥100.00 / ¥100.00");
+    expect(splitDialog).toHaveTextContent(/已分配\s*¥100\.00\s*·\s*差额\s*¥0\.00/);
+    fireEvent.change(within(splitDialog).getByLabelText("乙按金额"), { target: { value: "" } });
+    fireEvent.click(within(splitDialog).getByRole("button", { name: "填入剩余金额" }));
+    expect(within(splitDialog).getByLabelText("乙按金额")).toHaveValue("40.00");
     fireEvent.click(within(splitDialog).getByRole("button", { name: "完成" }));
     const rootDialog = screen.getByRole("dialog", { name: "记一笔" });
     fireEvent.click(within(rootDialog).getByRole("button", { name: /^参与人：/ }));
@@ -440,10 +443,10 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     fireEvent.click(within(participantDialog).getByRole("button", { name: "完成" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "记一笔" })).getByRole("button", { name: /^分摊设置：/ }));
     const resetSplitDialog = screen.getByRole("dialog", { name: "分摊设置" });
-    expect(within(resetSplitDialog).getByLabelText("甲按金额")).toHaveValue("");
+    expect(within(resetSplitDialog).getByLabelText("甲按金额")).toHaveValue("100.00");
   });
 
-  it("按份数支持整数步进和小数手输，按比例使用百分比符号占位", async () => {
+  it("按份数从一开始使用整数步进，按比例显示百分号并隐藏全局平均操作", async () => {
     const { dialog } = await openQuickExpense();
     fireEvent.change(within(dialog).getByLabelText("金额"), { target: { value: "100" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^分摊设置：/ }));
@@ -453,21 +456,28 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     const weightInput = within(splitDialog).getByLabelText("甲按份数");
     const decrement = within(splitDialog).getByRole("button", { name: "减少甲的份数" });
     const increment = within(splitDialog).getByRole("button", { name: "增加甲的份数" });
-    expect(weightInput).toHaveValue("");
-    expect(decrement).toBeDisabled();
-    fireEvent.click(increment);
     expect(weightInput).toHaveValue("1");
-    expect(decrement).toBeDisabled();
-    fireEvent.change(weightInput, { target: { value: "1.25" } });
+    expect(decrement).toBeEnabled();
     fireEvent.click(increment);
-    expect(weightInput).toHaveValue("2.25");
+    expect(weightInput).toHaveValue("2");
     fireEvent.click(decrement);
-    expect(weightInput).toHaveValue("1.25");
+    expect(weightInput).toHaveValue("1");
+    fireEvent.change(weightInput, { target: { value: "1.25" } });
+    expect(within(splitDialog).getByRole("button", { name: "完成" })).toBeDisabled();
+    fireEvent.change(weightInput, { target: { value: "1" } });
+    expect(within(splitDialog).getByRole("button", { name: "完成" })).toBeEnabled();
     expect(within(splitDialog).getByRole("button", { name: "完成" }).parentElement).toHaveClass("quick-expense-action-dock");
 
     fireEvent.click(within(splitDialog).getByRole("radio", { name: "按比例" }));
-    expect(within(splitDialog).getByLabelText("甲按比例")).toHaveAttribute("placeholder", "%");
-    expect(within(splitDialog).getByLabelText("乙按比例")).toHaveAttribute("placeholder", "%");
+    expect(within(splitDialog).getByLabelText("甲按比例")).toHaveValue("50");
+    expect(within(splitDialog).getAllByText("%", { selector: ".quick-weight-stepper__unit" })).toHaveLength(2);
+    expect(within(splitDialog).getByLabelText("甲按比例")).toHaveAttribute("placeholder", "0");
+    expect(within(splitDialog).getByLabelText("乙按比例")).toHaveAttribute("placeholder", "0");
+    expect(within(splitDialog).queryByRole("button", { name: "平均分配" })).not.toBeInTheDocument();
+    expect(within(splitDialog).queryByRole("button", { name: "平均份数" })).not.toBeInTheDocument();
+    fireEvent.change(within(splitDialog).getByLabelText("乙按比例"), { target: { value: "" } });
+    fireEvent.click(within(splitDialog).getByRole("button", { name: "分配剩余比例" }));
+    expect(within(splitDialog).getByLabelText("乙按比例")).toHaveValue("50");
   });
 
   it("Owner 在线可添加临时成员，离线时添加入口禁用", async () => {
@@ -556,7 +566,7 @@ describe("统一账单编辑器", () => {
     expect(screen.getByLabelText("用途")).toHaveValue("午餐");
     expect(screen.getByRole("button", { name: /^付款人：/ })).toHaveTextContent("甲");
     expect(screen.getByRole("button", { name: /^参与人：/ })).toHaveTextContent("2 人");
-    expect(screen.getByRole("button", { name: /^分摊设置：/ })).toHaveTextContent("按金额");
+    expect(screen.getByRole("button", { name: /^分摊设置：/ })).toHaveTextContent("均摊");
 
     fireEvent.click(screen.getByRole("button", { name: /^付款人：/ }));
     expect(screen.getByRole("radio", { name: "甲" })).toHaveAttribute("aria-checked", "true");
@@ -566,12 +576,11 @@ describe("统一账单编辑器", () => {
     expect(screen.getByRole("checkbox", { name: "乙" })).toHaveAttribute("aria-checked", "true");
     fireEvent.click(screen.getByRole("button", { name: "返回修改账单" }));
     fireEvent.click(screen.getByRole("button", { name: /^分摊设置：/ }));
-    expect(screen.getByRole("radio", { name: "按金额" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByLabelText("甲按金额")).toHaveValue("5.00");
-    expect(screen.getByLabelText("乙按金额")).toHaveValue("5.00");
+    expect(screen.getByRole("radio", { name: "均摊" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByLabelText("甲按金额")).not.toBeInTheDocument();
   });
 
-  it("未改动事实时保存携带原版本、mutation id、付款与精确分摊", async () => {
+  it("未改动事实时保存携带原版本、mutation id、付款与均摊模式", async () => {
     renderPage(<ExpenseDetailPage />);
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
@@ -580,13 +589,7 @@ describe("统一账单编辑器", () => {
       clientMutationId: "mutation-1",
       originalAmountMinor: "1000",
       payments: [{ memberId: "member-1", amountMinor: "1000" }],
-      split: {
-        mode: "EXACT",
-        entries: [
-          { memberId: "member-1", value: "500" },
-          { memberId: "member-2", value: "500" },
-        ],
-      },
+      split: { mode: "EQUAL", members: ["member-1", "member-2"] },
     })));
   });
 

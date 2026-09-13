@@ -136,13 +136,13 @@ test("活动首页、工作台和记账入口保持远程基线信息路径", as
   const weightInput = splitDialog.getByRole("textbox", { name: /按份数$/ }).first();
   const incrementWeight = splitDialog.getByRole("button", { name: /^增加.+的份数$/ }).first();
   const decrementWeight = splitDialog.getByRole("button", { name: /^减少.+的份数$/ }).first();
-  await expect(weightInput).toHaveValue("");
+  await expect(weightInput).toHaveValue("0");
   await expect(decrementWeight).toBeDisabled();
   await incrementWeight.click();
   await expect(weightInput).toHaveValue("1");
-  await expect(decrementWeight).toBeDisabled();
+  await expect(decrementWeight).toBeEnabled();
   await splitDialog.getByRole("radio", { name: "按比例", exact: true }).click();
-  await expect(splitDialog.locator('input[placeholder="%"]')).toHaveCount(1);
+  await expect(splitDialog.locator('.quick-weight-stepper__unit')).toHaveCount(2);
   await splitDialog.getByRole("button", { name: "记一笔", exact: true }).click();
   await expect(expenseDialog.getByRole("button", { name: /^分摊设置：/ })).toBeFocused();
 

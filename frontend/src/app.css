@@ -1005,21 +1005,33 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .quick-currency-check { display: grid; width: 22px; height: 22px; place-items: center; color: var(--primary); }
 .quick-expense-muted { padding: 28px 4px; color: var(--muted-foreground); text-align: center; }
 .quick-split-modes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.quick-split-list { display: flex; min-height: 0; flex-direction: column; }
+.quick-split-list { display: flex; min-height: 0; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
 .quick-split-list__rows { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.quick-split-row { display: grid; min-width: 0; min-height: 62px; grid-template-columns: 32px minmax(0, 1fr) minmax(92px, 124px); align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+.quick-split-row { display: grid; min-width: 0; min-height: 62px; grid-template-columns: 32px minmax(0, 1fr) minmax(92px, 144px) minmax(68px, 84px); align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+.quick-split-row--equal { grid-template-columns: 32px minmax(0, 1fr) minmax(72px, auto); }
 .quick-split-row:last-child { border-bottom: 0; }
-.quick-split-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.quick-split-row > strong { min-width: 0; overflow: hidden; color: var(--muted-foreground); font-family: var(--font-money-family); font-size: 13px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.quick-split-row > .input { width: 100%; min-width: 0; padding-inline: 8px; text-align: right; }
-.quick-split-row:has(.quick-weight-stepper) { grid-template-columns: 32px minmax(0, 1fr) 144px; }
-.quick-weight-stepper { display: grid; width: 100%; min-width: 0; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 2px; }
-.quick-weight-stepper > button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--border); border-radius: 12px; color: var(--foreground); background: var(--surface-muted); touch-action: manipulation; }
+.quick-split-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.quick-split-row__control { width: 100%; min-width: 0; }
+.quick-split-row__control > .input { width: 100%; min-width: 0; padding-inline: 8px; text-align: right; }
+.quick-split-row__result { min-width: 0; overflow: hidden; color: var(--muted-foreground); font-family: var(--font-money-family); font-size: 13px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+/* 比例/份数使用一个连续步进控件，减少重复圆角，同时保留独立的 44px 触控区。 */
+.quick-weight-stepper { display: grid; width: 100%; min-width: 0; grid-template-columns: 42px minmax(0, 1fr) 42px; align-items: stretch; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-muted); }
+.quick-weight-stepper > button { display: grid; width: auto; min-height: 44px; place-items: center; border: 0; border-radius: 0; color: var(--muted-foreground); background: transparent; touch-action: manipulation; transition: background-color 120ms ease, color 120ms ease; }
+.quick-weight-stepper > button:first-child { border-right: 1px solid var(--border); }
+.quick-weight-stepper > button:last-child { border-left: 1px solid var(--border); }
+.quick-weight-stepper > button:hover:not(:disabled) { color: var(--primary); background: var(--secondary); }
+.quick-weight-stepper > button:active:not(:disabled) { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--surface-muted)); }
 .quick-weight-stepper > button:disabled { cursor: not-allowed; opacity: .42; }
-.quick-weight-stepper > .input { width: 100%; min-width: 0; min-height: 44px; padding-inline: 2px; text-align: center; }
-.quick-expense-subview__summary { display: grid; gap: 2px; margin-top: auto; border-top: 1px solid var(--border); padding: 6px 2px 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.45; }
-.quick-expense-subview__summary > p { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 12px; }
-.quick-expense-subview__summary > p > strong { min-width: 0; overflow: hidden; color: var(--foreground); font-family: var(--font-money-family); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.quick-weight-stepper__value { position: relative; display: flex; width: 100%; min-width: 0; align-items: center; background: var(--surface); }
+.quick-weight-stepper__value > .input { width: 100%; min-width: 0; min-height: 44px; border: 0; border-radius: 0; padding: 9px 2px; background: transparent; font-weight: 650; text-align: center; }
+.quick-weight-stepper__value > .input:focus { border-color: transparent; outline: 2px solid var(--ring); outline-offset: -2px; }
+.quick-weight-stepper__unit { position: absolute; top: 50%; right: 7px; color: var(--muted-foreground); font-size: 12px; pointer-events: none; transform: translateY(-50%); }
+.quick-split-summary { display: grid; gap: 2px; border-bottom: 1px solid var(--border); padding: 4px 2px 8px; color: var(--muted-foreground); font-size: 12px; line-height: 1.45; }
+.quick-split-summary > p { display: flex; min-height: 36px; align-items: center; justify-content: space-between; gap: 12px; }
+.quick-split-summary > p > strong { min-width: 0; overflow: hidden; color: var(--foreground); font-family: var(--font-money-family); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.quick-split-remainder { justify-self: start; min-height: 36px; border: 0; padding: 0 2px; color: var(--primary); background: transparent; font-size: 12px; font-weight: 650; text-align: left; touch-action: manipulation; }
+.quick-split-remainder:active { opacity: .68; }
+.quick-split-remainder:focus-visible { border-radius: 6px; outline: 2px solid var(--ring); outline-offset: 2px; }
 .quick-expense-attachment { position: relative; min-width: 0; min-height: 52px; }
 .quick-expense-attachment__input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; cursor: pointer; opacity: 0; }
 .quick-expense-attachment__input:disabled { cursor: not-allowed; }
@@ -1040,8 +1052,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .quick-expense-field-button__value, .quick-expense-value-button { font-size: 13px; }
   .quick-member-row--with-input { display: grid; grid-template-columns: minmax(0, 1fr) minmax(88px, 112px); }
   .quick-member-row--with-input > .input { width: 100%; margin-right: 0; }
-  .quick-split-row { grid-template-columns: 32px minmax(0, 1fr) minmax(88px, 112px); }
-  .quick-split-row:has(.quick-weight-stepper) { grid-template-columns: 32px minmax(0, 1fr) 144px; gap: 4px; }
+  .quick-split-row { grid-template-columns: 32px minmax(0, 1fr) minmax(92px, 144px) minmax(64px, 76px); gap: 6px; }
+  .quick-split-row--equal { grid-template-columns: 32px minmax(0, 1fr) minmax(72px, auto); gap: 8px; }
 }
 
 /* 44px 触控目标和辅助功能模式是全站规则，不覆盖业务颜色。 */
@@ -1050,6 +1062,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .activity-skeleton-block, .activity-balance-skeleton, .home-summary__skeleton { animation: none; }
   button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disabled):active, .icon-button:not(:disabled):active, .settings-link:active, .settings-row:active, .activity-list-item:active, .workspace-nav a:active, .balance-entry:active, .settlement-recommendations button:active, .member-row:active { transform: none; }
   .quick-expense-action-dock > .button:active:not(:disabled) { transform: none; transition: none; }
+  .quick-weight-stepper > button { transition: none; }
   .management-action-row:active, .management-choice-trigger:active, .management-choice-list button:active, .management-member-list button:active { transform: none; transition: none; }
   .management-field__chevron { transition: none; }
 }
@@ -1062,7 +1075,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 @media (prefers-contrast: more) {
   .input, .panel, .activity-list-item, .form-overlay__sheet, .account-card { border-color: var(--foreground); }
   .button--secondary { border-color: var(--foreground); }
-  .quick-expense-action-dock > .button, .quick-weight-stepper > button, .quick-expense-attachment__surface { border-color: var(--foreground); }
+  .quick-expense-action-dock > .button, .quick-weight-stepper, .quick-expense-attachment__surface { border-color: var(--foreground); }
   .quick-expense-action-dock > .button { border: 1px solid var(--foreground); }
   .management-list, .management-field, .management-choice-list, .management-action-item, .management-member-list { border-color: var(--foreground); }
 }
