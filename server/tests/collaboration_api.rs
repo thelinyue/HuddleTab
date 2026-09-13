@@ -2060,6 +2060,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let outsider = seed_actor(&pool, &secret, "bob", "Bob").await;
     let bound_actor = seed_actor(&pool, &secret, "carol", "Carol").await;
+    let self_actor = seed_actor(&pool, &secret, "dave", "Dave").await;
     let (activity_id, owner_member_id) = seed_activity(&pool, &owner).await;
     let formal_member_id = Uuid::new_v4();
     sqlx::query(
@@ -2196,7 +2197,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     )
     .bind(self_member_id)
     .bind(activity_id)
-    .bind(bound_actor.user_id)
+    .bind(self_actor.user_id)
     .bind(OffsetDateTime::now_utc())
     .execute(&pool)
     .await
@@ -2232,7 +2233,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     let (status, body) = json_response(
         &app,
         authenticated_request(
-            &bound_actor,
+            &self_actor,
             "DELETE",
             format!("/api/activities/{activity_id}/members/{self_member_id}"),
             "{}",
