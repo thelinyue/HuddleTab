@@ -2241,7 +2241,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["result"], "DELETED");
+    assert_eq!(body["data"]["result"], "LEFT");
 
     let (other_activity_id, _) = seed_activity(&pool, &owner).await;
     let cross_activity_guest = create_binding_guest(&app, &owner, other_activity_id).await;
