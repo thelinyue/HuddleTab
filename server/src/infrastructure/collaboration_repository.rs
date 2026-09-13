@@ -140,7 +140,8 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .await
         .map_err(log_repository_error)?;
 
-        let result = if has_references {
+        // 自主退出也必须保留成员历史，因为后续审计记录会引用该成员。
+        let result = if is_self || has_references {
             sqlx::query(
                 "UPDATE activity_members
                  SET status = 'LEFT', left_at = $1, version = version + 1
