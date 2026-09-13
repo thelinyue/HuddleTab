@@ -2724,7 +2724,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description 临时成员不存在、已移除或已绑定账号 */
+            /** @description 成员不存在、已移除或不是普通成员 */
             404: {
                 headers: {
                     [name: string]: unknown;
