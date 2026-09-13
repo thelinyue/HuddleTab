@@ -14,6 +14,15 @@ function calendarDayNumber(value: string): number | null {
   return beforeYear + beforeMonth[month - 1]! + (leap && month > 2 ? 1 : 0) + day;
 }
 
+/** 返回两个 PostgreSQL 公历日期之间的自然日差值，不经过本地时区换算。 */
+export function calendarDayDifference(startDate: string | null | undefined, endDate: string | null | undefined): number | null {
+  if (!startDate || !endDate) return null;
+  const start = calendarDayNumber(startDate);
+  const end = calendarDayNumber(endDate);
+  if (start === null || end === null) return null;
+  return end - start;
+}
+
 /** 返回包含首尾日期的活动天数；缺失、无效或倒序日期不显示误导性结果。 */
 export function inclusiveCalendarDays(startDate: string | null | undefined, endDate: string | null | undefined): number | null {
   if (!startDate || !endDate) return null;
