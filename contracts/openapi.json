@@ -1668,7 +1668,7 @@
             }
           },
           "404": {
-            "description": "临时成员不存在、已移除或已绑定账号",
+            "description": "成员不存在、已移除或不是普通成员",
             "content": {
               "application/json": {
                 "schema": {
