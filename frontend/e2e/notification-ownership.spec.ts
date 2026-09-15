@@ -9,7 +9,8 @@ async function issueLinkInvitation(page: Page): Promise<string> {
   await members.getByRole("button", { name: "邀请成员" }).click();
   const invitation = page.getByRole("dialog", { name: "邀请成员" });
   await invitation.getByRole("button", { name: "生成链接邀请" }).click();
-  const token = (await invitation.locator(".issued-invite code").textContent())?.trim();
+  const invitationUrl = await invitation.getByRole("link", { name: "邀请链接，可左右滑动查看完整地址" }).getAttribute("href");
+  const token = invitationUrl ? new URL(invitationUrl).pathname.split("/").at(-1) : undefined;
   expect(token).toBeTruthy();
   await invitation.getByRole("button", { name: "关闭邀请成员" }).click();
   return token!;

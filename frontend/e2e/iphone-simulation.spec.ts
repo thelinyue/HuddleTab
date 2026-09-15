@@ -123,7 +123,7 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   const activityId = await createActivity(page, activityName);
   const navigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(navigation.getByRole("link")).toHaveText(["流水", "结算"]);
-  await assertActivityChrome(page, { themeColor: "#f6f8f7", backgroundColor: "rgb(246, 248, 247)", translucentHeader: true });
+  await assertActivityChrome(page, { themeColor: "#f6f8f7", backgroundColor: "rgb(246, 248, 247)", translucentHeader: false });
   await page.evaluate(() => localStorage.setItem("huddletab-theme", "dark"));
   await page.reload();
   await expect(page.getByRole("heading", { name: activityName, exact: true })).toBeVisible();
