@@ -2280,8 +2280,8 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-// 删除和绑定同时到达时，成员行锁保证只有一个操作成功，另一方读取到最终状态并失败。
-async fn remove_guest_and_binding_race_has_one_successful_operation() {
+// 删除和绑定同时到达时，活动行锁保证操作串行：删除先提交会使绑定失败，绑定先提交后 Owner 仍可移除该成员。
+async fn remove_guest_and_binding_race_has_consistent_serial_outcome() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
     let pool = connect_and_migrate(&database_url)
         .await
@@ -2332,31 +2332,32 @@ async fn remove_guest_and_binding_race_has_one_successful_operation() {
     })
     .await
     .expect("绑定和删除不应死锁");
-    assert_eq!(
-        [deleted.0, bound.0]
-            .iter()
-            .filter(|status| **status == StatusCode::OK)
-            .count(),
-        1
-    );
-    assert_eq!(
-        [deleted.0, bound.0]
-            .iter()
-            .filter(|status| **status == StatusCode::NOT_FOUND)
-            .count(),
-        1
-    );
-    if deleted.0 == StatusCode::OK {
-        assert_eq!(deleted.1["data"]["result"], "LEFT");
-        assert_eq!(bound.1["error"]["code"], "INVALID_INVITATION");
-    } else {
-        assert_eq!(deleted.1["error"]["code"], "GUEST_NOT_FOUND");
+    assert_eq!(deleted.0, StatusCode::OK);
+    assert_eq!(deleted.1["data"]["result"], "LEFT");
+    let expected_revision = if bound.0 == StatusCode::OK {
         assert_eq!(bound.1["data"]["status"], "BOUND");
+        5
+    } else {
+        assert_eq!(bound.0, StatusCode::NOT_FOUND);
+        assert_eq!(bound.1["error"]["code"], "INVALID_INVITATION");
+        4
+    };
+    let (status, user_id): (String, Option<Uuid>) =
+        sqlx::query_as("SELECT status, user_id FROM activity_members WHERE id = $1")
+            .bind(guest_member_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取竞态后的成员状态");
+    assert_eq!(status, "LEFT");
+    if bound.0 == StatusCode::OK {
+        assert_eq!(user_id, Some(target.user_id));
+    } else {
+        assert_eq!(user_id, None);
     }
     let revision: i64 = sqlx::query_scalar("SELECT revision FROM activities WHERE id = $1")
         .bind(activity_id)
         .fetch_one(&pool)
         .await
         .expect("应读取竞态后的活动 revision");
-    assert_eq!(revision, 4);
+    assert_eq!(revision, expected_revision);
 }
