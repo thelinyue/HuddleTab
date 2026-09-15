@@ -31,7 +31,7 @@ export function receiptTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-/** 将选中的流水按活动日期分组，导出和预览共用同一份稳定顺序的数据。 */
+/** 将选中的流水按发生日期分组，导出和预览共用同一份稳定顺序的数据。 */
 export function groupReceiptExpenses(expenses: readonly ExpenseAggregate[], selectedDates: readonly string[], activityStartDate: string): ReceiptDateGroup[] {
   const selected = new Set(selectedDates);
   const groups = new Map<string, ExpenseAggregate[]>();
@@ -51,6 +51,8 @@ export function groupReceiptExpenses(expenses: readonly ExpenseAggregate[], sele
     }));
 }
 
+/** 活动开始日固定为第 1 天；更早产生的预订等流水属于活动前支出。 */
 export function receiptDayLabel(group: Pick<ReceiptDateGroup, "date" | "dayNumber">): string {
-  return group.dayNumber !== null && group.dayNumber >= 0 ? `第 ${group.dayNumber + 1} 天 · ${group.date}` : group.date;
+  if (group.dayNumber === null) return group.date;
+  return group.dayNumber < 0 ? `活动前 · ${group.date}` : `第 ${group.dayNumber + 1} 天 · ${group.date}`;
 }

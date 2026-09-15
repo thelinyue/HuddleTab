@@ -24,4 +24,20 @@ describe("流水小票日期分组", () => {
     const groups = groupReceiptExpenses([expense("leap", "2024-03-01T04:00:00.000Z")], ["2024-03-01"], "2024-02-28");
     expect(receiptDayLabel(groups[0]!)).toBe("第 3 天 · 2024-03-01");
   });
+
+  it("跨月预订流水标记为活动前，活动开始日仍是第 1 天", () => {
+    const groups = groupReceiptExpenses([
+      expense("flight", "2026-09-15T04:00:00.000Z"),
+      expense("hotel", "2026-09-20T04:00:00.000Z"),
+      expense("departure", "2026-10-01T04:00:00.000Z"),
+      expense("dinner", "2026-10-03T04:00:00.000Z"),
+    ], ["2026-09-15", "2026-09-20", "2026-10-01", "2026-10-03"], "2026-10-01");
+
+    expect(groups.map(receiptDayLabel)).toEqual([
+      "活动前 · 2026-09-15",
+      "活动前 · 2026-09-20",
+      "第 1 天 · 2026-10-01",
+      "第 3 天 · 2026-10-03",
+    ]);
+  });
 });

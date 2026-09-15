@@ -46,6 +46,23 @@ describe("ReceiptSharePage", () => {
     expect(screen.getByText("晚餐")).toBeInTheDocument();
   });
 
+  it("活动前流水在日期选择器和小票预览中使用同一标签", () => {
+    queryState.data = {
+      activity: { activityId: "activity-1", name: "国庆旅行", startDate: "2026-10-01", baseCurrency: "CNY" },
+      members: [],
+      expenses: [makeExpense("flight", "机票", "2026-09-15T04:00:00.000Z"), makeExpense("departure", "出发早餐", "2026-10-01T04:00:00.000Z")],
+    };
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: /流水日期/ }));
+    expect(screen.getByText("活动前 · 2026-09-15")).toBeInTheDocument();
+    expect(screen.queryAllByText("第 1 天 · 2026-10-01")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /活动前 · 2026-09-15/ }));
+    expect(screen.queryAllByText("活动前 · 2026-09-15")).toHaveLength(2);
+    expect(screen.getByText("机票")).toBeInTheDocument();
+  });
+
   it("没有选中日期时禁用导出", () => {
     queryState.data = {
       activity: { activityId: "activity-1", name: "周末聚餐", startDate: "2026-09-10", baseCurrency: "CNY" },
