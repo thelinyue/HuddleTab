@@ -1,6 +1,8 @@
 use huddletab_server::domain::{
     ledger::{LedgerEntry, SettlementFact, calculate_ledger},
-    settlement::recommend_settlements,
+    settlement::{
+        RecommendationStrategy, recommend_settlements, recommend_settlements_with_strategy,
+    },
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -110,6 +112,140 @@ fn ledger_rejects_unknown_members_and_unbalanced_facts() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn centralized_recommendations_route_every_non_hub_member_through_hub() {
+    let owner = Uuid::from_u128(1);
+    let payer = Uuid::from_u128(2);
+    let guest_a = Uuid::from_u128(3);
+    let guest_b = Uuid::from_u128(4);
+    let balances = [
+        huddletab_server::domain::ledger::Balance::new(owner, 0),
+        huddletab_server::domain::ledger::Balance::new(payer, 100),
+        huddletab_server::domain::ledger::Balance::new(guest_a, -50),
+        huddletab_server::domain::ledger::Balance::new(guest_b, -50),
+    ];
+
+    let recommendations = recommend_settlements_with_strategy(
+        &balances,
+        RecommendationStrategy::Centralized {
+            hub_member_id: owner,
+        },
+    )
+    .expect("统一结算应生成推荐");
+
+    assert_eq!(recommendations.len(), 3);
+    assert_eq!(
+        recommendations
+            .iter()
+            .map(|item| (
+                item.payer_member_id(),
+                item.receiver_member_id(),
+                item.amount_minor()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (guest_a, owner, 50),
+            (guest_b, owner, 50),
+            (owner, payer, 100)
+        ]
+    );
+}
+
+#[test]
+fn centralized_recommendations_preserve_amount_and_handle_hub_direction() {
+    let hub = Uuid::from_u128(1);
+    let member = Uuid::from_u128(2);
+    let balances = [
+        huddletab_server::domain::ledger::Balance::new(hub, 80),
+        huddletab_server::domain::ledger::Balance::new(member, -80),
+    ];
+    let recommendations = recommend_settlements_with_strategy(
+        &balances,
+        RecommendationStrategy::Centralized { hub_member_id: hub },
+    )
+    .expect("hub 应付时仍应生成统一结算推荐");
+    assert_eq!(recommendations.len(), 1);
+    assert_eq!(recommendations[0].payer_member_id(), member);
+    assert_eq!(recommendations[0].receiver_member_id(), hub);
+    assert_eq!(recommendations[0].amount_minor(), 80);
+
+    let mut remaining = balances
+        .iter()
+        .map(|balance| (balance.member_id(), balance.net_minor()))
+        .collect::<BTreeMap<_, _>>();
+    for recommendation in recommendations {
+        *remaining
+            .get_mut(&recommendation.payer_member_id())
+            .unwrap() += recommendation.amount_minor();
+        *remaining
+            .get_mut(&recommendation.receiver_member_id())
+            .unwrap() -= recommendation.amount_minor();
+    }
+    assert!(remaining.values().all(|balance| *balance == 0));
+
+    let hub_owes = [
+        huddletab_server::domain::ledger::Balance::new(hub, -80),
+        huddletab_server::domain::ledger::Balance::new(member, 80),
+    ];
+    let recommendations = recommend_settlements_with_strategy(
+        &hub_owes,
+        RecommendationStrategy::Centralized { hub_member_id: hub },
+    )
+    .expect("hub 应付时仍应生成统一结算推荐");
+    assert_eq!(recommendations[0].payer_member_id(), hub);
+    assert_eq!(recommendations[0].receiver_member_id(), member);
+}
+
+#[test]
+fn centralized_skips_zero_balances_and_rejects_unknown_hub() {
+    let hub = Uuid::from_u128(1);
+    let member = Uuid::from_u128(2);
+    let balances = [
+        huddletab_server::domain::ledger::Balance::new(hub, 0),
+        huddletab_server::domain::ledger::Balance::new(member, 0),
+    ];
+    assert!(
+        recommend_settlements_with_strategy(
+            &balances,
+            RecommendationStrategy::Centralized { hub_member_id: hub },
+        )
+        .expect("全额结清应成功")
+        .is_empty()
+    );
+    assert!(
+        recommend_settlements_with_strategy(
+            &balances,
+            RecommendationStrategy::Centralized {
+                hub_member_id: Uuid::from_u128(99),
+            },
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn recommendations_after_partial_settlement_only_include_remaining_amount() {
+    let hub = Uuid::from_u128(1);
+    let debtor = Uuid::from_u128(2);
+    let balances = calculate_ledger(
+        vec![hub, debtor],
+        vec![LedgerEntry::new(hub, 100)],
+        vec![LedgerEntry::new(debtor, 100)],
+        vec![SettlementFact::new(debtor, hub, 40)],
+    )
+    .expect("部分结算后的账务事实应可计算");
+    let recommendations = recommend_settlements_with_strategy(
+        &balances,
+        RecommendationStrategy::Centralized { hub_member_id: hub },
+    )
+    .expect("部分结算后应重新生成推荐");
+
+    assert_eq!(recommendations.len(), 1);
+    assert_eq!(recommendations[0].payer_member_id(), debtor);
+    assert_eq!(recommendations[0].receiver_member_id(), hub);
+    assert_eq!(recommendations[0].amount_minor(), 60);
 }
 
 fn entries(

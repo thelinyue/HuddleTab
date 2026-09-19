@@ -3,11 +3,12 @@ import { type FormEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
+import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, StateIllustration } from "../../components/ui";
 import { amountToMinor, formatMoney, minorToInput } from "../../domain-preview/money";
 import { type ActivityMember, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
-import { type Settlement, useCreateSettlementMutation, useLedgerQuery, useRecommendationsQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
+import { type RecommendationSelection, type RecommendationStrategy, type Settlement, useCreateSettlementMutation, useLedgerQuery, useRecommendationsQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
 import { memberAvatarPreset, memberName } from "./shared";
 import { AccountingSkeleton } from "./skeleton";
 
@@ -102,12 +103,44 @@ function RefreshError({ error, retry }: { error: unknown; retry: () => void }) {
   return error ? <div className="settlement-load-error"><ErrorNotice error={error} /><Button variant="ghost" onClick={retry}>重试</Button></div> : null;
 }
 
+/** 结算方案只影响 Recommendation；Sheet 关闭后保留当前页面会话选择，不写入活动。 */
+function RecommendationStrategyOverlay({
+  open,
+  selected,
+  recommended,
+  onSelect,
+  onClose,
+}: {
+  open: boolean;
+  selected: RecommendationStrategy;
+  recommended: boolean;
+  onSelect: (strategy: RecommendationStrategy) => void;
+  onClose: () => void;
+}) {
+  return <Overlay open={open} title="选择结算方案" onClose={onClose} focusKey={selected} initialFocus="mobile-dialog" mobileSheet={{ maxHeight: 0.58 }} className="settlement-strategy-overlay">
+    <div className="settlement-strategy-options" role="radiogroup" aria-label="结算方案">
+      <button type="button" role="radio" aria-checked={selected === "min_transfers"} className="settlement-strategy-option" onClick={() => onSelect("min_transfers")}>
+        <span className="settlement-strategy-option__radio" aria-hidden="true">{selected === "min_transfers" ? "●" : "○"}</span>
+        <span><strong>最少转账</strong><small>尽量减少成员之间的转账次数</small></span>
+        {selected === "min_transfers" ? <Check size={18} aria-hidden="true" /> : <span className="settlement-strategy-option__spacer" />}
+      </button>
+      <button type="button" role="radio" aria-checked={selected === "centralized"} className="settlement-strategy-option" onClick={() => onSelect("centralized")}>
+        <span className="settlement-strategy-option__radio" aria-hidden="true">{selected === "centralized" ? "●" : "○"}</span>
+        <span><strong>由我统一收付 {recommended ? <em>推荐</em> : null}</strong><small>其他成员只与你结算，由你统一收款和付款。<br />原账单分摊结果不会改变。</small></span>
+        {selected === "centralized" ? <Check size={18} aria-hidden="true" /> : <span className="settlement-strategy-option__spacer" />}
+      </button>
+    </div>
+  </Overlay>;
+}
+
 /** 各区域只等待自身所需的数据；已有数据在后台刷新时继续展示，未知余额不能推断为已结清。 */
 export function SettlementsPage() {
   const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const ledger = useLedgerQuery(session.userId, activity.activityId, !offline);
-  const recommendations = useRecommendationsQuery(session.userId, activity.activityId, !offline);
+  const [strategySelection, setStrategySelection] = useState<RecommendationSelection>({});
+  const [strategySheetOpen, setStrategySheetOpen] = useState(false);
+  const recommendations = useRecommendationsQuery(session.userId, activity.activityId, strategySelection, !offline);
   const settlements = useSettlementsQuery(session.userId, activity.activityId, !offline);
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [form, setForm] = useState<{ key: string; initial?: Recommendation }>();
@@ -116,6 +149,18 @@ export function SettlementsPage() {
   const recommendationData = recommendations.data ?? snapshot?.snapshot.recommendations;
   const records = settlements.data ?? snapshot?.snapshot.settlements;
   const balances = ledgerData?.balances;
+  const effectiveStrategy = recommendations.data?.effectiveStrategy === "CENTRALIZED" ? "centralized" : "min_transfers";
+  const effectiveHubMemberId = recommendations.data?.hubMemberId ?? (effectiveStrategy === "centralized" ? activity.currentMemberId : null);
+  const activeMembers = memberData.filter(member => member.status === "ACTIVE");
+  const recommendedCentralized = activeMembers.filter(member => member.userId != null).length === 1
+    && activeMembers.some(member => member.userId == null);
+  const selectedStrategy = strategySelection.strategy ?? effectiveStrategy;
+  const shareStrategy = strategySelection.strategy ?? (recommendations.data?.effectiveStrategy ? effectiveStrategy : undefined);
+  const shareHubMemberId = strategySelection.hubMemberId ?? effectiveHubMemberId;
+  const shareQuery = shareStrategy
+    ? new URLSearchParams({ strategy: shareStrategy, ...(shareStrategy === "centralized" && shareHubMemberId ? { hubMemberId: shareHubMemberId } : {}) }).toString()
+    : "";
+  const shareHref = `/share-summary/${encodeURIComponent(activity.activityId)}${shareQuery ? `?${shareQuery}` : ""}`;
   const current = balances?.find(balance => balance.memberId === activity.currentMemberId);
   const currentAmount = current ? BigInt(current.netMinor) : undefined;
   const fullySettled = Boolean(balances?.length && balances.every(balance => BigInt(balance.netMinor) === 0n));
@@ -130,20 +175,21 @@ export function SettlementsPage() {
     <RefreshError error={members.error} retry={() => void members.refetch()} />
     <section className="settlement-summary" aria-label="我的结算">
       {/* 与流水摘要共用标题行，分享入口作为标题行右侧操作保留。 */}
-      <header className="accounting-summary__header"><p>我的结算</p><Link className="settlement-share-entry" to={`/share-summary/${encodeURIComponent(activity.activityId)}`}><ImageDown size={17} aria-hidden="true" />生成分享摘要</Link></header>
+      <header className="accounting-summary__header"><p>我的结算</p><Link className="settlement-share-entry" to={shareHref}><ImageDown size={17} aria-hidden="true" />生成分享摘要</Link></header>
       {currentAmount !== undefined ? <><div className="accounting-summary__value">{currentAmount !== 0n ? <><Money value={formatMoney(activity.baseCurrency, (currentAmount < 0n ? -currentAmount : currentAmount).toString())} tone={currentAmount > 0n ? 'positive' : 'negative'} /><strong className="accounting-summary__state">{currentAmount > 0n ? '应收' : '应付'}</strong></> : <strong>已结清</strong>}</div><small className="accounting-summary__meta">{balances!.filter(balance => BigInt(balance.netMinor) !== 0n).length} 人未结清 · {balances!.filter(balance => BigInt(balance.netMinor) === 0n).length} 人已结清</small></> : ledger.error ? null : <div className="accounting-skeleton" role="status" aria-busy="true" aria-label="正在读取我的结算…">
         {/* 只占金额和说明两行，避免把列表骨架放进摘要后造成加载跳动。 */}
         <div className="accounting-summary__value" aria-hidden="true"><i /></div><div className="accounting-summary__meta" aria-hidden="true"><i /></div>
       </div>}
       <RefreshError error={ledger.error} retry={() => void ledger.refetch()} />
     </section>
-    <section className="settlement-section" aria-labelledby="recommendations-heading"><h2 id="recommendations-heading">推荐转账</h2><RefreshError error={recommendations.error} retry={() => void recommendations.refetch()} />
+    <section className="settlement-section" aria-labelledby="recommendations-heading"><header className="settlement-section__heading"><div className="settlement-strategy-heading"><h2 id="recommendations-heading">推荐转账</h2><span className="settlement-strategy-current">当前：{selectedStrategy === "centralized" ? "由我统一收付" : "最少转账"}</span></div><button type="button" className="settlement-strategy-trigger" disabled={offline || !memberReady} onClick={() => setStrategySheetOpen(true)} aria-haspopup="dialog" aria-expanded={strategySheetOpen}>切换方案 <ChevronRight size={15} aria-hidden="true" /></button></header><RefreshError error={recommendations.error} retry={() => void recommendations.refetch()} />
       {rows && memberReady ? rows.length ? <div className="settlement-recommendations">{rows.map(recommendation => {
         const key = `${recommendation.payerMemberId}-${recommendation.receiverMemberId}`;
         const content = <><TransferParties payer={recommendation.payerMemberId} receiver={recommendation.receiverMemberId} members={memberData} /><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} />{writable ? <ChevronRight size={16} aria-hidden="true" /> : null}</>;
         return <div className="settlement-recommendation-item" key={key}>{writable ? <button type="button" className="settlement-recommendation-trigger" aria-expanded={form?.key === key} onClick={() => setForm(form?.key === key ? undefined : { key, initial: recommendation })}>{content}</button> : <div className="settlement-recommendation-trigger">{content}</div>}{writable && form?.key === key ? <SettlementForm key={key} initial={form.initial} members={memberData} onClose={closeForm} /> : null}</div>;
       })}</div> : <p className="settlement-empty">{fullySettled ? '所有成员余额均已结清' : '当前暂无推荐转账'}</p> : !recommendations.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null}
     </section>
+    <RecommendationStrategyOverlay open={strategySheetOpen} selected={selectedStrategy} recommended={recommendedCentralized} onClose={() => setStrategySheetOpen(false)} onSelect={strategy => { setStrategySelection(strategy === "centralized" ? { strategy, hubMemberId: activity.currentMemberId } : { strategy }); setStrategySheetOpen(false); setForm(undefined); }} />
     <section className="settlement-section"><button className="balance-entry" type="button" aria-expanded={balanceOpen} onClick={() => setBalanceOpen(value => !value)}><strong>成员余额</strong><ChevronDown className={balanceOpen ? 'is-expanded' : ''} size={18} aria-hidden="true" /></button>
       {balanceOpen ? balances && memberReady ? <div className="settlement-balance-list">{balances.map(balance => { const net = BigInt(balance.netMinor); return <div className="balance-row" key={balance.memberId}><MemberAvatar memberId={balance.memberId} displayName={memberName(balance.memberId, memberData)} avatarPreset={memberAvatarPreset(balance.memberId, memberData)} /><strong>{memberName(balance.memberId, memberData)}</strong><span>{net > 0n ? '应收' : net < 0n ? '应付' : '已结清'}{net !== 0n ? <Money value={formatMoney(activity.baseCurrency, (net < 0n ? -net : net).toString())} tone={net > 0n ? 'positive' : 'negative'} /> : null}</span></div>; })}</div> : !ledger.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null : null}
     </section>

@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{
         HeaderMap, HeaderValue,
         header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE},
@@ -14,12 +14,14 @@ use uuid::Uuid;
 
 use crate::{
     application::sharing::{
-        ActivitySummary, SharingError, load_export, load_summary, serialize_expense_csv,
+        ActivitySummary, SharingError, load_export, load_summary_with_strategy,
+        serialize_expense_csv,
     },
     infrastructure::sharing_repository::PostgresSharingRepository,
 };
 
 use super::{
+    accounting::{RecommendationQuery, parse_recommendation_query},
     collaboration::authenticate,
     error::{ApiError, RequestId},
     router::AppState,
@@ -45,6 +47,8 @@ pub struct ActivitySummaryData {
     pub currency: String,
     pub revision: String,
     pub current_user_balance_minor: String,
+    pub effective_strategy: String,
+    pub hub_member_id: Option<String>,
     pub original_currency_totals: Vec<SummaryCurrencyTotalData>,
     pub category_totals: Vec<SummaryCategoryTotalData>,
     pub balances: Vec<SummaryBalanceData>,
@@ -86,7 +90,11 @@ pub struct SummaryRecommendationData {
 #[utoipa::path(
     get,
     path = "/api/activities/{activity_id}/summary",
-    params(("activity_id" = String, Path, description = "活动 UUID")),
+    params(
+        ("activity_id" = String, Path, description = "活动 UUID"),
+        ("strategy" = Option<String>, Query, description = "min_transfers 或 centralized"),
+        ("hubMemberId" = Option<String>, Query, description = "统一结算人 UUID")
+    ),
     responses(
         (status = 200, description = "活动结算摘要", headers(("Cache-Control" = String, description = "private, no-store")), body = ActivitySummaryEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
@@ -97,12 +105,14 @@ pub(crate) async fn summary(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
     Path(activity_id): Path<String>,
+    Query(query): Query<RecommendationQuery>,
     jar: CookieJar,
 ) -> Result<(HeaderMap, Json<ActivitySummaryEnvelope>), ApiError> {
     let (activity_id, actor) =
         authenticated_activity(&state, request_id.clone(), &activity_id, &jar).await?;
     let repository = PostgresSharingRepository::new(state.pool, state.time_zone);
-    let summary = load_summary(&repository, activity_id, actor.user_id)
+    let requested = parse_recommendation_query(&query, request_id.clone())?;
+    let summary = load_summary_with_strategy(&repository, activity_id, actor.user_id, requested)
         .await
         .map_err(|error| map_error(error, request_id))?;
     let mut headers = HeaderMap::new();
@@ -178,6 +188,20 @@ fn summary_data(summary: ActivitySummary) -> ActivitySummaryData {
         currency: summary.currency,
         revision: summary.revision.to_string(),
         current_user_balance_minor: summary.current_user_balance_minor.to_string(),
+        effective_strategy: match summary.effective_strategy {
+            crate::domain::settlement::RecommendationStrategy::MinTransfers => {
+                "MIN_TRANSFERS".to_owned()
+            }
+            crate::domain::settlement::RecommendationStrategy::Centralized { .. } => {
+                "CENTRALIZED".to_owned()
+            }
+        },
+        hub_member_id: match summary.effective_strategy {
+            crate::domain::settlement::RecommendationStrategy::MinTransfers => None,
+            crate::domain::settlement::RecommendationStrategy::Centralized { hub_member_id } => {
+                Some(hub_member_id.to_string())
+            }
+        },
         original_currency_totals: summary
             .original_currency_totals
             .into_iter()
@@ -218,6 +242,7 @@ fn summary_data(summary: ActivitySummary) -> ActivitySummaryData {
 fn map_error(error: SharingError, request_id: RequestId) -> ApiError {
     match error {
         SharingError::Forbidden => ApiError::operation_forbidden(request_id),
+        SharingError::InvalidStrategy => ApiError::invalid_recommendation_strategy(request_id),
         SharingError::Integrity | SharingError::Unavailable => ApiError::internal(request_id),
     }
 }

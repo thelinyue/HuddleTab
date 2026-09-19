@@ -73,17 +73,19 @@ impl SharingRepository for PostgresSharingRepository {
         .await
         .map_err(log_repository_error)?
         .ok_or(SharingRepositoryError::Forbidden)?;
-        let members = sqlx::query_as::<_, (Uuid, String)>(
-            "SELECT id, display_name FROM activity_members WHERE activity_id = $1 ORDER BY id",
+        let members = sqlx::query_as::<_, (Uuid, Option<Uuid>, String, String)>(
+            "SELECT id, user_id, display_name, status FROM activity_members WHERE activity_id = $1 ORDER BY id",
         )
         .bind(activity_id)
         .fetch_all(&mut *transaction)
         .await
         .map_err(log_repository_error)?
         .into_iter()
-        .map(|(member_id, display_name)| SnapshotMember {
+        .map(|(member_id, user_id, display_name, status)| SnapshotMember {
             member_id,
+            user_id,
             display_name,
+            status,
         })
         .collect();
         let total_expense_minor = sqlx::query_scalar::<_, i64>(

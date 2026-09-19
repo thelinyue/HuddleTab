@@ -9,6 +9,7 @@ export function ShareSummaryCard({ summary, id = 'share-summary-preview-card', i
   return <article id={id} className="share-summary-card" aria-label={`${summary.activityName}结算摘要`}>
     <header className="share-card-heading"><p>结算摘要 <span>{summary.currency}</span></p><h2>{summary.activityName}</h2><small>{summary.startDate}{summary.endDate && summary.endDate !== summary.startDate ? ` — ${summary.endDate}` : ''} · {summary.memberCount}人 · {summary.expenseCount}笔账单</small>
       <div className="share-card-stats"><span>总支出 <strong>{formatMoney(summary.currency, summary.totalExpenseMinor)}</strong></span><span>人均 <strong>{formatMoney(summary.currency, summary.averageExpenseMinor)}</strong></span></div>
+      {summary.effectiveStrategy === 'CENTRALIZED' && summary.hubName ? <p className="share-card-settlement-mode"><span>统一结算人</span><strong>{summary.hubName}</strong></p> : null}
     </header>
     <div className="share-card-body">
       {!summary.recommendations.length ? <p className="share-card-empty">{summary.state === 'zero' ? '当前总消费为零，无需转账' : summary.state === 'settled' ? '全部已结清，无需转账' : '当前暂无推荐转账'}</p> : null}
@@ -18,6 +19,6 @@ export function ShareSummaryCard({ summary, id = 'share-summary-preview-card', i
       </Fragment>)}
       {!summary.balances.length ? <p className="share-card-empty">暂无成员余额</p> : null}
     </div>
-    <footer className="share-card-footer"><span>伙记 · HuddleTab</span><span>第 {page} / {pageCount} 页</span></footer>
+    <footer className="share-card-footer"><span>伙记 · HuddleTab</span>{summary.effectiveStrategy === 'CENTRALIZED' && summary.hubName ? <small>每位成员只需与{summary.hubName}完成以上转账即可完成本次结算。</small> : null}<span>第 {page} / {pageCount} 页</span></footer>
   </article>;
 }

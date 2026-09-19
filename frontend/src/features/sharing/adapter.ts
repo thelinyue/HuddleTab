@@ -3,6 +3,7 @@ import { apiClient } from "../../api/client";
 import { unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
+import type { RecommendationSelection } from "../accounting/api";
 
 type ActivitySummaryData = components["schemas"]["ActivitySummaryData"];
 
@@ -25,6 +26,9 @@ export type ShareSummary = {
   recommendations: Array<{ amountMinor: string; payerName: string; receiverName: string }>;
   state: SummaryState;
   totalExpenseMinor: string;
+  effectiveStrategy: "MIN_TRANSFERS" | "CENTRALIZED";
+  hubMemberId: string | null;
+  hubName: string | null;
 };
 
 /** 将 Rust 权威账本摘要转为纯展示模型，组件不接触 OpenAPI DTO 或成员 ID 反查。 */
@@ -60,20 +64,33 @@ export function mapActivitySummary(data: ActivitySummaryData): ShareSummary {
     })),
     state: totalExpense === 0n ? "zero" : data.recommendations.length === 0 && balances.every((balance) => balance.state === "settled") ? "settled" : "ready",
     totalExpenseMinor: data.totalExpenseMinor,
+    effectiveStrategy: data.effectiveStrategy === "CENTRALIZED" ? "CENTRALIZED" : "MIN_TRANSFERS",
+    hubMemberId: data.hubMemberId ?? null,
+    hubName: data.hubMemberId ? names.get(data.hubMemberId) ?? "未知成员" : null,
   };
 }
 
-async function getActivitySummary(activityId: string): Promise<ShareSummary> {
+async function getActivitySummary(activityId: string, selection: RecommendationSelection = {}): Promise<ShareSummary> {
   const envelope = unwrap(await apiClient.GET("/api/activities/{activity_id}/summary", {
-    params: { path: { activity_id: activityId } },
+    params: {
+      path: { activity_id: activityId },
+      query: {
+        strategy: selection.strategy,
+        hubMemberId: selection.hubMemberId,
+      },
+    },
   }));
   return mapActivitySummary(envelope.data);
 }
 
-export function useActivitySummaryQuery(userId: string, activityId: string) {
+export function useActivitySummaryQuery(
+  userId: string,
+  activityId: string,
+  selection: RecommendationSelection = {},
+) {
   return useQuery({
-    queryKey: queryKeys.activitySummary(userId, activityId),
-    queryFn: () => getActivitySummary(activityId),
+    queryKey: queryKeys.activitySummary(userId, activityId, selection.strategy, selection.hubMemberId),
+    queryFn: () => getActivitySummary(activityId, selection),
     enabled: userId.length > 0 && activityId.length > 0,
   });
 }

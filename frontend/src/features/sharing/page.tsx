@@ -1,6 +1,6 @@
 import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Button, LoadingState } from '../../components/ui';
 import { formatMoney } from '../../domain-preview/money';
 import { useSessionQuery } from '../auth/api';
@@ -10,9 +10,14 @@ import { exportSummaryCard } from './image-export';
 import { paginateSummary, summaryItems, type SummaryItem } from './pagination';
 
 export function summaryText(summary: ShareSummary): string {
+  const strategyLines = summary.effectiveStrategy === "CENTRALIZED" && summary.hubName
+    ? [`统一结算人：${summary.hubName}`]
+    : [];
+  const guidance = summary.effectiveStrategy === "CENTRALIZED" ? ['每位成员只需与统一结算人完成以上转账即可完成本次结算。'] : [];
   return [summary.activityName, `活动日期：${summary.startDate}${summary.endDate ? ` 至 ${summary.endDate}` : ''}`,
     `${summary.memberCount} 人 · ${summary.expenseCount} 笔账单 · 总支出 ${formatMoney(summary.currency, summary.totalExpenseMinor)} · 人均 ${formatMoney(summary.currency, summary.averageExpenseMinor)}`,
-    '推荐转账：', ...(summary.recommendations.length ? summary.recommendations.map(item => `${item.payerName} 向 ${item.receiverName} 支付 ${formatMoney(summary.currency, item.amountMinor)}`) : ['当前无需推荐转账。']),
+    ...strategyLines, '推荐转账：', ...(summary.recommendations.length ? summary.recommendations.map(item => `${item.payerName} 向 ${item.receiverName} 支付 ${formatMoney(summary.currency, item.amountMinor)}`) : ['当前无需推荐转账。']),
+    ...guidance,
     '成员余额：', ...summary.balances.map(item => `${item.displayName} ${item.state === 'receivable' ? '应收' : item.state === 'payable' ? '应付' : '已结清'} ${formatMoney(summary.currency, item.amountMinor)}`),
   ].join('\n');
 }
@@ -71,8 +76,12 @@ function SummaryPreview({ summary, activityId }: { summary: ShareSummary; activi
     try { await navigator.clipboard.writeText(summaryText(summary)); setNotice('完整摘要已复制。'); } catch { setError('复制失败，请检查浏览器权限后重试。'); }
   }
   function turn(next: number) { anchor.current = pages[next]?.[0]?.key; setPage(next); replacePreview(); setNotice(''); setError(''); }
+  const settlementQuery = new URLSearchParams({
+    strategy: summary.effectiveStrategy === 'CENTRALIZED' ? 'centralized' : 'min_transfers',
+    ...(summary.effectiveStrategy === 'CENTRALIZED' && summary.hubMemberId ? { hubMemberId: summary.hubMemberId } : {}),
+  }).toString();
   return <main className="share-summary-page">
-    <header className="share-summary-page__header"><Link className="inline-back" to={`/activities/${encodeURIComponent(activityId)}?tab=settlement`}><ArrowLeft size={18} aria-hidden="true" />返回结算</Link><h1>结算分享摘要</h1></header>
+    <header className="share-summary-page__header"><Link className="inline-back" to={`/activities/${encodeURIComponent(activityId)}?tab=settlement&${settlementQuery}`}><ArrowLeft size={18} aria-hidden="true" />返回结算</Link><h1>结算分享摘要</h1></header>
     <div className="share-summary-preview" ref={stage}>
       <div style={{ visibility: preview ? 'hidden' : undefined }}><ShareSummaryCard summary={summary} items={pages[page] ?? []} page={page + 1} pageCount={pages.length} /></div>
       {preview ? <div className="share-summary-save-preview"><img src={preview} alt={`${summary.activityName}结算摘要 PNG 预览`} /><div><a href={preview} target="_blank" rel="noreferrer">打开原图</a><Button variant="ghost" onClick={() => replacePreview()}>返回摘要</Button></div></div> : null}
@@ -88,8 +97,16 @@ function SummaryPreview({ summary, activityId }: { summary: ShareSummary; activi
 
 export function ShareSummaryPage() {
   const { activityId = '' } = useParams();
+  const [searchParams] = useSearchParams();
   const session = useSessionQuery();
-  const summary = useActivitySummaryQuery(session.data?.userId ?? '', activityId);
+  const strategy = searchParams.get('strategy');
+  const hubMemberId = searchParams.get('hubMemberId') ?? undefined;
+  const selection = strategy === 'centralized'
+    ? { strategy: 'centralized' as const, hubMemberId }
+    : strategy === 'min_transfers'
+      ? { strategy: 'min_transfers' as const }
+      : {};
+  const summary = useActivitySummaryQuery(session.data?.userId ?? '', activityId, selection);
   if (session.isPending || summary.isPending) return <main className="share-summary-page"><LoadingState label="正在生成结算摘要…" /></main>;
   if (summary.error || !summary.data) return <main className="share-summary-page"><section className="share-summary-message"><h1>结算分享摘要</h1><p role="alert">无法读取结算摘要，请检查网络后重试。</p><Button onClick={() => void summary.refetch()}>重新加载</Button></section></main>;
   return <SummaryPreview key={activityId} summary={summary.data} activityId={activityId} />;

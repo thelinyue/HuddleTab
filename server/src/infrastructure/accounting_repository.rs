@@ -3,7 +3,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
-    application::accounting::{AccountingRepository, AccountingRepositoryError, StoredLedgerFacts},
+    application::accounting::{
+        AccountingRepository, AccountingRepositoryError, LedgerMember, StoredLedgerFacts,
+    },
     domain::ledger::{LedgerEntry, SettlementFact},
 };
 
@@ -32,10 +34,10 @@ impl AccountingRepository for PostgresAccountingRepository {
             .execute(&mut *transaction)
             .await
             .map_err(log_repository_error)?;
-        let activity = sqlx::query_as::<_, (String, i64)>(
-            "SELECT a.base_currency, a.revision FROM activities a \
-             WHERE a.id = $1 AND EXISTS(SELECT 1 FROM activity_members m \
-               WHERE m.activity_id = a.id AND m.user_id = $2 AND m.status = 'ACTIVE') \
+        let activity = sqlx::query_as::<_, (String, i64, Uuid)>(
+            "SELECT a.base_currency, a.revision, m.id FROM activities a \
+             JOIN activity_members m ON m.activity_id = a.id \
+             WHERE a.id = $1 AND m.user_id = $2 AND m.status = 'ACTIVE' \
              AND a.deleted_at IS NULL",
         )
         .bind(activity_id)
@@ -44,13 +46,21 @@ impl AccountingRepository for PostgresAccountingRepository {
         .await
         .map_err(log_repository_error)?
         .ok_or(AccountingRepositoryError::Forbidden)?;
-        let member_ids = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM activity_members WHERE activity_id = $1 ORDER BY id",
+        let members = sqlx::query_as::<_, (Uuid, Option<Uuid>, String)>(
+            "SELECT id, user_id, status FROM activity_members WHERE activity_id = $1 ORDER BY id",
         )
         .bind(activity_id)
         .fetch_all(&mut *transaction)
         .await
-        .map_err(log_repository_error)?;
+        .map_err(log_repository_error)?
+        .into_iter()
+        .map(|(member_id, user_id, status)| LedgerMember {
+            member_id,
+            user_id,
+            status,
+        })
+        .collect::<Vec<_>>();
+        let member_ids = members.iter().map(|member| member.member_id).collect();
         let payments = sqlx::query_as::<_, (Uuid, i64)>(
             "SELECT p.payer_member_id, p.base_amount_minor FROM expense_payments p \
              JOIN expenses e ON e.id = p.expense_id \
@@ -90,6 +100,8 @@ impl AccountingRepository for PostgresAccountingRepository {
         Ok(StoredLedgerFacts {
             base_currency: activity.0.trim().to_owned(),
             revision: activity.1,
+            members,
+            actor_member_id: activity.2,
             member_ids,
             payments,
             shares,

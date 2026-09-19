@@ -14,6 +14,12 @@ export type ExpenseDraft = components["schemas"]["ExpenseDraftRequest"];
 export type UpdateExpenseInput = components["schemas"]["UpdateExpenseRequest"];
 export type Ledger = components["schemas"]["LedgerData"];
 export type Recommendation = components["schemas"]["RecommendationItemData"];
+export type RecommendationStrategy = "min_transfers" | "centralized";
+export type RecommendationSelection = {
+  strategy?: RecommendationStrategy;
+  hubMemberId?: string;
+};
+export type RecommendationResult = components["schemas"]["StrategyRecommendationData"];
 export type Settlement = components["schemas"]["SettlementData"];
 export type CreateSettlementInput = components["schemas"]["CreateSettlementRequest"];
 export type ExchangeRateSuggestion = components["schemas"]["ExchangeRateSuggestionData"];
@@ -96,10 +102,16 @@ async function getLedger(activityId: string): Promise<Ledger> {
   ).data;
 }
 
-async function getRecommendations(activityId: string) {
+async function getRecommendations(activityId: string, selection: RecommendationSelection = {}) {
   return unwrap(
     await apiClient.GET("/api/activities/{activity_id}/recommendations", {
-      params: { path: { activity_id: activityId } },
+      params: {
+        path: { activity_id: activityId },
+        query: {
+          strategy: selection.strategy,
+          hubMemberId: selection.hubMemberId,
+        },
+      },
     }),
   ).data;
 }
@@ -314,8 +326,17 @@ export function useActivityLedgersQuery(userId: string, activities: readonly Act
   });
 }
 
-export function useRecommendationsQuery(userId: string, activityId: string, enabled = true) {
-  return useQuery({ queryKey: queryKeys.recommendations(userId, activityId), queryFn: () => getRecommendations(activityId), enabled: enabled && userId.length > 0 && activityId.length > 0 });
+export function useRecommendationsQuery(
+  userId: string,
+  activityId: string,
+  selection: RecommendationSelection = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: queryKeys.recommendations(userId, activityId, selection.strategy, selection.hubMemberId),
+    queryFn: () => getRecommendations(activityId, selection),
+    enabled: enabled && userId.length > 0 && activityId.length > 0,
+  });
 }
 
 export function useSettlementsQuery(userId: string, activityId: string, enabled = true) {

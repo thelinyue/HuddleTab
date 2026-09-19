@@ -160,6 +160,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_recommendation_strategy(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_RECOMMENDATION_STRATEGY",
+            "推荐转账方案或统一结算人参数无效。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn invalid_profile_input(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,

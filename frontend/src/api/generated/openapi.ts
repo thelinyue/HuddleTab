@@ -870,9 +870,11 @@ export interface components {
             categoryTotals: components["schemas"]["SummaryCategoryTotalData"][];
             currency: string;
             currentUserBalanceMinor: string;
+            effectiveStrategy: string;
             endDate?: string | null;
             /** Format: int64 */
             expenseCount: number;
+            hubMemberId?: string | null;
             memberCount: number;
             originalCurrencyTotals: components["schemas"]["SummaryCurrencyTotalData"][];
             /** Format: int64 */
@@ -1301,7 +1303,7 @@ export interface components {
             revision: string;
         };
         RecommendationEnvelope: {
-            data: components["schemas"]["RecommendationData"];
+            data: components["schemas"]["StrategyRecommendationData"];
         };
         RecommendationItemData: {
             amountMinor: string;
@@ -1385,6 +1387,13 @@ export interface components {
         };
         StorageEnvelope: {
             data: components["schemas"]["StorageData"];
+        };
+        StrategyRecommendationData: {
+            baseCurrency: string;
+            effectiveStrategy: string;
+            hubMemberId?: string | null;
+            recommendations: components["schemas"]["RecommendationItemData"][];
+            revision: string;
         };
         SummaryBalanceData: {
             displayName: string;
@@ -2919,7 +2928,12 @@ export interface operations {
     };
     recommendations: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description min_transfers 或 centralized */
+                strategy?: string;
+                /** @description 统一结算人 UUID */
+                hubMemberId?: string;
+            };
             header?: never;
             path: {
                 /** @description 活动 UUID */
@@ -3242,7 +3256,12 @@ export interface operations {
     };
     summary: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description min_transfers 或 centralized */
+                strategy?: string;
+                /** @description 统一结算人 UUID */
+                hubMemberId?: string;
+            };
             header?: never;
             path: {
                 /** @description 活动 UUID */

@@ -12,6 +12,7 @@ const readySummary = {
     { amountMinor: "0", displayName: "已经结清的成员", memberId: "member-c", state: "settled" as const },
   ],
   recommendations: [{ amountMinor: "3200", payerName: "付款方名字特别长的成员", receiverName: "收款方名字特别长的成员" }],
+  effectiveStrategy: "MIN_TRANSFERS" as const, hubMemberId: null, hubName: null,
 };
 
 describe("ShareSummaryCard", () => {

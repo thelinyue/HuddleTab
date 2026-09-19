@@ -30,11 +30,15 @@ export const queryKeys = {
     ["users", userId, "activities", activityId, "expenses", expenseId] as const,
   ledger: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "ledger"] as const,
-  recommendations: (userId: string, activityId: string) =>
-    ["users", userId, "activities", activityId, "recommendations"] as const,
+  recommendations: (userId: string, activityId: string, strategy?: string, hubMemberId?: string) =>
+    strategy
+      ? ["users", userId, "activities", activityId, "recommendations", strategy, hubMemberId ?? ""] as const
+      : ["users", userId, "activities", activityId, "recommendations"] as const,
   settlements: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "settlements"] as const,
-  activitySummary: (userId: string, activityId: string) =>
-    ["users", userId, "activities", activityId, "summary"] as const,
+  activitySummary: (userId: string, activityId: string, strategy?: string, hubMemberId?: string) =>
+    strategy
+      ? ["users", userId, "activities", activityId, "summary", strategy, hubMemberId ?? ""] as const
+      : ["users", userId, "activities", activityId, "summary"] as const,
   invitationPreview: (token: string) => ["invitations", token] as const,
 };

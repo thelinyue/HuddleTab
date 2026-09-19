@@ -8,9 +8,11 @@ use axum::{
 };
 use http_body_util::BodyExt as _;
 use huddletab_server::{
+    application::accounting::RequestedRecommendationStrategy,
     application::sharing::{
         CsvExpenseRow, CsvNamedAmount, SharingError, SharingRepository, SharingRepositoryError,
-        SharingSnapshot, SnapshotLedgerEntry, SnapshotMember, load_summary, serialize_expense_csv,
+        SharingSnapshot, SnapshotLedgerEntry, SnapshotMember, load_summary,
+        load_summary_with_strategy, serialize_expense_csv,
     },
     http::router::{AppState, router_with_state},
     infrastructure::{app_secret::AppSecret, database::connect_and_migrate, session::SessionToken},
@@ -51,11 +53,15 @@ async fn summary_uses_authoritative_ledger_and_named_members() {
             members: vec![
                 SnapshotMember {
                     member_id: owner,
+                    user_id: Some(Uuid::new_v4()),
                     display_name: "Alice".to_owned(),
+                    status: "ACTIVE".to_owned(),
                 },
                 SnapshotMember {
                     member_id: guest,
+                    user_id: None,
                     display_name: "小林".to_owned(),
+                    status: "ACTIVE".to_owned(),
                 },
             ],
             total_expense_minor: 1200,
@@ -98,6 +104,82 @@ async fn summary_uses_authoritative_ledger_and_named_members() {
 }
 
 #[tokio::test]
+async fn summary_uses_explicit_centralized_strategy_without_recomputing_in_typescript() {
+    let owner = Uuid::from_u128(1);
+    let creditor = Uuid::from_u128(2);
+    let debtor_a = Uuid::from_u128(3);
+    let debtor_b = Uuid::from_u128(4);
+    let members = [
+        SnapshotMember {
+            member_id: owner,
+            user_id: Some(Uuid::new_v4()),
+            display_name: "林樾".to_owned(),
+            status: "ACTIVE".to_owned(),
+        },
+        SnapshotMember {
+            member_id: creditor,
+            user_id: None,
+            display_name: "小陈".to_owned(),
+            status: "ACTIVE".to_owned(),
+        },
+        SnapshotMember {
+            member_id: debtor_a,
+            user_id: None,
+            display_name: "小王".to_owned(),
+            status: "ACTIVE".to_owned(),
+        },
+        SnapshotMember {
+            member_id: debtor_b,
+            user_id: None,
+            display_name: "小李".to_owned(),
+            status: "ACTIVE".to_owned(),
+        },
+    ];
+    let repository = StubRepository {
+        snapshot: SharingSnapshot {
+            activity_name: "统一结算活动".to_owned(),
+            base_currency: "CNY".to_owned(),
+            start_date: "2026-08-30".to_owned(),
+            end_date: None,
+            revision: 1,
+            current_user_member_id: owner,
+            members: members.to_vec(),
+            total_expense_minor: 100,
+            expense_count: 1,
+            participating_member_count: 3,
+            original_currency_totals: vec![],
+            category_totals: vec![],
+            payments: vec![SnapshotLedgerEntry::new(creditor, 100)],
+            shares: vec![
+                SnapshotLedgerEntry::new(debtor_a, 50),
+                SnapshotLedgerEntry::new(debtor_b, 50),
+            ],
+            settlements: vec![],
+            expenses: vec![],
+        },
+    };
+
+    let summary = load_summary_with_strategy(
+        &repository,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        RequestedRecommendationStrategy::Centralized {
+            hub_member_id: owner,
+        },
+    )
+    .await
+    .expect("显式统一结算策略应生成摘要");
+
+    assert_eq!(summary.recommendations.len(), 3);
+    assert_eq!(summary.recommendations[0].payer_member_id, debtor_a);
+    assert_eq!(summary.recommendations[0].receiver_member_id, owner);
+    assert_eq!(summary.recommendations[0].amount_minor, 50);
+    assert_eq!(summary.recommendations[2].payer_member_id, owner);
+    assert_eq!(summary.recommendations[2].receiver_member_id, creditor);
+    assert_eq!(summary.recommendations[2].amount_minor, 100);
+}
+
+#[tokio::test]
 async fn summary_rejects_balanced_facts_that_do_not_match_expense_total() {
     let owner = Uuid::from_u128(1);
     let guest = Uuid::from_u128(2);
@@ -112,11 +194,15 @@ async fn summary_rejects_balanced_facts_that_do_not_match_expense_total() {
             members: vec![
                 SnapshotMember {
                     member_id: owner,
+                    user_id: Some(Uuid::new_v4()),
                     display_name: "甲".to_owned(),
+                    status: "ACTIVE".to_owned(),
                 },
                 SnapshotMember {
                     member_id: guest,
+                    user_id: None,
                     display_name: "乙".to_owned(),
+                    status: "ACTIVE".to_owned(),
                 },
             ],
             total_expense_minor: 1200,
@@ -151,11 +237,15 @@ async fn summary_maps_fact_total_overflow_to_integrity_error() {
             members: vec![
                 SnapshotMember {
                     member_id: owner,
+                    user_id: Some(Uuid::new_v4()),
                     display_name: "甲".to_owned(),
+                    status: "ACTIVE".to_owned(),
                 },
                 SnapshotMember {
                     member_id: guest,
+                    user_id: None,
                     display_name: "乙".to_owned(),
+                    status: "ACTIVE".to_owned(),
                 },
             ],
             total_expense_minor: i64::MAX,

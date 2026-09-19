@@ -1209,6 +1209,18 @@ describe("我的结算摘要", () => {
     expect(within(summary).queryByText('已结清')).toBeNull();
     expect(summary.querySelector('.accounting-skeleton__row')).toBeNull();
   });
+
+  it("可以在推荐转账区域切换结算方案", async () => {
+    renderPage(<SettlementsPage />);
+    fireEvent.click(screen.getByRole("button", { name: /切换方案/ }));
+
+    const sheet = screen.getByRole("dialog", { name: "选择结算方案" });
+    expect(within(sheet).getByRole("radio", { name: /最少转账/ })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(sheet).getByRole("radio", { name: /由我统一收付/ }));
+
+    expect(screen.getByText("当前：由我统一收付")).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "选择结算方案" })).not.toBeInTheDocument());
+  });
 });
 
 describe("Activity 生命周期写权限", () => {

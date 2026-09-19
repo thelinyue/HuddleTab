@@ -4,6 +4,15 @@ use uuid::Uuid;
 
 use super::ledger::Balance;
 
+/// 推荐转账路径。它只描述如何结清当前 Ledger 余额，不会改变任何账务事实。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RecommendationStrategy {
+    /// 尽量减少转账次数。
+    MinTransfers,
+    /// 让所有非 hub 成员只与指定 hub 发生推荐转账。
+    Centralized { hub_member_id: Uuid },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SettlementRecommendation {
     payer_member_id: Uuid,
@@ -42,6 +51,8 @@ pub enum RecommendationError {
     DuplicateMember,
     #[error("结算推荐计算超出安全金额范围")]
     Overflow,
+    #[error("统一结算人必须属于当前账本")]
+    UnknownHub,
 }
 
 /// 根据瞬时零和余额生成确定性建议；建议不是已经发生的 Settlement 事实。
@@ -52,6 +63,33 @@ pub enum RecommendationError {
 pub fn recommend_settlements(
     balances: &[Balance],
 ) -> Result<Vec<SettlementRecommendation>, RecommendationError> {
+    validate_balances(balances)?;
+
+    recommend_min_transfers(balances)
+}
+
+/// 按指定策略从瞬时余额生成确定性推荐；推荐本身不是 Settlement 事实。
+///
+/// 统一结算策略先输出所有应付成员到 hub 的转账，再输出 hub 到应收成员的转账，
+/// 这样分享摘要和结算页在相同余额下拥有稳定、易读的顺序。
+///
+/// # Errors
+///
+/// 余额不为零和、成员重复、hub 不存在或金额运算溢出时返回错误。
+pub fn recommend_settlements_with_strategy(
+    balances: &[Balance],
+    strategy: RecommendationStrategy,
+) -> Result<Vec<SettlementRecommendation>, RecommendationError> {
+    validate_balances(balances)?;
+    match strategy {
+        RecommendationStrategy::MinTransfers => recommend_min_transfers(balances),
+        RecommendationStrategy::Centralized { hub_member_id } => {
+            recommend_centralized(balances, hub_member_id)
+        }
+    }
+}
+
+fn validate_balances(balances: &[Balance]) -> Result<(), RecommendationError> {
     let mut member_ids = balances.iter().map(Balance::member_id).collect::<Vec<_>>();
     member_ids.sort_unstable();
     if member_ids.windows(2).any(|pair| pair[0] == pair[1]) {
@@ -64,7 +102,12 @@ pub fn recommend_settlements(
     if total != 0 {
         return Err(RecommendationError::NotZeroSum);
     }
+    Ok(())
+}
 
+fn recommend_min_transfers(
+    balances: &[Balance],
+) -> Result<Vec<SettlementRecommendation>, RecommendationError> {
     let mut creditors = balances
         .iter()
         .filter(|balance| balance.net_minor() > 0)
@@ -107,6 +150,45 @@ pub fn recommend_settlements(
         }
     }
 
+    Ok(recommendations)
+}
+
+fn recommend_centralized(
+    balances: &[Balance],
+    hub_member_id: Uuid,
+) -> Result<Vec<SettlementRecommendation>, RecommendationError> {
+    if !balances
+        .iter()
+        .any(|balance| balance.member_id() == hub_member_id)
+    {
+        return Err(RecommendationError::UnknownHub);
+    }
+
+    let mut recommendations = balances
+        .iter()
+        .filter(|balance| balance.member_id() != hub_member_id && balance.net_minor() < 0)
+        .map(|balance| {
+            Ok(SettlementRecommendation {
+                payer_member_id: balance.member_id(),
+                receiver_member_id: hub_member_id,
+                amount_minor: balance
+                    .net_minor()
+                    .checked_neg()
+                    .ok_or(RecommendationError::Overflow)?,
+            })
+        })
+        .collect::<Result<Vec<_>, RecommendationError>>()?;
+
+    recommendations.extend(
+        balances
+            .iter()
+            .filter(|balance| balance.member_id() != hub_member_id && balance.net_minor() > 0)
+            .map(|balance| SettlementRecommendation {
+                payer_member_id: hub_member_id,
+                receiver_member_id: balance.member_id(),
+                amount_minor: balance.net_minor(),
+            }),
+    );
     Ok(recommendations)
 }
 

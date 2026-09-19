@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     application::{
-        accounting::StoredLedgerFacts,
+        accounting::{LedgerMember, StoredLedgerFacts},
         activity::{ActivityMemberView, ActivityView},
         snapshot::{
             SnapshotCondition, SnapshotRepository, SnapshotRepositoryError, StoredActivitySnapshot,
@@ -184,6 +184,15 @@ impl SnapshotRepository for PostgresSnapshotRepository {
             base_currency: activity.base_currency.clone(),
             revision: activity.revision,
             member_ids: members.iter().map(|member| member.member_id).collect(),
+            members: members
+                .iter()
+                .map(|member| LedgerMember {
+                    member_id: member.member_id,
+                    user_id: member.user_id,
+                    status: member.status.clone(),
+                })
+                .collect(),
+            actor_member_id: activity.current_member_id,
             payments,
             shares,
             settlements: settlement_facts,

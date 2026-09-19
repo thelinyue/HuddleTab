@@ -1962,6 +1962,24 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "description": "min_transfers 或 centralized",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hubMemberId",
+            "in": "query",
+            "description": "统一结算人 UUID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2405,6 +2423,24 @@
             "in": "path",
             "description": "活动 UUID",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "description": "min_transfers 或 centralized",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hubMemberId",
+            "in": "query",
+            "description": "统一结算人 UUID",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -4285,6 +4321,7 @@
           "currency",
           "revision",
           "currentUserBalanceMinor",
+          "effectiveStrategy",
           "originalCurrencyTotals",
           "categoryTotals",
           "balances",
@@ -4315,6 +4352,9 @@
           "currentUserBalanceMinor": {
             "type": "string"
           },
+          "effectiveStrategy": {
+            "type": "string"
+          },
           "endDate": {
             "type": [
               "string",
@@ -4324,6 +4364,12 @@
           "expenseCount": {
             "type": "integer",
             "format": "int64"
+          },
+          "hubMemberId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "memberCount": {
             "type": "integer",
@@ -6009,7 +6055,7 @@
         ],
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/RecommendationData"
+            "$ref": "#/components/schemas/StrategyRecommendationData"
           }
         }
       },
@@ -6310,6 +6356,38 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/StorageData"
+          }
+        }
+      },
+      "StrategyRecommendationData": {
+        "type": "object",
+        "required": [
+          "baseCurrency",
+          "revision",
+          "effectiveStrategy",
+          "recommendations"
+        ],
+        "properties": {
+          "baseCurrency": {
+            "type": "string"
+          },
+          "effectiveStrategy": {
+            "type": "string"
+          },
+          "hubMemberId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecommendationItemData"
+            }
+          },
+          "revision": {
+            "type": "string"
           }
         }
       },

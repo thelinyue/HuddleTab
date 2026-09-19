@@ -4,6 +4,7 @@ use super::{
     accounting::{
         __path_ledger, __path_recommendations, BalanceData, LedgerData, LedgerEnvelope,
         RecommendationData, RecommendationEnvelope, RecommendationItemData,
+        StrategyRecommendationData,
     },
     activity::{
         __path_create, __path_delete as __path_activity_delete, __path_get as __path_activity_get,
@@ -264,6 +265,7 @@ use super::{
         LedgerEnvelope,
         RecommendationItemData,
         RecommendationData,
+        StrategyRecommendationData,
         RecommendationEnvelope,
         ActivitySnapshotData,
         ActivitySnapshotEnvelope,

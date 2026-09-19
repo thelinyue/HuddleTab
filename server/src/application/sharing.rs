@@ -4,13 +4,19 @@ use uuid::Uuid;
 
 use crate::domain::{
     ledger::{LedgerEntry, SettlementFact, calculate_ledger},
-    settlement::recommend_settlements,
+    settlement::{RecommendationStrategy, recommend_settlements_with_strategy},
+};
+
+use super::accounting::{
+    AccountingError, LedgerMember, RequestedRecommendationStrategy, resolve_strategy,
 };
 
 #[derive(Clone, Debug)]
 pub struct SnapshotMember {
     pub member_id: Uuid,
+    pub user_id: Option<Uuid>,
     pub display_name: String,
+    pub status: String,
 }
 
 /// 分享快照保留原始账务金额，摘要层先校验总消费、付款和分摊三方一致，再交给领域总账计算。
@@ -119,6 +125,7 @@ pub struct ActivitySummary {
     pub current_user_balance_minor: i64,
     pub balances: Vec<NamedBalance>,
     pub recommendations: Vec<SummaryRecommendation>,
+    pub effective_strategy: RecommendationStrategy,
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -146,6 +153,8 @@ pub enum SharingError {
     Integrity,
     #[error("活动分享服务暂时不可用")]
     Unavailable,
+    #[error("分享摘要策略参数无效")]
+    InvalidStrategy,
 }
 
 /// 从数据库快照计算活动摘要，余额和转账建议始终复用领域层的权威规则。
@@ -157,6 +166,26 @@ pub async fn load_summary(
     repository: &dyn SharingRepository,
     activity_id: Uuid,
     actor_user_id: Uuid,
+) -> Result<ActivitySummary, SharingError> {
+    load_summary_with_strategy(
+        repository,
+        activity_id,
+        actor_user_id,
+        RequestedRecommendationStrategy::Default,
+    )
+    .await
+}
+
+/// 使用显式或默认策略生成分享摘要；金额和推荐始终来自同一只读快照。
+///
+/// # Errors
+///
+/// 快照无权读取、账务事实不完整、策略参数无效或 hub 无权限时返回错误。
+pub async fn load_summary_with_strategy(
+    repository: &dyn SharingRepository,
+    activity_id: Uuid,
+    actor_user_id: Uuid,
+    requested: RequestedRecommendationStrategy,
 ) -> Result<ActivitySummary, SharingError> {
     let snapshot = load_snapshot(repository, activity_id, actor_user_id).await?;
     let payment_total = checked_fact_total(&snapshot.payments)?;
@@ -183,7 +212,23 @@ pub async fn load_summary(
         snapshot.settlements,
     )
     .map_err(|_| SharingError::Integrity)?;
-    let recommendations = recommend_settlements(&balances).map_err(|_| SharingError::Integrity)?;
+    let strategy_members = snapshot
+        .members
+        .iter()
+        .map(|member| LedgerMember {
+            member_id: member.member_id,
+            user_id: member.user_id,
+            status: member.status.clone(),
+        })
+        .collect::<Vec<_>>();
+    let effective_strategy = resolve_strategy(
+        &strategy_members,
+        snapshot.current_user_member_id,
+        requested,
+    )
+    .map_err(map_accounting_error)?;
+    let recommendations = recommend_settlements_with_strategy(&balances, effective_strategy)
+        .map_err(|_| SharingError::Integrity)?;
     let current_user_balance_minor = balances
         .iter()
         .find(|balance| balance.member_id() == snapshot.current_user_member_id)
@@ -238,7 +283,19 @@ pub async fn load_summary(
                 amount_minor: item.amount_minor(),
             })
             .collect(),
+        effective_strategy,
     })
+}
+
+fn map_accounting_error(error: AccountingError) -> SharingError {
+    match error {
+        AccountingError::Forbidden | AccountingError::RecommendationHubForbidden => {
+            SharingError::Forbidden
+        }
+        AccountingError::InvalidRecommendationStrategy => SharingError::InvalidStrategy,
+        AccountingError::Integrity => SharingError::Integrity,
+        AccountingError::Unavailable => SharingError::Unavailable,
+    }
 }
 
 fn checked_fact_total(entries: &[SnapshotLedgerEntry]) -> Result<i64, SharingError> {
