@@ -165,7 +165,7 @@ test("活动首页、工作台和记账入口保持远程基线信息路径", as
   await expect(expenseDialog.getByRole("button", { name: "币种：USD" })).toBeFocused();
 
   await expenseDialog.getByRole("button", { name: /^备注：/ }).click();
-  await expect(page.getByRole("dialog", { name: "备注与附件" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "备注与图片" })).toBeVisible();
   await expect(expenseDialog.getByLabel("备注", { exact: true })).toBeVisible();
   await expenseDialog.getByRole("button", { name: "完成", exact: true }).click();
   await assertExpenseEditorScrollBoundary(page, expenseDialog);

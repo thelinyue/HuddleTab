@@ -734,18 +734,28 @@ body:has(.activity-add-fab) .update-prompt { bottom: calc(var(--safe-area-bottom
 .attachment-lightbox__scrim { position: absolute; inset: 0; border: 0; background: rgb(0 0 0 / .78); }
 .attachment-lightbox__dialog { position: relative; display: grid; max-width: min(960px, 100%); max-height: calc(100dvh - 48px); place-items: center; }
 .attachment-lightbox__dialog img { display: block; max-width: 100%; max-height: calc(100dvh - 48px); border-radius: 6px; object-fit: contain; }
+.attachment-lightbox__placeholder { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(8px); object-fit: contain; }
+.attachment-lightbox__full { min-width: 160px; min-height: 120px; opacity: .08; transition: opacity 160ms ease; }
+.attachment-lightbox__full--loaded { opacity: 1; }
+.attachment-lightbox__loading { position: absolute; bottom: 56px; left: 50%; border-radius: 999px; padding: 6px 10px; color: #fff; background: rgb(0 0 0 / .62); font-size: 13px; transform: translateX(-50%); }
+.attachment-lightbox__original { position: absolute; right: 58px; bottom: 8px; border-radius: 6px; padding: 7px 10px; color: #fff; background: rgb(0 0 0 / .62); font-size: 13px; text-decoration: none; }
+.attachment-lightbox__original:hover { background: rgb(0 0 0 / .8); }
 .attachment-lightbox__close { position: absolute; top: 8px; right: 8px; display: inline-grid; width: 44px; height: 44px; place-items: center; border: 1px solid rgb(255 255 255 / .35); border-radius: 50%; background: rgb(0 0 0 / .62); color: #fff; }
 .attachment-lightbox__close:hover { background: rgb(0 0 0 / .8); }
 .expense-attachments { display: grid; gap: 10px; }
 .expense-attachments h2 { margin: 0; font-size: 18px; }
 .expense-attachments__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.expense-attachments__item { display: grid; min-width: 0; gap: 6px; }
+.expense-attachments__item { position: relative; display: grid; min-width: 0; gap: 6px; }
 .expense-attachments__grid a { display: block; aspect-ratio: 1; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted); }
 .expense-attachments__grid a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .expense-attachments__grid img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.expense-attachments__delete { justify-self: end; display: inline-grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--danger); cursor: pointer; }
-.expense-attachments__delete:hover { background: var(--surface-muted); }
+.expense-attachments__delete { position: absolute; top: 5px; right: 5px; display: inline-grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgb(255 255 255 / .7); border-radius: 50%; background: rgb(0 0 0 / .58); color: #fff; cursor: pointer; }
+.expense-attachments__delete:hover { background: rgb(0 0 0 / .8); }
 .expense-attachments__delete:disabled { cursor: wait; opacity: .55; }
+.expense-attachments--compact { gap: 8px; }
+.expense-attachments--compact h2 { font-size: 16px; }
+.expense-attachments--compact .expense-attachments__grid { grid-template-columns: repeat(3, minmax(0, 88px)); }
+.expense-attachments--compact .expense-attachments__grid a { border-radius: 8px; }
 
 @media (max-width: 760px) {
   .auth-layout { grid-template-columns: 1fr; background: var(--surface); }
@@ -1039,6 +1049,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .quick-expense-attachment__surface > svg { flex: 0 0 auto; color: var(--primary); }
 .quick-expense-attachment__surface > strong { flex: 0 0 auto; font-size: 14px; }
 .quick-expense-attachment__surface > small { min-width: 0; overflow: hidden; margin-left: auto; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; }
+.quick-expense-field-hint { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
 .quick-expense-attachment:focus-within .quick-expense-attachment__surface { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 22%, transparent); outline-offset: 0; }
 @media (max-width: 639px) {
   .quick-expense-overlay--entry .form-overlay__body, .routed-expense-editor__body { --quick-expense-gutter: 16px; }

@@ -36,7 +36,7 @@ export function quickExpenseViewTitle(view: QuickExpenseView): string {
     case "category": return "分类";
     case "currency": return "选择币种";
     case "currency-rate": return "设置汇率";
-    case "note": return "备注与附件";
+    case "note": return "备注与图片";
     case "split": return "分摊设置";
     default: return "记一笔";
   }

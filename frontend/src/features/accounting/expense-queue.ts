@@ -60,14 +60,14 @@ function attachmentQueueError(error: unknown) {
     if (error.status === 413) {
       return {
         code: error.code,
-        message: "附件超过服务器允许的上传大小，请联系管理员检查反向代理上传限制。",
+        message: "图片超过服务器允许的上传大小，请联系管理员检查反向代理上传限制。",
       };
     }
     return { code: error.code, message: error.message };
   }
   return {
     code: "NETWORK_ERROR",
-    message: "网络连接不可用，附件将在稍后重试。",
+    message: "网络连接不可用，图片将在稍后重试。",
   };
 }
 
@@ -99,7 +99,7 @@ async function sendExpense(
 export async function uploadExpenseAttachment(
   activityId: string,
   expenseId: string,
-  attachment: PendingAttachment,
+  attachment: PendingAttachment | PendingAttachmentDraft,
 ) {
   const formData = new FormData();
   const file = new File(

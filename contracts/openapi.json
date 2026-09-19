@@ -803,6 +803,27 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "variant",
+            "in": "query",
+            "description": "thumbnail 表示卡片缩略图",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "上次成功下载的图片 ETag",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -813,7 +834,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "private, no-store"
+                "description": "private, no-cache"
               },
               "Content-Disposition": {
                 "schema": {
@@ -827,6 +848,12 @@
                 },
                 "description": "image/webp"
               },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "按附件 ID 与图片变体生成的强 ETag"
+              },
               "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
@@ -839,6 +866,23 @@
                 "schema": {
                   "$ref": "#/components/schemas/AttachmentBinary"
                 }
+              }
+            }
+          },
+          "304": {
+            "description": "图片未变化",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-cache"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "当前图片 ETag"
               }
             }
           },

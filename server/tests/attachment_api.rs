@@ -4,7 +4,9 @@ use axum::{
     body::Body,
     http::{
         HeaderMap, Request, StatusCode,
-        header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, ORIGIN},
+        header::{
+            CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, ETAG, IF_NONE_MATCH, ORIGIN,
+        },
     },
 };
 use http_body_util::BodyExt as _;
@@ -186,13 +188,43 @@ async fn multipart_upload_replay_and_private_download_use_json_contract() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[CONTENT_TYPE], "image/webp");
-    assert_eq!(headers[CACHE_CONTROL], "private, no-store");
+    assert_eq!(headers[CACHE_CONTROL], "private, no-cache");
     assert_eq!(headers["x-content-type-options"], "nosniff");
     assert_eq!(
         headers[CONTENT_DISPOSITION],
         format!("inline; filename=\"{attachment_id}.webp\"")
     );
     assert_eq!(&bytes[..4], b"RIFF");
+
+    let thumbnail_uri = format!("{download_uri}?variant=thumbnail");
+    let (status, thumbnail_headers, thumbnail_bytes) = raw_response(
+        &context,
+        Request::builder()
+            .uri(&thumbnail_uri)
+            .header(COOKIE, session_cookie(&context.session))
+            .body(Body::empty())
+            .expect("缩略图请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(thumbnail_headers[CACHE_CONTROL], "private, no-cache");
+    assert_ne!(thumbnail_headers[ETAG], headers[ETAG]);
+    let thumbnail = image::load_from_memory(&thumbnail_bytes).expect("应返回 WebP 缩略图");
+    assert!(thumbnail.width() <= 320 && thumbnail.height() <= 320);
+
+    let (status, not_modified_headers, not_modified_body) = raw_response(
+        &context,
+        Request::builder()
+            .uri(&thumbnail_uri)
+            .header(COOKIE, session_cookie(&context.session))
+            .header(IF_NONE_MATCH, thumbnail_headers[ETAG].clone())
+            .body(Body::empty())
+            .expect("条件缩略图请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_MODIFIED);
+    assert_eq!(not_modified_headers[ETAG], thumbnail_headers[ETAG]);
+    assert!(not_modified_body.is_empty());
 
     let (status, _, private_body) = raw_response(
         &context,

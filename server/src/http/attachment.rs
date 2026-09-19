@@ -1,15 +1,15 @@
 use axum::{
     Extension,
     body::Body,
-    extract::{FromRequest as _, Multipart, Path, Request, State},
+    extract::{FromRequest as _, Multipart, Path, Query, Request, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
-        header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE},
+        header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, ETAG, IF_NONE_MATCH},
     },
     response::{IntoResponse as _, Response},
 };
 use axum_extra::extract::cookie::CookieJar;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -19,7 +19,9 @@ use crate::{
         upload_attachment,
     },
     infrastructure::{
-        attachment_repository::PostgresAttachmentRepository, attachment_store::LocalAttachmentStore,
+        attachment_image::thumbnail_attachment_image,
+        attachment_repository::PostgresAttachmentRepository,
+        attachment_store::LocalAttachmentStore,
     },
 };
 
@@ -43,6 +45,12 @@ pub struct UploadAttachmentRequest {
 #[derive(ToSchema)]
 #[schema(value_type = String, format = Binary)]
 pub struct AttachmentBinary(pub Vec<u8>);
+
+#[derive(Deserialize, ToSchema)]
+pub struct AttachmentQuery {
+    /// 卡片使用 320px 缩略图；未传或其他值表示完整图片。
+    pub variant: Option<String>,
+}
 
 #[derive(Serialize, ToSchema)]
 pub struct AttachmentEnvelope {
@@ -159,16 +167,24 @@ pub(crate) async fn upload(
     params(
         ("activity_id" = String, Path, description = "活动 UUID"),
         ("expense_id" = String, Path, description = "Expense UUID"),
-        ("attachment_id" = String, Path, description = "附件 UUID")
+        ("attachment_id" = String, Path, description = "附件 UUID"),
+        ("variant" = Option<String>, Query, description = "thumbnail 表示卡片缩略图"),
+        ("If-None-Match" = Option<String>, Header, description = "上次成功下载的图片 ETag")
     ),
     responses(
         (status = 200, description = "私有 WebP 附件", body = AttachmentBinary,
             content_type = "image/webp",
             headers(
-                ("Cache-Control" = String, description = "private, no-store"),
+                ("Cache-Control" = String, description = "private, no-cache"),
                 ("Content-Type" = String, description = "image/webp"),
+                ("ETag" = String, description = "按附件 ID 与图片变体生成的强 ETag"),
                 ("Content-Disposition" = String, description = "内联稳定文件名"),
                 ("X-Content-Type-Options" = String, description = "nosniff")
+            )),
+        (status = 304, description = "图片未变化",
+            headers(
+                ("Cache-Control" = String, description = "private, no-cache"),
+                ("ETag" = String, description = "当前图片 ETag")
             )),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
         (status = 404, description = "附件不存在或不可访问", body = super::error::ErrorEnvelope),
@@ -179,7 +195,9 @@ pub(crate) async fn download(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
     Path((activity_id, expense_id, attachment_id)): Path<(String, String, String)>,
+    Query(query): Query<AttachmentQuery>,
     jar: CookieJar,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let actor = authenticate(&state, &jar, request_id.clone()).await?;
     let activity_id = parse_uuid(&activity_id, request_id.clone())?;
@@ -196,14 +214,45 @@ pub(crate) async fn download(
         actor.user_id,
     )
     .await
-    .map_err(|error| map_error(error, request_id))?;
-    let mut response = Body::from(downloaded.bytes).into_response();
+    .map_err(|error| map_error(error, request_id.clone()))?;
+    let thumbnail = query.variant.as_deref() == Some("thumbnail");
+    let etag = format!(
+        "\"{}-{}\"",
+        downloaded.attachment_id,
+        if thumbnail { "thumbnail" } else { "full" }
+    );
+    if headers
+        .get(IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
+    {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        response.headers_mut().insert(
+            ETAG,
+            HeaderValue::from_str(&etag).expect("UUID ETag 始终合法"),
+        );
+        response
+            .headers_mut()
+            .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+        return Ok(response);
+    }
+    let bytes = if thumbnail {
+        thumbnail_attachment_image(&downloaded.bytes)
+            .map_err(|_| ApiError::internal(request_id.clone()))?
+    } else {
+        downloaded.bytes
+    };
+    let mut response = Body::from(bytes).into_response();
     response
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static("image/webp"));
     response
         .headers_mut()
-        .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+        .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    response.headers_mut().insert(
+        ETAG,
+        HeaderValue::from_str(&etag).expect("UUID ETag 始终合法"),
+    );
     response.headers_mut().insert(
         CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!(

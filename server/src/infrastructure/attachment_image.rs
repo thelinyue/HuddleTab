@@ -6,6 +6,7 @@ use thiserror::Error;
 const MAX_BYTES: usize = 10 * 1024 * 1024;
 const MAX_PIXELS: u64 = 40_000_000;
 const MAX_DIMENSION: u32 = 2_048;
+const THUMBNAIL_DIMENSION: u32 = 320;
 
 #[derive(Debug)]
 pub struct ProcessedAttachment {
@@ -97,6 +98,38 @@ pub fn validate_image_dimensions(width: u32, height: u32) -> Result<(), Attachme
         return Err(AttachmentImageError::PixelLimitExceeded);
     }
     Ok(())
+}
+
+/// 将已通过安全处理的 WebP 附件压缩为卡片缩略图。
+///
+/// 缩略图不写入附件存储，避免为历史图片增加迁移；下载接口只在卡片请求时
+/// 生成它，完整图片仍保持原始处理后的尺寸供用户打开原图。
+///
+/// # Errors
+///
+/// 已存储的 WebP 无法解码、尺寸超过安全上限或重编码失败时返回稳定错误。
+pub fn thumbnail_attachment_image(bytes: &[u8]) -> Result<Vec<u8>, AttachmentImageError> {
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| AttachmentImageError::InvalidImage)?;
+    if reader.format() != Some(ImageFormat::WebP) {
+        return Err(AttachmentImageError::InvalidImage);
+    }
+    let decoder = reader
+        .into_decoder()
+        .map_err(|_| AttachmentImageError::InvalidImage)?;
+    let (width, height) = decoder.dimensions();
+    validate_image_dimensions(width, height)?;
+    let mut image =
+        DynamicImage::from_decoder(decoder).map_err(|_| AttachmentImageError::InvalidImage)?;
+    if image.width() > THUMBNAIL_DIMENSION || image.height() > THUMBNAIL_DIMENSION {
+        image = image.thumbnail(THUMBNAIL_DIMENSION, THUMBNAIL_DIMENSION);
+    }
+    let mut output = Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, ImageFormat::WebP)
+        .map_err(|_| AttachmentImageError::InvalidImage)?;
+    Ok(output.into_inner())
 }
 
 fn format_for_mime(mime: &str) -> Result<ImageFormat, AttachmentImageError> {

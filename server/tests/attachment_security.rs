@@ -1,7 +1,10 @@
 use std::{fs, io::Cursor};
 
 use huddletab_server::infrastructure::{
-    attachment_image::{AttachmentImageError, process_attachment_image, validate_image_dimensions},
+    attachment_image::{
+        AttachmentImageError, process_attachment_image, thumbnail_attachment_image,
+        validate_image_dimensions,
+    },
     attachment_store::{AttachmentStoreError, LocalAttachmentStore},
 };
 use image::{DynamicImage, GenericImageView as _, ImageFormat, RgbaImage};
@@ -91,6 +94,26 @@ fn jpeg_orientation_is_applied_and_metadata_is_removed() {
     assert!(
         !result.bytes.windows(4).any(|window| window == b"Exif"),
         "重编码结果不得保留 EXIF 元数据"
+    );
+}
+
+#[test]
+fn thumbnail_is_smaller_without_enlarging_small_images() {
+    let processed =
+        process_attachment_image(&encoded_image(1_600, 800, ImageFormat::Png), "image/png")
+            .expect("合法图片应可处理");
+    let thumbnail = thumbnail_attachment_image(&processed.bytes).expect("应生成缩略图");
+    let decoded = image::load_from_memory_with_format(&thumbnail, ImageFormat::WebP)
+        .expect("缩略图应为可解码 WebP");
+    assert_eq!(decoded.dimensions(), (320, 160));
+
+    let tiny = process_attachment_image(&png_1_by_1(), "image/png").expect("小图应可处理");
+    let tiny_thumbnail = thumbnail_attachment_image(&tiny.bytes).expect("小图也应可生成缩略图");
+    assert_eq!(
+        image::load_from_memory_with_format(&tiny_thumbnail, ImageFormat::WebP)
+            .expect("小图缩略图应可解码")
+            .dimensions(),
+        (1, 1)
     );
 }
 

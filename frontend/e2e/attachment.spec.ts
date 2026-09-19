@@ -27,17 +27,17 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   const dialog = await openQuickExpense(page);
   await fillQuickExpenseBasics(dialog, "12.34", title);
   await openExpenseNoteView(dialog);
-  await dialog.getByLabel("附件（最多三张）").setInputFiles([
+  await dialog.getByLabel("图片（最多三张）").setInputFiles([
     { name: "receipt-a.png", mimeType: "image/png", buffer: onePixelPng },
     { name: "receipt-b.png", mimeType: "image/png", buffer: onePixelPng },
   ]);
-  await expect(dialog.getByRole("img", { name: "receipt-a.png 缩略图" })).toBeVisible();
-  await expect(dialog.getByRole("img", { name: "receipt-b.png 缩略图" })).toBeVisible();
-  await dialog.getByRole("button", { name: "预览附件 receipt-b.png" }).click();
+  await expect(dialog.getByRole("img", { name: "receipt-a.png 图片缩略图" })).toBeVisible();
+  await expect(dialog.getByRole("img", { name: "receipt-b.png 图片缩略图" })).toBeVisible();
+  await dialog.getByRole("button", { name: "预览图片 receipt-b.png" }).click();
   await expect(page.getByRole("dialog", {
-    name: "附件大图预览 receipt-b.png",
+    name: "图片大图预览 receipt-b.png",
   })).toBeVisible();
-  await page.getByRole("button", { name: "关闭附件预览" }).click();
+  await page.getByRole("button", { name: "关闭图片预览" }).click();
   await dialog.getByRole("button", { name: "完成", exact: true }).click();
   await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
@@ -55,19 +55,30 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   await expect(editor.getByRole("heading", { name: "修改账单" })).toBeVisible();
   await openExpenseNoteView(editor);
   await assertExpenseEditorScrollBoundary(page, editor);
-  const previews = page.getByRole("img", { name: /^附件 \d+$/ });
+  const previews = page.getByRole("img", { name: /^图片 \d+$/ });
   await expect(previews).toHaveCount(2);
-  const href = await page.getByRole("link", { name: "查看附件 1" }).getAttribute("href");
+  const href = await page.getByRole("link", { name: "查看图片 1" }).getAttribute("href");
   expect(href).toBeTruthy();
   const download = await page.request.get(href!);
   expect(download.ok()).toBeTruthy();
   expect(download.headers()["content-type"]).toContain("image/webp");
-  expect(download.headers()["cache-control"]).toBe("private, no-store");
+  expect(download.headers()["cache-control"]).toBe("private, no-cache");
+  expect(download.headers().etag).toBeTruthy();
   expect(download.headers()["x-content-type-options"]).toBe("nosniff");
   expect((await download.body()).subarray(0, 4).toString("ascii")).toBe("RIFF");
 
-  await page.getByRole("button", { name: "删除附件 1" }).click();
-  const deleteConfirmation = page.getByRole("alertdialog", { name: "删除附件" });
+  const thumbnail = await page.request.get(`${href}?variant=thumbnail`);
+  expect(thumbnail.ok()).toBeTruthy();
+  expect(thumbnail.headers()["cache-control"]).toBe("private, no-cache");
+  expect(thumbnail.headers().etag).toBeTruthy();
+  expect(thumbnail.headers().etag).not.toBe(download.headers().etag);
+  const cachedThumbnail = await page.request.get(`${href}?variant=thumbnail`, {
+    headers: { "If-None-Match": thumbnail.headers().etag },
+  });
+  expect(cachedThumbnail.status()).toBe(304);
+
+  await page.getByRole("button", { name: "删除图片 1" }).click();
+  const deleteConfirmation = page.getByRole("alertdialog", { name: "删除图片" });
   await expect(deleteConfirmation).toBeVisible();
   await deleteConfirmation.getByRole("button", { name: "确认删除" }).click();
   await expect(previews).toHaveCount(1);

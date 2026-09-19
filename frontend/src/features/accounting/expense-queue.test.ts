@@ -249,7 +249,7 @@ it("代理返回 413 时保留 Blob 并显示上传上限提示", async () => {
   expect(attachment).toMatchObject({
     status: "REJECTED",
     lastError: {
-      message: "附件超过服务器允许的上传大小，请联系管理员检查反向代理上传限制。",
+      message: "图片超过服务器允许的上传大小，请联系管理员检查反向代理上传限制。",
     },
   });
   expect(attachment.blob).toBeDefined();

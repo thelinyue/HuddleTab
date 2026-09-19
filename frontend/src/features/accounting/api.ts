@@ -5,9 +5,9 @@ import { mutationHeaders } from "../../api/csrf";
 import { unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
-import { expenseQueueFor } from "./expense-queue";
+import { expenseQueueFor, uploadExpenseAttachment } from "./expense-queue";
 import type { PendingAttachmentDraft } from "../../pwa/indexed-db/schema";
-export { uploadExpenseAttachment } from "./expense-queue";
+export { uploadExpenseAttachment };
 
 export type ExpenseAggregate = components["schemas"]["ExpenseAggregateData"];
 export type ExpenseDraft = components["schemas"]["ExpenseDraftRequest"];
@@ -246,6 +246,42 @@ export function useDeleteAttachmentMutation(
   return useMutation({
     mutationFn: (attachmentId: string) =>
       deleteExpenseAttachment(activityId, expenseId, attachmentId),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.expense(userId, activityId, expenseId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.expenses(userId, activityId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.activitySnapshot(userId, activityId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.activityDetail(userId, activityId),
+      }),
+    ]),
+  });
+}
+
+/**
+ * 编辑已有账单时，图片独立于账单字段立即上传；上传成功后刷新所有会展示
+ * 图片数量的账单查询，避免用户必须再次打开页面才能看到服务端事实。
+ */
+export function useUploadAttachmentMutation(
+  userId: string,
+  activityId: string,
+  expenseId: string,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, clientAttachmentId }: { file: File; clientAttachmentId: string }) =>
+      uploadExpenseAttachment(activityId, expenseId, {
+        id: crypto.randomUUID(),
+        clientAttachmentId,
+        fileName: file.name,
+        mimeType: file.type,
+        blob: file,
+      }),
     onSuccess: () => Promise.all([
       queryClient.invalidateQueries({
         queryKey: queryKeys.expense(userId, activityId, expenseId),

@@ -191,7 +191,7 @@ export function ExpenseFeedPage() {
                   (attachment) => attachment.status === "REJECTED",
                 )?.lastError?.message ?? (local?.attachments.some((attachment) =>
                   ["PENDING", "SYNCING", "RETRYABLE"].includes(attachment.status)
-                ) ? "附件等待同步" : undefined);
+                ) ? "图片等待同步" : undefined);
                 const detailUrl = `/activities/${activity.activityId}/expenses/${expense.expenseId}`;
                 const editQuery = new URLSearchParams(searchParams);
                 editQuery.set("editExpense", expense.expenseId);

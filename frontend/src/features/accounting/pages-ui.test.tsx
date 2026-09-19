@@ -94,6 +94,11 @@ const deleteAttachmentMutation = vi.hoisted(() => ({
   mutateAsync: vi.fn().mockResolvedValue(undefined),
   variables: undefined as string | undefined,
 }));
+const uploadAttachmentMutation = vi.hoisted(() => ({
+  error: null as unknown,
+  isPending: false,
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+}));
 const rateMutation = vi.hoisted(() => ({
   isPending: false,
   mutateAsync: vi.fn().mockResolvedValue({
@@ -137,6 +142,7 @@ vi.mock("./api", () => ({
   useCreateSettlementMutation: mutation,
   useDeleteExpenseMutation: () => deleteExpenseMutation,
   useDeleteAttachmentMutation: () => deleteAttachmentMutation,
+  useUploadAttachmentMutation: () => uploadAttachmentMutation,
   useExpenseQuery: () => ({ data: expense, isPending: false }),
   useExchangeRateSuggestionMutation: () => rateMutation,
   useExpensesQuery: () => ({ data: accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
@@ -166,8 +172,8 @@ function renderPage(node: ReactNode, initialEntries?: string[]) {
 
 function openNoteView(container: HTMLElement = document.body) {
   fireEvent.click(within(container).getByRole("button", { name: /^备注：/ }));
-  return screen.queryByRole("dialog", { name: "备注与附件" })
-    ?? screen.getByRole("region", { name: "备注与附件" });
+  return screen.queryByRole("dialog", { name: "备注与图片" })
+    ?? screen.getByRole("region", { name: "备注与图片" });
 }
 
 function chooseCurrency(code: string) {
@@ -195,6 +201,8 @@ afterEach(() => {
   discardMutation.mutateAsync.mockClear();
   deleteAttachmentMutation.mutateAsync.mockClear();
   deleteAttachmentMutation.error = null;
+  uploadAttachmentMutation.mutateAsync.mockClear();
+  uploadAttachmentMutation.error = null;
   rateMutation.mutateAsync.mockClear();
   guestMutation.mutateAsync.mockClear();
   vi.restoreAllMocks();
@@ -359,9 +367,9 @@ describe("快捷记账 v0.0.2 信息路径", () => {
     const { dialog } = await openQuickExpense();
     expect(within(dialog).getByRole("button", { name: "保存" }).parentElement).toHaveClass("quick-expense-action-dock");
     const noteDialog = openNoteView(dialog);
-    expect(within(noteDialog).getByText("选择图片")).toBeInTheDocument();
-    expect(within(noteDialog).getByText("未选择图片")).toBeInTheDocument();
-    expect(within(noteDialog).getByLabelText("附件（最多三张）")).toHaveAttribute("accept", ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp");
+    expect(within(noteDialog).getByText("添加图片")).toBeInTheDocument();
+    expect(within(noteDialog).getByText("未添加图片")).toBeInTheDocument();
+    expect(within(noteDialog).getByLabelText("图片（最多三张）")).toHaveAttribute("accept", ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp");
     expect(within(noteDialog).getByRole("button", { name: "完成" }).parentElement).toHaveClass("quick-expense-action-dock");
   });
 
@@ -721,14 +729,14 @@ describe("Expense 附件选择与私有预览", () => {
     const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     const page = renderPage(<NewExpensePage />);
     openNoteView();
-    const input = screen.getByLabelText("附件（最多三张）");
+    const input = screen.getByLabelText("图片（最多三张）");
     fireEvent.change(input, { target: { files: [new File(["a"], "a.png", { type: "image/png" })] } });
     const previousUrls = createUrl.mock.results.map(({ value }) => value);
 
     fireEvent.change(input, { target: { files: [new File(["b"], "b.png", { type: "image/png" })] } });
     for (const url of previousUrls) expect(revoke).toHaveBeenCalledWith(url);
-    expect(screen.getByRole("img", { name: "a.png 缩略图" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "b.png 缩略图" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "a.png 图片缩略图" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "b.png 图片缩略图" })).toBeInTheDocument();
 
     page.unmount();
     for (const { value } of createUrl.mock.results) expect(revoke).toHaveBeenCalledWith(value);
@@ -737,11 +745,11 @@ describe("Expense 附件选择与私有预览", () => {
   it("取消删除保留附件且不发送请求", () => {
     renderPage(<ExpenseDetailPage />);
     openNoteView();
-    fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
-    fireEvent.click(within(screen.getByRole("alertdialog", { name: "删除附件" })).getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除图片 1" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "删除图片" })).getByRole("button", { name: "取消" }));
 
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看附件 1" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看图片 1" })).toBeInTheDocument();
     expect(deleteAttachmentMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
@@ -753,20 +761,20 @@ describe("Expense 附件选择与私有预览", () => {
     });
     const page = renderPage(<ExpenseDetailPage />);
     openNoteView();
-    fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除图片 1" }));
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(deleteAttachmentMutation.mutateAsync).toHaveBeenCalledWith("attachment-1"));
     page.rerender(<MemoryRouter><ExpenseDetailPage /></MemoryRouter>);
 
     expect(screen.getByRole("alert")).toHaveTextContent("附件删除失败");
-    expect(screen.getByRole("alertdialog", { name: "删除附件" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看附件 1" })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "删除图片" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看图片 1" })).toBeInTheDocument();
   });
 
-  it("新建模式限制为三张受支持图片，编辑模式不再选择附件", () => {
+  it("新建和编辑模式都限制为三张受支持图片", () => {
     const create = renderPage(<NewExpensePage />);
     openNoteView();
-    const input = screen.getByLabelText("附件（最多三张）");
+    const input = screen.getByLabelText("图片（最多三张）");
     expect(input).toHaveAttribute(
       "accept",
       ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp",
@@ -775,7 +783,22 @@ describe("Expense 附件选择与私有预览", () => {
 
     renderPage(<ExpenseDetailPage />);
     openNoteView();
-    expect(screen.queryByLabelText("附件（最多三张）")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("图片（最多三张）")).toBeInTheDocument();
+  });
+
+  it("编辑模式选图后立即上传并保留失败图片供移除", async () => {
+    uploadAttachmentMutation.mutateAsync.mockRejectedValueOnce(new Error("网络暂时不可用"));
+    renderPage(<ExpenseDetailPage />);
+    openNoteView();
+    const file = new File(["image"], "new-receipt.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("图片（最多三张）"), { target: { files: [file] } });
+
+    await waitFor(() => expect(uploadAttachmentMutation.mutateAsync).toHaveBeenCalledWith({
+      file,
+      clientAttachmentId: expect.any(String),
+    }));
+    expect(screen.getByRole("img", { name: "new-receipt.png 图片缩略图" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("图片上传失败：网络暂时不可用");
   });
 
   it.each([
@@ -783,13 +806,13 @@ describe("Expense 附件选择与私有预览", () => {
       files: [0, 1, 2, 3].map((index) => new File(["x"], `${index}.png`, {
         type: "image/png",
       })),
-      message: "每笔账单最多添加三张附件。",
+      message: "每笔账单最多添加三张图片。",
     },
     {
       files: [new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.jpg", {
         type: "image/jpeg",
       })],
-      message: "单张附件不能超过 10 MiB。",
+      message: "单张图片不能超过 10 MiB。",
     },
     {
       files: [new File(["<svg/>"], "unsafe.svg", {
@@ -805,7 +828,7 @@ describe("Expense 附件选择与私有预览", () => {
     fireEvent.change(amount, { target: { value: "12.34" } });
     openNoteView();
 
-    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+    fireEvent.change(screen.getByLabelText("图片（最多三张）"), {
       target: { files },
     });
 
@@ -827,27 +850,27 @@ describe("Expense 附件选择与私有预览", () => {
       new File(["b"], "receipt-b.webp", { type: "image/webp" }),
     ];
 
-    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+    fireEvent.change(screen.getByLabelText("图片（最多三张）"), {
       target: { files },
     });
 
-    expect(screen.getByRole("img", { name: "receipt-a.png 缩略图" }))
+    expect(screen.getByRole("img", { name: "receipt-a.png 图片缩略图" }))
       .toHaveAttribute("src", "blob:receipt-a");
-    expect(screen.getByRole("img", { name: "receipt-b.webp 缩略图" }))
+    expect(screen.getByRole("img", { name: "receipt-b.webp 图片缩略图" }))
       .toHaveAttribute("src", "blob:receipt-b");
 
     fireEvent.click(screen.getByRole("button", {
-      name: "预览附件 receipt-b.webp",
+      name: "预览图片 receipt-b.webp",
     }));
     const preview = screen.getByRole("dialog", {
-      name: "附件大图预览 receipt-b.webp",
+      name: "图片大图预览 receipt-b.webp",
     });
     expect(preview.querySelector("img")).toHaveAttribute(
       "src",
       "blob:receipt-b",
     );
-    fireEvent.click(screen.getByRole("button", { name: "关闭附件预览" }));
-    expect(screen.queryByRole("dialog", { name: /附件大图预览/ }))
+    fireEvent.click(screen.getByRole("button", { name: "关闭图片预览" }));
+    expect(screen.queryByRole("dialog", { name: /图片大图预览/ }))
       .not.toBeInTheDocument();
   });
 
@@ -867,16 +890,16 @@ describe("Expense 附件选择与私有预览", () => {
     openNoteView();
     const first = new File(["a"], "receipt-a.png", { type: "image/png" });
     const second = new File(["b"], "receipt-b.png", { type: "image/png" });
-    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+    fireEvent.change(screen.getByLabelText("图片（最多三张）"), {
       target: { files: [first, second] },
     });
 
     fireEvent.click(screen.getByRole("button", {
-      name: "移除附件 receipt-a.png",
+      name: "移除图片 receipt-a.png",
     }));
-    expect(screen.queryByRole("img", { name: "receipt-a.png 缩略图" }))
+    expect(screen.queryByRole("img", { name: "receipt-a.png 图片缩略图" }))
       .not.toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "receipt-b.png 缩略图" }))
+    expect(screen.getByRole("img", { name: "receipt-b.png 图片缩略图" }))
       .toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "完成" }));
@@ -895,14 +918,14 @@ describe("Expense 附件选择与私有预览", () => {
       .mockImplementation(() => undefined);
     renderPage(<NewExpensePage />);
     openNoteView();
-    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+    fireEvent.change(screen.getByLabelText("图片（最多三张）"), {
       target: {
         files: [new File(["receipt"], "receipt.png", { type: "image/png" })],
       },
     });
 
     fireEvent.click(screen.getByRole("button", {
-      name: "移除附件 receipt.png",
+      name: "移除图片 receipt.png",
     }));
 
     expect(revoke).toHaveBeenCalledWith("blob:receipt");
@@ -920,7 +943,7 @@ describe("Expense 附件选择与私有预览", () => {
       target: { value: "午餐附件" },
     });
     openNoteView();
-    fireEvent.change(screen.getByLabelText("附件（最多三张）"), {
+    fireEvent.change(screen.getByLabelText("图片（最多三张）"), {
       target: { files: [file] },
     });
 
@@ -941,7 +964,7 @@ describe("Expense 附件选择与私有预览", () => {
       renderPage(<ExpenseDetailPage />);
       if (status === "ACTIVE") openNoteView();
 
-      const link = screen.getByRole("link", { name: "查看附件 1" });
+      const link = screen.getByRole("link", { name: "查看图片 1" });
       expect(link).toHaveAttribute(
         "href",
         "/api/activities/activity-1/expenses/expense-1/attachments/attachment-1",
@@ -951,10 +974,10 @@ describe("Expense 附件选择与私有预览", () => {
       expect(document.body.innerHTML).not.toContain("blob:");
       expect(document.body.innerHTML).not.toContain("uploads/");
       if (status === "ACTIVE") {
-        expect(screen.getByRole("button", { name: "删除附件 1" }))
+        expect(screen.getByRole("button", { name: "删除图片 1" }))
           .toBeInTheDocument();
       } else {
-        expect(screen.queryByRole("button", { name: "删除附件 1" }))
+        expect(screen.queryByRole("button", { name: "删除图片 1" }))
           .not.toBeInTheDocument();
       }
     },
@@ -964,8 +987,8 @@ describe("Expense 附件选择与私有预览", () => {
     renderPage(<ExpenseDetailPage />);
     openNoteView();
 
-    fireEvent.click(screen.getByRole("button", { name: "删除附件 1" }));
-    expect(screen.getByRole("alertdialog", { name: "删除附件" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "删除图片 1" }));
+    expect(screen.getByRole("alertdialog", { name: "删除图片" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 
     await waitFor(() => expect(deleteAttachmentMutation.mutateAsync)

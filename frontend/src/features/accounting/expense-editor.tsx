@@ -1,5 +1,5 @@
 import { ArrowLeft, Check, ChevronRight, ImagePlus, Info, Minus, Plus, Trash2 } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
@@ -18,6 +18,7 @@ import {
   useExchangeRateSuggestionMutation,
   useExpenseQuery,
   useReviseRejectedExpenseMutation,
+  useUploadAttachmentMutation,
   useUpdateExpenseMutation
 } from "./api";
 
@@ -415,6 +416,7 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
   const reviseRejected = useReviseRejectedExpenseMutation(session.userId);
   const update = useUpdateExpenseMutation(session.userId, activity.activityId, initial?.expense.expenseId ?? "");
   const deleteAttachment = useDeleteAttachmentMutation(session.userId, activity.activityId, initial?.expense.expenseId ?? "");
+  const uploadAttachment = useUploadAttachmentMutation(session.userId, activity.activityId, initial?.expense.expenseId ?? "");
   const createGuest = useCreateGuestMutation(session.userId, activity.activityId);
   const rateSuggestion = useExchangeRateSuggestionMutation(activity.activityId);
   const pendingPayload = rejected?.payload;
@@ -469,6 +471,7 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
     blob: attachment.blob,
     file: new File([attachment.blob], attachment.fileName, { type: attachment.mimeType }),
   })) ?? []);
+  const [uploadingAttachmentId, setUploadingAttachmentId] = useState<string>();
   const [attachmentToDelete, setAttachmentToDelete] = useState<string>();
   const [guestName, setGuestName] = useState("");
   const [guestError, setGuestError] = useState<string>();
@@ -640,6 +643,53 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
     } catch { setQuickError("暂时无法获取参考汇率，请手动输入。"); }
   }
 
+  function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+    if (initial && offline) {
+      setQuickError("当前离线，联网后才能添加图片。");
+      return;
+    }
+    const existingCount = initial?.attachments.length ?? 0;
+    if (existingCount + selectedAttachments.length + files.length > 3) {
+      setQuickError("每笔账单最多添加三张图片。");
+      return;
+    }
+    const error = validateAttachments([...selectedAttachments.map(({ file }) => file), ...files]);
+    if (error) {
+      setQuickError(error);
+      return;
+    }
+    const nextAttachments = files.map((file) => ({
+      id: crypto.randomUUID(),
+      clientAttachmentId: crypto.randomUUID(),
+      fileName: file.name,
+      mimeType: file.type,
+      blob: file,
+      file,
+    }));
+    setQuickError(undefined);
+    setSelectedAttachments((current) => [...current, ...nextAttachments]);
+    if (!initial) return;
+
+    void (async () => {
+      for (const attachment of nextAttachments) {
+        setUploadingAttachmentId(attachment.id);
+        try {
+          await uploadAttachment.mutateAsync({
+            file: attachment.file,
+            clientAttachmentId: attachment.clientAttachmentId,
+          });
+          setSelectedAttachments((current) => current.filter((item) => item.id !== attachment.id));
+        } catch (error) {
+          setQuickError(error instanceof Error ? `图片上传失败：${error.message}` : "图片上传失败，请移除后重新选择。");
+        }
+      }
+      setUploadingAttachmentId(undefined);
+    })();
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setQuickError(undefined); setFieldErrors({});
@@ -711,12 +761,39 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
   const selectedPayerLabel = payerIds.length > 1 ? `${payerIds.length} 人` : selectedPayerNames;
   const selectedCategory = categories.find(([value]) => value === category) ?? categories[0];
   const selectedSplitLabel = quickSplitModes.find(([value]) => value === splitMode)?.[1] ?? "均摊";
-  const attachmentCount = initial?.attachments.length ?? selectedAttachments.length;
-  const noteSummary = note.trim() || (attachmentCount ? `已添加 ${attachmentCount} 张附件` : "点击添加备注或附件");
+  const attachmentCount = (initial?.attachments.length ?? 0) + selectedAttachments.length;
+  const noteSummary = note.trim() || (attachmentCount ? `已添加 ${attachmentCount} 张图片` : "点击添加备注或图片");
   const payerDraftSelection: PayerSelection = payerDraftMode === "single"
     ? { mode: "single", memberId: payerDraftIds[0] ?? "" }
     : { mode: "multiple", memberIds: payerDraftIds, amountInputs: payerDraftValues };
   const payerDraftResolution = resolveQuickPayers(payerDraftSelection, totalMinor, currency);
+  const attachmentPicker = (
+    <Field label="图片（最多三张）">
+      <div className="quick-expense-attachment">
+        <input
+          id="quick-expense-attachments"
+          className="quick-expense-attachment__input"
+          aria-label="图片（最多三张）"
+          type="file"
+          accept={attachmentAccept}
+          multiple
+          disabled={attachmentCount >= 3 || Boolean(uploadingAttachmentId) || (Boolean(initial) && offline)}
+          onChange={handleAttachmentChange}
+        />
+        <span className="quick-expense-attachment__surface">
+          <ImagePlus aria-hidden="true" size={18} />
+          <strong>添加图片</strong>
+          <small>{uploadingAttachmentId ? "正在上传…" : attachmentCount ? `已添加 ${attachmentCount}/3` : "未添加图片"}</small>
+        </span>
+      </div>
+      {initial && offline ? <small className="quick-expense-field-hint">当前离线，联网后才能添加或删除图片。</small> : null}
+      <SelectedAttachmentPreviews
+        files={selectedAttachments.map(({ file }) => file)}
+        disabled={Boolean(uploadingAttachmentId)}
+        onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+      />
+    </Field>
+  );
   const renderMemberPicker = (mode: PayerMode) => (
     <>
       <div className="quick-expense-segmented" role="group" aria-label="付款模式"><button type="button" aria-pressed={payerDraftMode === "single"} onClick={() => switchPayerMode("single")}>单人付款</button><button type="button" aria-pressed={payerDraftMode === "multiple"} onClick={() => switchPayerMode("multiple")}>多人付款</button></div>
@@ -756,7 +833,7 @@ export function UnifiedExpenseEditor({ initial, rejected, view, onViewChange, on
         : view === "category" ? <div className="quick-expense-subview" data-quick-expense-view="category"><div className="quick-category-grid" role="radiogroup" aria-label="分类">{categories.map(([value, label, image]) => <button key={value} type="button" role="radio" aria-checked={category === value} onClick={() => { setCategory(value); onViewChange("entry"); }}><img src={`/expense-categories/${image}.webp`} width={44} height={44} alt="" /><span>{label}</span>{category === value ? <Check aria-hidden="true" size={15} /> : null}</button>)}</div></div>
         : view === "currency" ? <div className="quick-expense-subview" data-quick-expense-view="currency"><label className="quick-currency-search"><span className="sr-only">搜索币种</span><Input data-overlay-initial-focus placeholder="搜索币种" value={currencySearchDraft} onChange={(event) => setCurrencySearchDraft(event.target.value)} /></label><CurrencyQuickList value={currency} search={currencySearchDraft} onSelect={selectCurrency} /></div>
         : view === "currency-rate" ? <div className="quick-expense-subview" data-quick-expense-view="currency-rate"><Field label={`汇率（1 ${currency} = N ${activity.baseCurrency}）`}><div className="exchange-rate-input"><Input data-overlay-initial-focus inputMode="decimal" value={exchangeRate} onChange={(event) => { setQuickError(undefined); setExchangeRate(event.target.value); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); }} placeholder="例如 7.25" required /><Button type="button" variant="secondary" disabled={rateSuggestion.isPending} onClick={() => void requestReferenceRate()}>{rateSuggestion.isPending ? "正在获取…" : "获取参考汇率"}</Button></div>{exchangeRateReferenceDate ? <small>{exchangeRateKind === "CACHE" ? "缓存参考汇率" : exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {exchangeRateReferenceDate}</small> : null}</Field><QuickExpenseActionDock><Button type="button" disabled={!exchangeRate.trim()} onClick={() => onViewChange("entry")}>完成</Button></QuickExpenseActionDock></div>
-        : view === "note" ? <div className="quick-expense-subview quick-expense-note-view" data-quick-expense-view="note"><Field label="备注"><Textarea data-overlay-initial-focus value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={4} /></Field>{initial ? <ExpenseAttachments activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={setAttachmentToDelete} /> : <Field label="附件（最多三张）"><div className="quick-expense-attachment"><input id="quick-expense-attachments" className="quick-expense-attachment__input" aria-label="附件（最多三张）" type="file" accept={attachmentAccept} multiple disabled={selectedAttachments.length >= 3} onChange={(event) => { const files = Array.from(event.target.files ?? []); const error = validateAttachments([...selectedAttachments.map(({ file }) => file), ...files]); if (error) { setQuickError(error); return; } setSelectedAttachments((current) => [...current, ...files.map((file) => ({ id: crypto.randomUUID(), clientAttachmentId: crypto.randomUUID(), fileName: file.name, mimeType: file.type, blob: file, file }))]); event.target.value = ""; }} /><span className="quick-expense-attachment__surface"><ImagePlus aria-hidden="true" size={18} /><strong>选择图片</strong><small>{selectedAttachments.length ? `已选择 ${selectedAttachments.length}/3` : "未选择图片"}</small></span></div><SelectedAttachmentPreviews files={selectedAttachments.map(({ file }) => file)} onRemove={(index) => setSelectedAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></Field>}{deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}<QuickExpenseActionDock><Button type="button" onClick={() => onViewChange("entry")}>完成</Button></QuickExpenseActionDock><ConfirmDialog open={Boolean(attachmentToDelete)} title="删除附件" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} /></div>
+        : view === "note" ? <div className="quick-expense-subview quick-expense-note-view" data-quick-expense-view="note"><Field label="备注"><Textarea data-overlay-initial-focus value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={4} /></Field>{initial ? <ExpenseAttachments compact activityId={activity.activityId} expenseId={initial.expense.expenseId} attachments={initial.attachments} deletingAttachmentId={deleteAttachment.variables} onDelete={offline ? undefined : setAttachmentToDelete} /> : null}{attachmentPicker}{deleteAttachment.error ? <ErrorNotice error={deleteAttachment.error} /> : null}<QuickExpenseActionDock><Button type="button" onClick={() => onViewChange("entry")}>完成</Button></QuickExpenseActionDock><ConfirmDialog open={Boolean(attachmentToDelete)} title="删除图片" message="删除后这张图片将从账单中移除，此操作会立即生效。确定继续吗？" confirmLabel="确认删除" busy={deleteAttachment.isPending} onConfirm={() => { if (!attachmentToDelete) return; void deleteAttachment.mutateAsync(attachmentToDelete).then(() => setAttachmentToDelete(undefined)).catch(() => undefined); }} onCancel={() => setAttachmentToDelete(undefined)} /></div>
         : <div className="quick-expense-subview" data-quick-expense-view="split">
           <fieldset className="quick-split-modes" role="radiogroup" aria-label="分摊方式">{quickSplitModes.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={splitMode === value} onClick={() => switchSplitMode(value)}>{label}</button>)}</fieldset>
           <div className="quick-split-summary" aria-live="polite"><QuickSplitSummary currency={currency} memberIds={participantIds} mode={splitMode} values={splitValues} totalMinor={totalMinor} onFillRemainder={fillRemainder} /></div>

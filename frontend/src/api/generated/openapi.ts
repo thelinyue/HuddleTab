@@ -2056,8 +2056,14 @@ export interface operations {
     };
     downloadExpenseAttachment: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description thumbnail 表示卡片缩略图 */
+                variant?: string;
+            };
+            header?: {
+                /** @description 上次成功下载的图片 ETag */
+                "If-None-Match"?: string | null;
+            };
             path: {
                 /** @description 活动 UUID */
                 activity_id: string;
@@ -2073,12 +2079,14 @@ export interface operations {
             /** @description 私有 WebP 附件 */
             200: {
                 headers: {
-                    /** @description private, no-store */
+                    /** @description private, no-cache */
                     "Cache-Control"?: string;
                     /** @description 内联稳定文件名 */
                     "Content-Disposition"?: string;
                     /** @description image/webp */
                     "Content-Type"?: string;
+                    /** @description 按附件 ID 与图片变体生成的强 ETag */
+                    ETag?: string;
                     /** @description nosniff */
                     "X-Content-Type-Options"?: string;
                     [name: string]: unknown;
@@ -2086,6 +2094,17 @@ export interface operations {
                 content: {
                     "image/webp": components["schemas"]["AttachmentBinary"];
                 };
+            };
+            /** @description 图片未变化 */
+            304: {
+                headers: {
+                    /** @description private, no-cache */
+                    "Cache-Control"?: string;
+                    /** @description 当前图片 ETag */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description 未登录 */
             401: {
