@@ -1,6 +1,7 @@
 pub mod accounting;
 pub mod activity;
 pub mod admin;
+pub mod ai_expense;
 pub mod attachment;
 pub mod auth;
 pub mod collaboration;

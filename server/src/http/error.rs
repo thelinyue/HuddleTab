@@ -490,6 +490,86 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn ai_feature_disabled(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "AI_FEATURE_DISABLED",
+            "AI 智能录入功能当前未启用。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_provider_not_configured(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AI_PROVIDER_NOT_CONFIGURED",
+            "AI Provider 尚未完成配置。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_api_key_reconfiguration_required(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AI_API_KEY_RECONFIGURATION_REQUIRED",
+            "AI API Key 无法恢复，请联系系统管理员重新配置。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_input_too_large(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "AI_INPUT_TOO_LARGE",
+            "文字内容不能超过 8 KiB。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_provider_timeout(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::GATEWAY_TIMEOUT,
+            "AI_PROVIDER_TIMEOUT",
+            "AI Provider 响应超时，请稍后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_provider_unavailable(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AI_PROVIDER_UNAVAILABLE",
+            "AI Provider 当前不可用，请稍后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_invalid_response(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::BAD_GATEWAY,
+            "AI_INVALID_RESPONSE",
+            "AI Provider 返回的内容无法安全解析。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_draft_incomplete(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "AI_DRAFT_INCOMPLETE",
+            "AI 未识别出足够的账单核心字段，请改用手动填写。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn settlement_allocation_conflict(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

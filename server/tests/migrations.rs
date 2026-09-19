@@ -54,7 +54,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 2);
+    assert_eq!(applied_count, 3);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -66,6 +66,30 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
     drop_schema(admin, &schema).await;
 }
 
+#[test]
+fn ai_migration_declares_encrypted_settings_and_secret_free_audit_shape() {
+    let migration = include_str!("../migrations/202609190002_ai_expense_draft.sql");
+    for fragment in [
+        "ai_expense_draft_enabled",
+        "ai_provider_base_url",
+        "ai_provider_model",
+        "ai_provider_json_mode BOOLEAN NOT NULL DEFAULT TRUE",
+        "ai_provider_timeout_seconds",
+        "ai_provider_api_key_envelope BYTEA",
+        "CREATE TABLE system_admin_audit_logs",
+        "changed_fields TEXT[]",
+        "secret_action",
+    ] {
+        assert!(migration.contains(fragment), "AI migration 缺少 {fragment}");
+    }
+    for forbidden in ["api_key TEXT", "nonce", "prompt", "response_body"] {
+        assert!(
+            !migration.contains(forbidden),
+            "AI migration 不得存储 {forbidden}"
+        );
+    }
+}
+
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn retired_migration_is_rejected_without_changing_data_or_records() {
@@ -74,6 +98,12 @@ async fn retired_migration_is_rejected_without_changing_data_or_records() {
         .await
         .expect("应初始化隔离测试结构");
     // 只模拟已退役的迁移记录，不在当前测试中重新维护整套旧版本建库 SQL。
+    sqlx::query(
+        "DELETE FROM _sqlx_migrations WHERE version <> (SELECT MIN(version) FROM _sqlx_migrations)",
+    )
+    .execute(&pool)
+    .await
+    .expect("应保留一条迁移记录用于模拟旧版本");
     sqlx::query("UPDATE _sqlx_migrations SET version = 202608310001")
         .execute(&pool)
         .await

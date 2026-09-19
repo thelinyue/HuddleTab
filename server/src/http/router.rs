@@ -9,6 +9,7 @@ use axum::{
 use serde::Serialize;
 use sqlx::PgPool;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use tokio::sync::Semaphore;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -21,7 +22,7 @@ use crate::{
 use super::rate_limit::{ClientIp, RateLimiter};
 use super::static_files::mount_static_files;
 use super::{
-    accounting, activity, admin, attachment, auth, collaboration,
+    accounting, activity, admin, ai_expense, attachment, auth, collaboration,
     error::{ApiError, RequestId},
     exchange_rate, expense, notification, settlement, sharing, snapshot,
 };
@@ -63,6 +64,8 @@ pub struct AppState {
     pub(crate) data_dir: PathBuf,
     pub(crate) uploads_dir: PathBuf,
     pub(crate) exchange_rate_provider: Arc<dyn ExchangeRateProvider>,
+    /// Provider 并发闸门，避免单实例在上游异常时无限堆积请求。
+    pub(crate) ai_provider_semaphore: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -85,6 +88,7 @@ impl AppState {
             data_dir: PathBuf::from("/data"),
             uploads_dir: PathBuf::from("/data/uploads"),
             exchange_rate_provider: Arc::new(FrankfurterExchangeRateProvider::new()),
+            ai_provider_semaphore: Arc::new(Semaphore::new(4)),
         }
     }
 
@@ -179,6 +183,12 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .fallback(api_method_not_allowed),
         )
         .route(
+            "/admin/ai-expense-draft-settings",
+            get(ai_expense::get_settings)
+                .put(ai_expense::update_settings)
+                .fallback(api_method_not_allowed),
+        )
+        .route(
             "/admin/storage",
             get(admin::storage).fallback(api_method_not_allowed),
         )
@@ -195,6 +205,16 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         .route(
             "/activities/{activity_id}/exchange-rate",
             get(exchange_rate::suggest).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/ai/expense-draft/capabilities",
+            get(ai_expense::capabilities).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/ai/expense-draft/text",
+            axum::routing::post(ai_expense::text_draft)
+                .layer(DefaultBodyLimit::max(16 * 1024))
+                .fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}",

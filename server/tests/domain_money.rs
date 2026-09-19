@@ -79,3 +79,23 @@ fn money_addition_rejects_currency_mismatch_and_overflow() {
     assert!(one_cny.checked_add(&Money::new(usd, 1)).is_err());
     assert!(Money::new(cny, i64::MAX).checked_add(&one_cny).is_err());
 }
+
+#[test]
+fn major_decimal_amounts_use_currency_exponent_without_float_rounding() {
+    let cny = Currency::parse("CNY").expect("CNY 应受支持");
+    let jpy = Currency::parse("JPY").expect("JPY 应受支持");
+    assert_eq!(
+        Money::from_major_decimal(cny, "128.50")
+            .unwrap()
+            .amount_minor(),
+        12850
+    );
+    assert_eq!(
+        Money::from_major_decimal(jpy, "12800")
+            .unwrap()
+            .amount_minor(),
+        12800
+    );
+    assert!(Money::from_major_decimal(Currency::parse("JPY").unwrap(), "128.5").is_err());
+    assert!(Money::from_major_decimal(Currency::parse("CNY").unwrap(), "1e2").is_err());
+}

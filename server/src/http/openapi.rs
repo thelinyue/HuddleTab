@@ -1,5 +1,10 @@
 use utoipa::OpenApi;
 
+use crate::application::ai_expense::{
+    AiDraftItemData, AiExpenseDraftData, AiExpenseDraftMemberSuggestion, AiMoneyData,
+    AiSettingsView, AiSplitParticipantData, AiSplitSuggestionData, AiWarningData,
+};
+
 use super::{
     accounting::{
         __path_ledger, __path_recommendations, BalanceData, LedgerData, LedgerEnvelope,
@@ -24,6 +29,13 @@ use super::{
         AdminPasswordResetRequest, AdminUserData, AdminUserListEnvelope, RegistrationPolicyData,
         RegistrationPolicyEnvelope, RegistrationPolicyRequest, StorageData, StorageEnvelope,
         SystemInformationData, SystemInformationEnvelope, UserRoleRequest, UserStatusRequest,
+    },
+    ai_expense::{
+        __path_capabilities as __path_ai_capabilities,
+        __path_get_settings as __path_ai_get_settings, __path_text_draft as __path_ai_text_draft,
+        __path_update_settings as __path_ai_update_settings, AiCapabilityData,
+        AiCapabilityEnvelope, AiExpenseDraftEnvelope, AiSettingsEnvelope, AiSettingsRequest,
+        AiTextDraftRequest,
     },
     attachment::{
         __path_delete as __path_attachment_delete, __path_download as __path_attachment_download,
@@ -114,6 +126,10 @@ use super::{
         update_registration_policy,
         storage,
         system_information,
+        ai_get_settings,
+        ai_update_settings,
+        ai_capabilities,
+        ai_text_draft,
         create,
         activity_list,
         activity_get,
@@ -202,6 +218,20 @@ use super::{
         StorageEnvelope,
         SystemInformationData,
         SystemInformationEnvelope,
+        AiSettingsView,
+        AiSettingsRequest,
+        AiSettingsEnvelope,
+        AiCapabilityData,
+        AiCapabilityEnvelope,
+        AiTextDraftRequest,
+        AiExpenseDraftData,
+        AiExpenseDraftEnvelope,
+        AiMoneyData,
+        AiExpenseDraftMemberSuggestion,
+        AiSplitParticipantData,
+        AiSplitSuggestionData,
+        AiDraftItemData,
+        AiWarningData,
         CreateActivityRequest,
         UpdateActivityRequest,
         ActivityLifecycleRequest,

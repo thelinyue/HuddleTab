@@ -42,6 +42,61 @@ impl Money {
         Ok(Self::new(currency, amount_minor))
     }
 
+    /// 将严格十进制主单位字符串转换为最小货币单位，禁止浮点和隐式舍入。
+    ///
+    /// # Errors
+    ///
+    /// 输入包含指数、正号、过多小数位、非规范整数或超出 `i64` 范围时返回错误。
+    pub fn from_major_decimal(currency: Currency, input: &str) -> Result<Self, MoneyError> {
+        let input = input.trim();
+        if input.is_empty() || input.starts_with('+') || input.contains('e') || input.contains('E')
+        {
+            return Err(MoneyError::InvalidAmount);
+        }
+        let (negative, unsigned) = input
+            .strip_prefix('-')
+            .map_or((false, input), |value| (true, value));
+        let mut parts = unsigned.split('.');
+        let whole_text = parts.next().ok_or(MoneyError::InvalidAmount)?;
+        let fractional = parts.next().unwrap_or("");
+        if parts.next().is_some()
+            || whole_text.is_empty()
+            || !whole_text.bytes().all(|byte| byte.is_ascii_digit())
+            || (whole_text.len() > 1 && whole_text.starts_with('0'))
+            || !fractional.bytes().all(|byte| byte.is_ascii_digit())
+            || fractional.len() > usize::from(currency.exponent())
+        {
+            return Err(MoneyError::InvalidAmount);
+        }
+        let scale = 10_i64
+            .checked_pow(u32::from(currency.exponent()))
+            .ok_or(MoneyError::InvalidAmount)?;
+        let whole = whole_text
+            .parse::<i64>()
+            .map_err(|_| MoneyError::InvalidAmount)?;
+        let fraction = if fractional.is_empty() {
+            0
+        } else {
+            fractional
+                .parse::<i64>()
+                .map_err(|_| MoneyError::InvalidAmount)?
+        };
+        let padding = u32::try_from(usize::from(currency.exponent()) - fractional.len())
+            .map_err(|_| MoneyError::InvalidAmount)?;
+        let minor = whole
+            .checked_mul(scale)
+            .and_then(|value| {
+                value.checked_add(fraction.checked_mul(10_i64.checked_pow(padding)?)?)
+            })
+            .ok_or(MoneyError::InvalidAmount)?;
+        let amount_minor = if negative {
+            minor.checked_neg().ok_or(MoneyError::InvalidAmount)?
+        } else {
+            minor
+        };
+        Ok(Self::new(currency, amount_minor))
+    }
+
     #[must_use]
     pub const fn currency(&self) -> &Currency {
         &self.currency

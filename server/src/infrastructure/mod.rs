@@ -2,6 +2,9 @@
 
 pub mod accounting_repository;
 pub mod activity_repository;
+pub mod ai_expense_repository;
+pub mod ai_provider;
+pub mod ai_secret;
 pub mod app_secret;
 pub mod attachment_cleanup;
 pub mod attachment_image;

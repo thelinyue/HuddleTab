@@ -134,6 +134,61 @@ fn system_admin_contract_publishes_management_routes() {
 }
 
 #[test]
+fn ai_expense_contract_publishes_deepseek_compatible_text_flow() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    for (path, method) in [
+        ("/api/admin/ai-expense-draft-settings", "get"),
+        ("/api/admin/ai-expense-draft-settings", "put"),
+        (
+            "/api/activities/{activity_id}/ai/expense-draft/capabilities",
+            "get",
+        ),
+        (
+            "/api/activities/{activity_id}/ai/expense-draft/text",
+            "post",
+        ),
+    ] {
+        assert!(
+            value["paths"][path][method].is_object(),
+            "缺少 {method} {path}"
+        );
+    }
+    for schema in [
+        "AiSettingsRequest",
+        "AiSettingsView",
+        "AiExpenseDraftData",
+        "AiMoneyData",
+        "AiExpenseDraftMemberSuggestion",
+        "AiCapabilityData",
+    ] {
+        assert!(
+            value["components"]["schemas"][schema].is_object(),
+            "缺少 AI schema {schema}"
+        );
+    }
+    let draft_properties = &value["components"]["schemas"]["AiExpenseDraftData"]["properties"];
+    for forbidden in [
+        "clientMutationId",
+        "expenseId",
+        "version",
+        "activityRevision",
+        "settlementProgress",
+        "createdAt",
+        "updatedAt",
+    ] {
+        assert!(
+            draft_properties[forbidden].is_null(),
+            "AI 草稿不得包含 {forbidden}"
+        );
+    }
+    let member_properties =
+        &value["components"]["schemas"]["AiExpenseDraftMemberSuggestion"]["properties"];
+    assert!(member_properties["memberId"].is_object());
+    assert!(member_properties["candidateMemberIds"].is_object());
+}
+
+#[test]
 fn system_information_contract_publishes_private_read_only_routes() {
     let value = serde_json::to_value(huddletab_server::http::openapi::document())
         .expect("OpenAPI 应可序列化");

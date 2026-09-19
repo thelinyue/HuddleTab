@@ -36,6 +36,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/ai/expense-draft/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activities/{activity_id}/ai/expense-draft/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["text_draft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/exchange-rate": {
         parameters: {
             query?: never;
@@ -397,6 +429,22 @@ export interface paths {
         };
         get: operations["summary"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/ai-expense-draft-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_settings"];
+        put: operations["update_settings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -916,6 +964,101 @@ export interface components {
         AdminUserListEnvelope: {
             data: components["schemas"]["AdminUserData"][];
         };
+        AiCapabilityData: {
+            textDraftAvailable: boolean;
+        };
+        AiCapabilityEnvelope: {
+            data: components["schemas"]["AiCapabilityData"];
+        };
+        AiDraftItemData: {
+            amount?: null | components["schemas"]["AiMoneyData"];
+            description: string;
+        };
+        /** @description AI 对外只返回建议字段；账务实体的身份、版本和生命周期字段明确不存在于此 DTO。 */
+        AiExpenseDraftData: {
+            amount?: null | components["schemas"]["AiMoneyData"];
+            categorySuggestion?: string | null;
+            incompleteFields: string[];
+            items: components["schemas"]["AiDraftItemData"][];
+            location?: string | null;
+            merchant?: string | null;
+            note?: string | null;
+            occurredAt?: string | null;
+            payerSuggestions: components["schemas"]["AiExpenseDraftMemberSuggestion"][];
+            splitSuggestion?: null | components["schemas"]["AiSplitSuggestionData"];
+            title?: string | null;
+            warnings: components["schemas"]["AiWarningData"][];
+        };
+        AiExpenseDraftEnvelope: {
+            data: components["schemas"]["AiExpenseDraftData"];
+        };
+        AiExpenseDraftMemberSuggestion: {
+            amount?: null | components["schemas"]["AiMoneyData"];
+            /** Format: int32 */
+            candidateCount?: number | null;
+            candidateMemberIds: string[];
+            matchStatus: string;
+            matchedDisplayName?: string | null;
+            /** Format: uuid */
+            memberId?: string | null;
+            mention: string;
+        };
+        AiMoneyData: {
+            amountMinor: string;
+            currency: string;
+        };
+        AiSettingsEnvelope: {
+            data: components["schemas"]["AiSettingsView"];
+        };
+        AiSettingsRequest: {
+            apiKey?: string | null;
+            baseUrl?: string | null;
+            clearApiKey: boolean;
+            enabled: boolean;
+            /** @description `OpenAI` JSON Mode 开关；关闭后仍要求 Provider 返回可解析 JSON，但不发送 `response_format`。 */
+            jsonMode: boolean;
+            model?: string | null;
+            /** Format: int32 */
+            timeoutSeconds: number;
+            /** Format: int64 */
+            version: number;
+        };
+        AiSettingsView: {
+            apiKeyStatus: components["schemas"]["ApiKeyStatus"];
+            baseUrl?: string | null;
+            enabled: boolean;
+            jsonMode: boolean;
+            model?: string | null;
+            /** Format: int32 */
+            timeoutSeconds: number;
+            /** Format: int64 */
+            version: number;
+        };
+        AiSplitParticipantData: {
+            /** Format: int32 */
+            candidateCount?: number | null;
+            candidateMemberIds: string[];
+            matchStatus: string;
+            matchedDisplayName?: string | null;
+            /** Format: uuid */
+            memberId?: string | null;
+            mention: string;
+            value?: string | null;
+        };
+        AiSplitSuggestionData: {
+            mode: string;
+            participants: components["schemas"]["AiSplitParticipantData"][];
+        };
+        AiTextDraftRequest: {
+            text: string;
+        };
+        AiWarningData: {
+            code: string;
+            field?: string | null;
+            message: string;
+        };
+        /** @enum {string} */
+        ApiKeyStatus: "NOT_SET" | "CONFIGURED" | "RECONFIGURATION_REQUIRED";
         /** Format: binary */
         AttachmentBinary: string;
         AttachmentEnvelope: {
@@ -1719,6 +1862,126 @@ export interface operations {
             };
             /** @description 活动版本或状态冲突 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCapabilityEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    text_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiTextDraftRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiExpenseDraftEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3322,6 +3585,98 @@ export interface operations {
             };
             /** @description 无读取权限 */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI 文字草稿设置 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSettingsEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    update_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description AI 文字草稿设置已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSettingsEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

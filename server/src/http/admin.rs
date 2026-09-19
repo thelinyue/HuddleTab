@@ -131,7 +131,7 @@ pub enum RegistrationPolicyValue {
 }
 
 /// 所有管理 handler 都先验证 Session 与平台角色，再执行具体事务；Activity 角色不会被当作平台权限。
-async fn require_admin(
+pub(crate) async fn require_admin(
     state: &AppState,
     jar: &CookieJar,
     headers: &HeaderMap,
@@ -177,7 +177,7 @@ fn parse_user_id(value: &str, request_id: RequestId) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value).map_err(|_| ApiError::user_not_found(request_id))
 }
 
-fn check_sensitive_limit(
+pub(crate) fn check_sensitive_limit(
     state: &AppState,
     actor: Uuid,
     request_id: RequestId,
