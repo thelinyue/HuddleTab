@@ -2129,7 +2129,7 @@
             }
           },
           "409": {
-            "description": "幂等键冲突",
+            "description": "幂等键或账单归属冲突",
             "content": {
               "application/json": {
                 "schema": {
@@ -2243,7 +2243,7 @@
             }
           },
           "409": {
-            "description": "版本冲突",
+            "description": "版本或账单归属冲突",
             "content": {
               "application/json": {
                 "schema": {
@@ -2352,7 +2352,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "基于 Activity revision 的 weak ETag"
+                "description": "基于 Snapshot schemaVersion 与 Activity revision 的 weak ETag"
               }
             },
             "content": {
@@ -2364,7 +2364,7 @@
             }
           },
           "304": {
-            "description": "Activity revision 未变化",
+            "description": "Snapshot schemaVersion 与 Activity revision 未变化",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -4751,6 +4751,12 @@
           "amountMinor"
         ],
         "properties": {
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementAllocationRequest"
+            }
+          },
           "amountMinor": {
             "type": "string"
           },
@@ -4774,6 +4780,7 @@
           "expense",
           "payments",
           "shares",
+          "settlementProgress",
           "idempotentReplay"
         ],
         "properties": {
@@ -4788,6 +4795,9 @@
             "items": {
               "$ref": "#/components/schemas/ExpenseFactData"
             }
+          },
+          "settlementProgress": {
+            "$ref": "#/components/schemas/ExpenseSettlementProgressData"
           },
           "shares": {
             "type": "array",
@@ -5098,7 +5108,8 @@
           "expense",
           "payments",
           "shares",
-          "attachments"
+          "attachments",
+          "settlementProgress"
         ],
         "properties": {
           "attachments": {
@@ -5115,6 +5126,9 @@
             "items": {
               "$ref": "#/components/schemas/ExpenseFactData"
             }
+          },
+          "settlementProgress": {
+            "$ref": "#/components/schemas/ExpenseSettlementProgressData"
           },
           "shares": {
             "type": "array",
@@ -5377,6 +5391,40 @@
             "type": "string"
           },
           "memberId": {
+            "type": "string"
+          }
+        }
+      },
+      "ExpenseSettlementProgressData": {
+        "type": "object",
+        "required": [
+          "status",
+          "currency",
+          "totalRequiredMinor",
+          "settledMinor",
+          "remainingMinor",
+          "members"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberSettlementProgressData"
+            }
+          },
+          "remainingMinor": {
+            "type": "string"
+          },
+          "settledMinor": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "totalRequiredMinor": {
             "type": "string"
           }
         }
@@ -5898,6 +5946,37 @@
           }
         }
       },
+      "MemberSettlementProgressData": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "direction",
+          "expectedMinor",
+          "settledMinor",
+          "remainingMinor",
+          "status"
+        ],
+        "properties": {
+          "direction": {
+            "type": "string"
+          },
+          "expectedMinor": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "remainingMinor": {
+            "type": "string"
+          },
+          "settledMinor": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "NotificationData": {
         "type": "object",
         "required": [
@@ -6232,6 +6311,36 @@
           }
         }
       },
+      "SettlementAllocationData": {
+        "type": "object",
+        "required": [
+          "expenseId",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "expenseId": {
+            "type": "string"
+          }
+        }
+      },
+      "SettlementAllocationRequest": {
+        "type": "object",
+        "required": [
+          "expenseId",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "expenseId": {
+            "type": "string"
+          }
+        }
+      },
       "SettlementData": {
         "type": "object",
         "required": [
@@ -6246,11 +6355,18 @@
           "version",
           "revision",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "allocations"
         ],
         "properties": {
           "activityId": {
             "type": "string"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementAllocationData"
+            }
           },
           "amountMinor": {
             "type": "string"
@@ -6607,6 +6723,12 @@
           "amountMinor"
         ],
         "properties": {
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementAllocationRequest"
+            }
+          },
           "amountMinor": {
             "type": "string"
           },

@@ -29,27 +29,27 @@ afterEach(() => vi.clearAllMocks());
 
 describe("Activity Snapshot adapter", () => {
   it("200 使用完整响应和 ETag 原子替换旧值", async () => {
-    const current = { etag: 'W/"6"', snapshot: { ...snapshot, revision: "6" } };
-    client.GET.mockResolvedValue(response(200, { data: snapshot }, 'W/"7"'));
+    const current = { etag: 'W/"snapshot-v2-r6"', snapshot: { ...snapshot, revision: "6" } };
+    client.GET.mockResolvedValue(response(200, { data: snapshot }, 'W/"snapshot-v2-r7"'));
 
     const result = await fetchActivitySnapshot("activity-1", current as never);
 
     expect(result).toEqual({
       status: "modified",
-      value: { etag: 'W/"7"', snapshot },
+      value: { etag: 'W/"snapshot-v2-r7"', snapshot },
     });
     expect(client.GET).toHaveBeenCalledWith(
       "/api/activities/{activity_id}/snapshot",
       {
-        headers: { "If-None-Match": 'W/"6"' },
+        headers: { "If-None-Match": 'W/"snapshot-v2-r6"' },
         params: { path: { activity_id: "activity-1" } },
       },
     );
   });
 
   it("304 复用调用方已有的完整对象", async () => {
-    const current = { etag: 'W/"7"', snapshot };
-    client.GET.mockResolvedValue(response(304, undefined, 'W/"7"'));
+    const current = { etag: 'W/"snapshot-v2-r7"', snapshot };
+    client.GET.mockResolvedValue(response(304, undefined, 'W/"snapshot-v2-r7"'));
 
     const result = await fetchActivitySnapshot("activity-1", current as never);
 
@@ -58,13 +58,13 @@ describe("Activity Snapshot adapter", () => {
   });
 
   it("304 缺少或返回不匹配的 ETag 时拒绝复用旧对象", async () => {
-    const current = { etag: 'W/"7"', snapshot };
+    const current = { etag: 'W/"snapshot-v2-r7"', snapshot };
     client.GET.mockResolvedValue(response(304));
     await expect(
       fetchActivitySnapshot("activity-1", current as never),
     ).rejects.toThrow("活动快照 304 响应的 ETag 无效。");
 
-    client.GET.mockResolvedValue(response(304, undefined, 'W/"8"'));
+    client.GET.mockResolvedValue(response(304, undefined, 'W/"snapshot-v2-r8"'));
     await expect(
       fetchActivitySnapshot("activity-1", current as never),
     ).rejects.toThrow("活动快照 304 响应的 ETag 无效。");
@@ -72,12 +72,12 @@ describe("Activity Snapshot adapter", () => {
 
   it("没有本地值却收到 304 时只重试一次无条件 GET", async () => {
     client.GET
-      .mockResolvedValueOnce(response(304, undefined, 'W/"7"'))
-      .mockResolvedValueOnce(response(200, { data: snapshot }, 'W/"7"'));
+      .mockResolvedValueOnce(response(304, undefined, 'W/"snapshot-v2-r7"'))
+      .mockResolvedValueOnce(response(200, { data: snapshot }, 'W/"snapshot-v2-r7"'));
 
     await expect(fetchActivitySnapshot("activity-1")).resolves.toEqual({
       status: "modified",
-      value: { etag: 'W/"7"', snapshot },
+      value: { etag: 'W/"snapshot-v2-r7"', snapshot },
     });
     expect(client.GET).toHaveBeenCalledTimes(2);
     expect(client.GET).toHaveBeenLastCalledWith(
@@ -94,8 +94,8 @@ describe("Activity Snapshot adapter", () => {
 
     client.GET
       .mockReset()
-      .mockResolvedValueOnce(response(304, undefined, 'W/"7"'))
-      .mockResolvedValueOnce(response(304, undefined, 'W/"7"'));
+      .mockResolvedValueOnce(response(304, undefined, 'W/"snapshot-v2-r7"'))
+      .mockResolvedValueOnce(response(304, undefined, 'W/"snapshot-v2-r7"'));
     await expect(fetchActivitySnapshot("activity-1")).rejects.toThrow(
       "活动快照未返回完整数据。",
     );

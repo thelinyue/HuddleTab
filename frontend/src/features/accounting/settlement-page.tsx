@@ -8,12 +8,90 @@ import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, St
 import { amountToMinor, formatMoney, minorToInput } from "../../domain-preview/money";
 import { type ActivityMember, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
-import { type RecommendationSelection, type RecommendationStrategy, type Settlement, useCreateSettlementMutation, useLedgerQuery, useRecommendationsQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
+import { type ExpenseAggregate, type RecommendationSelection, type RecommendationStrategy, type Settlement, useCreateSettlementMutation, useExpensesQuery, useLedgerQuery, useRecommendationsQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
 import { memberAvatarPreset, memberName } from "./shared";
 import { AccountingSkeleton } from "./skeleton";
 
 type Parties = { payerMemberId: string; receiverMemberId: string };
 type Recommendation = Parties & { amountMinor: string };
+type AllocationDraft = Record<string, string>;
+
+function directCapacity(expense: ExpenseAggregate, payerMemberId: string, receiverMemberId: string): bigint {
+  const members = expense.settlementProgress?.members ?? [];
+  const payer = members.find(member => member.memberId === payerMemberId && member.direction === "PAYABLE");
+  const receiver = members.find(member => member.memberId === receiverMemberId && member.direction === "RECEIVABLE");
+  if (!payer || !receiver) return 0n;
+  return BigInt(payer.remainingMinor) < BigInt(receiver.remainingMinor)
+    ? BigInt(payer.remainingMinor)
+    : BigInt(receiver.remainingMinor);
+}
+
+function editableCapacity(expense: ExpenseAggregate, payerMemberId: string, receiverMemberId: string, existing?: Settlement): bigint {
+  const current = directCapacity(expense, payerMemberId, receiverMemberId);
+  const previous = existing?.allocations?.find(allocation => allocation.expenseId === expense.expense.expenseId);
+  return current + (previous ? BigInt(previous.amountMinor) : 0n);
+}
+
+function allocationPayload(
+  draft: AllocationDraft,
+  expenses: readonly ExpenseAggregate[],
+  currency: string,
+  payerMemberId: string,
+  receiverMemberId: string,
+  existing?: Settlement,
+): { allocations: Array<{ expenseId: string; amountMinor: string }>; totalMinor: bigint; invalid: boolean } {
+  let totalMinor = 0n;
+  let invalid = false;
+  const allocations = Object.entries(draft)
+    .filter(([, value]) => value.trim().length > 0)
+    .map(([expenseId, value]) => {
+      try {
+        const amountMinor = amountToMinor(value, currency);
+        const amount = BigInt(amountMinor);
+        const expense = expenses.find(item => item.expense.expenseId === expenseId);
+        const capacity = expense ? editableCapacity(expense, payerMemberId, receiverMemberId, existing) : 0n;
+        if (amount <= 0n || amount > capacity) invalid = true;
+        totalMinor += amount;
+        return { expenseId, amountMinor };
+      } catch {
+        invalid = true;
+        return { expenseId, amountMinor: "0" };
+      }
+    });
+  return { allocations, totalMinor, invalid };
+}
+
+function SettlementAllocationPicker({
+  expenses,
+  parties,
+  currency,
+  value,
+  onChange,
+  disabled,
+  existing,
+}: {
+  expenses: readonly ExpenseAggregate[];
+  parties: Parties;
+  currency: string;
+  value: AllocationDraft;
+  onChange: (value: AllocationDraft) => void;
+  disabled?: boolean;
+  existing?: Settlement;
+}) {
+  const candidates = expenses
+    .map(expense => ({ expense, capacity: editableCapacity(expense, parties.payerMemberId, parties.receiverMemberId, existing) }))
+    .filter(item => item.capacity > 0n)
+    .sort((left, right) => left.expense.expense.occurredAt.localeCompare(right.expense.expense.occurredAt));
+  if (!parties.payerMemberId || !parties.receiverMemberId) return null;
+  return <section className="settlement-allocation-picker" aria-label="用于结清账单">
+    <header><strong>用于结清账单（可选）</strong><small>不选择则记录为活动整体结算</small></header>
+    {candidates.length ? <div className="settlement-allocation-list">{candidates.map(({ expense, capacity }) => <label className="settlement-allocation-row" key={expense.expense.expenseId}>
+      <span><strong>{expense.expense.title}</strong><small>待结 {formatMoney(currency, capacity.toString())}</small></span>
+      <Input aria-label={`分配给${expense.expense.title}`} inputMode="decimal" placeholder="0" value={value[expense.expense.expenseId] ?? ""} onChange={event => onChange({ ...value, [expense.expense.expenseId]: event.target.value })} disabled={disabled} />
+    </label>)}</div> : <p className="settlement-empty">当前付款人与收款人没有可直接归属的账单。</p>}
+    <p className="settlement-allocation-hint">账单结算进度仅统计明确关联到本账单的结算记录。</p>
+  </section>;
+}
 
 /** 两个字段共享展开状态；更换成员不重建表单，因此金额和另一方选择不会丢失。 */
 function SettlementParties({ members, value, onChange }: { members: readonly ActivityMember[]; value: Parties; onChange: (next: Parties) => void }) {
@@ -44,12 +122,15 @@ function SettlementParties({ members, value, onChange }: { members: readonly Act
 }
 
 /** 推荐与补记只有初值不同，校验、成员选择、提交和取消使用同一实现。 */
-function SettlementForm({ initial, members, onClose }: { initial?: Recommendation; members: readonly ActivityMember[]; onClose: () => void }) {
+function SettlementForm({ initial, existing, members, expenses, onClose }: { initial?: Recommendation; existing?: Settlement; members: readonly ActivityMember[]; expenses: readonly ExpenseAggregate[]; onClose: () => void }) {
   const { session, activity } = useWorkspace();
   const create = useCreateSettlementMutation(session.userId, activity.activityId);
-  const [parties, setParties] = useState<Parties>({ payerMemberId: initial?.payerMemberId ?? '', receiverMemberId: initial?.receiverMemberId ?? '' });
-  const [amount, setAmount] = useState(initial ? minorToInput(initial.amountMinor, activity.baseCurrency) : '');
+  const update = useUpdateSettlementMutation(session.userId, activity.activityId);
+  const [parties, setParties] = useState<Parties>({ payerMemberId: existing?.payerMemberId ?? initial?.payerMemberId ?? '', receiverMemberId: existing?.receiverMemberId ?? initial?.receiverMemberId ?? '' });
+  const [amount, setAmount] = useState(existing ? minorToInput(existing.amountMinor, existing.currency) : initial ? minorToInput(initial.amountMinor, activity.baseCurrency) : '');
+  const [allocations, setAllocations] = useState<AllocationDraft>(() => Object.fromEntries(existing?.allocations?.map(allocation => [allocation.expenseId, minorToInput(allocation.amountMinor, activity.baseCurrency)]) ?? []));
   const [error, setError] = useState<string>();
+  const busy = create.isPending || update.isPending;
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(undefined);
     if (!parties.payerMemberId || !parties.receiverMemberId) { setError('请选择付款人和收款人。'); return; }
@@ -58,15 +139,24 @@ function SettlementForm({ initial, members, onClose }: { initial?: Recommendatio
     try {
       const amountMinor = amountToMinor(amount, activity.baseCurrency);
       if (BigInt(amountMinor) <= 0n) { setError('结算金额必须大于零。'); return; }
-      await create.mutateAsync({ ...parties, amountMinor, currency: activity.baseCurrency, clientMutationId: crypto.randomUUID() }); onClose();
+      const parsed = allocationPayload(allocations, expenses, activity.baseCurrency, parties.payerMemberId, parties.receiverMemberId, existing);
+      if (parsed.invalid) { setError('账单归属金额不能超过该付款人与收款人的直接待结余额。'); return; }
+      if (parsed.allocations.length > 0 && parsed.totalMinor !== BigInt(amountMinor)) { setError('已分配金额必须等于本次付款金额。'); return; }
+      if (existing) {
+        await update.mutateAsync({ settlementId: existing.settlementId, input: { ...parties, amountMinor, version: existing.version, allocations: parsed.allocations } });
+      } else {
+        await create.mutateAsync({ ...parties, amountMinor, currency: activity.baseCurrency, clientMutationId: crypto.randomUUID(), allocations: parsed.allocations });
+      }
+      onClose();
     } catch (reason) { if (!(reason instanceof ApiRequestError)) setError(reason instanceof Error ? reason.message : '结算输入不正确。'); }
   }
-  return <form className="settlement-inline-form form-stack" aria-label={initial ? '记录推荐转账' : '补记结算'} onSubmit={event => void submit(event)}>
-    <fieldset disabled={create.isPending}><SettlementParties members={members} value={parties} onChange={setParties} />
+  return <form className="settlement-inline-form form-stack" aria-label={existing ? '修改结算' : initial ? '记录推荐转账' : '补记结算'} onSubmit={event => void submit(event)}>
+    <fieldset disabled={busy}>{existing ? <TransferParties payer={parties.payerMemberId} receiver={parties.receiverMemberId} members={members} /> : <SettlementParties members={members} value={parties} onChange={next => { setParties(next); setAllocations({}); }} />}
       <Field label={`金额（${activity.baseCurrency}）`}><Input required inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} /></Field>
+      <SettlementAllocationPicker expenses={expenses} parties={parties} currency={activity.baseCurrency} value={allocations} onChange={setAllocations} disabled={busy} existing={existing} />
     </fieldset>
-    {error ? <p role="alert" className="notice notice--error">{error}</p> : null}{create.error ? <ErrorNotice error={create.error} /> : null}
-    <div className="settlement-form-actions"><Button type="submit" busy={create.isPending}>记录结算</Button><Button variant="ghost" disabled={create.isPending} onClick={onClose}>取消</Button></div>
+    {error ? <p role="alert" className="notice notice--error">{error}</p> : null}{create.error ? <ErrorNotice error={create.error} /> : null}{update.error ? <ErrorNotice error={update.error} /> : null}
+    <div className="settlement-form-actions"><Button type="submit" busy={busy}>{existing ? '保存' : '记录结算'}</Button><Button variant="ghost" disabled={busy} onClick={onClose}>取消</Button></div>
   </form>;
 }
 
@@ -74,27 +164,17 @@ function TransferParties({ payer, receiver, members }: { payer: string; receiver
   return <span className="settlement-transfer"><span><MemberAvatar memberId={payer} displayName={memberName(payer, members)} avatarPreset={memberAvatarPreset(payer, members)} size="sm" /><strong>{memberName(payer, members)}</strong></span><small>付给</small><span><MemberAvatar memberId={receiver} displayName={memberName(receiver, members)} avatarPreset={memberAvatarPreset(receiver, members)} size="sm" /><strong>{memberName(receiver, members)}</strong></span></span>;
 }
 
-function SettlementRow({ settlement, members, writable }: { settlement: Settlement; members: readonly ActivityMember[]; writable: boolean }) {
+function SettlementRow({ settlement, members, expenses, writable }: { settlement: Settlement; members: readonly ActivityMember[]; expenses: readonly ExpenseAggregate[]; writable: boolean }) {
   const { session, activity } = useWorkspace();
-  const update = useUpdateSettlementMutation(session.userId, activity.activityId);
   const voidMutation = useVoidSettlementMutation(session.userId, activity.activityId);
   const [editing, setEditing] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [error, setError] = useState<string>();
-  async function save(event: FormEvent) {
-    event.preventDefault(); setError(undefined);
-    try {
-      const amountMinor = amountToMinor(amount, settlement.currency);
-      if (BigInt(amountMinor) <= 0n) { setError('结算金额必须大于零。'); return; }
-      await update.mutateAsync({ settlementId: settlement.settlementId, input: { amountMinor, payerMemberId: settlement.payerMemberId, receiverMemberId: settlement.receiverMemberId, version: settlement.version } }); setEditing(false);
-    } catch (reason) { if (!(reason instanceof ApiRequestError)) setError(reason instanceof Error ? reason.message : '结算金额不正确。'); }
-  }
+  const allocationCount = settlement.allocations?.length ?? 0;
   return <article className={`settlement-record${settlement.status === 'VOID' ? ' settlement-record--void' : ''}`}>
     <div className="settlement-record__main"><TransferParties payer={settlement.payerMemberId} receiver={settlement.receiverMemberId} members={members} /><span className="settlement-record__amount"><Money value={formatMoney(settlement.currency, settlement.amountMinor)} /><small>{settlement.currency}</small></span></div>
-    <div className="settlement-record__meta"><time dateTime={settlement.createdAt}>记录于 {new Date(settlement.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time><span className="settlement-record__status">{settlement.status === 'VOID' ? '已作废' : '已记录'}</span></div>
-    {writable && settlement.status === 'ACTIVE' && !editing ? <div className="settlement-record__actions"><Button variant="ghost" onClick={() => { setAmount(minorToInput(settlement.amountMinor, settlement.currency)); setError(undefined); setEditing(true); }}>修改</Button><Button variant="ghost" onClick={() => setVoidOpen(true)}>作废</Button></div> : null}
-    {editing && writable ? <form className="settlement-inline-form form-stack" aria-label="修改结算" onSubmit={event => void save(event)}><Field label={`结算金额（${settlement.currency}）`}><Input value={amount} onChange={event => setAmount(event.target.value)} inputMode="decimal" required autoFocus disabled={update.isPending} /></Field>{error ? <p role="alert">{error}</p> : null}{update.error ? <ErrorNotice error={update.error} /> : null}<div className="settlement-form-actions"><Button type="submit" busy={update.isPending}>保存</Button><Button variant="ghost" disabled={update.isPending} onClick={() => { setEditing(false); setAmount(minorToInput(settlement.amountMinor, settlement.currency)); }}>取消</Button></div></form> : null}
+    <div className="settlement-record__meta"><time dateTime={settlement.createdAt}>记录于 {new Date(settlement.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time><span className="settlement-record__status">{settlement.status === 'VOID' ? '已作废' : allocationCount ? `已关联 ${allocationCount} 笔账单` : '活动整体结算 · 未指定具体账单'}</span></div>
+    {writable && settlement.status === 'ACTIVE' && !editing ? <div className="settlement-record__actions"><Button variant="ghost" onClick={() => setEditing(true)}>修改</Button><Button variant="ghost" onClick={() => setVoidOpen(true)}>作废</Button></div> : null}
+    {editing && writable && settlement.status === 'ACTIVE' ? <SettlementForm existing={settlement} members={members} expenses={expenses} onClose={() => setEditing(false)} /> : null}
     <ConfirmDialog open={voidOpen && writable} title="作废结算" message="作废后这笔结算将不再计入余额，确定继续吗？" confirmLabel="确认作废" busy={voidMutation.isPending} error={voidMutation.error ? <ErrorNotice error={voidMutation.error} /> : undefined} onConfirm={() => void voidMutation.mutateAsync({ settlementId: settlement.settlementId, version: settlement.version }).then(() => setVoidOpen(false)).catch(() => undefined)} onCancel={() => setVoidOpen(false)} />
   </article>;
 }
@@ -142,12 +222,14 @@ export function SettlementsPage() {
   const [strategySheetOpen, setStrategySheetOpen] = useState(false);
   const recommendations = useRecommendationsQuery(session.userId, activity.activityId, strategySelection, !offline);
   const settlements = useSettlementsQuery(session.userId, activity.activityId, !offline);
+  const expenses = useExpensesQuery(session.userId, activity.activityId, !offline);
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [form, setForm] = useState<{ key: string; initial?: Recommendation }>();
   const memberData = members.data ?? cachedMembers ?? [];
   const ledgerData = ledger.data ?? snapshot?.snapshot.ledger;
   const recommendationData = recommendations.data ?? snapshot?.snapshot.recommendations;
   const records = settlements.data ?? snapshot?.snapshot.settlements;
+  const expenseRecords = expenses.data ?? snapshot?.snapshot.expenses ?? [];
   const balances = ledgerData?.balances;
   const effectiveStrategy = recommendations.data?.effectiveStrategy === "CENTRALIZED" ? "centralized" : "min_transfers";
   const effectiveHubMemberId = recommendations.data?.hubMemberId ?? (effectiveStrategy === "centralized" ? activity.currentMemberId : null);
@@ -186,7 +268,7 @@ export function SettlementsPage() {
       {rows && memberReady ? rows.length ? <div className="settlement-recommendations">{rows.map(recommendation => {
         const key = `${recommendation.payerMemberId}-${recommendation.receiverMemberId}`;
         const content = <><TransferParties payer={recommendation.payerMemberId} receiver={recommendation.receiverMemberId} members={memberData} /><Money value={formatMoney(activity.baseCurrency, recommendation.amountMinor)} />{writable ? <ChevronRight size={16} aria-hidden="true" /> : null}</>;
-        return <div className="settlement-recommendation-item" key={key}>{writable ? <button type="button" className="settlement-recommendation-trigger" aria-expanded={form?.key === key} onClick={() => setForm(form?.key === key ? undefined : { key, initial: recommendation })}>{content}</button> : <div className="settlement-recommendation-trigger">{content}</div>}{writable && form?.key === key ? <SettlementForm key={key} initial={form.initial} members={memberData} onClose={closeForm} /> : null}</div>;
+        return <div className="settlement-recommendation-item" key={key}>{writable ? <button type="button" className="settlement-recommendation-trigger" aria-expanded={form?.key === key} onClick={() => setForm(form?.key === key ? undefined : { key, initial: recommendation })}>{content}</button> : <div className="settlement-recommendation-trigger">{content}</div>}{writable && form?.key === key ? <SettlementForm key={key} initial={form.initial} members={memberData} expenses={expenseRecords} onClose={closeForm} /> : null}</div>;
       })}</div> : <p className="settlement-empty">{fullySettled ? '所有成员余额均已结清' : '当前暂无推荐转账'}</p> : !recommendations.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null}
     </section>
     <RecommendationStrategyOverlay open={strategySheetOpen} selected={selectedStrategy} recommended={recommendedCentralized} onClose={() => setStrategySheetOpen(false)} onSelect={strategy => { setStrategySelection(strategy === "centralized" ? { strategy, hubMemberId: activity.currentMemberId } : { strategy }); setStrategySheetOpen(false); setForm(undefined); }} />
@@ -195,9 +277,9 @@ export function SettlementsPage() {
     </section>
     {fullySettled ? <div className="settlement-complete"><Check size={19} />全部已结清</div> : null}
     <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{writable && !fullySettled ? <Button variant="ghost" onClick={() => setForm(form?.key === 'manual' ? undefined : { key: 'manual' })}>补记结算</Button> : null}</header>
-      {writable && form?.key === 'manual' ? <SettlementForm members={memberData} onClose={closeForm} /> : null}
+      {writable && form?.key === 'manual' ? <SettlementForm members={memberData} expenses={expenseRecords} onClose={closeForm} /> : null}
       <RefreshError error={settlements.error} retry={() => void settlements.refetch()} />
-      {records && memberReady ? records.length ? <div className="settlement-list">{records.map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} writable={writable} />)}</div> : <EmptyState icon={<UsersRound size={24} />} visual={<StateIllustration src="/illustrations/settlement-history-empty.webp" size="compact" />} title="还没有结算记录" description="完成转账后，在这里补记结算。" /> : !settlements.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null}
+      {records && memberReady ? records.length ? <div className="settlement-list">{records.map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} expenses={expenseRecords} writable={writable} />)}</div> : <EmptyState icon={<UsersRound size={24} />} visual={<StateIllustration src="/illustrations/settlement-history-empty.webp" size="compact" />} title="还没有结算记录" description="完成转账后，在这里补记结算。" /> : !settlements.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null}
     </section>
   </div>;
 }

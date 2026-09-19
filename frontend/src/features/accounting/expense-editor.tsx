@@ -90,6 +90,47 @@ function RoutedExpenseEditor(props: ExpenseEditorProps) {
   );
 }
 
+function ExpenseSettlementProgressSection({
+  progress,
+  members,
+}: {
+  progress?: ExpenseAggregate["settlementProgress"];
+  members: readonly ActivityMember[];
+}) {
+  if (!progress) return null;
+  const statusLabel = progress.status === "NO_SETTLEMENT_REQUIRED"
+    ? "无需结算"
+    : progress.status === "SETTLED"
+      ? "已结清 ✓"
+      : progress.status === "PARTIALLY_SETTLED"
+        ? "部分结算"
+        : "待结算";
+  const statusClass = progress.status.toLowerCase().replaceAll("_", "-");
+  return <section className="expense-settlement-progress" aria-labelledby="expense-settlement-progress-heading">
+    <header className="expense-settlement-progress__header">
+      <div><h2 id="expense-settlement-progress-heading">结算进度</h2><p>账单结算进度仅统计明确关联到本账单的结算记录。</p></div>
+      <strong className={`expense-settlement-progress__status expense-settlement-progress__status--${statusClass}`}>{statusLabel}</strong>
+    </header>
+    {progress.status === "NO_SETTLEMENT_REQUIRED"
+      ? <p className="expense-settlement-progress__empty">这笔账从一开始无需成员间结算。</p>
+      : <div className="expense-settlement-progress__table" role="table" aria-label="账单成员结算进度">
+        <div className="expense-settlement-progress__row expense-settlement-progress__row--heading" role="row">
+          <span role="columnheader">成员</span><span role="columnheader">应结算</span><span role="columnheader">已结算</span><span role="columnheader">待结算</span>
+        </div>
+        {progress.members.map((member) => {
+          const received = member.direction === "RECEIVABLE";
+          const settled = member.status === "SETTLED";
+          return <div className="expense-settlement-progress__row" role="row" key={member.memberId}>
+            <span role="cell" className="expense-settlement-progress__member"><MemberAvatar memberId={member.memberId} displayName={memberName(member.memberId, members)} avatarPreset={memberAvatarPreset(member.memberId, members)} size="sm" /><span>{memberName(member.memberId, members)}</span></span>
+            <span role="cell"><small>{received ? "应收" : "应结"}</small>{formatMoney(progress.currency, member.expectedMinor)}</span>
+            <span role="cell"><small>{received ? "已收" : "已结"}</small>{formatMoney(progress.currency, member.settledMinor)}</span>
+            <span role="cell" className={settled ? "expense-settlement-progress__remaining expense-settlement-progress__remaining--settled" : "expense-settlement-progress__remaining"}><small>{received ? "待收" : "待结"}</small>{formatMoney(progress.currency, member.remainingMinor)}{settled ? <Check aria-label="已结清" size={15} /> : null}</span>
+          </div>;
+        })}
+      </div>}
+  </section>;
+}
+
 /**
  * 流水内编辑保留列表、筛选与滚动上下文；独立深链仍由 ExpenseDetailPage 承担。
  * Sheet 内部只切换编辑器子视图，URL 仅表示整个修改任务是否打开。
@@ -898,6 +939,7 @@ function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { a
       <div className="expense-detail-summary__amount"><span>{aggregate.expense.originalCurrency}</span><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></div>
       {isForeignCurrency ? <div className="expense-detail-summary__conversion"><span>折算后 {formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)}</span><small>汇率 {aggregate.expense.exchangeRate}（1 {aggregate.expense.originalCurrency} = N {aggregate.expense.baseCurrency}）</small>{aggregate.expense.exchangeRateReferenceDate ? <small>{aggregate.expense.exchangeRateKind === "CACHE" ? "缓存参考汇率" : aggregate.expense.exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {aggregate.expense.exchangeRateReferenceDate}</small> : null}</div> : null}
     </section>
+    <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} members={memberData} />
     <div className="expense-detail-fields">
       <dl>
         <div><dt>分类</dt><dd><span className="expense-detail-category">{category ? <img src={`/expense-categories/${category[2]}.webp`} width="34" height="34" alt="" /> : null}<span>{category?.[1] ?? "其他"}</span></span></dd></div>
@@ -934,6 +976,7 @@ export function ExpenseDetailPage() {
       <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
       {remove.error ? <ErrorNotice error={remove.error} /> : null}
       <ConfirmDialog open={deleteOpen} title="删除账单" message="删除后账本会立即重新计算，这笔账单无法恢复。确定继续吗？" confirmLabel="确认删除" busy={remove.isPending} onConfirm={() => { void remove.mutateAsync(expense.data!.expense.version).then(() => { setDeleteOpen(false); navigate(`/activities/${activity.activityId}`); }).catch(() => undefined); }} onCancel={() => setDeleteOpen(false)} />
+      <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} members={memberData} />
       <RoutedExpenseEditor initial={aggregate} />
     </div>
   );

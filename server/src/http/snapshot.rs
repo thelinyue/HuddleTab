@@ -71,10 +71,10 @@ impl SnapshotCondition for HeaderCondition {
     responses(
         (status = 200, description = "完整 Activity Snapshot", body = ActivitySnapshotEnvelope,
             headers(
-                ("ETag" = String, description = "基于 Activity revision 的 weak ETag"),
+                ("ETag" = String, description = "基于 Snapshot schemaVersion 与 Activity revision 的 weak ETag"),
                 ("Cache-Control" = String, description = "private, no-store")
             )),
-        (status = 304, description = "Activity revision 未变化",
+        (status = 304, description = "Snapshot schemaVersion 与 Activity revision 未变化",
             headers(
                 ("ETag" = String, description = "当前 weak ETag"),
                 ("Cache-Control" = String, description = "private, no-store")
@@ -127,7 +127,7 @@ fn snapshot_headers(revision: i64) -> HeaderMap {
 }
 
 fn weak_etag(revision: i64) -> String {
-    format!("W/\"{revision}\"")
+    format!("W/\"snapshot-v2-r{revision}\"")
 }
 
 fn snapshot_data(snapshot: ActivitySnapshot) -> ActivitySnapshotData {

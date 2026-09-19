@@ -286,7 +286,7 @@ async fn snapshot_returns_complete_authorized_data_and_weak_etag() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[ETAG], "W/\"7\"");
+    assert_eq!(headers[ETAG], "W/\"snapshot-v2-r7\"");
     assert_eq!(headers[CACHE_CONTROL], "private, no-store");
     let body: Value = serde_json::from_slice(&bytes).expect("200 应返回 JSON");
     let snapshot = &body["data"];
@@ -333,15 +333,23 @@ async fn snapshot_returns_complete_authorized_data_and_weak_etag() {
 
     let (status, headers, bytes) = raw_response(
         &context,
-        snapshot_request(&context, &context.owner_session, Some("W/\"7\"")),
+        snapshot_request(
+            &context,
+            &context.owner_session,
+            Some("W/\"snapshot-v2-r7\""),
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_MODIFIED);
-    assert_eq!(headers[ETAG], "W/\"7\"");
+    assert_eq!(headers[ETAG], "W/\"snapshot-v2-r7\"");
     assert_eq!(headers[CACHE_CONTROL], "private, no-store");
     assert!(bytes.is_empty(), "304 不应返回 body");
 
-    for condition in ["W/\"6\"", "invalid-etag"] {
+    for condition in [
+        "W/\"snapshot-v2-r6\"",
+        "W/\"snapshot-v1-r7\"",
+        "invalid-etag",
+    ] {
         let (status, _, bytes) = raw_response(
             &context,
             snapshot_request(&context, &context.owner_session, Some(condition)),
@@ -353,7 +361,11 @@ async fn snapshot_returns_complete_authorized_data_and_weak_etag() {
 
     let (status, _, _) = raw_response(
         &context,
-        snapshot_request(&context, &context.outsider_session, Some("W/\"7\"")),
+        snapshot_request(
+            &context,
+            &context.outsider_session,
+            Some("W/\"snapshot-v2-r7\""),
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -371,7 +383,7 @@ async fn invite_mode_revision_invalidates_snapshot_etag() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[ETAG], "W/\"7\"");
+    assert_eq!(headers[ETAG], "W/\"snapshot-v2-r7\"");
     let initial: Value = serde_json::from_slice(&bytes).expect("响应应为 JSON");
     assert_eq!(initial["data"]["activity"]["inviteMode"], "DIRECT_JOIN");
 
@@ -386,11 +398,15 @@ async fn invite_mode_revision_invalidates_snapshot_etag() {
 
     let (status, headers, bytes) = raw_response(
         &context,
-        snapshot_request(&context, &context.owner_session, Some("W/\"7\"")),
+        snapshot_request(
+            &context,
+            &context.owner_session,
+            Some("W/\"snapshot-v2-r7\""),
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[ETAG], "W/\"8\"");
+    assert_eq!(headers[ETAG], "W/\"snapshot-v2-r8\"");
     let modified: Value = serde_json::from_slice(&bytes).expect("响应应为 JSON");
     assert_eq!(modified["data"]["revision"], "8");
     assert_eq!(
@@ -473,7 +489,7 @@ async fn guest_binding_updates_snapshot_without_changing_member_identity() {
     )
     .await;
     assert_eq!(before_status, StatusCode::OK);
-    assert_eq!(before_headers[ETAG], "W/\"8\"");
+    assert_eq!(before_headers[ETAG], "W/\"snapshot-v2-r8\"");
 
     let target_csrf = CsrfToken::mint(&secret, CsrfContext::Session(&target_session.sha256_hash()));
     let join_response = context
@@ -508,11 +524,11 @@ async fn guest_binding_updates_snapshot_without_changing_member_identity() {
 
     let (status, headers, bytes) = raw_response(
         &context,
-        snapshot_request(&context, &target_session, Some("W/\"8\"")),
+        snapshot_request(&context, &target_session, Some("W/\"snapshot-v2-r8\"")),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[ETAG], "W/\"9\"");
+    assert_eq!(headers[ETAG], "W/\"snapshot-v2-r9\"");
     let snapshot: Value = serde_json::from_slice(&bytes).expect("响应应为 JSON");
     let bound_members = snapshot["data"]["members"]
         .as_array()
@@ -569,7 +585,7 @@ async fn snapshot_keeps_revision_and_facts_in_one_repeatable_read_view() {
 
     let (status, headers, bytes) = snapshot_task.await.expect("Snapshot 请求应完成");
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[ETAG], "W/\"7\"");
+    assert_eq!(headers[ETAG], "W/\"snapshot-v2-r7\"");
     let body: Value = serde_json::from_slice(&bytes).expect("响应应为 JSON");
     assert_eq!(body["data"]["revision"], "7");
     assert_eq!(

@@ -976,6 +976,7 @@ export interface components {
             targetDisplayName?: string | null;
         };
         CreateSettlementRequest: {
+            allocations?: components["schemas"]["SettlementAllocationRequest"][];
             amountMinor: string;
             clientMutationId: string;
             currency: string;
@@ -986,6 +987,7 @@ export interface components {
             expense: components["schemas"]["ExpenseData"];
             idempotentReplay: boolean;
             payments: components["schemas"]["ExpenseFactData"][];
+            settlementProgress: components["schemas"]["ExpenseSettlementProgressData"];
             shares: components["schemas"]["ExpenseFactData"][];
         };
         CreatedExpenseEnvelope: {
@@ -1072,6 +1074,7 @@ export interface components {
             attachments: components["schemas"]["ExpenseAttachmentData"][];
             expense: components["schemas"]["ExpenseData"];
             payments: components["schemas"]["ExpenseFactData"][];
+            settlementProgress: components["schemas"]["ExpenseSettlementProgressData"];
             shares: components["schemas"]["ExpenseFactData"][];
         };
         ExpenseAttachmentData: {
@@ -1136,6 +1139,14 @@ export interface components {
         ExpensePaymentRequest: {
             amountMinor: string;
             memberId: string;
+        };
+        ExpenseSettlementProgressData: {
+            currency: string;
+            members: components["schemas"]["MemberSettlementProgressData"][];
+            remainingMinor: string;
+            settledMinor: string;
+            status: string;
+            totalRequiredMinor: string;
         };
         ExpenseSplitEntryRequest: {
             memberId: string;
@@ -1266,6 +1277,14 @@ export interface components {
         LogoutEnvelope: {
             data: components["schemas"]["LogoutData"];
         };
+        MemberSettlementProgressData: {
+            direction: string;
+            expectedMinor: string;
+            memberId: string;
+            remainingMinor: string;
+            settledMinor: string;
+            status: string;
+        };
         NotificationData: {
             /** @description 当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。 */
             activityDeleted: boolean;
@@ -1356,8 +1375,17 @@ export interface components {
         SessionEnvelope: {
             data: components["schemas"]["SessionData"];
         };
+        SettlementAllocationData: {
+            amountMinor: string;
+            expenseId: string;
+        };
+        SettlementAllocationRequest: {
+            amountMinor: string;
+            expenseId: string;
+        };
         SettlementData: {
             activityId: string;
+            allocations: components["schemas"]["SettlementAllocationData"][];
             amountMinor: string;
             clientMutationId: string;
             createdAt: string;
@@ -1448,6 +1476,7 @@ export interface components {
             version: string;
         };
         UpdateSettlementRequest: {
+            allocations?: components["schemas"]["SettlementAllocationRequest"][];
             amountMinor: string;
             payerMemberId: string;
             receiverMemberId: string;
@@ -3056,7 +3085,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedSettlementEnvelope"];
                 };
             };
-            /** @description 幂等键冲突 */
+            /** @description 幂等键或账单归属冲突 */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3137,7 +3166,7 @@ export interface operations {
                     "application/json": components["schemas"]["SettlementEnvelope"];
                 };
             };
-            /** @description 版本冲突 */
+            /** @description 版本或账单归属冲突 */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3206,7 +3235,7 @@ export interface operations {
                 headers: {
                     /** @description private, no-store */
                     "Cache-Control"?: string;
-                    /** @description 基于 Activity revision 的 weak ETag */
+                    /** @description 基于 Snapshot schemaVersion 与 Activity revision 的 weak ETag */
                     ETag?: string;
                     [name: string]: unknown;
                 };
@@ -3214,7 +3243,7 @@ export interface operations {
                     "application/json": components["schemas"]["ActivitySnapshotEnvelope"];
                 };
             };
-            /** @description Activity revision 未变化 */
+            /** @description Snapshot schemaVersion 与 Activity revision 未变化 */
             304: {
                 headers: {
                     /** @description private, no-store */

@@ -54,7 +54,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 1);
+    assert_eq!(applied_count, 2);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )

@@ -17,6 +17,7 @@ use crate::{
         list_expenses, update_expense,
     },
     domain::expense::{ExpenseSplitInput, PaymentInput, SplitEntryInput},
+    domain::settlement_progress::{ExpenseSettlementProgress, MemberSettlementProgress},
     infrastructure::{clock::SystemClock, expense_repository::PostgresExpenseRepository},
 };
 
@@ -113,11 +114,35 @@ pub struct ExpenseFactData {
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ExpenseAggregateData {
     pub expense: ExpenseData,
     pub payments: Vec<ExpenseFactData>,
     pub shares: Vec<ExpenseFactData>,
     pub attachments: Vec<ExpenseAttachmentData>,
+    pub settlement_progress: ExpenseSettlementProgressData,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpenseSettlementProgressData {
+    pub status: String,
+    pub currency: String,
+    pub total_required_minor: String,
+    pub settled_minor: String,
+    pub remaining_minor: String,
+    pub members: Vec<MemberSettlementProgressData>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberSettlementProgressData {
+    pub member_id: String,
+    pub direction: String,
+    pub expected_minor: String,
+    pub settled_minor: String,
+    pub remaining_minor: String,
+    pub status: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -142,6 +167,7 @@ pub struct CreatedExpenseData {
     pub expense: ExpenseData,
     pub payments: Vec<ExpenseFactData>,
     pub shares: Vec<ExpenseFactData>,
+    pub settlement_progress: ExpenseSettlementProgressData,
     pub idempotent_replay: bool,
 }
 
@@ -216,6 +242,7 @@ pub(crate) async fn create(
                 expense: data.expense,
                 payments: data.payments,
                 shares: data.shares,
+                settlement_progress: data.settlement_progress,
                 idempotent_replay: result.idempotent_replay,
             },
         }),
@@ -448,6 +475,7 @@ fn split(
 }
 
 pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateData {
+    let base_currency = aggregate.expense.base_currency.clone();
     ExpenseAggregateData {
         expense: ExpenseData {
             expense_id: aggregate.expense.id.to_string(),
@@ -499,6 +527,36 @@ pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateDat
             .into_iter()
             .map(format_attachment)
             .collect(),
+        settlement_progress: settlement_progress_data(aggregate.settlement_progress, base_currency),
+    }
+}
+
+fn settlement_progress_data(
+    progress: ExpenseSettlementProgress,
+    currency: String,
+) -> ExpenseSettlementProgressData {
+    ExpenseSettlementProgressData {
+        status: progress.status.as_str().to_owned(),
+        currency,
+        total_required_minor: progress.total_required_minor.to_string(),
+        settled_minor: progress.settled_minor.to_string(),
+        remaining_minor: progress.remaining_minor.to_string(),
+        members: progress
+            .members
+            .into_iter()
+            .map(|member| member_progress_data(&member))
+            .collect(),
+    }
+}
+
+fn member_progress_data(member: &MemberSettlementProgress) -> MemberSettlementProgressData {
+    MemberSettlementProgressData {
+        member_id: member.member_id.to_string(),
+        direction: member.balance_type.as_str().to_owned(),
+        expected_minor: member.expected_minor.to_string(),
+        settled_minor: member.settled_minor.to_string(),
+        remaining_minor: member.remaining_minor.to_string(),
+        status: member.status.as_str().to_owned(),
     }
 }
 
@@ -526,6 +584,9 @@ fn map_error(error: ExpenseError, request_id: RequestId) -> ApiError {
         ExpenseError::NotFound => ApiError::not_found(request_id),
         ExpenseError::VersionConflict => ApiError::version_conflict(request_id),
         ExpenseError::MutationConflict => ApiError::mutation_conflict(request_id),
+        ExpenseError::HasSettlementAllocations => {
+            ApiError::settlement_allocation_conflict(request_id)
+        }
         ExpenseError::Unavailable => ApiError::internal(request_id),
     }
 }

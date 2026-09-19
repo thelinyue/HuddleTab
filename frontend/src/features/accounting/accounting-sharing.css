@@ -125,6 +125,16 @@ button.settlement-recommendation-trigger:hover { background: var(--surface-muted
 .settlement-transfer strong { font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
 .settlement-transfer > small { color: var(--muted-foreground); white-space: nowrap; }
 .settlement-inline-form { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); animation: settlement-reveal 140ms ease-out; }
+.settlement-allocation-picker { display: grid; gap: 10px; padding-top: 4px; }
+.settlement-allocation-picker > header { display: grid; gap: 2px; }
+.settlement-allocation-picker > header strong { font-size: 14px; }
+.settlement-allocation-picker > header small, .settlement-allocation-hint, .settlement-allocation-row small { color: var(--muted-foreground); font-size: 12px; }
+.settlement-allocation-list { display: grid; gap: 8px; }
+.settlement-allocation-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(96px, 132px); gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.settlement-allocation-row > span { display: grid; gap: 2px; min-width: 0; }
+.settlement-allocation-row strong { overflow-wrap: anywhere; }
+.settlement-allocation-row .input { min-height: 44px; }
+.settlement-allocation-hint { margin: 0; line-height: 1.45; }
 .settlement-inline-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 12px; }
 .settlement-form-actions, .settlement-record__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .settlement-parties { display: grid; gap: 8px; }
@@ -167,6 +177,7 @@ button.settlement-recommendation-trigger:hover { background: var(--surface-muted
 .accounting-skeleton__row > span i:last-child { width: 60%; }
 @media (max-width: 360px) { .settlement-record__main { grid-template-columns: minmax(0, 1fr); } .settlement-record__amount { justify-self: end; } .settlement-transfer .member-avatar { width: 24px; height: 24px; } }
 @media (prefers-reduced-motion: reduce) { .accounting-skeleton i { animation: none; } .settlement-inline-form { animation: none; } }
+@media (max-width: 420px) { .settlement-allocation-row { grid-template-columns: minmax(0, 1fr) 104px; gap: 8px; padding: 8px; } }
 @media (prefers-reduced-motion: reduce) { .settlement-strategy-trigger, .settlement-strategy-option { transition: none; } .settlement-strategy-trigger:active, .settlement-strategy-option:active { transform: none; } }
 @media (prefers-reduced-transparency: reduce) { .settlement-strategy-option[aria-checked="true"] { background: var(--surface-muted); } }
 @media (prefers-contrast: more) { .settlement-strategy-option { border-color: currentColor; } .settlement-strategy-option[aria-checked="true"] { border-width: 2px; } }

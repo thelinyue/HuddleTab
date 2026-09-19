@@ -10,4 +10,5 @@ pub mod ledger;
 pub mod money;
 pub mod session;
 pub mod settlement;
+pub mod settlement_progress;
 pub mod splitting;

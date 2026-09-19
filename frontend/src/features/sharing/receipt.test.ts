@@ -3,7 +3,20 @@ import type { ExpenseAggregate } from "../accounting/api";
 import { groupReceiptExpenses, receiptDayLabel } from "./receipt";
 
 function expense(expenseId: string, occurredAt: string): ExpenseAggregate {
-  return { expense: { expenseId, occurredAt } as ExpenseAggregate["expense"], payments: [], shares: [], attachments: [] };
+  return {
+    expense: { expenseId, occurredAt } as ExpenseAggregate["expense"],
+    payments: [],
+    shares: [],
+    attachments: [],
+    settlementProgress: {
+      currency: "CNY",
+      members: [],
+      remainingMinor: "0",
+      settledMinor: "0",
+      status: "NO_SETTLEMENT_REQUIRED",
+      totalRequiredMinor: "0",
+    },
+  };
 }
 
 describe("流水小票日期分组", () => {

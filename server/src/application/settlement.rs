@@ -31,6 +31,21 @@ pub struct SettlementRecord {
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     pub voided_at: Option<OffsetDateTime>,
+    pub allocations: Vec<SettlementAllocationRecord>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// 一笔真实 Settlement 在具体 Expense 上的金额归属；不复制付款人、收款人或原始分摊事实。
+pub struct SettlementAllocationRecord {
+    pub expense_id: Uuid,
+    pub amount_minor: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// 创建或更新 Settlement 时提交的归属事实，最终由 Repository 在活动锁内校验。
+pub struct SettlementAllocationInput {
+    pub expense_id: Uuid,
+    pub amount_minor: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +59,7 @@ pub struct NewSettlement {
     pub receiver_member_id: Uuid,
     pub currency: String,
     pub amount_minor: i64,
+    pub allocations: Vec<SettlementAllocationInput>,
     pub now: OffsetDateTime,
 }
 
@@ -58,6 +74,7 @@ pub struct SettlementUpdate {
     pub payer_member_id: Uuid,
     pub receiver_member_id: Uuid,
     pub amount_minor: i64,
+    pub allocations: Vec<SettlementAllocationInput>,
     pub now: OffsetDateTime,
 }
 
@@ -88,6 +105,8 @@ pub enum SettlementRepositoryError {
     VersionConflict,
     #[error("幂等键与其他结算冲突")]
     MutationConflict,
+    #[error("结算归属超过账单当前可结算余额")]
+    AllocationConflict,
     #[error("结算成员无效")]
     InvalidMember,
     #[error("结算数据访问失败")]
@@ -135,6 +154,13 @@ pub struct CreateSettlementInput {
     pub receiver_member_id: Uuid,
     pub currency: String,
     pub amount_minor: String,
+    pub allocations: Vec<SettlementAllocationInputText>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SettlementAllocationInputText {
+    pub expense_id: Uuid,
+    pub amount_minor: String,
 }
 
 #[derive(Clone, Debug)]
@@ -146,6 +172,7 @@ pub struct UpdateSettlementInput {
     pub payer_member_id: Uuid,
     pub receiver_member_id: Uuid,
     pub amount_minor: String,
+    pub allocations: Vec<SettlementAllocationInputText>,
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -160,6 +187,8 @@ pub enum SettlementError {
     VersionConflict,
     #[error("幂等键冲突")]
     MutationConflict,
+    #[error("结算归属超过账单当前可结算余额")]
+    AllocationConflict,
     #[error("结算服务暂时不可用")]
     Unavailable,
 }
@@ -193,8 +222,9 @@ pub async fn create_settlement(
             client_mutation_id: input.client_mutation_id,
             payer_member_id: input.payer_member_id,
             receiver_member_id: input.receiver_member_id,
-            currency: context.base_currency,
+            currency: context.base_currency.clone(),
             amount_minor,
+            allocations: parse_allocations(&context.base_currency, input.allocations)?,
             now: clock.now(),
         })
         .await
@@ -230,6 +260,7 @@ pub async fn update_settlement(
             payer_member_id: input.payer_member_id,
             receiver_member_id: input.receiver_member_id,
             amount_minor,
+            allocations: parse_allocations(&context.base_currency, input.allocations)?,
             now: clock.now(),
         })
         .await
@@ -321,12 +352,29 @@ fn parse_version(value: &str) -> Result<i64, SettlementError> {
     Ok(version)
 }
 
+fn parse_allocations(
+    currency: &str,
+    allocations: Vec<SettlementAllocationInputText>,
+) -> Result<Vec<SettlementAllocationInput>, SettlementError> {
+    allocations
+        .into_iter()
+        .map(|allocation| {
+            let amount_minor = parse_amount(currency, &allocation.amount_minor)?;
+            Ok(SettlementAllocationInput {
+                expense_id: allocation.expense_id,
+                amount_minor,
+            })
+        })
+        .collect()
+}
+
 fn map_repository_error(error: SettlementRepositoryError) -> SettlementError {
     match error {
         SettlementRepositoryError::Forbidden => SettlementError::Forbidden,
         SettlementRepositoryError::NotFound => SettlementError::NotFound,
         SettlementRepositoryError::VersionConflict => SettlementError::VersionConflict,
         SettlementRepositoryError::MutationConflict => SettlementError::MutationConflict,
+        SettlementRepositoryError::AllocationConflict => SettlementError::AllocationConflict,
         SettlementRepositoryError::InvalidMember => SettlementError::InvalidInput,
         SettlementRepositoryError::Unavailable => SettlementError::Unavailable,
     }

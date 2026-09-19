@@ -55,7 +55,7 @@ const expense = vi.hoisted(() => ({
 const settlement = vi.hoisted(() => ({
   activityId: "activity-1", amountMinor: "500", clientMutationId: "settlement-mutation", createdAt: "2026-09-01T09:00:00Z",
   currency: "CNY", payerMemberId: "member-1", receiverMemberId: "member-2", revision: "1",
-  settlementId: "settlement-1", status: "ACTIVE", updatedAt: "2026-09-01T09:00:00Z", version: "2", voidedAt: null,
+  settlementId: "settlement-1", status: "ACTIVE", updatedAt: "2026-09-01T09:00:00Z", version: "2", voidedAt: null, allocations: [],
 }));
 
 const mutation = vi.hoisted(() => () => ({ error: null, isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() }));

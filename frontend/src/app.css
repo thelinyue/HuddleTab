@@ -390,6 +390,25 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .expense-detail-summary__amount > .money { font-size: inherit; line-height: inherit; }
 .expense-detail-summary__conversion { display: grid; gap: 2px; margin-top: 6px; color: var(--muted-foreground); font-size: 12px; line-height: 1.45; }
 .expense-detail-summary__conversion > span { color: var(--foreground); font-weight: 650; }
+.expense-settlement-progress { display: grid; gap: 14px; border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: var(--surface); }
+.expense-settlement-progress__header { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.expense-settlement-progress__header > div { min-width: 0; }
+.expense-settlement-progress__header h2 { margin: 0; font-size: 16px; line-height: 1.35; }
+.expense-settlement-progress__header p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.45; }
+.expense-settlement-progress__status { flex: 0 0 auto; border-radius: 999px; padding: 4px 8px; color: var(--primary); background: var(--secondary); font-size: 12px; line-height: 1.3; }
+.expense-settlement-progress__status--settled { color: var(--primary); background: var(--secondary); }
+.expense-settlement-progress__status--no-settlement-required { color: var(--muted-foreground); background: var(--surface-muted); }
+.expense-settlement-progress__table { display: grid; overflow-x: auto; }
+.expense-settlement-progress__row { display: grid; min-width: 540px; grid-template-columns: minmax(120px, 1.2fr) repeat(3, minmax(92px, 1fr)); align-items: center; gap: 8px; border-top: 1px solid var(--border); padding: 10px 0; font-size: 13px; }
+.expense-settlement-progress__row--heading { border-top: 0; padding-top: 0; color: var(--muted-foreground); font-size: 12px; }
+.expense-settlement-progress__row > span:not(.expense-settlement-progress__member) { display: grid; gap: 2px; justify-items: end; text-align: right; }
+.expense-settlement-progress__row small { color: var(--muted-foreground); font-size: 11px; }
+.expense-settlement-progress__member { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
+.expense-settlement-progress__member > span { min-width: 0; overflow-wrap: anywhere; }
+.expense-settlement-progress__remaining { color: var(--foreground); font-weight: 650; }
+.expense-settlement-progress__remaining--settled { color: var(--primary); }
+.expense-settlement-progress__remaining--settled svg { margin-left: 3px; vertical-align: -3px; }
+.expense-settlement-progress__empty { margin: 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
 .expense-detail-fields { overflow: hidden; border-top: 1px solid var(--border); }
 .expense-detail-fields dl { margin: 0; }
 .expense-detail-fields dl > div { display: grid; min-width: 0; grid-template-columns: minmax(88px, .7fr) minmax(0, 1.3fr); gap: 16px; border-bottom: 1px solid var(--border); padding: 14px 4px; }
@@ -845,6 +864,8 @@ body:has(.activity-add-fab) .update-prompt { bottom: calc(var(--safe-area-bottom
   .standalone-detail-header__status { font-size: 11px; }
   .standalone-detail-content { padding-right: max(16px, var(--safe-area-right)); padding-left: max(16px, var(--safe-area-left)); }
   .expense-detail-summary__amount { font-size: 1.75rem; }
+  .expense-settlement-progress { padding: 14px; }
+  .expense-settlement-progress__header { align-items: flex-start; flex-direction: column; }
   .expense-detail-fields dl > div { grid-template-columns: minmax(72px, .55fr) minmax(0, 1.45fr); gap: 12px; padding-inline: 0; }
 }
 

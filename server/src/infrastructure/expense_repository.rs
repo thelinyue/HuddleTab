@@ -11,6 +11,8 @@ use crate::application::expense::{
     ExpenseShare, ExpenseUpdate, NewExpense,
 };
 use crate::domain::expense::{ExpenseFactRow, PreparedExpense};
+use crate::domain::ledger::{LedgerEntry, SettlementFact};
+use crate::domain::settlement_progress::calculate_expense_progress;
 
 #[derive(Clone, Debug)]
 pub struct PostgresExpenseRepository {
@@ -66,6 +68,13 @@ struct AttachmentRow {
     height: i32,
     byte_size: i64,
     created_at: OffsetDateTime,
+}
+
+#[derive(FromRow)]
+struct AllocationRow {
+    payer_member_id: Uuid,
+    receiver_member_id: Uuid,
+    amount_minor: i64,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -252,6 +261,11 @@ impl ExpenseRepository for PostgresExpenseRepository {
         }
         require_active_members(&mut transaction, expense.activity_id, &expense.prepared).await?;
         let current = load_aggregate(&mut transaction, expense.expense_id, true).await?;
+        if has_settlement_allocations(&mut transaction, expense.expense_id).await?
+            && !accounting_facts_match(&current, &expense)
+        {
+            return Err(ExpenseRepositoryError::HasSettlementAllocations);
+        }
         if aggregate_matches_update(&current, &expense) {
             transaction.commit().await.map_err(log_repository_error)?;
             return Ok(current);
@@ -358,6 +372,9 @@ impl ExpenseRepository for PostgresExpenseRepository {
             return Err(ExpenseRepositoryError::VersionConflict);
         }
         let current = load_aggregate(&mut transaction, expense.expense_id, true).await?;
+        if has_settlement_allocations(&mut transaction, expense.expense_id).await? {
+            return Err(ExpenseRepositoryError::HasSettlementAllocations);
+        }
         let participant_ids = participant_member_ids(&current);
         let version = sqlx::query_scalar::<_, i64>(
             "UPDATE expenses SET deleted_at = $1, version = version + 1, updated_at = $1 \
@@ -658,6 +675,7 @@ async fn insert_share(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn load_aggregate(
     connection: &mut PgConnection,
     expense_id: Uuid,
@@ -678,7 +696,7 @@ pub(crate) async fn load_aggregate(
     .await
     .map_err(log_repository_error)?
     .ok_or(ExpenseRepositoryError::NotFound)?;
-    let payments = sqlx::query_as::<_, FactRow>(
+    let payments: Vec<ExpensePayment> = sqlx::query_as::<_, FactRow>(
         "SELECT id, payer_member_id AS member_id, original_amount_minor, base_amount_minor \
          FROM expense_payments WHERE expense_id = $1 ORDER BY payer_member_id",
     )
@@ -694,7 +712,7 @@ pub(crate) async fn load_aggregate(
         base_amount_minor: fact.base_amount_minor,
     })
     .collect();
-    let shares = sqlx::query_as::<_, FactRow>(
+    let shares: Vec<ExpenseShare> = sqlx::query_as::<_, FactRow>(
         "SELECT id, member_id, original_amount_minor, base_amount_minor \
          FROM expense_shares WHERE expense_id = $1 ORDER BY member_id",
     )
@@ -710,6 +728,42 @@ pub(crate) async fn load_aggregate(
         base_amount_minor: fact.base_amount_minor,
     })
     .collect();
+    let mut member_ids = BTreeSet::new();
+    member_ids.extend(payments.iter().map(|fact| fact.member_id));
+    member_ids.extend(shares.iter().map(|fact| fact.member_id));
+    let allocations = sqlx::query_as::<_, AllocationRow>(
+        "SELECT s.payer_member_id, s.receiver_member_id, sa.amount_minor \
+         FROM settlement_allocations sa \
+         JOIN settlements s ON s.id = sa.settlement_id \
+         WHERE sa.expense_id = $1 AND s.status = 'ACTIVE' \
+         ORDER BY s.created_at, s.id",
+    )
+    .bind(expense_id)
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(log_repository_error)?;
+    let settlement_progress = calculate_expense_progress(
+        member_ids.into_iter().collect(),
+        payments
+            .iter()
+            .map(|fact| LedgerEntry::new(fact.member_id, fact.base_amount_minor))
+            .collect(),
+        shares
+            .iter()
+            .map(|fact| LedgerEntry::new(fact.member_id, fact.base_amount_minor))
+            .collect(),
+        allocations
+            .into_iter()
+            .map(|fact| {
+                SettlementFact::new(
+                    fact.payer_member_id,
+                    fact.receiver_member_id,
+                    fact.amount_minor,
+                )
+            })
+            .collect(),
+    )
+    .map_err(|_| ExpenseRepositoryError::Unavailable)?;
     let attachments = sqlx::query_as::<_, AttachmentRow>(
         "SELECT id, mime_type, width, height, byte_size, created_at \
          FROM expense_attachments WHERE expense_id = $1 ORDER BY created_at, id",
@@ -756,7 +810,37 @@ pub(crate) async fn load_aggregate(
         payments,
         shares,
         attachments,
+        settlement_progress,
     })
+}
+
+/// 只要历史上存在过 Allocation，就保留账单归属关系；即使对应 Settlement 已作废，也不能让编辑或删除把历史事实变成孤儿。
+async fn has_settlement_allocations(
+    connection: &mut sqlx::PgConnection,
+    expense_id: Uuid,
+) -> Result<bool, ExpenseRepositoryError> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM settlement_allocations WHERE expense_id = $1)",
+    )
+    .bind(expense_id)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(log_repository_error)
+}
+
+fn accounting_facts_match(current: &ExpenseAggregate, update: &ExpenseUpdate) -> bool {
+    current.expense.original_currency == update.prepared.original_currency
+        && current.expense.original_amount_minor == update.prepared.original_amount_minor
+        && current.expense.base_currency == update.prepared.base_currency
+        && current.expense.base_amount_minor == update.prepared.base_amount_minor
+        && current.expense.exchange_rate_kind == update.prepared.exchange_rate_kind
+        && current.expense.exchange_rate == update.prepared.exchange_rate
+        && current.expense.exchange_rate_reference_date
+            == update.prepared.exchange_rate_reference_date
+        && current.expense.exchange_rate_provider == update.prepared.exchange_rate_provider
+        && current.expense.split_mode == update.prepared.split_mode
+        && facts_match(&current.payments, &update.prepared.payments)
+        && shares_match(&current.shares, &update.prepared.shares)
 }
 
 struct ExpenseAudit {

@@ -11,8 +11,9 @@ use uuid::Uuid;
 
 use crate::{
     application::settlement::{
-        CreateSettlementInput, SettlementError, SettlementRecord, UpdateSettlementInput,
-        create_settlement, get_settlement, list_settlements, update_settlement, void_settlement,
+        CreateSettlementInput, SettlementAllocationInputText, SettlementError, SettlementRecord,
+        UpdateSettlementInput, create_settlement, get_settlement, list_settlements,
+        update_settlement, void_settlement,
     },
     infrastructure::{clock::SystemClock, settlement_repository::PostgresSettlementRepository},
 };
@@ -31,6 +32,8 @@ pub struct CreateSettlementRequest {
     pub receiver_member_id: String,
     pub currency: String,
     pub amount_minor: String,
+    #[serde(default)]
+    pub allocations: Vec<SettlementAllocationRequest>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -39,6 +42,15 @@ pub struct UpdateSettlementRequest {
     pub version: String,
     pub payer_member_id: String,
     pub receiver_member_id: String,
+    pub amount_minor: String,
+    #[serde(default)]
+    pub allocations: Vec<SettlementAllocationRequest>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SettlementAllocationRequest {
+    pub expense_id: String,
     pub amount_minor: String,
 }
 
@@ -63,6 +75,14 @@ pub struct SettlementData {
     pub created_at: String,
     pub updated_at: String,
     pub voided_at: Option<String>,
+    pub allocations: Vec<SettlementAllocationData>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SettlementAllocationData {
+    pub expense_id: String,
+    pub amount_minor: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -101,7 +121,7 @@ pub struct SettlementListEnvelope {
     responses(
         (status = 201, description = "Settlement 已创建", body = CreatedSettlementEnvelope),
         (status = 200, description = "幂等重放", body = CreatedSettlementEnvelope),
-        (status = 409, description = "幂等键冲突", body = super::error::ErrorEnvelope),
+        (status = 409, description = "幂等键或账单归属冲突", body = super::error::ErrorEnvelope),
         (status = 422, description = "结算输入无效", body = super::error::ErrorEnvelope)
     )
 )]
@@ -126,6 +146,16 @@ pub(crate) async fn create(
             receiver_member_id: parse_uuid(&request.receiver_member_id, request_id.clone())?,
             currency: request.currency,
             amount_minor: request.amount_minor,
+            allocations: request
+                .allocations
+                .into_iter()
+                .map(|allocation| {
+                    Ok(SettlementAllocationInputText {
+                        expense_id: parse_uuid(&allocation.expense_id, request_id.clone())?,
+                        amount_minor: allocation.amount_minor,
+                    })
+                })
+                .collect::<Result<Vec<_>, ApiError>>()?,
         },
     )
     .await
@@ -217,7 +247,7 @@ pub(crate) async fn get(
     request_body = UpdateSettlementRequest,
     responses(
         (status = 200, description = "Settlement 已更新", body = SettlementEnvelope),
-        (status = 409, description = "版本冲突", body = super::error::ErrorEnvelope)
+        (status = 409, description = "版本或账单归属冲突", body = super::error::ErrorEnvelope)
     )
 )]
 pub(crate) async fn update(
@@ -241,6 +271,16 @@ pub(crate) async fn update(
             payer_member_id: parse_uuid(&request.payer_member_id, request_id.clone())?,
             receiver_member_id: parse_uuid(&request.receiver_member_id, request_id.clone())?,
             amount_minor: request.amount_minor,
+            allocations: request
+                .allocations
+                .into_iter()
+                .map(|allocation| {
+                    Ok(SettlementAllocationInputText {
+                        expense_id: parse_uuid(&allocation.expense_id, request_id.clone())?,
+                        amount_minor: allocation.amount_minor,
+                    })
+                })
+                .collect::<Result<Vec<_>, ApiError>>()?,
         },
     )
     .await
@@ -308,6 +348,14 @@ pub(crate) fn settlement_data(record: SettlementRecord) -> SettlementData {
         created_at: format_time(record.created_at),
         updated_at: format_time(record.updated_at),
         voided_at: record.voided_at.map(format_time),
+        allocations: record
+            .allocations
+            .into_iter()
+            .map(|allocation| SettlementAllocationData {
+                expense_id: allocation.expense_id.to_string(),
+                amount_minor: allocation.amount_minor.to_string(),
+            })
+            .collect(),
     }
 }
 
@@ -322,6 +370,7 @@ fn map_error(error: SettlementError, request_id: RequestId) -> ApiError {
         SettlementError::NotFound => ApiError::not_found(request_id),
         SettlementError::VersionConflict => ApiError::version_conflict(request_id),
         SettlementError::MutationConflict => ApiError::mutation_conflict(request_id),
+        SettlementError::AllocationConflict => ApiError::settlement_allocation_conflict(request_id),
         SettlementError::Unavailable => ApiError::internal(request_id),
     }
 }
@@ -354,6 +403,7 @@ mod tests {
                     created_at: timestamp,
                     updated_at: timestamp,
                     voided_at,
+                    allocations: Vec::new(),
                 };
                 let json = serde_json::to_value(settlement_data(record)).unwrap();
                 assert_eq!(json["createdAt"], expected);

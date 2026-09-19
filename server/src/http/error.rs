@@ -489,6 +489,16 @@ impl ApiError {
         )
     }
 
+    #[must_use]
+    pub fn settlement_allocation_conflict(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "SETTLEMENT_ALLOCATION_CONFLICT",
+            "结算归属与当前账单余额冲突，请刷新后重试。",
+            request_id,
+        )
+    }
+
     fn new(
         status: StatusCode,
         code: &'static str,

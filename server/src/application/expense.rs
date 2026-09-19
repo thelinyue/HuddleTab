@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::{
     application::ports::Clock,
     domain::expense::{ExpenseSplitInput, PaymentInput, PreparedExpense, prepare_expense},
+    domain::settlement_progress::ExpenseSettlementProgress,
 };
 
 #[derive(Clone, Debug)]
@@ -74,6 +75,7 @@ pub struct ExpenseAggregate {
     pub payments: Vec<ExpensePayment>,
     pub shares: Vec<ExpenseShare>,
     pub attachments: Vec<ExpenseAttachmentRecord>,
+    pub settlement_progress: ExpenseSettlementProgress,
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +138,8 @@ pub enum ExpenseRepositoryError {
     MutationConflict,
     #[error("账单成员无效")]
     InvalidMember,
+    #[error("账单仍有结算归属")]
+    HasSettlementAllocations,
     #[error("账单数据访问失败")]
     Unavailable,
 }
@@ -219,6 +223,8 @@ pub enum ExpenseError {
     MutationConflict,
     #[error("账单成员无效")]
     InvalidMember,
+    #[error("账单仍有结算归属")]
+    HasSettlementAllocations,
     #[error("账单服务暂时不可用")]
     Unavailable,
 }
@@ -428,6 +434,7 @@ fn map_repository_error(error: ExpenseRepositoryError) -> ExpenseError {
         ExpenseRepositoryError::VersionConflict => ExpenseError::VersionConflict,
         ExpenseRepositoryError::MutationConflict => ExpenseError::MutationConflict,
         ExpenseRepositoryError::InvalidMember => ExpenseError::InvalidMember,
+        ExpenseRepositoryError::HasSettlementAllocations => ExpenseError::HasSettlementAllocations,
         ExpenseRepositoryError::Unavailable => ExpenseError::Unavailable,
     }
 }
