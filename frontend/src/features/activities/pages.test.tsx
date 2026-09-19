@@ -1253,6 +1253,34 @@ describe("活动管理 Overlay", () => {
 });
 
 describe("活动工作台访问边界", () => {
+  it.each(["ENDED", "ARCHIVED"])("%s 账单详情使用独立页面外壳并隐藏活动导航", (status) => {
+    activityApiState.activity.status = status;
+    render(<MemoryRouter initialEntries={["/activities/activity-1/expenses/expense-1"]}><Routes>
+      <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
+        <Route path="expenses/:expenseId" element={<p>只读账单内容</p>} />
+      </Route>
+    </Routes></MemoryRouter>);
+
+    expect(screen.getByRole("heading", { name: "账单详情" })).toBeInTheDocument();
+    expect(screen.getByText("只读")).toBeInTheDocument();
+    expect(screen.getByText("只读账单内容")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回流水" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "活动导航" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "测试活动" })).not.toBeInTheDocument();
+  });
+
+  it("ENDED 的新建账单路由不误用只读详情外壳", () => {
+    activityApiState.activity.status = "ENDED";
+    render(<MemoryRouter initialEntries={["/activities/activity-1/expenses/new"]}><Routes>
+      <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
+        <Route path="expenses/new" element={<p>新建账单内容</p>} />
+      </Route>
+    </Routes></MemoryRouter>);
+
+    expect(screen.getByRole("navigation", { name: "活动导航" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "账单详情" })).not.toBeInTheDocument();
+  });
+
   it("嵌套路由通过真实 Context 读取当前用户、活动、成员和快照", () => {
     const snapshot = { fromCache: true, snapshot: { activity: activityApiState.activity, members: activityApiState.members } };
     activityApiState.snapshotData = snapshot;

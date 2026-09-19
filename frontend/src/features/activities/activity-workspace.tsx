@@ -1,7 +1,7 @@
 import { AccountingSkeleton } from "../accounting/skeleton";
 import { ArrowLeft, MoreHorizontal, UsersRound } from "lucide-react";
 import { type ReactNode, useLayoutEffect, useRef } from "react";
-import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useMatch, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { ErrorNotice } from "../../components/ui";
 import { useActivityQuery, useMembersQuery } from "./api";
@@ -70,6 +70,28 @@ function WorkspaceHeader({ children, busy = false }: { children: ReactNode; busy
   return <header ref={ref} className="workspace-header" aria-busy={busy || undefined}>{children}</header>;
 }
 
+/**
+ * 只读账单使用独立页面外壳，但仍复用 ActivityWorkspace 提供的活动、成员和快照上下文。
+ * 返回按钮优先回到流水进入前的位置；直接打开深链时回退到该活动的流水页。
+ */
+function StandaloneDetailFrame({ activityId, children, readOnly = false }: { activityId: string; children: ReactNode; readOnly?: boolean }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const fromFeed = Boolean((location.state as { expenseDetailFromFeed?: boolean } | null)?.expenseDetailFromFeed);
+  const goBack = () => {
+    if (fromFeed) navigate(-1);
+    else navigate(tabUrl(activityId, "feed"));
+  };
+  return <section className="standalone-detail-shell">
+    <header className="standalone-detail-header">
+      <button className="standalone-detail-header__back" type="button" aria-label="返回流水" onClick={goBack}><ArrowLeft aria-hidden="true" size={18} /><span>流水</span></button>
+      <h1>账单详情</h1>
+      {readOnly ? <span className="standalone-detail-header__status">只读</span> : <span className="standalone-detail-header__status standalone-detail-header__status--placeholder" aria-hidden="true" />}
+    </header>
+    <main className="standalone-detail-content">{children}</main>
+  </section>;
+}
+
 /** 活动路由容器负责在线与快照读取，并向嵌套路由和面板提供同一个工作区上下文。 */
 export function ActivityWorkspace() {
   const { activityId = "" } = useParams();
@@ -79,14 +101,19 @@ export function ActivityWorkspace() {
   const activity = useActivityQuery(session.data?.userId ?? "", activityId, online);
   const members = useMembersQuery(session.data?.userId ?? "", activityId, online);
   const [searchParams] = useSearchParams();
+  const expenseDetailMatch = useMatch("/activities/:activityId/expenses/:expenseId");
+  const isExpenseDetailRoute = Boolean(expenseDetailMatch && expenseDetailMatch.params.expenseId !== "new");
   const navigate = useNavigate();
 
-  if (session.isPending || (online ? activity.isPending && !snapshot.data : snapshot.isPending)) return <section className="workspace">
+  if (session.isPending || (online ? activity.isPending && !snapshot.data : snapshot.isPending)) return isExpenseDetailRoute ? <StandaloneDetailFrame activityId={activityId}><AccountingSkeleton kind="feed" /></StandaloneDetailFrame> : <section className="workspace">
     <WorkspaceHeader busy><div className="workspace-header__actions"><Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft size={20} /></Link><div className="workspace-header__identity accounting-skeleton"><i style={{ width: "100%", maxWidth: 160, height: 28 }} /></div></div><div className="workspace-header__metadata accounting-skeleton"><i style={{ width: 140, height: 18 }} /></div><nav className="workspace-nav" aria-label="活动导航"><Link to={tabUrl(activityId ?? "", "feed")} className={searchParams.get("tab") !== "settlement" ? "active" : ""}>流水</Link><Link to={tabUrl(activityId ?? "", "settlement")} className={searchParams.get("tab") === "settlement" ? "active" : ""}>结算</Link></nav></WorkspaceHeader>
     <main className="workspace-content"><AccountingSkeleton kind={searchParams.get("tab") === "settlement" ? "settlement" : "feed"} /></main>
   </section>;
   const definitiveError = [activity.error, snapshot.error].find(isDefinitiveActivityError);
-  if (session.error || definitiveError || (activity.error && !snapshot.data) || snapshot.error && !online) return <ErrorNotice error={session.error ?? definitiveError ?? activity.error ?? snapshot.error} />;
+  if (session.error || definitiveError || (activity.error && !snapshot.data) || snapshot.error && !online) {
+    const error = <ErrorNotice error={session.error ?? definitiveError ?? activity.error ?? snapshot.error} />;
+    return isExpenseDetailRoute ? <StandaloneDetailFrame activityId={activityId}>{error}</StandaloneDetailFrame> : error;
+  }
   if (!session.data) return null;
   const activityData = activity.data ?? snapshot.data?.snapshot.activity;
   const membersData = members.data ?? snapshot.data?.snapshot.members ?? [];
@@ -95,10 +122,11 @@ export function ActivityWorkspace() {
   const tab = searchParams.get("tab") === "settlement" ? "settlement" : "feed";
   const panel = searchParams.get("panel");
   const closePanel = () => navigate(tabUrl(activityId, tab), { replace: true });
+  const standaloneReadOnly = Boolean(isExpenseDetailRoute && (activityData.status !== "ACTIVE" || !online));
 
   return (
       <WorkspaceContext.Provider value={{ session: session.data, activity: activityData, members: membersData, offline: !online, snapshot: snapshot.data }}>
-      <section className="workspace">
+      {standaloneReadOnly ? <StandaloneDetailFrame activityId={activityId} readOnly><Outlet /></StandaloneDetailFrame> : <section className="workspace">
         <WorkspaceHeader>
           <div className="workspace-header__actions">
             <Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft aria-hidden="true" size={20} /></Link>
@@ -117,7 +145,7 @@ export function ActivityWorkspace() {
           </nav>
         </WorkspaceHeader>
         <main className="workspace-content"><Outlet /></main>
-      </section>
+      </section>}
       {panel === "members" ? <MembersOverlay onClose={closePanel} /> : null}
       {panel === "manage" ? <ActivityManagementOverlay onClose={closePanel} /> : null}
     </WorkspaceContext.Provider>

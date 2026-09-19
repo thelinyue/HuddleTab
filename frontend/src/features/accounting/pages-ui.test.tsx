@@ -1249,12 +1249,12 @@ describe("Activity 生命周期写权限", () => {
     const detail = screen.getByRole("region", { name: "账单详情" });
     expect(detail).toHaveTextContent("午餐");
     expect(detail).toHaveTextContent("分类餐饮");
-    expect(detail).toHaveTextContent("原始金额¥10.00");
-    expect(detail).toHaveTextContent("折算金额¥10.00");
-    expect(detail).toHaveTextContent("汇率1");
-    expect(detail).toHaveTextContent("付款事实甲¥10.00");
-    expect(detail).toHaveTextContent("分摊方式均摊");
-    expect(detail).toHaveTextContent("成员分摊甲¥5.00乙¥5.00");
+    expect(detail).toHaveTextContent("金额CNY¥10.00");
+    expect(detail).toHaveTextContent("用途午餐");
+    expect(detail).toHaveTextContent("付款人甲¥10.00");
+    expect(detail).toHaveTextContent("时间2026/9/1 16:00:00");
+    expect(detail).toHaveTextContent("参与人甲乙");
+    expect(detail).toHaveTextContent("分摊设置均摊甲¥5.00乙¥5.00");
     expect(detail).toHaveTextContent("团队午餐");
     expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存账单" })).not.toBeInTheDocument();

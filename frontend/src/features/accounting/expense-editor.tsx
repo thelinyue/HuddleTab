@@ -881,6 +881,38 @@ export function NewExpensePage() {
   return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><RoutedExpenseEditor /></div>;
 }
 
+/** 只读账单沿用“记一笔 / 修改账单”的字段名称和顺序，只把输入控件替换为事实展示。 */
+function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { aggregate: ExpenseAggregate; memberData: readonly ActivityMember[]; activity: ReturnType<typeof useWorkspace>["activity"]; offline: boolean }) {
+  const category = categories.find(([value]) => value === aggregate.expense.category);
+  const splitModeLabel = splitModes.find(([value]) => value === aggregate.expense.splitMode)?.[1] ?? aggregate.expense.splitMode;
+  const isForeignCurrency = aggregate.expense.originalCurrency !== aggregate.expense.baseCurrency;
+  const memberDisplayName = (memberId: string) => memberName(memberId, memberData);
+  const memberAvatar = (memberId: string) => memberAvatarPreset(memberId, memberData);
+  const memberRows = (items: readonly { factId: string; memberId: string; originalAmountMinor: string }[], showAmount: boolean) => items.length
+    ? <div className="expense-detail-member-list">{items.map((item) => <div className="expense-detail-member-row" key={item.factId}><MemberAvatar memberId={item.memberId} displayName={memberDisplayName(item.memberId)} avatarPreset={memberAvatar(item.memberId)} size="sm" /><span>{memberDisplayName(item.memberId)}</span>{showAmount ? <Money value={formatMoney(aggregate.expense.originalCurrency, item.originalAmountMinor)} /> : null}</div>)}</div>
+    : <span className="expense-detail-empty">无</span>;
+  return <section className="standalone-detail-page" aria-label="账单详情">
+    {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，账单使用最近一次同步的只读快照。</span></div> : null}
+    <section className="expense-detail-summary" aria-label="金额">
+      <small>金额</small>
+      <div className="expense-detail-summary__amount"><span>{aggregate.expense.originalCurrency}</span><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></div>
+      {isForeignCurrency ? <div className="expense-detail-summary__conversion"><span>折算后 {formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)}</span><small>汇率 {aggregate.expense.exchangeRate}（1 {aggregate.expense.originalCurrency} = N {aggregate.expense.baseCurrency}）</small>{aggregate.expense.exchangeRateReferenceDate ? <small>{aggregate.expense.exchangeRateKind === "CACHE" ? "缓存参考汇率" : aggregate.expense.exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {aggregate.expense.exchangeRateReferenceDate}</small> : null}</div> : null}
+    </section>
+    <div className="expense-detail-fields">
+      <dl>
+        <div><dt>分类</dt><dd><span className="expense-detail-category">{category ? <img src={`/expense-categories/${category[2]}.webp`} width="34" height="34" alt="" /> : null}<span>{category?.[1] ?? "其他"}</span></span></dd></div>
+        <div><dt>用途</dt><dd>{aggregate.expense.title}</dd></div>
+        <div><dt>付款人</dt><dd>{memberRows(aggregate.payments, true)}</dd></div>
+        <div><dt>时间</dt><dd><time dateTime={aggregate.expense.occurredAt}>{new Date(aggregate.expense.occurredAt).toLocaleString("zh-CN")}</time></dd></div>
+        <div><dt>参与人</dt><dd>{memberRows(aggregate.shares, false)}</dd></div>
+        <div><dt>分摊设置</dt><dd><strong className="expense-detail-split-mode">{splitModeLabel}</strong>{memberRows(aggregate.shares, true)}</dd></div>
+        <div><dt>备注</dt><dd>{aggregate.expense.note || <span className="expense-detail-empty">无</span>}</dd></div>
+      </dl>
+    </div>
+    <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments} />
+  </section>;
+}
+
 export function ExpenseDetailPage() {
   const { expenseId = "" } = useParams();
   const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
@@ -895,28 +927,7 @@ export function ExpenseDetailPage() {
   if ((!offline && expense.error && !snapshot) || members.error && memberData.length === 0) return <ErrorNotice error={expense.error ?? members.error} />;
   if (!aggregate) return null;
   if (activity.status !== "ACTIVE" || offline) {
-    const categoryLabel = categories.find(([value]) => value === aggregate.expense.category)?.[1] ?? "其他";
-    const splitModeLabel = splitModes.find(([value]) => value === aggregate.expense.splitMode)?.[1] ?? aggregate.expense.splitMode;
-    return (
-      <div className="workspace-page">
-        <Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link>
-           <div className="notice"><Info aria-hidden="true" size={18} /><span>{offline ? "当前离线，账单使用最近一次同步的只读快照。" : "活动已结束或归档，账单仅供查看。"}</span></div>
-        <section className="expense-readonly" aria-label="账单详情">
-          <header><h2>{aggregate.expense.title}</h2><small>{new Date(aggregate.expense.occurredAt).toLocaleString("zh-CN")}</small></header>
-          <dl className="expense-readonly__facts">
-            <div><dt>分类</dt><dd>{categoryLabel}</dd></div>
-            <div><dt>原始金额</dt><dd><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></dd></div>
-            <div><dt>折算金额</dt><dd><Money value={formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)} /></dd></div>
-            <div><dt>汇率</dt><dd>{aggregate.expense.exchangeRate}{aggregate.expense.exchangeRateReferenceDate ? <small>{aggregate.expense.exchangeRateKind === "CACHE" ? "缓存参考汇率" : "Frankfurter 参考汇率"} · {aggregate.expense.exchangeRateReferenceDate}</small> : null}</dd></div>
-             <div><dt>付款事实</dt><dd>{aggregate.payments.map((payment) => <span key={payment.factId}>{memberName(payment.memberId, memberData)}<Money value={formatMoney(aggregate.expense.originalCurrency, payment.originalAmountMinor)} /></span>)}</dd></div>
-            <div><dt>分摊方式</dt><dd>{splitModeLabel}</dd></div>
-             <div><dt>成员分摊</dt><dd>{aggregate.shares.map((share) => <span key={share.factId}>{memberName(share.memberId, memberData)}<Money value={formatMoney(aggregate.expense.originalCurrency, share.originalAmountMinor)} /></span>)}</dd></div>
-          </dl>
-          {aggregate.expense.note ? <p>{aggregate.expense.note}</p> : null}
-          <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments} />
-        </section>
-      </div>
-    );
+    return <ReadonlyExpenseDetail aggregate={aggregate} memberData={memberData} activity={activity} offline={offline} />;
   }
   return (
     <div className="workspace-page">

@@ -199,7 +199,7 @@ export function ExpenseFeedPage() {
                   ? { pathname: `/activities/${activity.activityId}`, search: `?${editQuery.toString()}` }
                   : detailUrl;
                 return (
-                  <Link key={expense.expenseId} to={rowUrl} state={existingExpenseWritable ? { expenseOverlay: true } : undefined} className="expense-row">
+                  <Link key={expense.expenseId} to={rowUrl} state={existingExpenseWritable ? { expenseOverlay: true } : { expenseDetailFromFeed: true }} className="expense-row">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
                     <span className="expense-row__content"><strong>{expense.title}</strong>{expense.note ? <span className="expense-row__note">{expense.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shares.length}人</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} /><small>{new Date(expense.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
