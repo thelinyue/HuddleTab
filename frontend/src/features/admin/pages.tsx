@@ -193,7 +193,8 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
       model: model.trim() || null,
       timeoutSeconds: timeout,
       jsonMode,
-      imageEnabled: clearApiKey ? false : imageEnabled,
+      // 服务端禁止基础 AI 关闭时保留图片能力；关闭总开关时一起写入 false。
+      imageEnabled: clearApiKey ? false : enabled ? imageEnabled : false,
       imageModel: imageModel.trim() || null,
       maxImageBytes: imageLimitMiB * 1024 * 1024,
       version: settings.data.version,

@@ -274,7 +274,6 @@ pub(crate) async fn text_draft(
     Json(request): Json<AiTextDraftRequest>,
 ) -> Result<Json<AiExpenseDraftEnvelope>, ApiError> {
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
-    check_ai_limit(&state, actor.user_id, request_id.clone())?;
     if request.text.trim().is_empty() {
         return Err(ApiError::ai_draft_incomplete(request_id));
     }
@@ -318,15 +317,18 @@ pub(crate) async fn text_draft(
         state.ai_provider_semaphore.clone(),
     )
     .map_err(|_| ApiError::ai_provider_not_configured(request_id.clone()))?;
+    // 认证、活动权限和 Provider 配置均通过后才消耗 AI 配额；无效请求不会
+    // 抢占用户的可用额度。
+    check_ai_limit(&state, actor.user_id, request_id.clone())?;
     let started = std::time::Instant::now();
     let response_content = provider
         .draft_from_text(&request.text, &context.base_currency, OffsetDateTime::now_utc())
         .await
         .map_err(|error| {
-            tracing::warn!(request_id = %request_id.0, model = %model, elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), error = ?error, "AI 文字草稿 Provider 请求失败");
+            tracing::warn!(request_id = %request_id.0, operation = "text_draft", elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), error = ?error, "AI 文字草稿 Provider 请求失败");
             map_provider_error(error, request_id.clone())
         })?;
-    tracing::info!(request_id = %request_id.0, model = %model, elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "AI 文字草稿 Provider 请求成功");
+    tracing::info!(request_id = %request_id.0, operation = "text_draft", elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "AI 文字草稿 Provider 请求成功");
     let draft = parse_draft(&response_content, &context).map_err(|error| match error {
         AiParseError::InvalidResponse => ApiError::ai_invalid_response(request_id.clone()),
         AiParseError::Incomplete => ApiError::ai_draft_incomplete(request_id.clone()),
@@ -365,7 +367,6 @@ pub(crate) async fn image_draft(
 ) -> Result<Json<AiExpenseDraftEnvelope>, ApiError> {
     // 先鉴权和读取设置，再接收 multipart，避免未授权请求消耗图片解码资源。
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
-    check_ai_limit(&state, actor.user_id, request_id.clone())?;
     let activity_id =
         Uuid::parse_str(&activity_id).map_err(|_| ApiError::not_found(request_id.clone()))?;
     let repository = PostgresAiExpenseRepository::new(state.pool.clone());
@@ -397,6 +398,8 @@ pub(crate) async fn image_draft(
         .ok_or_else(|| ApiError::ai_provider_not_configured(request_id.clone()))?;
     let api_key = ai_secret::decrypt_api_key(&state.app_secret, envelope)
         .map_err(|_| ApiError::ai_api_key_reconfiguration_required(request_id.clone()))?;
+    // 配置、密钥和活动权限均通过后才消耗 AI 配额，随后才开始读取 multipart。
+    check_ai_limit(&state, actor.user_id, request_id.clone())?;
     let mut multipart = Multipart::from_request(request, &state)
         .await
         .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?;
@@ -412,26 +415,41 @@ pub(crate) async fn image_draft(
                     .content_type()
                     .map(str::to_owned)
                     .ok_or_else(|| ApiError::ai_unsupported_image(request_id.clone()))?;
-                let bytes = field
-                    .bytes()
+                let max_image_bytes =
+                    usize::try_from(settings.max_image_bytes).unwrap_or(AI_IMAGE_MAX_BYTES);
+                let mut bytes = Vec::with_capacity(max_image_bytes.min(64 * 1024));
+                let mut field = field;
+                while let Some(chunk) = field
+                    .chunk()
                     .await
                     .map_err(|error| map_image_multipart_error(error, request_id.clone()))?
-                    .to_vec();
-                if bytes.len()
-                    > usize::try_from(settings.max_image_bytes).unwrap_or(AI_IMAGE_MAX_BYTES)
                 {
-                    return Err(ApiError::ai_image_too_large(request_id));
+                    let Some(next_len) = bytes.len().checked_add(chunk.len()) else {
+                        return Err(ApiError::ai_image_too_large(request_id));
+                    };
+                    if next_len > max_image_bytes {
+                        return Err(ApiError::ai_image_too_large(request_id));
+                    }
+                    bytes.extend_from_slice(&chunk);
                 }
                 file = Some((declared_mime, bytes));
             }
             Some("referenceTime") => {
                 // 参考时间是兼容性字段，当前解析器只使用服务端当前时间；拒绝远程 URL 等未知字段。
-                let reference_time = field
-                    .text()
+                let mut length = 0_usize;
+                let mut field = field;
+                while let Some(chunk) = field
+                    .chunk()
                     .await
-                    .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?;
-                if reference_time.len() > 128 {
-                    return Err(ApiError::ai_input_too_large(request_id));
+                    .map_err(|error| map_image_multipart_error(error, request_id.clone()))?
+                {
+                    let Some(next_length) = length.checked_add(chunk.len()) else {
+                        return Err(ApiError::ai_input_too_large(request_id));
+                    };
+                    if next_length > 128 {
+                        return Err(ApiError::ai_input_too_large(request_id));
+                    }
+                    length = next_length;
                 }
             }
             _ => return Err(ApiError::invalid_attachment(request_id)),
@@ -466,10 +484,10 @@ pub(crate) async fn image_draft(
         )
         .await
         .map_err(|error| {
-            tracing::warn!(request_id = %request_id.0, model = %settings.image_model.as_deref().unwrap_or(model), elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), error = ?error, "AI 图片草稿 Provider 请求失败");
+            tracing::warn!(request_id = %request_id.0, operation = "image_draft", elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), error = ?error, "AI 图片草稿 Provider 请求失败");
             map_image_provider_error(error, request_id.clone())
         })?;
-    tracing::info!(request_id = %request_id.0, model = %settings.image_model.as_deref().unwrap_or(model), elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "AI 图片草稿 Provider 请求成功");
+    tracing::info!(request_id = %request_id.0, operation = "image_draft", elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "AI 图片草稿 Provider 请求成功");
     let draft = parse_draft(&response_content, &context).map_err(|error| match error {
         AiParseError::InvalidResponse => ApiError::ai_invalid_response(request_id.clone()),
         AiParseError::Incomplete => ApiError::ai_draft_incomplete(request_id.clone()),
@@ -564,10 +582,14 @@ async fn process_image_with_semaphore(
     (),
 > {
     let permit = semaphore.acquire_owned().await.map_err(|_| ())?;
-    let processed =
-        tokio::task::spawn_blocking(move || process_attachment_image(&bytes, &declared_mime))
-            .await
-            .map_err(|_| ())?;
+    // Permit 与 blocking 任务一起移动；即使请求在等待解码时被取消，任务仍会持有
+    // Permit 直到闭包结束，不会让后续请求绕过图片解码并发上限。
+    let (processed, permit) = tokio::task::spawn_blocking(move || {
+        let result = process_attachment_image(&bytes, &declared_mime);
+        (result, permit)
+    })
+    .await
+    .map_err(|_| ())?;
     Ok(processed.map(|value| (value, permit)))
 }
 

@@ -34,7 +34,7 @@ vi.mock("./api", () => ({
 
 import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "./pages";
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; state.aiSettings.apiKeyStatus = "CONFIGURED"; });
+afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; state.aiSettings.apiKeyStatus = "CONFIGURED"; state.aiSettings.imageEnabled = false; });
 
 describe("系统管理页面", () => {
   it("用户管理提供启用、管理员和重置密码操作", () => {
@@ -97,6 +97,14 @@ describe("系统管理页面", () => {
     fireEvent.change(screen.getByLabelText("图片 Model"), { target: { value: "deepseek-vl" } });
     fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
     await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ imageEnabled: true, imageModel: "deepseek-vl", maxImageBytes: 10 * 1024 * 1024, version: 4 })));
+  });
+
+  it("关闭基础 AI 时不会保留图片能力", async () => {
+    state.aiSettings.imageEnabled = true;
+    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    fireEvent.click(screen.getByLabelText("启用 AI 智能录入"));
+    fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
+    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ enabled: false, imageEnabled: false, version: 4 })));
   });
 
   it("清除 API Key 时强制关闭 AI", async () => {

@@ -265,7 +265,7 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
             model: reconfigured.model.clone(),
             json_mode: false,
             timeout_seconds: 45,
-            image_enabled: reconfigured.image_enabled,
+            image_enabled: false,
             max_image_bytes: reconfigured.max_image_bytes,
             image_model: reconfigured.image_model.clone(),
             api_key: None,
