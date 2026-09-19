@@ -43,6 +43,8 @@ export type PendingAttachment = {
   clientAttachmentId: string;
   fileName: string;
   mimeType: string;
+  /** 原始 File 的时间元数据；旧版 Blob 没有该字段时保持 undefined。 */
+  lastModified?: number;
   blob: Blob;
   status: MutationStatus;
   attemptCount: number;
@@ -53,9 +55,19 @@ export type PendingAttachment = {
   updatedAt: number;
 };
 
+/** IndexedDB 实际保存的附件记录；ArrayBuffer 避免 WebKit 对 Blob/File clone 的兼容性问题。 */
+export type StoredPendingAttachment = Omit<PendingAttachment, "blob"> & {
+  blob: ArrayBuffer;
+};
+
 export type PendingAttachmentDraft = Pick<
   PendingAttachment,
-  "id" | "clientAttachmentId" | "fileName" | "mimeType" | "blob"
+  | "id"
+  | "clientAttachmentId"
+  | "fileName"
+  | "mimeType"
+  | "lastModified"
+  | "blob"
 >;
 
 export interface HuddleTabDb extends DBSchema {
@@ -70,7 +82,7 @@ export interface HuddleTabDb extends DBSchema {
   };
   pending_attachments: {
     key: string;
-    value: PendingAttachment;
+    value: StoredPendingAttachment;
     indexes: { "by-mutation": string };
   };
 }

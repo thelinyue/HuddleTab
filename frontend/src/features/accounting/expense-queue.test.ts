@@ -1,13 +1,17 @@
+// @vitest-environment node
 import "fake-indexeddb/auto";
 
 import { deleteDB } from "idb";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { ApiRequestError } from "../../api/error";
-import { databaseName } from "../../pwa/indexed-db/database";
+import { databaseName, openHuddleTabDb } from "../../pwa/indexed-db/database";
 import { AttachmentRepository } from "../../pwa/indexed-db/attachment-repository";
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
-import { expensePayload } from "../../pwa/indexed-db/test-fixtures";
+import {
+  expensePayload,
+  pendingMutationFixture,
+} from "../../pwa/indexed-db/test-fixtures";
 import { ExpenseQueue } from "./expense-queue";
 
 function deferred<T>() {
@@ -20,6 +24,7 @@ function deferred<T>() {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   await deleteDB(databaseName("user-1"));
 });
 
@@ -256,6 +261,12 @@ it("代理返回 413 时保留 Blob 并显示上传上限提示", async () => {
   expect(sendAttachment).toHaveBeenCalledTimes(1);
 });
 
+async function putRawRecord(store: "pending_mutations" | "pending_attachments", record: unknown) {
+  const database = await openHuddleTabDb("user-1");
+  await database.put(store, record as never);
+  database.close();
+}
+
 it("服务端附件 422 保留具体中文错误并保留 Blob", async () => {
   const sendAttachment = vi.fn().mockRejectedValue(
     new ApiRequestError(422, {
@@ -362,4 +373,121 @@ it("两个附件按本地创建顺序串行上传", async () => {
     ["SYNCED", "server-a"],
     ["SYNCED", "server-b"],
   ]);
+});
+
+it("旧版 PendingExpenseMutation 与 File 附件仍可恢复并上传", async () => {
+  const mutation = pendingMutationFixture("legacy-queue");
+  await putRawRecord("pending_mutations", { ...mutation, userId: "user-1" });
+  await putRawRecord("pending_attachments", {
+    id: "legacy-queue-attachment",
+    userId: "user-1",
+    activityId: mutation.activityId,
+    mutationId: mutation.id,
+    clientAttachmentId: "legacy-client-attachment",
+    fileName: "legacy.png",
+    mimeType: "image/png",
+    blob: new File(["legacy-bytes"], "legacy.png", {
+      type: "image/png",
+      lastModified: 1_700_000_000_000,
+    }),
+    status: "PENDING",
+    attemptCount: 0,
+    nextAttemptAt: 10,
+    createdAt: 10,
+    updatedAt: 10,
+  });
+
+  const sendAttachment = vi.fn().mockResolvedValue({ id: "server-legacy" });
+  const queue = new ExpenseQueue("user-1", {
+    send: vi.fn().mockResolvedValue({ expenseId: "expense-legacy" }),
+    sendAttachment,
+    now: () => 100,
+  });
+  await queue.flush();
+
+  expect(sendAttachment).toHaveBeenCalledTimes(1);
+  const sent = sendAttachment.mock.calls[0][2];
+  expect(sent.fileName).toBe("legacy.png");
+  expect(sent.lastModified).toBe(1_700_000_000_000);
+  expect(await sent.blob.text()).toBe("legacy-bytes");
+  expect(await new MutationRepository("user-1").get(mutation.id))
+    .toMatchObject({ status: "SYNCED", serverExpenseId: "expense-legacy" });
+  expect(await new AttachmentRepository("user-1")
+    .listByMutation(mutation.id)).toMatchObject([
+      { status: "SYNCED", serverAttachmentId: "server-legacy" },
+    ]);
+});
+
+it("损坏附件标记失败后不阻塞其他 mutation 的附件同步", async () => {
+  const first = pendingMutationFixture("broken-queue", {
+    status: "SYNCED",
+    serverExpenseId: "expense-broken",
+  });
+  const second = pendingMutationFixture("healthy-queue", {
+    status: "SYNCED",
+    serverExpenseId: "expense-healthy",
+  });
+  await putRawRecord("pending_mutations", { ...first, userId: "user-1" });
+  await putRawRecord("pending_mutations", { ...second, userId: "user-1" });
+  const common = {
+    userId: "user-1",
+    activityId: "activity-1",
+    status: "PENDING",
+    attemptCount: 0,
+    nextAttemptAt: 10,
+    createdAt: 10,
+    updatedAt: 10,
+  };
+  await putRawRecord("pending_attachments", {
+    ...common,
+    id: "broken-attachment",
+    mutationId: first.id,
+    clientAttachmentId: "broken-client",
+    fileName: "broken.png",
+    mimeType: "image/png",
+    blob: { not: "a blob" },
+  });
+  await putRawRecord("pending_attachments", {
+    ...common,
+    id: "healthy-attachment",
+    mutationId: second.id,
+    clientAttachmentId: "healthy-client",
+    fileName: "healthy.png",
+    mimeType: "image/png",
+    blob: new Blob(["healthy-bytes"], { type: "image/png" }),
+  });
+
+  const sendAttachment = vi.fn().mockResolvedValue({ id: "server-healthy" });
+  const queue = new ExpenseQueue("user-1", {
+    sendAttachment,
+    now: () => 100,
+  });
+  await queue.flush();
+
+  expect(sendAttachment).toHaveBeenCalledTimes(1);
+  expect(sendAttachment.mock.calls[0][1]).toBe("expense-healthy");
+  expect(await new AttachmentRepository("user-1")
+    .listByMutation(first.id)).toMatchObject([
+      { id: "broken-attachment", status: "REJECTED", lastError: { code: "LOCAL_ATTACHMENT_CORRUPTED" } },
+    ]);
+  expect(await new AttachmentRepository("user-1")
+    .listByMutation(second.id)).toMatchObject([
+      { id: "healthy-attachment", status: "SYNCED", serverAttachmentId: "server-healthy" },
+    ]);
+});
+
+it("附件队列不写入 localStorage 或 sessionStorage", async () => {
+  const localSetItem = vi.fn();
+  const sessionSetItem = vi.fn();
+  vi.stubGlobal("localStorage", { setItem: localSetItem });
+  vi.stubGlobal("sessionStorage", { setItem: sessionSetItem });
+
+  const queue = new ExpenseQueue("user-1", { now: () => 100 });
+  await queue.enqueue("activity-1", {
+    ...expensePayload,
+    clientMutationId: "no-browser-storage",
+  }, [new File(["bytes"], "receipt.png", { type: "image/png" })]);
+
+  expect(localSetItem).not.toHaveBeenCalled();
+  expect(sessionSetItem).not.toHaveBeenCalled();
 });

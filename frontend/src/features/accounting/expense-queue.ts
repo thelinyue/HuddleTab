@@ -105,7 +105,10 @@ export async function uploadExpenseAttachment(
   const file = new File(
     [attachment.blob],
     attachment.fileName,
-    { type: attachment.mimeType || attachment.blob.type || "application/octet-stream" },
+    {
+      type: attachment.mimeType || attachment.blob.type || "application/octet-stream",
+      lastModified: attachment.lastModified ?? 0,
+    },
   );
   formData.set("file", file, attachment.fileName);
   formData.set("clientAttachmentId", attachment.clientAttachmentId);
@@ -195,7 +198,10 @@ export class ExpenseQueue {
         clientAttachmentId: crypto.randomUUID(),
         fileName: file.name,
         mimeType: file.type,
-        blob: file,
+        lastModified: file.lastModified,
+        // Safari/WebKit 对 File 的 IndexedDB structured clone 兼容性不稳定；
+        // 先统一为 Blob，repository 再序列化为 ArrayBuffer，上传时恢复 File。
+        blob: file.slice(0, file.size, file.type),
       })),
     );
     this.dispatch(saved.mutation.activityId, saved.mutation.status, "EXPENSE");

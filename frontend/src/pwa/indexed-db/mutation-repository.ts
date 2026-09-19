@@ -1,4 +1,5 @@
 import { withUserDatabase } from "./database";
+import { toStoredAttachment } from "./attachment-repository";
 import type {
   PendingAttachment,
   PendingAttachmentDraft,
@@ -26,7 +27,7 @@ export class MutationRepository {
     return record;
   }
 
-  /** Expense 与原始 Blob 必须同事务落库，避免离线时只留下半条业务队列。 */
+  /** Expense 与标准化附件字节必须同事务落库，避免离线时只留下半条业务队列。 */
   async enqueueWithAttachments(
     input: MutationInput,
     drafts: PendingAttachmentDraft[],
@@ -46,6 +47,7 @@ export class MutationRepository {
       createdAt: mutation.createdAt,
       updatedAt: mutation.updatedAt,
     }));
+    const storedAttachments = await Promise.all(attachments.map(toStoredAttachment));
     await withUserDatabase(this.userId, async (database) => {
       const transaction = database.transaction(
         ["pending_mutations", "pending_attachments"],
@@ -53,7 +55,7 @@ export class MutationRepository {
       );
       try {
         await transaction.objectStore("pending_mutations").add(mutation);
-        for (const attachment of attachments) {
+        for (const attachment of storedAttachments) {
           await transaction.objectStore("pending_attachments").add(attachment);
         }
         await transaction.done;
@@ -118,7 +120,8 @@ export class MutationRepository {
         createdAt: mutation.createdAt,
         updatedAt: now,
       }));
-      for (const attachment of attachments) {
+      const storedAttachments = await Promise.all(attachments.map(toStoredAttachment));
+      for (const attachment of storedAttachments) {
         await attachmentStore.add(attachment);
       }
       await transaction.done;

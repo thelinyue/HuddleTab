@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-type InstallOptions = { capabilityAvailable?: boolean; ambiguous?: boolean; imageAvailable?: boolean };
+type InstallOptions = { capabilityAvailable?: boolean; ambiguous?: boolean; imageAvailable?: boolean; textDelayMs?: number };
 
 const activity = {
   activityId: 'demo',
@@ -21,6 +21,14 @@ const members = [
   { activityId: 'demo', memberId: 'm1', displayName: '小王', avatarPreset: 1, role: 'MEMBER', status: 'ACTIVE', userId: 'u1', version: '1' },
   { activityId: 'demo', memberId: 'm2', displayName: '小王', avatarPreset: 2, role: 'MEMBER', status: 'ACTIVE', userId: 'u2', version: '1' },
 ];
+
+const otherActivity = {
+  ...activity,
+  activityId: 'other',
+  name: '另一活动',
+};
+
+const otherMembers = members.map((member) => ({ ...member, activityId: 'other' }));
 
 function draft(ambiguous: boolean) {
   return {
@@ -50,18 +58,24 @@ function aggregateFromInput(input: Record<string, any>) {
 }
 
 async function installFixture(page: Page, options: InstallOptions = {}) {
-  const controls = { textCalls: 0, imageCalls: 0, expenses: [] as Array<Record<string, any>>, writes: [] as unknown[] };
+  const controls = { capabilityCalls: 0, textCalls: 0, imageCalls: 0, expenses: [] as Array<Record<string, any>>, writes: [] as unknown[] };
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
+    const isOtherActivity = path.includes('/activities/other/');
+    const currentActivity = isOtherActivity ? otherActivity : activity;
+    const currentMembers = isOtherActivity ? otherMembers : members;
     if (path.endsWith('/ai/expense-draft/capabilities')) {
+      controls.capabilityCalls += 1;
       if (options.capabilityAvailable === false) { await route.fulfill({ status: 503, json: { error: { code: 'AI_PROVIDER_UNAVAILABLE', message: '暂不可用' } } }); return; }
       await route.fulfill({ json: { data: { textDraftAvailable: true, imageDraftAvailable: options.imageAvailable === true } } }); return;
     }
     if (path.endsWith('/ai/expense-draft/text')) {
       controls.textCalls += 1;
-      await route.fulfill({ json: { data: draft(Boolean(options.ambiguous)) } }); return;
+      if (options.textDelayMs) await new Promise((resolve) => setTimeout(resolve, options.textDelayMs));
+      try { await route.fulfill({ json: { data: draft(Boolean(options.ambiguous)) } }); } catch { /* 浏览器取消请求时 Provider 夹具无需返回 */ }
+      return;
     }
     if (path.endsWith('/ai/expense-draft/image')) {
       controls.imageCalls += 1;
@@ -85,13 +99,14 @@ async function installFixture(page: Page, options: InstallOptions = {}) {
     let data: unknown = [];
     if (path.endsWith('/session')) data = { userId: 'u0', username: 'demo', displayName: '小林', isSystemAdmin: false };
     else if (path.endsWith('/csrf')) data = { token: 'fixture' };
-    else if (path.endsWith('/snapshot')) data = { activity, members, expenses: controls.expenses, ledger: { balances: [] }, recommendations: { recommendations: [] }, settlements: [], revision: '1' };
-    else if (path.endsWith('/members')) data = members;
+    else if (path.endsWith('/snapshot')) data = { activity: currentActivity, members: currentMembers, expenses: controls.expenses, ledger: { balances: [] }, recommendations: { recommendations: [] }, settlements: [], revision: '1' };
+    else if (path.endsWith('/members')) data = currentMembers;
     else if (path.endsWith('/expenses')) data = controls.expenses;
     else if (path.endsWith('/ledger')) data = { balances: [] };
     else if (path.endsWith('/recommendations')) data = { recommendations: [] };
     else if (path.endsWith('/settlements')) data = [];
     else if (path.endsWith('/demo')) data = activity;
+    else if (path.endsWith('/other')) data = otherActivity;
     await route.fulfill({ json: { data }, headers: { etag: '"ai-fixture-1"' } });
   });
   return controls;
@@ -184,4 +199,100 @@ test('开启保存附件后沿用既有附件上传流程', async ({ page }) => 
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   await page.getByRole('button', { name: '保存' }).click();
   await expect.poll(() => controls.writes.filter((write) => typeof write === 'object' && write !== null && 'file' in write).length).toBeGreaterThan(0);
+});
+
+test('取消请求后输入仍保留且旧响应不覆盖状态', async ({ page }) => {
+  const controls = await installFixture(page, { textDelayMs: 800 });
+  await openSmartEntry(page);
+  await page.getByRole('textbox', { name: '账单描述' }).fill('取消测试账单');
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: '生成账单草稿' }).click();
+  await page.getByRole('button', { name: '取消智能录入' }).click();
+  await expect(page.getByRole('status')).toContainText('请求已取消');
+  await expect(page.getByRole('textbox', { name: '账单描述' })).toHaveValue('取消测试账单');
+  await page.waitForTimeout(900);
+  await expect(page.getByRole('heading', { name: '记一笔' })).not.toBeVisible();
+  expect(controls.textCalls).toBe(1);
+});
+
+test('切换 Activity 后丢弃旧草稿响应', async ({ page }) => {
+  await installFixture(page, { textDelayMs: 800 });
+  await openSmartEntry(page);
+  await page.getByRole('textbox', { name: '账单描述' }).fill('旧活动账单');
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: '生成账单草稿' }).click();
+  await page.goto('/activities/other/expenses/new');
+  await expect(page.getByRole('heading', { name: '新增账单' })).toBeVisible();
+  await page.waitForTimeout(900);
+  await expect(page.getByText('AI 晚餐草稿')).not.toBeVisible();
+});
+
+test('离线时不请求 capability 并保留手动新增入口', async ({ page }) => {
+  const controls = await installFixture(page);
+  await page.goto('/activities/demo');
+  await expect(page.getByRole('heading', { name: '全部流水' })).toBeVisible();
+  try {
+    await page.getByRole('button', { name: '记一笔' }).click();
+    await expect(page.getByLabel('金额')).toBeVisible();
+    await page.context().setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    expect(controls.capabilityCalls).toBe(0);
+    await expect(page.getByRole('button', { name: '智能录入' })).not.toBeVisible();
+  } finally {
+    await page.context().setOffline(false);
+  }
+});
+
+test('当前 ArrayBuffer 附件记录在浏览器 IndexedDB 中可读', async ({ page }) => {
+  await page.goto('/manifest.webmanifest');
+  const result = await page.evaluate(async () => {
+    const databaseName = `huddletab:compat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const bytes = new TextEncoder().encode('synthetic-attachment');
+    const record = await new Promise<any>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 1);
+      request.onupgradeneeded = () => {
+        const store = request.result.createObjectStore('pending_attachments', { keyPath: 'id' });
+        store.createIndex('by-mutation', 'mutationId');
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction('pending_attachments', 'readwrite');
+        transaction.objectStore('pending_attachments').put({
+          id: 'synthetic', userId: 'compat', activityId: 'activity', mutationId: 'mutation',
+          clientAttachmentId: 'client', fileName: 'synthetic.png', mimeType: 'image/png',
+          lastModified: 1_700_000_000_000, blob: bytes.buffer, status: 'PENDING',
+          attemptCount: 0, nextAttemptAt: 0, createdAt: 0, updatedAt: 0,
+        });
+        transaction.oncomplete = () => {
+          const readTransaction = database.transaction('pending_attachments', 'readonly');
+          const readRequest = readTransaction.objectStore('pending_attachments').get('synthetic');
+          readRequest.onsuccess = () => {
+            database.close();
+            resolve(readRequest.result);
+          };
+          readRequest.onerror = () => reject(readRequest.error);
+        };
+        transaction.onerror = () => reject(transaction.error);
+      };
+    });
+    await new Promise<void>((resolve) => {
+      const request = indexedDB.deleteDatabase(databaseName);
+      request.onsuccess = request.onerror = request.onblocked = () => resolve();
+    });
+    return {
+      isArrayBuffer: Object.prototype.toString.call(record.blob) === '[object ArrayBuffer]',
+      byteLength: record.blob.byteLength,
+      fileName: record.fileName,
+      mimeType: record.mimeType,
+      lastModified: record.lastModified,
+    };
+  });
+  expect(result).toEqual({
+    isArrayBuffer: true,
+    byteLength: 'synthetic-attachment'.length,
+    fileName: 'synthetic.png',
+    mimeType: 'image/png',
+    lastModified: 1_700_000_000_000,
+  });
 });

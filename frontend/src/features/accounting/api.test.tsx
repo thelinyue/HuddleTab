@@ -167,6 +167,7 @@ describe("Expense Create Queue", () => {
       clientAttachmentId: "client-attachment-1",
       fileName: "receipt.png",
       mimeType: "image/png",
+      lastModified: 1_700_000_000_000,
       blob,
       status: "PENDING",
       attemptCount: 0,
@@ -201,6 +202,7 @@ describe("Expense Create Queue", () => {
     );
     expect(sentFile.name).toBe("receipt.png");
     expect(sentFile.type).toBe("image/png");
+    expect(sentFile.lastModified).toBe(1_700_000_000_000);
     expect(body.get("clientAttachmentId")).toBe("client-attachment-1");
     expect(options).toMatchObject({
       params: {

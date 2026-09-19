@@ -55,7 +55,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 4);
+    assert_eq!(applied_count, 5);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -93,19 +93,20 @@ async fn phase2_schema_upgrades_to_ai_image_migration() {
     let upgraded = connect_and_migrate(&database_url)
         .await
         .expect("阶段二结构应升级到图片 AI migration");
-    let settings: (bool, i32, Option<String>) = sqlx::query_as(
-        "SELECT ai_image_enabled, ai_provider_max_image_bytes, ai_provider_image_model \
+    let settings: (bool, i32, Option<String>, i32) = sqlx::query_as(
+        "SELECT ai_image_enabled, ai_provider_max_image_bytes, ai_provider_image_model, \
+         ai_provider_timeout_seconds \
          FROM system_settings WHERE id = 'singleton'",
     )
     .fetch_one(&upgraded)
     .await
     .expect("升级后应读取图片设置");
-    assert_eq!(settings, (false, 10 * 1024 * 1024, None));
+    assert_eq!(settings, (false, 10 * 1024 * 1024, None, 30));
     let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
         .fetch_one(&upgraded)
         .await
         .expect("应读取升级后的 migration 记录");
-    assert_eq!(migration_count, 4);
+    assert_eq!(migration_count, 5);
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
@@ -147,6 +148,15 @@ fn ai_image_migration_declares_safe_defaults_and_limit() {
             "图片 AI migration 缺少 {fragment}"
         );
     }
+}
+
+#[test]
+fn ai_timeout_migration_aligns_database_with_application_range() {
+    let migration = include_str!("../migrations/202609200001_ai_timeout_minimum.sql");
+    assert!(
+        migration.contains("DROP CONSTRAINT system_settings_ai_provider_timeout_seconds_check")
+    );
+    assert!(migration.contains("BETWEEN 1 AND 120"));
 }
 
 #[tokio::test]
