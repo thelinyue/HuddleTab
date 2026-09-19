@@ -1,7 +1,7 @@
-import { ArrowLeft, ChevronRight, Database, HardDrive, KeyRound, Settings2, ShieldCheck, UsersRound } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { ArrowLeft, Bot, ChevronRight, Database, HardDrive, KeyRound, Settings2, ShieldCheck, UsersRound } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { errorMessage } from "../../api/error";
+import { ApiRequestError, errorMessage } from "../../api/error";
 import { MemberAvatar } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Button, ErrorNotice, Input, LoadingState } from "../../components/ui";
@@ -12,12 +12,15 @@ import {
   type AdminUser,
   useAdminStorageQuery,
   useAdminUsersQuery,
+  useAiSettingsQuery,
   useRegistrationPolicyQuery,
   useResetAdminPasswordMutation,
   useSystemInformationQuery,
   useUpdateAdminRoleMutation,
   useUpdateAdminUserStatusMutation,
   useUpdateRegistrationPolicyMutation,
+  useUpdateAiSettingsMutation,
+  type AiSettingsInput,
 } from "./api";
 
 function AdminFrame({ title, children, backTo = "/admin", backLabel = "返回系统管理" }: { title: string; children: React.ReactNode; backTo?: string; backLabel?: string }) {
@@ -138,6 +141,89 @@ function ResetPasswordOverlay({ user, onClose, mutation }: { user: AdminUser | n
   );
 }
 
+/** 管理设置只编辑可公开显示的配置；API Key 仅通过空值保留、明文替换或清除三种动作提交。 */
+function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boolean }) {
+  const settings = useAiSettingsQuery(userId, online);
+  const update = useUpdateAiSettingsMutation(userId);
+  const [enabled, setEnabled] = useState(false);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [timeoutSeconds, setTimeoutSeconds] = useState("30");
+  const [jsonMode, setJsonMode] = useState(true);
+  const [apiKey, setApiKey] = useState("");
+  const [clearApiKey, setClearApiKey] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [versionConflict, setVersionConflict] = useState(false);
+
+  useEffect(() => {
+    if (!settings.data) return;
+    setEnabled(settings.data.enabled);
+    setBaseUrl(settings.data.baseUrl ?? "");
+    setModel(settings.data.model ?? "");
+    setTimeoutSeconds(String(settings.data.timeoutSeconds));
+    setJsonMode(settings.data.jsonMode);
+    setApiKey("");
+    setClearApiKey(false);
+  }, [settings.data]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!settings.data) return;
+    setError(undefined);
+    setVersionConflict(false);
+    const timeout = Number(timeoutSeconds);
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 120) {
+      setError(new Error("超时时间必须是 1–120 秒的整数。"));
+      return;
+    }
+    const input: AiSettingsInput = {
+      enabled: clearApiKey ? false : enabled,
+      baseUrl: baseUrl.trim() || null,
+      model: model.trim() || null,
+      timeoutSeconds: timeout,
+      jsonMode,
+      version: settings.data.version,
+      clearApiKey,
+      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+    };
+    try {
+      await update.mutateAsync(input);
+      setApiKey("");
+      setClearApiKey(false);
+    } catch (reason) {
+      if (reason instanceof ApiRequestError && reason.status === 409) {
+        setVersionConflict(true);
+        setError(new Error("设置已被其他管理员修改，请重新加载后再保存。"));
+        return;
+      }
+      setError(reason);
+    }
+  }
+
+  if (!online) return <section className="admin-settings-card"><div className="admin-settings-card__heading"><Bot aria-hidden="true" size={20} /><div><h2>AI 智能录入</h2><p>当前离线，联网后才能读取或修改 AI 设置。</p></div></div></section>;
+  if (settings.isPending) return <section className="admin-settings-card"><LoadingState label="正在读取 AI 设置…" /></section>;
+  if (settings.error) return <section className="admin-settings-card"><ErrorNotice error={settings.error} /></section>;
+  if (!settings.data) return null;
+  const apiKeyStatus = settings.data.apiKeyStatus;
+  return <section className="admin-settings-card" aria-labelledby="ai-settings-heading">
+    <div className="admin-settings-card__heading"><Bot aria-hidden="true" size={20} /><div><h2 id="ai-settings-heading">AI 智能录入</h2><p>只生成账单草稿，不会直接写入账务事实。</p></div></div>
+    {apiKeyStatus === "RECONFIGURATION_REQUIRED" ? <div className="notice notice--error" role="alert">API Key 无法解密，请重新填写或清除 API Key 后保存。</div> : null}
+    {error ? <ErrorNotice error={error} /> : null}
+    {versionConflict ? <Button type="button" variant="secondary" onClick={() => { setVersionConflict(false); setError(undefined); void settings.refetch(); }}>重新加载设置</Button> : null}
+    <form className="form-stack ai-settings-form" onSubmit={(event) => void save(event)}>
+      <label className="settings-choice"><input type="checkbox" checked={enabled} disabled={update.isPending || clearApiKey} onChange={(event) => setEnabled(event.target.checked)} />启用 AI 智能录入</label>
+      <label className="field"><span className="field__label">Base URL</span><Input aria-label="Base URL" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.deepseek.com/v1" autoComplete="off" /></label>
+      <label className="field"><span className="field__label">Model</span><Input aria-label="Model" value={model} onChange={(event) => setModel(event.target.value)} placeholder="deepseek-chat" autoComplete="off" /></label>
+      <label className="field"><span className="field__label">Timeout（秒）</span><Input aria-label="Timeout（秒）" inputMode="numeric" value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(event.target.value)} min={1} max={120} /></label>
+      <label className="field"><span className="field__label">API Key</span><Input aria-label="API Key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={apiKeyStatus === "CONFIGURED" ? "已配置；留空表示保留" : "请输入 API Key"} autoComplete="new-password" /><span className="field__hint">当前状态：{apiKeyStatus === "CONFIGURED" ? "已配置" : apiKeyStatus === "NOT_SET" ? "未配置" : "需要重新配置"}。不会回显密钥。</span></label>
+      <label className="settings-choice"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setEnabled(false); }} />清除 API Key</label>
+      <label className="settings-choice"><input type="checkbox" checked={jsonMode} onChange={(event) => setJsonMode(event.target.checked)} />发送 JSON Mode 参数</label>
+      <p className="form-hint">DeepSeek 等支持 JSON Mode 的服务建议开启；不支持 response_format 的本地兼容服务请关闭。</p>
+      <Button type="submit" busy={update.isPending}>保存 AI 设置</Button>
+    </form>
+  </section>;
+}
+
 export function AdminSettingsPage() {
   const session = useSessionQuery();
   const online = useOnlineStatus();
@@ -162,6 +248,7 @@ export function AdminSettingsPage() {
         <label className="settings-choice"><input type="radio" name="registration-policy" checked={policy.data.policy === "INVITE_ONLY"} disabled={!online || update.isPending} onChange={() => void save("INVITE_ONLY")} />仅允许邀请注册</label>
         <label className="settings-choice"><input type="radio" name="registration-policy" checked={policy.data.policy === "OPEN"} disabled={!online || update.isPending} onChange={() => void save("OPEN")} />开放注册</label>
       </section> : null}
+      <AiExpenseSettingsCard userId={userId} online={online} />
     </AdminFrame>
   );
 }

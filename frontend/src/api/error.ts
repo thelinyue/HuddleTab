@@ -9,8 +9,9 @@ export class ApiRequestError extends Error {
   readonly fieldErrors: ErrorEnvelope["error"]["fieldErrors"];
   readonly details: ErrorEnvelope["error"]["details"];
   readonly requestId: string;
+  readonly retryAfterSeconds: number | null;
 
-  constructor(status: number, envelope?: ErrorEnvelope) {
+  constructor(status: number, envelope?: ErrorEnvelope, retryAfterSeconds: number | null = null) {
     const error = envelope?.error;
     super(error?.message ?? "请求失败，请稍后重试。");
     this.name = "ApiRequestError";
@@ -19,6 +20,7 @@ export class ApiRequestError extends Error {
     this.fieldErrors = error?.fieldErrors ?? {};
     this.details = error?.details ?? {};
     this.requestId = error?.requestId ?? "";
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

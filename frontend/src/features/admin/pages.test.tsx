@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiRequestError } from "../../api/error";
 
 const state = vi.hoisted(() => ({
   online: true,
@@ -11,6 +12,8 @@ const state = vi.hoisted(() => ({
   reset: { isPending: false, mutateAsync: vi.fn(), variables: undefined },
   policy: { policy: "INVITE_ONLY", version: 1 },
   policyUpdate: { isPending: false, mutateAsync: vi.fn() },
+  aiSettings: { apiKeyStatus: "CONFIGURED", enabled: true, jsonMode: true, timeoutSeconds: 30, version: 4, baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  aiUpdate: { isPending: false, mutateAsync: vi.fn() },
 }));
 
 vi.mock("../auth/api", () => ({ useSessionQuery: () => ({ data: state.session, isPending: false }) }));
@@ -20,16 +23,18 @@ vi.mock("./api", () => ({
   useAdminUsersQuery: () => ({ data: state.users, isPending: false, error: null }),
   useAdminStorageQuery: () => ({ data: { databaseBytes: "1024", uploadsBytes: "2048", totalBytes: "3072" }, isPending: false, error: null }),
   useSystemInformationQuery: () => ({ data: { appVersion: "dev", pwaVersion: "dev", databaseVersion: "PostgreSQL 18.6", dataDirectory: "/data" }, isPending: false, error: null }),
+  useAiSettingsQuery: () => ({ data: state.aiSettings, isPending: false, error: null }),
   useUpdateAdminUserStatusMutation: () => state.status,
   useUpdateAdminRoleMutation: () => state.role,
   useResetAdminPasswordMutation: () => state.reset,
   useRegistrationPolicyQuery: () => ({ data: state.policy, isPending: false, error: null }),
   useUpdateRegistrationPolicyMutation: () => state.policyUpdate,
+  useUpdateAiSettingsMutation: () => state.aiUpdate,
 }));
 
 import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "./pages";
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; });
+afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; state.aiSettings.apiKeyStatus = "CONFIGURED"; });
 
 describe("系统管理页面", () => {
   it("用户管理提供启用、管理员和重置密码操作", () => {
@@ -74,6 +79,38 @@ describe("系统管理页面", () => {
     render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
     fireEvent.click(screen.getByLabelText("开放注册"));
     await waitFor(() => expect(state.policyUpdate.mutateAsync).toHaveBeenCalledWith({ policy: "OPEN", version: 1 }));
+  });
+
+  it("AI 设置不回显密钥，保存继续使用 version 并支持 JSON Mode", async () => {
+    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    expect(screen.getByText("当前状态：已配置。不会回显密钥。")).toBeInTheDocument();
+    expect(screen.getByText(/不支持 response_format/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "deepseek-reasoner" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
+    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ model: "deepseek-reasoner", version: 4, jsonMode: true, clearApiKey: false })));
+    expect(screen.getByPlaceholderText("已配置；留空表示保留")).toHaveValue("");
+  });
+
+  it("清除 API Key 时强制关闭 AI", async () => {
+    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    fireEvent.click(screen.getByLabelText("清除 API Key"));
+    fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
+    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ clearApiKey: true, enabled: false, version: 4 })));
+  });
+
+  it("密钥无法恢复时提示重新配置", () => {
+    state.aiSettings.apiKeyStatus = "RECONFIGURATION_REQUIRED";
+    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    expect(screen.getByRole("alert")).toHaveTextContent("API Key 无法解密");
+    expect(screen.getByPlaceholderText("请输入 API Key")).toBeInTheDocument();
+  });
+
+  it("设置 version 冲突时要求重新加载而不静默覆盖", async () => {
+    state.aiUpdate.mutateAsync.mockRejectedValueOnce(new ApiRequestError(409));
+    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("其他管理员修改");
+    expect(screen.getByRole("button", { name: "重新加载设置" })).toBeInTheDocument();
   });
 
   it("系统信息页面显示存储与运行信息", () => {

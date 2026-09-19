@@ -428,6 +428,33 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
   .standalone-detail-header { -webkit-backdrop-filter: none; backdrop-filter: none; }
   .standalone-detail-header__back:active { transform: none; transition: none; }
 }
+
+/* AI 文字录入保持为一次性的表单入口，不引入聊天气泡或复杂动效。 */
+.ai-expense-choice, .ai-expense-entry { width: min(100%, 560px); max-width: 100%; margin: 0 auto; border: 1px solid var(--border); border-radius: 16px; padding: 20px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.ai-expense-choice h2, .ai-expense-entry h2 { margin: 0; font-size: 20px; }
+.ai-expense-choice p, .ai-expense-entry__header p, .ai-expense-entry__privacy { color: var(--muted-foreground); line-height: 1.55; }
+.ai-expense-choice__actions, .ai-expense-entry__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.ai-expense-entry__header { display: flex; align-items: flex-start; gap: 10px; color: var(--primary); }
+.ai-expense-entry__header > div { min-width: 0; }
+.ai-expense-entry__header p { margin: 4px 0 0; font-size: 13px; }
+.ai-expense-entry__privacy { margin: 16px 0; border-radius: 10px; padding: 10px 12px; background: var(--surface-muted); font-size: 13px; }
+.ai-expense-entry .field { margin-top: 14px; }
+.ai-expense-entry .textarea { min-height: 140px; resize: vertical; }
+.ai-expense-entry__confirm { display: flex; min-height: 44px; align-items: center; gap: 9px; margin-top: 12px; font-size: 13px; line-height: 1.45; }
+.ai-expense-entry__confirm input { width: 20px; height: 20px; flex: 0 0 20px; }
+.ai-expense-entry__error, .ai-expense-guidance { margin-top: 12px; border-radius: 10px; padding: 10px 12px; line-height: 1.5; }
+.ai-expense-entry__error { color: var(--danger); background: var(--danger-soft); }
+.ai-expense-entry__status { margin-top: 12px; color: var(--muted-foreground); font-size: 13px; }
+.ai-expense-guidance { color: var(--foreground); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); font-size: 12px; }
+.ai-expense-guidance__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-weight: 700; }
+.ai-expense-guidance__heading small { color: var(--muted-foreground); font-weight: 500; }
+.ai-expense-guidance ul { margin: 8px 0 0; padding-left: 18px; }
+.ai-expense-guidance p { margin: 8px 0 0; }
+.ai-expense-field-badge { display: inline-flex; margin-left: 4px; border-radius: 4px; padding: 1px 4px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); font-size: 10px; font-style: normal; font-weight: 600; vertical-align: middle; }
+@media (max-width: 520px) {
+  .ai-expense-choice, .ai-expense-entry { border-radius: 12px; padding: 16px; }
+  .ai-expense-choice__actions, .ai-expense-entry__actions { grid-template-columns: 1fr; }
+}
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .standalone-detail-header { background: var(--background); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }

@@ -20,6 +20,9 @@ export const queryKeys = {
   adminRegistrationPolicy: (userId: string) => ["users", userId, "admin", "registration-policy"] as const,
   adminStorage: (userId: string) => ["users", userId, "admin", "storage"] as const,
   adminSystemInformation: (userId: string) => ["users", userId, "admin", "system-information"] as const,
+  adminAiSettings: (userId: string) => ["users", userId, "admin", "ai-expense-draft-settings"] as const,
+  aiCapability: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "ai-expense-draft", "capability"] as const,
   activitySnapshot: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "snapshot"] as const,
   expenses: (userId: string, activityId: string) =>

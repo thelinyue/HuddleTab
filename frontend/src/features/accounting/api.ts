@@ -2,7 +2,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import type { Activity } from "../activities/api";
 import { apiClient } from "../../api/client";
 import { mutationHeaders } from "../../api/csrf";
-import { unwrap } from "../../api/error";
+import { ApiRequestError, unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
 import { expenseQueueFor, uploadExpenseAttachment } from "./expense-queue";
@@ -23,6 +23,43 @@ export type RecommendationResult = components["schemas"]["StrategyRecommendation
 export type Settlement = components["schemas"]["SettlementData"];
 export type CreateSettlementInput = components["schemas"]["CreateSettlementRequest"];
 export type ExchangeRateSuggestion = components["schemas"]["ExchangeRateSuggestionData"];
+export type AiCapability = components["schemas"]["AiCapabilityData"];
+export type AiExpenseDraft = components["schemas"]["AiExpenseDraftData"];
+
+export async function getAiCapability(activityId: string): Promise<AiCapability> {
+  return unwrap(
+    await apiClient.GET("/api/activities/{activity_id}/ai/expense-draft/capabilities", {
+      params: { path: { activity_id: activityId } },
+    }),
+  ).data;
+}
+
+export function useAiCapabilityQuery(userId: string, activityId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.aiCapability(userId, activityId),
+    queryFn: () => getAiCapability(activityId),
+    enabled: enabled && userId.length > 0 && activityId.length > 0,
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
+export async function createAiTextDraft(
+  activityId: string,
+  text: string,
+  signal?: AbortSignal,
+): Promise<AiExpenseDraft> {
+  const result = await apiClient.POST("/api/activities/{activity_id}/ai/expense-draft/text", {
+    params: { path: { activity_id: activityId } },
+    body: { text },
+    headers: await mutationHeaders(),
+    signal,
+  });
+  if (result.data !== undefined) return result.data.data;
+  const retryAfter = result.response.headers.get("Retry-After");
+  const retryAfterSeconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : null;
+  throw new ApiRequestError(result.response.status, result.error, retryAfterSeconds);
+}
 
 export async function fetchExchangeRateSuggestion(
   activityId: string,

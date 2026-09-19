@@ -108,6 +108,9 @@ const rateMutation = vi.hoisted(() => ({
 }));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 const workspaceState = vi.hoisted(() => ({ offline: false }));
+const aiCapability = vi.hoisted(() => ({ textDraftAvailable: false }));
+const aiCapabilityQuery = vi.hoisted(() => vi.fn());
+const aiTextDraftMutation = vi.hoisted(() => vi.fn());
 const accountingQueryState = vi.hoisted(() => ({ emptyExpenses: false, emptySettlements: false, netMinor: '-500', ledgerPending: false }));
 const guestMutation = vi.hoisted(() => ({
   error: null,
@@ -145,6 +148,8 @@ vi.mock("./api", () => ({
   useUploadAttachmentMutation: () => uploadAttachmentMutation,
   useExpenseQuery: () => ({ data: expense, isPending: false }),
   useExchangeRateSuggestionMutation: () => rateMutation,
+  useAiCapabilityQuery: (...args: unknown[]) => { aiCapabilityQuery(...args); return { data: aiCapability, isPending: false, error: null }; },
+  createAiTextDraft: (...args: unknown[]) => aiTextDraftMutation(...args),
   useExpensesQuery: () => ({ data: accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
   useLedgerQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : { balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }] }, isPending: accountingQueryState.ledgerPending }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
@@ -162,7 +167,7 @@ vi.mock("./expense-queue-sync", () => ({
   }),
 }));
 
-import { ExpenseDetailPage, NewExpensePage } from "./expense-editor";
+import { ExpenseDetailPage, NewExpensePage, UnifiedExpenseEditor } from "./expense-editor";
 import { ExpenseFeedPage } from "./feed-page";
 import { SettlementsPage } from "./settlement-page";
 
@@ -183,9 +188,13 @@ function chooseCurrency(code: string) {
 
 afterEach(() => {
   cleanup();
+  activity.activityId = "activity-1";
   activity.status = "ACTIVE";
   pendingMutations.records = [];
   workspaceState.offline = false;
+  aiCapability.textDraftAvailable = false;
+  aiCapabilityQuery.mockClear();
+  aiTextDraftMutation.mockReset();
   accountingQueryState.emptyExpenses = false;
   accountingQueryState.emptySettlements = false;
   accountingQueryState.netMinor = '-500';
@@ -1220,6 +1229,119 @@ describe("我的结算摘要", () => {
 
     expect(screen.getByText("当前：由我统一收付")).toBeVisible();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "选择结算方案" })).not.toBeInTheDocument());
+  });
+});
+
+describe("AI 智能录入入口", () => {
+  const initialDraft = {
+    title: "AI 标题",
+    amountMinor: "1000",
+    currency: "CNY",
+    occurredAt: "2026-09-18T12:00:00Z",
+    category: "FOOD" as const,
+    note: "AI 备注",
+    payerMode: "single" as const,
+    payerIds: ["member-1"],
+    paymentValues: { "member-1": "10.00" },
+    participantIds: ["member-1"],
+    splitMode: "EQUAL" as const,
+    fieldStates: {
+      title: "AI_SUGGESTED" as const,
+      amount: "AI_SUGGESTED" as const,
+      currency: "AI_SUGGESTED" as const,
+      occurredAt: "AI_SUGGESTED" as const,
+      category: "AI_SUGGESTED" as const,
+      note: "AI_SUGGESTED" as const,
+      payer: "AI_SUGGESTED" as const,
+      participants: "AI_SUGGESTED" as const,
+      split: "AI_SUGGESTED" as const,
+    },
+    memberSuggestions: [],
+    warnings: [],
+    incompleteFields: [],
+  };
+
+  it("能力可用时显示手动与智能录入选择", () => {
+    aiCapability.textDraftAvailable = true;
+    renderPage(<NewExpensePage />);
+    expect(screen.getByRole("heading", { name: "新增账单" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "手动填写" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "智能录入" })).toBeInTheDocument();
+  });
+
+  it("能力不可用时直接进入原有手动编辑器", () => {
+    renderPage(<NewExpensePage />);
+    expect(screen.getByLabelText("金额")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "新增账单" })).not.toBeInTheDocument();
+  });
+
+  it("明确离线时不请求 AI capability", () => {
+    workspaceState.offline = true;
+    aiCapability.textDraftAvailable = true;
+    renderPage(<NewExpensePage />);
+    expect(aiCapabilityQuery).toHaveBeenCalledWith("user-1", "activity-1", false);
+    expect(screen.getByLabelText("金额")).toBeInTheDocument();
+  });
+
+  it("同一草稿的父级刷新不会覆盖用户修改，只有新 key 才重新初始化", async () => {
+    const onViewChange = vi.fn();
+    const view = renderPage(<UnifiedExpenseEditor initialDraft={initialDraft} view="entry" onViewChange={onViewChange} />);
+    await screen.findByLabelText("用途");
+    fireEvent.change(screen.getByLabelText("用途"), { target: { value: "用户修改后的标题" } });
+    view.rerender(<MemoryRouter><UnifiedExpenseEditor initialDraft={{ ...initialDraft }} view="entry" onViewChange={onViewChange} /></MemoryRouter>);
+    expect(screen.getByLabelText("用途")).toHaveValue("用户修改后的标题");
+
+    view.rerender(<MemoryRouter><UnifiedExpenseEditor key="draft-2" initialDraft={{ ...initialDraft, title: "第二份草稿" }} view="entry" onViewChange={onViewChange} /></MemoryRouter>);
+    expect(screen.getByLabelText("用途")).toHaveValue("第二份草稿");
+    view.rerender(<MemoryRouter><UnifiedExpenseEditor key="manual" view="entry" onViewChange={onViewChange} /></MemoryRouter>);
+    expect(screen.queryByRole("region", { name: "智能录入提示" })).not.toBeInTheDocument();
+  });
+
+  it("能力查询刷新不会重新填充已经编辑的 AI 草稿", async () => {
+    aiCapability.textDraftAvailable = true;
+    aiTextDraftMutation.mockResolvedValue({
+      title: "查询刷新草稿", merchant: null, amount: { amountMinor: "1000", currency: "CNY" }, occurredAt: null,
+      categorySuggestion: "FOOD", location: null, note: null, items: [], warnings: [], incompleteFields: [], payerSuggestions: [], splitSuggestion: null,
+    });
+    const view = renderPage(<NewExpensePage />);
+    fireEvent.click(screen.getByRole("button", { name: "智能录入" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /账单描述/ }), { target: { value: "一笔账" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "生成账单草稿" }));
+    await screen.findByRole("region", { name: "智能录入提示" });
+    fireEvent.change(screen.getByLabelText("用途"), { target: { value: "用户已编辑" } });
+    view.rerender(<MemoryRouter><NewExpensePage /></MemoryRouter>);
+    expect(screen.getByLabelText("用途")).toHaveValue("用户已编辑");
+  });
+
+  it("Activity 切换后不会把旧草稿带入新活动", async () => {
+    aiCapability.textDraftAvailable = true;
+    aiTextDraftMutation.mockResolvedValue({
+      title: "旧活动草稿", merchant: null, amount: { amountMinor: "1000", currency: "CNY" }, occurredAt: null,
+      categorySuggestion: "FOOD", location: null, note: null, items: [], warnings: [], incompleteFields: [],
+      payerSuggestions: [{ mention: "我", matchStatus: "MATCHED", memberId: "member-1", candidateMemberIds: [], matchedDisplayName: "甲", candidateCount: null, amount: { amountMinor: "1000", currency: "CNY" } }],
+      splitSuggestion: { mode: "EQUAL", participants: [{ mention: "我", matchStatus: "MATCHED", memberId: "member-1", candidateMemberIds: [], matchedDisplayName: "甲", candidateCount: null, value: null }] },
+    });
+    const view = renderPage(<NewExpensePage />);
+    fireEvent.click(screen.getByRole("button", { name: "智能录入" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /账单描述/ }), { target: { value: "旧活动的一笔账" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "生成账单草稿" }));
+    await screen.findByRole("region", { name: "智能录入提示" });
+    activity.activityId = "activity-2";
+    view.rerender(<MemoryRouter><NewExpensePage /></MemoryRouter>);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "智能录入提示" })).not.toBeInTheDocument());
+    expect(screen.queryByDisplayValue("旧活动草稿")).not.toBeInTheDocument();
+  });
+
+  it("用户修改标题和金额后清除对应 AI 建议标记", async () => {
+    renderPage(<UnifiedExpenseEditor initialDraft={initialDraft} view="entry" onViewChange={vi.fn()} />);
+    await screen.findByLabelText("用途");
+    expect(screen.getAllByText("AI 建议")).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("用途"), { target: { value: "手工标题" } });
+    expect(screen.getAllByText("AI 建议")).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("金额"), { target: { value: "20" } });
+    expect(screen.queryByText("AI 建议")).not.toBeInTheDocument();
   });
 });
 

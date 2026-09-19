@@ -10,6 +10,8 @@ export type AdminUser = components["schemas"]["AdminUserData"];
 export type RegistrationPolicy = components["schemas"]["RegistrationPolicyData"];
 export type StorageUsage = components["schemas"]["StorageData"];
 export type SystemInformation = components["schemas"]["SystemInformationData"];
+export type AiSettings = components["schemas"]["AiSettingsView"];
+export type AiSettingsInput = components["schemas"]["AiSettingsRequest"];
 
 async function getUsers(): Promise<AdminUser[]> {
   return unwrap(await apiClient.GET("/api/admin/users")).data;
@@ -25,6 +27,10 @@ async function getStorage(): Promise<StorageUsage> {
 
 async function getSystemInformation(): Promise<SystemInformation> {
   return unwrap(await apiClient.GET("/api/admin/system-information")).data;
+}
+
+async function getAiSettings(): Promise<AiSettings> {
+  return unwrap(await apiClient.GET("/api/admin/ai-expense-draft-settings")).data;
 }
 
 export function useAdminUsersQuery(userId: string, enabled = true) {
@@ -58,6 +64,15 @@ export function useSystemInformationQuery(userId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.adminSystemInformation(userId),
     queryFn: getSystemInformation,
+    enabled: userId.length > 0 && enabled,
+    retry: false,
+  });
+}
+
+export function useAiSettingsQuery(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminAiSettings(userId),
+    queryFn: getAiSettings,
     enabled: userId.length > 0 && enabled,
     retry: false,
   });
@@ -116,5 +131,17 @@ export function useUpdateRegistrationPolicyMutation(userId: string) {
         headers: await mutationHeaders(),
       })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.adminRegistrationPolicy(userId) }),
+  });
+}
+
+export function useUpdateAiSettingsMutation(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AiSettingsInput) =>
+      unwrap(await apiClient.PUT("/api/admin/ai-expense-draft-settings", {
+        body: input,
+        headers: await mutationHeaders(),
+      })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.adminAiSettings(userId) }),
   });
 }
