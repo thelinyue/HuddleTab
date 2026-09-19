@@ -148,6 +148,10 @@ fn ai_expense_contract_publishes_deepseek_compatible_text_flow() {
             "/api/activities/{activity_id}/ai/expense-draft/text",
             "post",
         ),
+        (
+            "/api/activities/{activity_id}/ai/expense-draft/image",
+            "post",
+        ),
     ] {
         assert!(
             value["paths"][path][method].is_object(),
@@ -161,6 +165,7 @@ fn ai_expense_contract_publishes_deepseek_compatible_text_flow() {
         "AiMoneyData",
         "AiExpenseDraftMemberSuggestion",
         "AiCapabilityData",
+        "AiImageDraftRequest",
     ] {
         assert!(
             value["components"]["schemas"][schema].is_object(),
@@ -186,6 +191,11 @@ fn ai_expense_contract_publishes_deepseek_compatible_text_flow() {
         &value["components"]["schemas"]["AiExpenseDraftMemberSuggestion"]["properties"];
     assert!(member_properties["memberId"].is_object());
     assert!(member_properties["candidateMemberIds"].is_object());
+    assert!(draft_properties["tax"].is_object());
+    assert!(
+        value["components"]["schemas"]["AiCapabilityData"]["properties"]["imageDraftAvailable"]
+            .is_object()
+    );
 }
 
 #[test]

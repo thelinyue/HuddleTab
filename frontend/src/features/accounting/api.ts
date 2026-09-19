@@ -61,6 +61,32 @@ export async function createAiTextDraft(
   throw new ApiRequestError(result.response.status, result.error, retryAfterSeconds);
 }
 
+/** 图片只在当前请求的 FormData 中存在；Provider data URL 不进入前端缓存或 IndexedDB。 */
+export async function createAiImageDraft(
+  activityId: string,
+  file: File,
+  referenceTime: string,
+  signal?: AbortSignal,
+): Promise<AiExpenseDraft> {
+  const formData = new FormData();
+  formData.set("file", file, file.name);
+  formData.set("referenceTime", referenceTime);
+  const headers = await mutationHeaders();
+  const result = await apiClient.POST("/api/activities/{activity_id}/ai/expense-draft/image", {
+    params: {
+      header: { "x-csrf-token": headers["X-CSRF-Token"] },
+      path: { activity_id: activityId },
+    },
+    body: { file: file.name, referenceTime },
+    bodySerializer: () => formData,
+    signal,
+  });
+  if (result.data !== undefined) return result.data.data;
+  const retryAfter = result.response.headers.get("Retry-After");
+  const retryAfterSeconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : null;
+  throw new ApiRequestError(result.response.status, result.error, retryAfterSeconds);
+}
+
 export async function fetchExchangeRateSuggestion(
   activityId: string,
   from: string,

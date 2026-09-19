@@ -331,6 +331,124 @@
         }
       }
     },
+    "/api/activities/{activity_id}/ai/expense-draft/image": {
+      "post": {
+        "tags": [],
+        "operationId": "aiImageExpenseDraft",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "description": "当前 Session 的 CSRF token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/AiImageDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiExpenseDraftEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/ai/expense-draft/text": {
       "post": {
         "tags": [],
@@ -4790,9 +4908,13 @@
       "AiCapabilityData": {
         "type": "object",
         "required": [
-          "textDraftAvailable"
+          "textDraftAvailable",
+          "imageDraftAvailable"
         ],
         "properties": {
+          "imageDraftAvailable": {
+            "type": "boolean"
+          },
           "textDraftAvailable": {
             "type": "boolean"
           }
@@ -4856,6 +4978,16 @@
               "null"
             ]
           },
+          "discount": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiMoneyData"
+              }
+            ]
+          },
           "incompleteFields": {
             "type": "array",
             "items": {
@@ -4898,6 +5030,16 @@
               "$ref": "#/components/schemas/AiExpenseDraftMemberSuggestion"
             }
           },
+          "serviceFee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiMoneyData"
+              }
+            ]
+          },
           "splitSuggestion": {
             "oneOf": [
               {
@@ -4905,6 +5047,16 @@
               },
               {
                 "$ref": "#/components/schemas/AiSplitSuggestionData"
+              }
+            ]
+          },
+          "tax": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiMoneyData"
               }
             ]
           },
@@ -4987,6 +5139,24 @@
           }
         }
       },
+      "AiImageDraftRequest": {
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          },
+          "referenceTime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AiMoneyData": {
         "type": "object",
         "required": [
@@ -5015,10 +5185,13 @@
       },
       "AiSettingsRequest": {
         "type": "object",
+        "description": "管理员设置 HTTP DTO；密钥只接收入站请求，不会出现在响应或日志中。",
         "required": [
           "enabled",
           "jsonMode",
           "timeoutSeconds",
+          "imageEnabled",
+          "maxImageBytes",
           "clearApiKey",
           "version"
         ],
@@ -5042,9 +5215,22 @@
           "enabled": {
             "type": "boolean"
           },
+          "imageEnabled": {
+            "type": "boolean"
+          },
+          "imageModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "jsonMode": {
             "type": "boolean",
             "description": "`OpenAI` JSON Mode 开关；关闭后仍要求 Provider 返回可解析 JSON，但不发送 `response_format`。"
+          },
+          "maxImageBytes": {
+            "type": "integer",
+            "format": "int32"
           },
           "model": {
             "type": [
@@ -5068,6 +5254,8 @@
           "enabled",
           "jsonMode",
           "timeoutSeconds",
+          "imageEnabled",
+          "maxImageBytes",
           "apiKeyStatus",
           "version"
         ],
@@ -5084,8 +5272,21 @@
           "enabled": {
             "type": "boolean"
           },
+          "imageEnabled": {
+            "type": "boolean"
+          },
+          "imageModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "jsonMode": {
             "type": "boolean"
+          },
+          "maxImageBytes": {
+            "type": "integer",
+            "format": "int32"
           },
           "model": {
             "type": [

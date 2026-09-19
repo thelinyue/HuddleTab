@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
   reset: { isPending: false, mutateAsync: vi.fn(), variables: undefined },
   policy: { policy: "INVITE_ONLY", version: 1 },
   policyUpdate: { isPending: false, mutateAsync: vi.fn() },
-  aiSettings: { apiKeyStatus: "CONFIGURED", enabled: true, jsonMode: true, timeoutSeconds: 30, version: 4, baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  aiSettings: { apiKeyStatus: "CONFIGURED", enabled: true, jsonMode: true, timeoutSeconds: 30, imageEnabled: false, maxImageBytes: 10 * 1024 * 1024, imageModel: null, version: 4, baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
   aiUpdate: { isPending: false, mutateAsync: vi.fn() },
 }));
 
@@ -89,6 +89,14 @@ describe("系统管理页面", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
     await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ model: "deepseek-reasoner", version: 4, jsonMode: true, clearApiKey: false })));
     expect(screen.getByPlaceholderText("已配置；留空表示保留")).toHaveValue("");
+  });
+
+  it("AI 设置可独立配置图片模型和识别开关", async () => {
+    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    fireEvent.click(screen.getByLabelText("启用小票图片识别"));
+    fireEvent.change(screen.getByLabelText("图片 Model"), { target: { value: "deepseek-vl" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
+    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ imageEnabled: true, imageModel: "deepseek-vl", maxImageBytes: 10 * 1024 * 1024, version: 4 })));
   });
 
   it("清除 API Key 时强制关闭 AI", async () => {

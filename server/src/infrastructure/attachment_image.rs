@@ -1,12 +1,14 @@
-use std::io::Cursor;
+use std::io::{self, Cursor, Seek, SeekFrom, Write};
 
 use image::{DynamicImage, ImageDecoder as _, ImageFormat, ImageReader, imageops::FilterType};
 use thiserror::Error;
 
 const MAX_BYTES: usize = 10 * 1024 * 1024;
+const MAX_PROCESSED_BYTES: usize = 10 * 1024 * 1024;
 const MAX_PIXELS: u64 = 40_000_000;
 const MAX_DIMENSION: u32 = 2_048;
 const THUMBNAIL_DIMENSION: u32 = 320;
+const PROCESSED_LIMIT_ERROR: &str = "processed image exceeds limit";
 
 #[derive(Debug)]
 pub struct ProcessedAttachment {
@@ -73,16 +75,89 @@ pub fn process_attachment_image(
     let image = resize_without_enlargement(image);
     let width = image.width();
     let height = image.height();
-    let mut output = Cursor::new(Vec::new());
+    let mut output = LimitedImageWriter::new(MAX_PROCESSED_BYTES);
     image
         .write_to(&mut output, ImageFormat::WebP)
-        .map_err(|_| AttachmentImageError::InvalidImage)?;
+        .map_err(|error| {
+            if error.to_string() == PROCESSED_LIMIT_ERROR {
+                AttachmentImageError::TooLarge
+            } else {
+                AttachmentImageError::InvalidImage
+            }
+        })?;
     Ok(ProcessedAttachment {
         bytes: output.into_inner(),
         mime_type: "image/webp",
         width: i32::try_from(width).map_err(|_| AttachmentImageError::InvalidImage)?,
         height: i32::try_from(height).map_err(|_| AttachmentImageError::InvalidImage)?,
     })
+}
+
+/// 限制重编码输出缓冲区，避免异常输入让 WebP 结果无限增长后才被动拒绝。
+struct LimitedImageWriter {
+    bytes: Vec<u8>,
+    limit: usize,
+    position: usize,
+}
+
+impl LimitedImageWriter {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(limit.min(64 * 1024)),
+            limit,
+            position: 0,
+        }
+    }
+
+    fn into_inner(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl Write for LimitedImageWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let Some(end) = self.position.checked_add(buffer.len()) else {
+            return Err(io::Error::other(PROCESSED_LIMIT_ERROR));
+        };
+        if end > self.limit {
+            return Err(io::Error::other(PROCESSED_LIMIT_ERROR));
+        }
+        if self.position > self.bytes.len() {
+            self.bytes.resize(self.position, 0);
+        }
+        if end > self.bytes.len() {
+            self.bytes.resize(end, 0);
+        }
+        self.bytes[self.position..end].copy_from_slice(buffer);
+        self.position = end;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Seek for LimitedImageWriter {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        let current =
+            i128::try_from(self.position).map_err(|_| io::Error::other(PROCESSED_LIMIT_ERROR))?;
+        let end = i128::try_from(self.bytes.len())
+            .map_err(|_| io::Error::other(PROCESSED_LIMIT_ERROR))?;
+        let next = match position {
+            SeekFrom::Start(offset) => i128::from(offset),
+            SeekFrom::Current(offset) => current + i128::from(offset),
+            SeekFrom::End(offset) => end + i128::from(offset),
+        };
+        let limit =
+            i128::try_from(self.limit).map_err(|_| io::Error::other(PROCESSED_LIMIT_ERROR))?;
+        if !(0..=limit).contains(&next) {
+            return Err(io::Error::other(PROCESSED_LIMIT_ERROR));
+        }
+        self.position =
+            usize::try_from(next).map_err(|_| io::Error::other(PROCESSED_LIMIT_ERROR))?;
+        u64::try_from(next).map_err(|_| io::Error::other(PROCESSED_LIMIT_ERROR))
+    }
 }
 
 /// 验证解码前可读取的尺寸，避免为超大像素图片分配缓冲区。
@@ -146,5 +221,21 @@ fn resize_without_enlargement(image: DynamicImage) -> DynamicImage {
         image
     } else {
         image.resize(MAX_DIMENSION, MAX_DIMENSION, FilterType::Lanczos3)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn processed_webp_writer_rejects_output_before_growing_past_limit() {
+        let mut writer = LimitedImageWriter::new(4);
+        assert!(writer.write_all(b"1234").is_ok());
+        assert_eq!(
+            writer.write_all(b"5").unwrap_err().to_string(),
+            PROCESSED_LIMIT_ERROR
+        );
+        assert_eq!(writer.bytes.len(), 4);
     }
 }

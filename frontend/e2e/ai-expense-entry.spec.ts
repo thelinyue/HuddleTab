@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-type InstallOptions = { capabilityAvailable?: boolean; ambiguous?: boolean };
+type InstallOptions = { capabilityAvailable?: boolean; ambiguous?: boolean; imageAvailable?: boolean };
 
 const activity = {
   activityId: 'demo',
@@ -50,20 +50,28 @@ function aggregateFromInput(input: Record<string, any>) {
 }
 
 async function installFixture(page: Page, options: InstallOptions = {}) {
-  const controls = { textCalls: 0, expenses: [] as Array<Record<string, any>>, writes: [] as unknown[] };
+  const controls = { textCalls: 0, imageCalls: 0, expenses: [] as Array<Record<string, any>>, writes: [] as unknown[] };
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
     if (path.endsWith('/ai/expense-draft/capabilities')) {
       if (options.capabilityAvailable === false) { await route.fulfill({ status: 503, json: { error: { code: 'AI_PROVIDER_UNAVAILABLE', message: '暂不可用' } } }); return; }
-      await route.fulfill({ json: { data: { textDraftAvailable: true } } }); return;
+      await route.fulfill({ json: { data: { textDraftAvailable: true, imageDraftAvailable: options.imageAvailable === true } } }); return;
     }
     if (path.endsWith('/ai/expense-draft/text')) {
       controls.textCalls += 1;
       await route.fulfill({ json: { data: draft(Boolean(options.ambiguous)) } }); return;
     }
+    if (path.endsWith('/ai/expense-draft/image')) {
+      controls.imageCalls += 1;
+      await route.fulfill({ json: { data: draft(Boolean(options.ambiguous)) } }); return;
+    }
     if (request.method() !== 'GET') {
+      if (path.includes('/attachments')) {
+        controls.writes.push({ file: true });
+        await route.fulfill({ json: { data: {} } }); return;
+      }
       if (path.endsWith('/expenses')) {
         const input = request.postDataJSON() as Record<string, any>;
         controls.writes.push(input);
@@ -99,6 +107,7 @@ async function openSmartEntry(page: Page) {
 test('智能录入文字草稿经过隐私确认、成员预填、修改后保存到流水', async ({ page }) => {
   const controls = await installFixture(page);
   await openSmartEntry(page);
+  await expect(page.getByRole('tab', { name: '上传小票' })).not.toBeVisible();
   await page.getByRole('textbox', { name: '账单描述' }).fill('昨晚居酒屋消费 12800 元，我先付。');
   await page.getByRole('button', { name: '生成账单草稿' }).click();
   expect(controls.textCalls).toBe(0);
@@ -145,4 +154,34 @@ test('390×844 智能录入无横向溢出', async ({ page }) => {
   await page.getByRole('button', { name: '生成账单草稿' }).click();
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('小票图片预览、隐私确认、识别成功且默认不保存附件', async ({ page }) => {
+  const controls = await installFixture(page, { imageAvailable: true });
+  await openSmartEntry(page);
+  await page.getByRole('tab', { name: '上传小票' }).click();
+  await page.locator('#ai-expense-image').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
+  await expect(page.getByAltText('待识别的小票预览')).toBeVisible();
+  await page.getByRole('button', { name: '识别小票' }).click();
+  expect(controls.imageCalls).toBe(0);
+  await page.getByRole('checkbox', { name: /确认将小票图片/ }).check();
+  await page.getByRole('button', { name: '重新识别' }).click();
+  await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
+  expect(controls.imageCalls).toBe(1);
+  await page.getByRole('button', { name: '保存' }).click();
+  await expect.poll(() => controls.writes.filter((write) => typeof write === 'object' && write !== null && 'title' in write).length).toBeGreaterThan(0);
+  expect(controls.writes.some((write) => typeof write === 'object' && write !== null && 'file' in write)).toBe(false);
+});
+
+test('开启保存附件后沿用既有附件上传流程', async ({ page }) => {
+  const controls = await installFixture(page, { imageAvailable: true });
+  await openSmartEntry(page);
+  await page.getByRole('tab', { name: '上传小票' }).click();
+  await page.locator('#ai-expense-image').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
+  await page.getByRole('checkbox', { name: '同时保存为账单附件' }).check();
+  await page.getByRole('checkbox', { name: /确认将小票图片/ }).check();
+  await page.getByRole('button', { name: '识别小票' }).click();
+  await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
+  await page.getByRole('button', { name: '保存' }).click();
+  await expect.poll(() => controls.writes.filter((write) => typeof write === 'object' && write !== null && 'file' in write).length).toBeGreaterThan(0);
 });

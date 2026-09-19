@@ -1,5 +1,6 @@
 use huddletab_server::infrastructure::database::connect_and_migrate;
 use sqlx::PgPool;
+use std::borrow::Cow;
 use uuid::Uuid;
 
 // 独立 schema 确保真正从空结构开始，不复用其他集成测试已初始化的 public。
@@ -54,7 +55,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 3);
+    assert_eq!(applied_count, 4);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -63,6 +64,49 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
     .expect("重复启动后设置仍存在");
     assert_eq!(settings, ("OPEN".into(), 2));
     replayed_pool.close().await;
+    drop_schema(admin, &schema).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn phase2_schema_upgrades_to_ai_image_migration() {
+    let (admin, schema, database_url) = isolated_schema().await;
+    let phase2_pool = PgPool::connect(&database_url)
+        .await
+        .expect("应连接阶段二测试 schema");
+    let all_migrations = sqlx::migrate!("./migrations");
+    let phase2_migrator = sqlx::migrate::Migrator {
+        migrations: Cow::Owned(all_migrations.iter().take(3).cloned().collect()),
+        ..all_migrations
+    };
+    phase2_migrator
+        .run(&phase2_pool)
+        .await
+        .expect("阶段二结构应可初始化");
+    let phase2_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(&phase2_pool)
+        .await
+        .expect("应读取阶段二 migration 记录");
+    assert_eq!(phase2_count, 3);
+    phase2_pool.close().await;
+
+    let upgraded = connect_and_migrate(&database_url)
+        .await
+        .expect("阶段二结构应升级到图片 AI migration");
+    let settings: (bool, i32, Option<String>) = sqlx::query_as(
+        "SELECT ai_image_enabled, ai_provider_max_image_bytes, ai_provider_image_model \
+         FROM system_settings WHERE id = 'singleton'",
+    )
+    .fetch_one(&upgraded)
+    .await
+    .expect("升级后应读取图片设置");
+    assert_eq!(settings, (false, 10 * 1024 * 1024, None));
+    let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(&upgraded)
+        .await
+        .expect("应读取升级后的 migration 记录");
+    assert_eq!(migration_count, 4);
+    upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
 
@@ -86,6 +130,21 @@ fn ai_migration_declares_encrypted_settings_and_secret_free_audit_shape() {
         assert!(
             !migration.contains(forbidden),
             "AI migration 不得存储 {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn ai_image_migration_declares_safe_defaults_and_limit() {
+    let migration = include_str!("../migrations/202609190003_ai_expense_image.sql");
+    for fragment in [
+        "ai_image_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+        "ai_provider_max_image_bytes INTEGER NOT NULL DEFAULT 10485760",
+        "ai_provider_image_model TEXT",
+    ] {
+        assert!(
+            migration.contains(fragment),
+            "图片 AI migration 缺少 {fragment}"
         );
     }
 }

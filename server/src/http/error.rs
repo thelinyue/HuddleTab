@@ -160,6 +160,18 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn ai_rate_limited(request_id: RequestId, retry_after: u64) -> Self {
+        Self::RateLimited {
+            body: Self::body(
+                "AI_RATE_LIMITED",
+                "智能录入请求过于频繁，请稍后再试。",
+                request_id,
+            ),
+            retry_after,
+        }
+    }
+
+    #[must_use]
     pub fn invalid_recommendation_strategy(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -500,6 +512,26 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn ai_image_disabled(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "AI_IMAGE_DISABLED",
+            "AI 小票图片识别当前未启用。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_unsupported_image(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "AI_UNSUPPORTED_IMAGE",
+            "当前支持 JPG、PNG 和 WebP 图片。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn ai_provider_not_configured(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -525,6 +557,16 @@ impl ApiError {
             StatusCode::PAYLOAD_TOO_LARGE,
             "AI_INPUT_TOO_LARGE",
             "文字内容不能超过 8 KiB。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn ai_image_too_large(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "AI_INPUT_TOO_LARGE",
+            "图片不能超过 10 MiB。",
             request_id,
         )
     }

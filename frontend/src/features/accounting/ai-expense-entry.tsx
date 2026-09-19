@@ -5,7 +5,7 @@ import type { components } from "../../api/generated/openapi";
 import { Button, Textarea } from "../../components/ui";
 import { minorToInput, normalizeCurrency } from "../../domain-preview/money";
 import type { ActivityMember } from "../activities/api";
-import { createAiTextDraft, type AiExpenseDraft } from "./api";
+import { createAiImageDraft, createAiTextDraft, type AiExpenseDraft } from "./api";
 import { categories } from "./shared";
 
 export type AiFieldState = "AI_SUGGESTED" | "NEEDS_CONFIRMATION" | "MISSING" | "CONFLICT";
@@ -26,6 +26,10 @@ export type AiMemberSuggestionForEditor = {
  * Provider 原始 JSON、提示词、HTTP 状态和配置秘密不会进入这个类型。
  */
 export type AiExpenseEditorInitialValues = {
+  source?: "TEXT" | "IMAGE";
+  draftKey?: string;
+  attachments?: readonly File[];
+  recognitionDetails?: string[];
   title?: string;
   amountMinor?: string;
   currency?: string;
@@ -143,6 +147,7 @@ export function normalizeAiDraftForEditor(
   draft: AiExpenseDraft,
   members: readonly ActivityMember[],
   baseCurrency: string,
+  source: "TEXT" | "IMAGE" = "TEXT",
 ): AiExpenseEditorInitialValues {
   const membersById = activeMemberMap(members);
   const warnings = draft.warnings.map((warning) => warning.message);
@@ -192,7 +197,16 @@ export function normalizeAiDraftForEditor(
   }
 
   const split = splitSuggestions(draft.splitSuggestion, membersById, currency ?? baseCurrency, warnings);
-  const note = [draft.note?.trim(), draft.location?.trim() ? `地点：${draft.location.trim()}` : undefined].filter(Boolean).join("\n") || undefined;
+  // 地点、商家和明细属于识别详情，必须由用户明确点击“添加到备注”后才进入账务备注。
+  const note = draft.note?.trim() || undefined;
+  const recognitionDetails = [
+    draft.merchant?.trim() ? `商家：${draft.merchant.trim()}` : undefined,
+    draft.location?.trim() ? `地点：${draft.location.trim()}` : undefined,
+    ...draft.items.map((item) => item.amount ? `${item.description}：${minorToInput(item.amount.amountMinor, item.amount.currency)} ${item.amount.currency}` : item.description),
+    draft.tax ? `税费：${minorToInput(draft.tax.amountMinor, draft.tax.currency)} ${draft.tax.currency}` : undefined,
+    draft.serviceFee ? `服务费：${minorToInput(draft.serviceFee.amountMinor, draft.serviceFee.currency)} ${draft.serviceFee.currency}` : undefined,
+    draft.discount ? `折扣：-${minorToInput(draft.discount.amountMinor, draft.discount.currency)} ${draft.discount.currency}` : undefined,
+  ].filter((value): value is string => Boolean(value));
   const fieldStates: AiExpenseEditorInitialValues["fieldStates"] = {
     title: draft.title || draft.merchant ? "AI_SUGGESTED" : "MISSING",
     amount: amount ? "AI_SUGGESTED" : "MISSING",
@@ -208,6 +222,9 @@ export function normalizeAiDraftForEditor(
     if (field in fieldStates) fieldStates[field as keyof typeof fieldStates] = "MISSING";
   }
   return {
+    source,
+    draftKey: crypto.randomUUID(),
+    recognitionDetails,
     title: draft.title?.trim() || draft.merchant?.trim() || undefined,
     amountMinor,
     currency,
@@ -231,6 +248,7 @@ type AiExpenseEntryProps = {
   activityId: string;
   members: readonly ActivityMember[];
   baseCurrency: string;
+  imageAvailable?: boolean;
   onDraft: (draft: AiExpenseEditorInitialValues) => void;
   onManual: () => void;
 };
@@ -240,6 +258,9 @@ type RequestState = "IDLE" | "SUBMITTING" | "SUCCESS" | "ERROR" | "CANCELLED";
 function aiErrorMessage(error: unknown): string {
   if (error instanceof ApiRequestError) {
     if (error.status === 429) return error.retryAfterSeconds ? `请求过于频繁，请 ${error.retryAfterSeconds} 秒后重试。` : "请求过于频繁，请稍后重试。";
+    if (error.code === "AI_IMAGE_DISABLED") return "管理员尚未启用小票图片识别。";
+    if (error.code === "AI_UNSUPPORTED_IMAGE") return "当前支持 JPG、PNG 和 WebP 图片。";
+    if (error.code === "AI_API_KEY_RECONFIGURATION_REQUIRED") return "AI API Key 需要管理员重新配置。";
     if (error.status === 403) return "当前账号没有使用智能录入的权限。";
     if (error.status === 502 || error.status === 503 || error.status === 504) return "智能录入服务暂不可用，请稍后重试。";
     if (error.status === 413) return "账单描述过长，请缩短后重试。";
@@ -250,18 +271,36 @@ function aiErrorMessage(error: unknown): string {
 }
 
 /** 文字识别只在当前组件内保存输入、确认和取消状态，不进入持久化缓存或离线队列。 */
-export function AiExpenseEntry({ activityId, members, baseCurrency, onDraft, onManual }: AiExpenseEntryProps) {
+export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailable = false, onDraft, onManual }: AiExpenseEntryProps) {
+  const [mode, setMode] = useState<"text" | "image">("text");
   const [text, setText] = useState("");
+  const [file, setFile] = useState<File>();
+  const [previewUrl, setPreviewUrl] = useState<string>();
+  const [saveAsAttachment, setSaveAsAttachment] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [state, setState] = useState<RequestState>("IDLE");
   const [error, setError] = useState<string>();
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const requestIdRef = useRef(0);
 
+  useEffect(() => {
+    const next = file ? URL.createObjectURL(file) : undefined;
+    setPreviewUrl(next);
+    return () => { if (next) URL.revokeObjectURL(next); };
+  }, [file]);
+
+  useEffect(() => {
+    controllerRef.current?.abort();
+    requestIdRef.current += 1;
+    setFile(undefined);
+    setSaveAsAttachment(false);
+    setConfirmed(false);
+  }, [activityId]);
+
   useEffect(() => () => {
     controllerRef.current?.abort();
     requestIdRef.current += 1;
-  }, [activityId]);
+  }, []);
 
   function cancel() {
     if (state !== "SUBMITTING") return;
@@ -271,20 +310,39 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, onDraft, onM
     setState("CANCELLED");
   }
 
+  function changeMode(next: "text" | "image") {
+    if (next === mode) return;
+    controllerRef.current?.abort();
+    requestIdRef.current += 1;
+    controllerRef.current = undefined;
+    setState("IDLE");
+    setError(undefined);
+    setConfirmed(false);
+    setMode(next);
+    if (next === "text") {
+      setFile(undefined);
+      setSaveAsAttachment(false);
+    }
+  }
+
   async function submit() {
     if (state === "SUBMITTING") return;
-    if (!confirmed) { setError("请先确认账单描述会发送至管理员配置的 AI 服务。 "); setState("ERROR"); return; }
+    if (!confirmed) { setError(`请先确认${mode === "image" ? "小票图片" : "账单描述"}会发送至管理员配置的 AI 服务。`); setState("ERROR"); return; }
     const value = text.trim();
-    if (!value) { setError("请先填写账单描述。"); setState("ERROR"); return; }
+    if (mode === "text" && !value) { setError("请先填写账单描述。"); setState("ERROR"); return; }
+    if (mode === "image" && !file) { setError("请先选择小票图片。"); setState("ERROR"); return; }
     const controller = new AbortController();
     controllerRef.current = controller;
     const requestId = ++requestIdRef.current;
     setError(undefined);
     setState("SUBMITTING");
     try {
-      const response = await createAiTextDraft(activityId, value, controller.signal);
+      const response = mode === "image"
+        ? await createAiImageDraft(activityId, file!, new Date().toISOString(), controller.signal)
+        : await createAiTextDraft(activityId, value, controller.signal);
       if (controller.signal.aborted || requestId !== requestIdRef.current) return;
-      const normalized = normalizeAiDraftForEditor(response, members, baseCurrency);
+      const normalized = normalizeAiDraftForEditor(response, members, baseCurrency, mode === "image" ? "IMAGE" : "TEXT");
+      if (mode === "image" && saveAsAttachment && file) normalized.attachments = [file];
       setState("SUCCESS");
       onDraft(normalized);
     } catch (reason) {
@@ -300,21 +358,35 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, onDraft, onM
     <section className="ai-expense-entry" aria-labelledby="ai-expense-entry-title">
       <header className="ai-expense-entry__header">
         <Sparkles aria-hidden="true" size={22} />
-        <div><h2 id="ai-expense-entry-title">智能录入</h2><p>描述账单，生成可修改的账单草稿。</p></div>
+        <div><h2 id="ai-expense-entry-title">智能录入</h2><p>描述账单或上传小票，生成可修改的账单草稿。</p></div>
       </header>
-      <p className="ai-expense-entry__privacy">账单描述将发送至管理员配置的 AI 服务进行识别。识别结果仅作为草稿，保存前可修改。</p>
-      <label className="field" htmlFor="ai-expense-description">
+      {imageAvailable ? <div className="ai-expense-entry__modes" role="tablist" aria-label="智能录入方式">
+        <button type="button" role="tab" aria-selected={mode === "text"} onClick={() => changeMode("text")}>描述账单</button>
+        <button type="button" role="tab" aria-selected={mode === "image"} onClick={() => changeMode("image")}>上传小票</button>
+      </div> : null}
+      <p className="ai-expense-entry__privacy">{mode === "image" ? "小票图片将发送至管理员配置的 AI 服务进行识别。识别结果仅作为草稿，默认不会保存图片。" : "账单描述将发送至管理员配置的 AI 服务进行识别。识别结果仅作为草稿，保存前可修改。"}</p>
+      {mode === "text" ? <label className="field" htmlFor="ai-expense-description">
         <span className="field__label">账单描述</span>
         <Textarea id="ai-expense-description" aria-label="账单描述" value={text} onChange={(event) => setText(event.target.value)} rows={6} maxLength={4000} placeholder="例如：昨晚居酒屋消费 12800 日元，我先付，林樾、小王和小李三个人平均分摊。" aria-describedby="ai-expense-example" disabled={state === "SUBMITTING"} />
         <span id="ai-expense-example" className="field__hint">可以写金额、币种、付款人和参与成员；不确定的信息会留给你确认。</span>
-      </label>
-      <label className="ai-expense-entry__confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={state === "SUBMITTING"} /><span>我确认将账单描述发送至已配置的 AI 服务。</span></label>
+      </label> : <div className="ai-expense-entry__image-input">
+        <label className="field" htmlFor="ai-expense-image"><span className="field__label">小票图片</span><input id="ai-expense-image" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" capture="environment" disabled={state === "SUBMITTING"} onChange={(event) => {
+          const next = event.target.files?.[0];
+          if (!next) return;
+          if (!["image/jpeg", "image/png", "image/webp"].includes(next.type)) { setError("当前支持 JPG、PNG 和 WebP 图片。"); return; }
+          if (next.size > 10 * 1024 * 1024) { setError("图片不能超过 10 MiB。"); return; }
+          setError(undefined); setFile(next); setState("IDLE");
+        }} /></label>
+        {previewUrl && file ? <div className="ai-expense-entry__image-preview"><img src={previewUrl} alt="待识别的小票预览" /><Button type="button" variant="ghost" onClick={() => { setFile(undefined); setState("IDLE"); }}>删除图片</Button></div> : null}
+        <label className="ai-expense-entry__confirm"><input type="checkbox" checked={saveAsAttachment} onChange={(event) => setSaveAsAttachment(event.target.checked)} disabled={state === "SUBMITTING"} /><span>同时保存为账单附件</span></label>
+      </div>}
+      <label className="ai-expense-entry__confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={state === "SUBMITTING"} /><span>我确认将{mode === "image" ? "小票图片" : "账单描述"}发送至已配置的 AI 服务。</span></label>
       {error ? <div className="ai-expense-entry__error" role="alert">{error}</div> : null}
       {state === "CANCELLED" ? <div className="ai-expense-entry__status" role="status">请求已取消，输入内容仍保留。</div> : null}
       {state === "SUCCESS" ? <div className="ai-expense-entry__status" role="status">草稿已生成，正在打开编辑器。</div> : null}
       <div className="ai-expense-entry__actions">
         <Button type="button" variant="ghost" onClick={onManual} disabled={state === "SUBMITTING"}>手动填写</Button>
-        {state === "SUBMITTING" ? <Button type="button" variant="secondary" onClick={cancel} aria-label="取消智能录入">取消</Button> : <Button type="button" onClick={() => void submit()} busy={false} disabled={!text.trim()} aria-busy={false}>{state === "ERROR" || state === "CANCELLED" ? "重新生成草稿" : "生成账单草稿"}</Button>}
+        {state === "SUBMITTING" ? <Button type="button" variant="secondary" onClick={cancel} aria-label="取消智能录入">取消</Button> : <Button type="button" onClick={() => void submit()} busy={false} disabled={mode === "text" ? !text.trim() : !file} aria-busy={false}>{state === "ERROR" || state === "CANCELLED" ? mode === "image" ? "重新识别" : "重新生成草稿" : mode === "image" ? "识别小票" : "生成账单草稿"}</Button>}
       </div>
     </section>
   );

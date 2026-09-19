@@ -35,12 +35,16 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
                 Option<String>,
                 bool,
                 i32,
+                bool,
+                i32,
+                Option<String>,
                 Option<Vec<u8>>,
                 i64,
             ),
         >(
             "SELECT ai_expense_draft_enabled, ai_provider_base_url, ai_provider_model, \
-             ai_provider_json_mode, ai_provider_timeout_seconds, ai_provider_api_key_envelope, version \
+             ai_provider_json_mode, ai_provider_timeout_seconds, ai_image_enabled, \
+             ai_provider_max_image_bytes, ai_provider_image_model, ai_provider_api_key_envelope, version \
              FROM system_settings WHERE id = 'singleton'",
         )
         .fetch_optional(&self.pool)
@@ -52,8 +56,11 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
             model: row.2,
             json_mode: row.3,
             timeout_seconds: row.4,
-            api_key_envelope: row.5,
-            version: row.6,
+            image_enabled: row.5,
+            max_image_bytes: row.6,
+            image_model: row.7,
+            api_key_envelope: row.8,
+            version: row.9,
         })
         .ok_or(AiRepositoryError::Unavailable)
     }
@@ -66,19 +73,24 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
         now: OffsetDateTime,
     ) -> Result<AiSettings, AiRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(|error| log_error(&error))?;
-        let row = sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool, i32, Option<Vec<u8>>, i64)>(
+        let row = sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool, i32, bool, i32, Option<String>, Option<Vec<u8>>, i64)>(
             "UPDATE system_settings SET ai_expense_draft_enabled = $1, ai_provider_base_url = $2, \
              ai_provider_model = $3, ai_provider_json_mode = $4, ai_provider_timeout_seconds = $5, \
-             ai_provider_api_key_envelope = $6, version = version + 1, updated_at = $7, updated_by_user_id = $8 \
-             WHERE id = 'singleton' AND version = $9 \
+             ai_image_enabled = $6, ai_provider_max_image_bytes = $7, ai_provider_image_model = $8, \
+             ai_provider_api_key_envelope = $9, version = version + 1, updated_at = $10, updated_by_user_id = $11 \
+             WHERE id = 'singleton' AND version = $12 \
              RETURNING ai_expense_draft_enabled, ai_provider_base_url, ai_provider_model, \
-             ai_provider_json_mode, ai_provider_timeout_seconds, ai_provider_api_key_envelope, version",
+             ai_provider_json_mode, ai_provider_timeout_seconds, ai_image_enabled, \
+             ai_provider_max_image_bytes, ai_provider_image_model, ai_provider_api_key_envelope, version",
         )
         .bind(write.enabled)
         .bind(&write.base_url)
         .bind(&write.model)
         .bind(write.json_mode)
         .bind(write.timeout_seconds)
+        .bind(write.image_enabled)
+        .bind(write.max_image_bytes)
+        .bind(&write.image_model)
         .bind(&write.api_key_envelope)
         .bind(now)
         .bind(actor_user_id)
@@ -113,8 +125,11 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
             model: row.2,
             json_mode: row.3,
             timeout_seconds: row.4,
-            api_key_envelope: row.5,
-            version: row.6,
+            image_enabled: row.5,
+            max_image_bytes: row.6,
+            image_model: row.7,
+            api_key_envelope: row.8,
+            version: row.9,
         })
     }
 

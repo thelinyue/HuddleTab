@@ -440,6 +440,13 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .ai-expense-entry__privacy { margin: 16px 0; border-radius: 10px; padding: 10px 12px; background: var(--surface-muted); font-size: 13px; }
 .ai-expense-entry .field { margin-top: 14px; }
 .ai-expense-entry .textarea { min-height: 140px; resize: vertical; }
+.ai-expense-entry__modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.ai-expense-entry__modes button { min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--foreground); cursor: pointer; }
+.ai-expense-entry__modes button[aria-selected="true"] { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, var(--surface)); }
+.ai-expense-entry__image-input input[type="file"] { width: 100%; min-height: 44px; padding: 10px 0; }
+.ai-expense-entry__image-preview { display: flex; align-items: flex-start; gap: 12px; margin-top: 12px; }
+.ai-expense-entry__image-preview img { width: min(100%, 260px); max-height: 240px; object-fit: contain; border-radius: 10px; background: var(--surface-muted); }
+.ai-expense-guidance__details { margin-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); padding-top: 8px; }
 .ai-expense-entry__confirm { display: flex; min-height: 44px; align-items: center; gap: 9px; margin-top: 12px; font-size: 13px; line-height: 1.45; }
 .ai-expense-entry__confirm input { width: 20px; height: 20px; flex: 0 0 20px; }
 .ai-expense-entry__error, .ai-expense-guidance { margin-top: 12px; border-radius: 10px; padding: 10px 12px; line-height: 1.5; }

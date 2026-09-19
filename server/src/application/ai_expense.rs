@@ -8,6 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use tokio::sync::OwnedSemaphorePermit;
 use unicode_normalization::UnicodeNormalization;
 use url::Url;
 use uuid::Uuid;
@@ -19,6 +20,7 @@ use crate::{
 
 pub const AI_TEXT_MAX_BYTES: usize = 8 * 1024;
 pub const AI_RESPONSE_MAX_BYTES: usize = 256 * 1024;
+pub const AI_IMAGE_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct AiSettings {
@@ -28,6 +30,9 @@ pub struct AiSettings {
     /// 是否向 `OpenAI` JSON Mode 发送请求；本地兼容服务可显式关闭。
     pub json_mode: bool,
     pub timeout_seconds: i32,
+    pub image_enabled: bool,
+    pub max_image_bytes: i32,
+    pub image_model: Option<String>,
     pub api_key_envelope: Option<Vec<u8>>,
     pub version: i64,
 }
@@ -48,10 +53,15 @@ pub struct AiSettingsView {
     pub model: Option<String>,
     pub json_mode: bool,
     pub timeout_seconds: i32,
+    pub image_enabled: bool,
+    pub max_image_bytes: i32,
+    pub image_model: Option<String>,
     pub api_key_status: ApiKeyStatus,
     pub version: i64,
 }
 
+/// 管理员提交的 AI 设置；布尔值对应公开配置开关，边界在应用层统一校验。
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Eq, PartialEq)]
 pub struct AiSettingsUpdate {
     pub enabled: bool,
@@ -59,6 +69,9 @@ pub struct AiSettingsUpdate {
     pub model: Option<String>,
     pub json_mode: bool,
     pub timeout_seconds: i32,
+    pub image_enabled: bool,
+    pub max_image_bytes: i32,
+    pub image_model: Option<String>,
     pub api_key: Option<String>,
     pub clear_api_key: bool,
     pub expected_version: i64,
@@ -86,6 +99,9 @@ pub struct AiSettingsWrite {
     pub model: Option<String>,
     pub json_mode: bool,
     pub timeout_seconds: i32,
+    pub image_enabled: bool,
+    pub max_image_bytes: i32,
+    pub image_model: Option<String>,
     pub api_key_envelope: Option<Vec<u8>>,
     pub changed_fields: Vec<String>,
     pub secret_action: Option<String>,
@@ -125,10 +141,39 @@ pub trait AiExpenseDraftProvider: Send + Sync {
         base_currency: &str,
         now: OffsetDateTime,
     ) -> Result<String, AiProviderError>;
+
+    async fn draft_from_image(
+        &self,
+        image_bytes: &[u8],
+        mime_type: &str,
+        base_currency: &str,
+        now: OffsetDateTime,
+    ) -> Result<String, AiProviderError> {
+        let _ = (image_bytes, mime_type, base_currency, now);
+        Err(AiProviderError::Unavailable)
+    }
+
+    /// 图片解码前由 HTTP 层取得全局 Permit，并把它交给 Provider 持有到请求结束。
+    ///
+    /// 默认实现兼容只实现基础图片方法的测试 Provider；正式 OpenAI-compatible Provider
+    /// 会复用这个 Permit，避免同一请求重复获取 Semaphore。
+    async fn draft_from_image_with_permit(
+        &self,
+        image_bytes: &[u8],
+        mime_type: &str,
+        base_currency: &str,
+        now: OffsetDateTime,
+        permit: OwnedSemaphorePermit,
+    ) -> Result<String, AiProviderError> {
+        drop(permit);
+        self.draft_from_image(image_bytes, mime_type, base_currency, now)
+            .await
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AiProviderError {
+    InputTooLarge,
     Timeout,
     Unavailable,
     InvalidResponse,
@@ -199,6 +244,9 @@ pub struct AiExpenseDraftData {
     pub location: Option<String>,
     pub note: Option<String>,
     pub items: Vec<AiDraftItemData>,
+    pub tax: Option<AiMoneyData>,
+    pub service_fee: Option<AiMoneyData>,
+    pub discount: Option<AiMoneyData>,
     pub payer_suggestions: Vec<AiExpenseDraftMemberSuggestion>,
     pub split_suggestion: Option<AiSplitSuggestionData>,
     pub warnings: Vec<AiWarningData>,
@@ -235,6 +283,9 @@ pub fn settings_view(settings: &AiSettings, app_secret: &AppSecret) -> AiSetting
         model: settings.model.clone(),
         json_mode: settings.json_mode,
         timeout_seconds: settings.timeout_seconds,
+        image_enabled: settings.image_enabled,
+        max_image_bytes: settings.max_image_bytes,
+        image_model: settings.image_model.clone(),
         api_key_status,
         version: settings.version,
     }
@@ -258,6 +309,11 @@ pub fn prepare_settings_update(
     }
     let base_url = normalize_base_url(input.base_url)?;
     let model = normalize_model(input.model)?;
+    if !(1..=i32::try_from(AI_IMAGE_MAX_BYTES).unwrap_or(i32::MAX)).contains(&input.max_image_bytes)
+    {
+        return Err(AiSettingsError::InvalidInput);
+    }
+    let image_model = normalize_model(input.image_model)?;
     let envelope = if input.clear_api_key {
         None
     } else if let Some(api_key) = input.api_key.as_deref() {
@@ -300,6 +356,15 @@ pub fn prepare_settings_update(
     if current.timeout_seconds != input.timeout_seconds {
         changed_fields.push("timeoutSeconds".to_owned());
     }
+    if current.image_enabled != input.image_enabled {
+        changed_fields.push("imageEnabled".to_owned());
+    }
+    if current.max_image_bytes != input.max_image_bytes {
+        changed_fields.push("maxImageBytes".to_owned());
+    }
+    if current.image_model != image_model {
+        changed_fields.push("imageModel".to_owned());
+    }
     let secret_action = match (
         current.api_key_envelope.is_some(),
         input.clear_api_key,
@@ -316,6 +381,9 @@ pub fn prepare_settings_update(
         model,
         json_mode: input.json_mode,
         timeout_seconds: input.timeout_seconds,
+        image_enabled: input.image_enabled,
+        max_image_bytes: input.max_image_bytes,
+        image_model,
         api_key_envelope: envelope,
         changed_fields,
         secret_action,
@@ -368,6 +436,7 @@ pub fn validate_base_url(value: &str) -> Result<(), &'static str> {
 /// # Errors
 ///
 /// content 不是 JSON object 或完全没有可确认核心字段时返回对应错误。
+#[allow(clippy::too_many_lines)]
 pub fn parse_draft(
     response_content: &str,
     activity_context: &AiActivityContext,
@@ -387,6 +456,9 @@ pub fn parse_draft(
         "location",
         "note",
         "items",
+        "tax",
+        "serviceFee",
+        "discount",
         "payers",
         "split",
     ];
@@ -409,6 +481,27 @@ pub fn parse_draft(
         &mut warnings,
     );
     let items = parse_items(object.get("items"), activity_context, &mut warnings);
+    let tax = parse_money_value(
+        object.get("tax"),
+        object.get("currency"),
+        activity_context,
+        "tax",
+        &mut warnings,
+    );
+    let service_fee = parse_money_value(
+        object.get("serviceFee"),
+        object.get("currency"),
+        activity_context,
+        "serviceFee",
+        &mut warnings,
+    );
+    let discount = parse_money_value(
+        object.get("discount"),
+        object.get("currency"),
+        activity_context,
+        "discount",
+        &mut warnings,
+    );
     let payer_suggestions = parse_payers(object.get("payers"), activity_context, &mut warnings);
     let split_suggestion = parse_split(object.get("split"), activity_context, &mut warnings);
 
@@ -445,6 +538,9 @@ pub fn parse_draft(
         location,
         note,
         items,
+        tax,
+        service_fee,
+        discount,
         payer_suggestions,
         split_suggestion,
         warnings,
@@ -899,6 +995,40 @@ mod tests {
     }
 
     #[test]
+    fn image_details_use_money_standardization_without_becoming_expense_fields() {
+        let draft = parse_draft(
+            r#"{"title":"酒店","amount":{"value":"2400","currency":"CNY"},"tax":{"value":"12.50","currency":"CNY"},"serviceFee":{"value":"3","currency":"CNY"},"discount":{"value":"5","currency":"CNY"},"items":[{"description":"房费","amount":{"value":"2400","currency":"CNY"}}]}"#,
+            &context(),
+        )
+        .unwrap();
+        assert_eq!(
+            draft.tax.as_ref().map(|value| value.amount_minor.as_str()),
+            Some("1250")
+        );
+        assert_eq!(
+            draft
+                .service_fee
+                .as_ref()
+                .map(|value| value.amount_minor.as_str()),
+            Some("300")
+        );
+        assert_eq!(
+            draft
+                .discount
+                .as_ref()
+                .map(|value| value.amount_minor.as_str()),
+            Some("500")
+        );
+        assert_eq!(
+            draft.items[0]
+                .amount
+                .as_ref()
+                .map(|value| value.amount_minor.as_str()),
+            Some("240000")
+        );
+    }
+
+    #[test]
     fn ambiguous_member_is_not_selected() {
         let draft =
             parse_draft(r#"{"title":"晚餐","payers":[{"name":"小王"}]}"#, &context()).unwrap();
@@ -931,6 +1061,9 @@ mod tests {
             model: None,
             json_mode: true,
             timeout_seconds: 30,
+            image_enabled: false,
+            max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
+            image_model: None,
             api_key_envelope: None,
             version: 1,
         };
@@ -942,6 +1075,9 @@ mod tests {
                 model: Some("deepseek-chat".to_owned()),
                 json_mode: true,
                 timeout_seconds: 30,
+                image_enabled: false,
+                max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
+                image_model: None,
                 api_key: Some("test-key".to_owned()),
                 clear_api_key: false,
                 expected_version: 1,
@@ -959,6 +1095,9 @@ mod tests {
                     model: None,
                     json_mode: true,
                     timeout_seconds: 30,
+                    image_enabled: false,
+                    max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
+                    image_model: None,
                     api_key: None,
                     clear_api_key: false,
                     expected_version: 1,

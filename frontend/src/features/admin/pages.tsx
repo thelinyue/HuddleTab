@@ -149,6 +149,9 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState("30");
+  const [imageEnabled, setImageEnabled] = useState(false);
+  const [imageModel, setImageModel] = useState("");
+  const [maxImageBytes, setMaxImageBytes] = useState("10");
   const [jsonMode, setJsonMode] = useState(true);
   const [apiKey, setApiKey] = useState("");
   const [clearApiKey, setClearApiKey] = useState(false);
@@ -161,6 +164,9 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
     setBaseUrl(settings.data.baseUrl ?? "");
     setModel(settings.data.model ?? "");
     setTimeoutSeconds(String(settings.data.timeoutSeconds));
+    setImageEnabled(settings.data.imageEnabled);
+    setImageModel(settings.data.imageModel ?? "");
+    setMaxImageBytes(String(settings.data.maxImageBytes / (1024 * 1024)));
     setJsonMode(settings.data.jsonMode);
     setApiKey("");
     setClearApiKey(false);
@@ -176,12 +182,20 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
       setError(new Error("超时时间必须是 1–120 秒的整数。"));
       return;
     }
+    const imageLimitMiB = Number(maxImageBytes);
+    if (!Number.isInteger(imageLimitMiB) || imageLimitMiB < 1 || imageLimitMiB > 10) {
+      setError(new Error("图片大小上限必须是 1–10 MiB 的整数。"));
+      return;
+    }
     const input: AiSettingsInput = {
       enabled: clearApiKey ? false : enabled,
       baseUrl: baseUrl.trim() || null,
       model: model.trim() || null,
       timeoutSeconds: timeout,
       jsonMode,
+      imageEnabled: clearApiKey ? false : imageEnabled,
+      imageModel: imageModel.trim() || null,
+      maxImageBytes: imageLimitMiB * 1024 * 1024,
       version: settings.data.version,
       clearApiKey,
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
@@ -214,6 +228,9 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
       <label className="settings-choice"><input type="checkbox" checked={enabled} disabled={update.isPending || clearApiKey} onChange={(event) => setEnabled(event.target.checked)} />启用 AI 智能录入</label>
       <label className="field"><span className="field__label">Base URL</span><Input aria-label="Base URL" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.deepseek.com/v1" autoComplete="off" /></label>
       <label className="field"><span className="field__label">Model</span><Input aria-label="Model" value={model} onChange={(event) => setModel(event.target.value)} placeholder="deepseek-chat" autoComplete="off" /></label>
+      <label className="settings-choice"><input type="checkbox" checked={imageEnabled} disabled={update.isPending || clearApiKey || !enabled} onChange={(event) => setImageEnabled(event.target.checked)} />启用小票图片识别</label>
+      <label className="field"><span className="field__label">图片 Model（可选）</span><Input aria-label="图片 Model" value={imageModel} onChange={(event) => setImageModel(event.target.value)} placeholder="留空则使用 Model" autoComplete="off" /></label>
+      <label className="field"><span className="field__label">图片大小上限（MiB）</span><Input aria-label="图片大小上限（MiB）" inputMode="numeric" value={maxImageBytes} onChange={(event) => setMaxImageBytes(event.target.value)} min={1} max={10} /></label>
       <label className="field"><span className="field__label">Timeout（秒）</span><Input aria-label="Timeout（秒）" inputMode="numeric" value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(event.target.value)} min={1} max={120} /></label>
       <label className="field"><span className="field__label">API Key</span><Input aria-label="API Key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={apiKeyStatus === "CONFIGURED" ? "已配置；留空表示保留" : "请输入 API Key"} autoComplete="new-password" /><span className="field__hint">当前状态：{apiKeyStatus === "CONFIGURED" ? "已配置" : apiKeyStatus === "NOT_SET" ? "未配置" : "需要重新配置"}。不会回显密钥。</span></label>
       <label className="settings-choice"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setEnabled(false); }} />清除 API Key</label>

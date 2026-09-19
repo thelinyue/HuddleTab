@@ -16,12 +16,13 @@ pub(crate) enum RateLimitCategory {
     Auth,
     AnonymousInvite,
     SensitiveAuthenticated,
+    AiExpenseDraft,
 }
 
 impl RateLimitCategory {
     const fn limit(self) -> u16 {
         match self {
-            Self::Auth | Self::SensitiveAuthenticated => 10,
+            Self::Auth | Self::SensitiveAuthenticated | Self::AiExpenseDraft => 10,
             Self::AnonymousInvite => 30,
         }
     }

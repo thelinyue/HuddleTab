@@ -521,6 +521,13 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
     mimeType: attachment.mimeType,
     blob: attachment.blob,
     file: new File([attachment.blob], attachment.fileName, { type: attachment.mimeType }),
+  })) ?? initialDraft?.attachments?.map((file) => ({
+    id: `ai-${crypto.randomUUID()}`,
+    clientAttachmentId: crypto.randomUUID(),
+    fileName: file.name,
+    mimeType: file.type,
+    blob: file,
+    file,
   })) ?? []);
   const [uploadingAttachmentId, setUploadingAttachmentId] = useState<string>();
   const [attachmentToDelete, setAttachmentToDelete] = useState<string>();
@@ -554,6 +561,19 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
       next.add(field);
       return next;
     });
+  }
+
+  function addRecognitionDetailsToNote() {
+    const details = initialDraft?.recognitionDetails ?? [];
+    if (!details.length) return;
+    const next = [note.trim(), ...details].filter(Boolean).join("\n");
+    if (next.length > 2000) {
+      setQuickError("识别详情超过备注长度，请先编辑后再添加。");
+      return;
+    }
+    markAiFieldEdited("note");
+    setNote(next);
+    setQuickError(undefined);
   }
 
   function aiBadge(field: keyof NonNullable<AiExpenseEditorInitialValues["fieldStates"]>) {
@@ -900,6 +920,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
         <div className="ai-expense-guidance__heading"><span>智能录入草稿</span><small>请检查并修改后再保存</small></div>
         {initialDraft.warnings.length ? <ul>{initialDraft.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul> : null}
         {initialDraft.memberSuggestions.filter((suggestion) => suggestion.matchStatus !== "MATCHED").map((suggestion) => <p key={`${suggestion.mention}-${suggestion.matchStatus}`}><strong>{suggestion.mention}</strong>{suggestion.candidateNames.length ? `：候选成员 ${suggestion.candidateNames.join("、")}。` : "：请在成员选择器中手动选择。"}</p>)}
+        {initialDraft.recognitionDetails?.length ? <div className="ai-expense-guidance__details"><p>以下识别详情仅供参考，不会自动写入备注。</p><ul>{initialDraft.recognitionDetails.map((detail, index) => <li key={`${detail}-${index}`}>{detail}</li>)}</ul><Button type="button" variant="ghost" onClick={addRecognitionDetailsToNote}>添加到备注</Button></div> : null}
       </section> : null}
       {view === "entry" ? (
         <div className="quick-expense-entry" data-quick-expense-view="entry">
@@ -994,6 +1015,7 @@ export function NewExpensePage() {
     activityId={activity.activityId}
     members={activeMembers}
     baseCurrency={activity.baseCurrency}
+    imageAvailable={capability.data?.imageDraftAvailable === true}
     onManual={() => { setChoiceResolved(true); setEntryMode("manual"); setInitialDraft(undefined); setDraftKey((current) => current + 1); }}
     onDraft={(draft) => { setChoiceResolved(true); setInitialDraft(draft); setEntryMode("manual"); setDraftKey((current) => current + 1); }}
   /> : <RoutedExpenseEditor initialDraft={initialDraft} />;

@@ -52,6 +52,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/ai/expense-draft/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aiImageExpenseDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/ai/expense-draft/text": {
         parameters: {
             query?: never;
@@ -965,6 +981,7 @@ export interface components {
             data: components["schemas"]["AdminUserData"][];
         };
         AiCapabilityData: {
+            imageDraftAvailable: boolean;
             textDraftAvailable: boolean;
         };
         AiCapabilityEnvelope: {
@@ -978,6 +995,7 @@ export interface components {
         AiExpenseDraftData: {
             amount?: null | components["schemas"]["AiMoneyData"];
             categorySuggestion?: string | null;
+            discount?: null | components["schemas"]["AiMoneyData"];
             incompleteFields: string[];
             items: components["schemas"]["AiDraftItemData"][];
             location?: string | null;
@@ -985,7 +1003,9 @@ export interface components {
             note?: string | null;
             occurredAt?: string | null;
             payerSuggestions: components["schemas"]["AiExpenseDraftMemberSuggestion"][];
+            serviceFee?: null | components["schemas"]["AiMoneyData"];
             splitSuggestion?: null | components["schemas"]["AiSplitSuggestionData"];
+            tax?: null | components["schemas"]["AiMoneyData"];
             title?: string | null;
             warnings: components["schemas"]["AiWarningData"][];
         };
@@ -1003,6 +1023,11 @@ export interface components {
             memberId?: string | null;
             mention: string;
         };
+        AiImageDraftRequest: {
+            /** Format: binary */
+            file: string;
+            referenceTime?: string | null;
+        };
         AiMoneyData: {
             amountMinor: string;
             currency: string;
@@ -1010,13 +1035,18 @@ export interface components {
         AiSettingsEnvelope: {
             data: components["schemas"]["AiSettingsView"];
         };
+        /** @description 管理员设置 HTTP DTO；密钥只接收入站请求，不会出现在响应或日志中。 */
         AiSettingsRequest: {
             apiKey?: string | null;
             baseUrl?: string | null;
             clearApiKey: boolean;
             enabled: boolean;
+            imageEnabled: boolean;
+            imageModel?: string | null;
             /** @description `OpenAI` JSON Mode 开关；关闭后仍要求 Provider 返回可解析 JSON，但不发送 `response_format`。 */
             jsonMode: boolean;
+            /** Format: int32 */
+            maxImageBytes: number;
             model?: string | null;
             /** Format: int32 */
             timeoutSeconds: number;
@@ -1027,7 +1057,11 @@ export interface components {
             apiKeyStatus: components["schemas"]["ApiKeyStatus"];
             baseUrl?: string | null;
             enabled: boolean;
+            imageEnabled: boolean;
+            imageModel?: string | null;
             jsonMode: boolean;
+            /** Format: int32 */
+            maxImageBytes: number;
             model?: string | null;
             /** Format: int32 */
             timeoutSeconds: number;
@@ -1900,6 +1934,91 @@ export interface operations {
                 };
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    aiImageExpenseDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 当前 Session 的 CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["AiImageDraftRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiExpenseDraftEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };

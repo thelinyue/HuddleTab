@@ -217,6 +217,12 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .fallback(api_method_not_allowed),
         )
         .route(
+            "/activities/{activity_id}/ai/expense-draft/image",
+            axum::routing::post(ai_expense::image_draft)
+                .layer(DefaultBodyLimit::max(attachment::MAX_MULTIPART_BYTES))
+                .fallback(api_method_not_allowed),
+        )
+        .route(
             "/activities/{activity_id}",
             get(activity::get)
                 .put(activity::update)
