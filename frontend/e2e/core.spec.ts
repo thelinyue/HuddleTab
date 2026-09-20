@@ -124,8 +124,8 @@ async function settlementConflict(browser: Browser, testInfo: TestInfo, storageS
       firstRow.getByRole("button", { name: "修改" }).click(),
       secondRow.getByRole("button", { name: "修改" }).click(),
     ]);
-    const firstAmount = firstRow.getByLabel("结算金额");
-    const secondAmount = secondRow.getByLabel("结算金额");
+    const firstAmount = firstRow.getByLabel(/^金额（/);
+    const secondAmount = secondRow.getByLabel(/^金额（/);
     expect(await secondAmount.inputValue()).toBe(await firstAmount.inputValue());
     await firstAmount.fill("99");
     await secondAmount.fill("98");
