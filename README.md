@@ -1,6 +1,6 @@
 # HuddleTab
 
- HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.14`，运行栈为 React/Vite 与 Rust/Axum。
+ HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，运行栈为 React/Vite 与 Rust/Axum。
 
 ## Compose 直接部署
 
