@@ -1389,7 +1389,8 @@ describe("Activity 生命周期写权限", () => {
     expect(detail).toHaveTextContent("金额CNY¥10.00");
     expect(detail).toHaveTextContent("用途午餐");
     expect(detail).toHaveTextContent("付款人甲¥10.00");
-    expect(detail).toHaveTextContent("时间2026/9/1 16:00:00");
+    const occurredAt = within(detail).getByText(new Date(expense.expense.occurredAt).toLocaleString("zh-CN"), { exact: true });
+    expect(occurredAt).toHaveAttribute("dateTime", expense.expense.occurredAt);
     expect(detail).toHaveTextContent("参与人甲乙");
     expect(detail).toHaveTextContent("分摊设置均摊甲¥5.00乙¥5.00");
     expect(detail).toHaveTextContent("团队午餐");
