@@ -1,4 +1,4 @@
-import { ArrowLeft, Bot, ChevronRight, Database, HardDrive, KeyRound, Settings2, ShieldCheck, UsersRound } from "lucide-react";
+import { ArrowLeft, Bot, ChevronRight, Database, HardDrive, KeyRound, Plus, Settings2, ShieldCheck, Trash2, UsersRound } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiRequestError, errorMessage } from "../../api/error";
@@ -26,7 +26,7 @@ import {
 function AdminFrame({ title, children, backTo = "/admin", backLabel = "返回系统管理" }: { title: string; children: React.ReactNode; backTo?: string; backLabel?: string }) {
   return (
     <div className="top-level-page">
-      <main className="app-frame app-frame--with-nav admin-page">
+      <main className="app-frame app-frame--no-nav admin-page">
         <header className="me-subpage-header">
           <Link className="icon-button" to={backTo} aria-label={backLabel} title={backLabel}><ArrowLeft aria-hidden="true" size={20} /></Link>
           <h1>{title}</h1>
@@ -50,6 +50,10 @@ export function AdminHomePage() {
         <Link className="settings-link" to="/admin/settings" aria-label="注册策略">
           <Settings2 aria-hidden="true" size={18} />
           <span><strong>注册策略</strong><small>设置是否需要邀请才能创建账号</small></span><ChevronRight aria-hidden="true" size={18} />
+        </Link>
+        <Link className="settings-link" to="/admin/ai" aria-label="AI 智能录入">
+          <Bot aria-hidden="true" size={18} />
+          <span><strong>AI 智能录入</strong><small>配置模型与图片识别能力</small></span><ChevronRight aria-hidden="true" size={18} />
         </Link>
         <Link className="settings-link" to="/admin/system" aria-label="系统信息">
           <HardDrive aria-hidden="true" size={18} />
@@ -141,16 +145,18 @@ function ResetPasswordOverlay({ user, onClose, mutation }: { user: AdminUser | n
   );
 }
 
+type AiModelDraft = { name: string; supportsImage: boolean };
+
 /** 管理设置只编辑可公开显示的配置；API Key 仅通过空值保留、明文替换或清除三种动作提交。 */
 function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boolean }) {
   const settings = useAiSettingsQuery(userId, online);
   const update = useUpdateAiSettingsMutation(userId);
   const [enabled, setEnabled] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
+  const [models, setModels] = useState<AiModelDraft[]>([]);
+  const [defaultModel, setDefaultModel] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState("30");
   const [imageEnabled, setImageEnabled] = useState(false);
-  const [imageModel, setImageModel] = useState("");
   const [maxImageBytes, setMaxImageBytes] = useState("10");
   const [jsonMode, setJsonMode] = useState(true);
   const [apiKey, setApiKey] = useState("");
@@ -162,10 +168,10 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
     if (!settings.data) return;
     setEnabled(settings.data.enabled);
     setBaseUrl(settings.data.baseUrl ?? "");
-    setModel(settings.data.model ?? "");
+    setModels(settings.data.models.map((model) => ({ name: model.name, supportsImage: model.supportsImage })));
+    setDefaultModel(settings.data.defaultModel ?? "");
     setTimeoutSeconds(String(settings.data.timeoutSeconds));
     setImageEnabled(settings.data.imageEnabled);
-    setImageModel(settings.data.imageModel ?? "");
     setMaxImageBytes(String(settings.data.maxImageBytes / (1024 * 1024)));
     setJsonMode(settings.data.jsonMode);
     setApiKey("");
@@ -187,15 +193,17 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
       setError(new Error("图片大小上限必须是 1–10 MiB 的整数。"));
       return;
     }
+    const normalizedModels = models.map((model) => ({ name: model.name.trim(), supportsImage: model.supportsImage }));
+    const selectedModel = normalizedModels.find((model) => model.name === defaultModel.trim());
     const input: AiSettingsInput = {
       enabled: clearApiKey ? false : enabled,
       baseUrl: baseUrl.trim() || null,
-      model: model.trim() || null,
+      models: normalizedModels,
+      defaultModel: selectedModel?.name ?? null,
       timeoutSeconds: timeout,
       jsonMode,
       // 服务端禁止基础 AI 关闭时保留图片能力；关闭总开关时一起写入 false。
-      imageEnabled: clearApiKey ? false : enabled ? imageEnabled : false,
-      imageModel: imageModel.trim() || null,
+      imageEnabled: clearApiKey ? false : enabled ? imageEnabled && selectedModel?.supportsImage === true : false,
       maxImageBytes: imageLimitMiB * 1024 * 1024,
       version: settings.data.version,
       clearApiKey,
@@ -220,6 +228,8 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
   if (settings.error) return <section className="admin-settings-card"><ErrorNotice error={settings.error} /></section>;
   if (!settings.data) return null;
   const apiKeyStatus = settings.data.apiKeyStatus;
+  const selectedModel = models.find((model) => model.name.trim() === defaultModel.trim());
+  const imageModelReady = selectedModel?.supportsImage === true;
   return <section className="admin-settings-card" aria-labelledby="ai-settings-heading">
     <div className="admin-settings-card__heading"><Bot aria-hidden="true" size={20} /><div><h2 id="ai-settings-heading">AI 智能录入</h2><p>只生成账单草稿，不会直接写入账务事实。</p></div></div>
     {apiKeyStatus === "RECONFIGURATION_REQUIRED" ? <div className="notice notice--error" role="alert">API Key 无法解密，请重新填写或清除 API Key 后保存。</div> : null}
@@ -228,9 +238,21 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
     <form className="form-stack ai-settings-form" onSubmit={(event) => void save(event)}>
       <label className="settings-choice"><input type="checkbox" checked={enabled} disabled={update.isPending || clearApiKey} onChange={(event) => setEnabled(event.target.checked)} />启用 AI 智能录入</label>
       <label className="field"><span className="field__label">Base URL</span><Input aria-label="Base URL" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.deepseek.com/v1" autoComplete="off" /></label>
-      <label className="field"><span className="field__label">Model</span><Input aria-label="Model" value={model} onChange={(event) => setModel(event.target.value)} placeholder="deepseek-chat" autoComplete="off" /></label>
-      <label className="settings-choice"><input type="checkbox" checked={imageEnabled} disabled={update.isPending || clearApiKey || !enabled} onChange={(event) => setImageEnabled(event.target.checked)} />启用小票图片识别</label>
-      <label className="field"><span className="field__label">图片 Model（可选）</span><Input aria-label="图片 Model" value={imageModel} onChange={(event) => setImageModel(event.target.value)} placeholder="留空则使用 Model" autoComplete="off" /></label>
+      <div className="ai-models-editor" aria-label="AI 模型列表">
+        <div className="ai-models-editor__heading"><span className="field__label">模型</span><Button type="button" variant="secondary" onClick={() => setModels((current) => [...current, { name: "", supportsImage: false }])}><Plus aria-hidden="true" size={16} />添加模型</Button></div>
+        {models.length === 0 ? <p className="form-hint">请添加至少一个模型，并选择默认模型。</p> : null}
+        {models.map((model, index) => <div className="ai-model-row" key={index}>
+          <label className="field"><span className="field__label">模型名称 {index + 1}</span><Input aria-label={`模型名称 ${index + 1}`} value={model.name} onChange={(event) => setModels((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} placeholder="deepseek-chat" autoComplete="off" /></label>
+          <div className="ai-model-row__options">
+            <label className="settings-choice"><input type="radio" name="default-ai-model" aria-label={`模型 ${index + 1} 设为默认`} checked={defaultModel === model.name && model.name.trim().length > 0} onChange={() => setDefaultModel(model.name)} />默认模型</label>
+            <label className="settings-choice"><input type="checkbox" aria-label={`模型 ${index + 1} 支持图片识别`} checked={model.supportsImage} onChange={(event) => setModels((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, supportsImage: event.target.checked } : item))} />支持图片识别</label>
+            <Button type="button" variant="ghost" aria-label={`删除模型 ${index + 1}`} onClick={() => { setModels((current) => current.filter((_item, itemIndex) => itemIndex !== index)); if (defaultModel === model.name) setDefaultModel(""); }}><Trash2 aria-hidden="true" size={16} />删除</Button>
+          </div>
+        </div>)}
+        <p className="form-hint">系统只调用默认模型。勾选“支持图片识别”后，该默认模型才能用于图片识别。</p>
+      </div>
+      <label className="settings-choice"><input type="checkbox" checked={imageEnabled} disabled={update.isPending || clearApiKey || !enabled || !imageModelReady} onChange={(event) => setImageEnabled(event.target.checked)} />启用图片识别</label>
+      {!imageModelReady ? <p className="form-hint">请先为默认模型勾选“支持图片识别”，再启用图片识别。</p> : null}
       <label className="field"><span className="field__label">图片大小上限（MiB）</span><Input aria-label="图片大小上限（MiB）" inputMode="numeric" value={maxImageBytes} onChange={(event) => setMaxImageBytes(event.target.value)} min={1} max={10} /></label>
       <label className="field"><span className="field__label">Timeout（秒）</span><Input aria-label="Timeout（秒）" inputMode="numeric" value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(event.target.value)} min={1} max={120} /></label>
       <label className="field"><span className="field__label">API Key</span><Input aria-label="API Key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={apiKeyStatus === "CONFIGURED" ? "已配置；留空表示保留" : "请输入 API Key"} autoComplete="new-password" /><span className="field__hint">当前状态：{apiKeyStatus === "CONFIGURED" ? "已配置" : apiKeyStatus === "NOT_SET" ? "未配置" : "需要重新配置"}。不会回显密钥。</span></label>
@@ -266,9 +288,14 @@ export function AdminSettingsPage() {
         <label className="settings-choice"><input type="radio" name="registration-policy" checked={policy.data.policy === "INVITE_ONLY"} disabled={!online || update.isPending} onChange={() => void save("INVITE_ONLY")} />仅允许邀请注册</label>
         <label className="settings-choice"><input type="radio" name="registration-policy" checked={policy.data.policy === "OPEN"} disabled={!online || update.isPending} onChange={() => void save("OPEN")} />开放注册</label>
       </section> : null}
-      <AiExpenseSettingsCard userId={userId} online={online} />
     </AdminFrame>
   );
+}
+
+export function AdminAiSettingsPage() {
+  const session = useSessionQuery();
+  const online = useOnlineStatus();
+  return <AdminFrame title="AI 智能录入"><AiExpenseSettingsCard userId={session.data?.userId ?? ""} online={online} /></AdminFrame>;
 }
 
 function formatBytes(value: string): string {

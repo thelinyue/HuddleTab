@@ -7,7 +7,7 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
   const balances = members.map((member, index) => ({ memberId: member.memberId, displayName: member.displayName, netMinor: index ? String(-shareMinor) : String((count - 1) * shareMinor) }));
   const recommendations = { recommendations: members.slice(1).map(member => ({ payerMemberId: member.memberId, receiverMemberId: 'm0', amountMinor: String(shareMinor) })) };
   const records = [{ settlementId: 's1', activityId: 'demo', payerMemberId: 'm1', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '8000', status: 'ACTIVE', createdAt: '2026-09-06T06:30:00Z', version: '1' }, { settlementId: 's2', activityId: 'demo', payerMemberId: 'm2', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '2000', status: 'VOID', createdAt: '2026-09-05T10:20:00Z', version: '1' }];
-  const expenses = [{ expense: { expenseId: 'e1', activityId: 'demo', title: '湖边晚餐', note: '四个人一起吃杭帮菜', baseAmountMinor: '48000', originalAmountMinor: '48000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'FOOD', occurredAt: '2026-09-05T10:00:00Z', exchangeRate: '1', splitMode: 'EQUAL', version: '1' }, payments: [{ memberId: 'm0', originalAmountMinor: '48000' }], shares: members.map(member => ({ memberId: member.memberId, originalAmountMinor: '12000' })), attachments: [] }];
+  const expenses = [{ expense: { expenseId: 'e1', activityId: 'demo', title: '湖边晚餐', note: '四个人一起吃杭帮菜', baseAmountMinor: '48000', originalAmountMinor: '48000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'FOOD', occurredAt: '2026-09-05T10:00:00Z', exchangeRate: '1', splitMode: 'EQUAL', version: '1' }, payments: [{ memberId: 'm0', originalAmountMinor: '48000', baseAmountMinor: '48000' }], shares: members.map(member => ({ memberId: member.memberId, originalAmountMinor: '12000', baseAmountMinor: '12000' })), attachments: [] }];
   const controls = { expenses, activityPending: false, historyPending: false, feedPending: false, snapshotPending: false, historyError: false, ledgerPending: false, failWrite: false, writes: [] as unknown[], summaryReads: 0, members, balances, activity };
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url()); const endpoint = url.pathname.split('/').at(-1);
@@ -101,6 +101,39 @@ test('流水与结算摘要：标题、金额、说明对齐且三种状态等�
   }
   await page.getByRole('link', { name: '生成分享摘要' }).click();
   await expect(page).toHaveURL(/\/share-summary\/demo$/);
+});
+
+test('活动统计：入口与金额对齐，分类、每日和成员统计在桌面与移动端完整可读', async ({ page }, info) => {
+  const control = await installFixture(page);
+  control.expenses.push(
+    { expense: { expenseId: 'e2', activityId: 'demo', title: '地铁与打车', note: '', baseAmountMinor: '16000', originalAmountMinor: '16000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'TRANSPORT', occurredAt: '2026-09-06T03:00:00Z', exchangeRate: '1', splitMode: 'EXACT', version: '1' }, payments: [{ memberId: 'm1', originalAmountMinor: '16000', baseAmountMinor: '16000' }], shares: [{ memberId: 'm0', originalAmountMinor: '4000', baseAmountMinor: '4000' }, { memberId: 'm1', originalAmountMinor: '12000', baseAmountMinor: '12000' }], attachments: [] },
+    { expense: { expenseId: 'e3', activityId: 'demo', title: '民宿', note: '', baseAmountMinor: '32000', originalAmountMinor: '32000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'LODGING', occurredAt: '2026-09-07T03:00:00Z', exchangeRate: '1', splitMode: 'EQUAL', version: '1' }, payments: [{ memberId: 'm2', originalAmountMinor: '32000', baseAmountMinor: '32000' }], shares: control.members.map(member => ({ memberId: member.memberId, originalAmountMinor: '8000', baseAmountMinor: '8000' })), attachments: [] },
+  );
+  await page.goto('/activities/demo');
+
+  const share = page.getByRole('link', { name: '分享流水小票' });
+  const statistics = page.getByRole('link', { name: '活动统计' });
+  const amount = page.locator('.expense-summary .accounting-summary__value');
+  const [shareBox, statisticsBox, amountBox] = await Promise.all([share.boundingBox(), statistics.boundingBox(), amount.boundingBox()]);
+  expect(statisticsBox!.y).toBeGreaterThan(shareBox!.y);
+  expect(Math.abs((statisticsBox!.y + statisticsBox!.height / 2) - (amountBox!.y + amountBox!.height / 2))).toBeLessThanOrEqual(1);
+
+  await statistics.click();
+  await expect(page).toHaveURL('/activities/demo/statistics');
+  await expect(page.getByRole('heading', { name: '活动统计' })).toBeVisible();
+  await expect(page.getByRole('img', { name: /分类消费圆形图/ })).toBeVisible();
+  await expect(page.getByLabel('每日消费柱状图')).toBeVisible();
+  await expect(page.locator('.activity-statistics-member-row')).toHaveCount(4);
+  await expect(page.locator('.activity-statistics-member-list')).toContainText('总消费');
+  await expect(page.locator('.activity-statistics-member-list')).toContainText('总支出');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  const memberExpenseHelp = page.getByRole('button', { name: '成员费用说明' });
+  await memberExpenseHelp.click();
+  const memberExpenseDescription = page.getByText('按账单分摊结果统计到该成员名下的消费金额。');
+  await expect(memberExpenseDescription).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(memberExpenseDescription).not.toBeVisible();
+  await page.screenshot({ path: info.outputPath('activity-statistics.png'), fullPage: true });
 });
 
 test('结算摘要：首次余额加载前后卡片高度不跳动', async ({ page }) => {

@@ -3,7 +3,7 @@
 //! 这里不保存草稿；文字识别请求只读取活动成员和系统配置，最终 Expense 仍走既有接口。
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::{PgPool, types::Json};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -32,19 +32,20 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
             (
                 bool,
                 Option<String>,
+                Json<Vec<crate::application::ai_expense::AiModelConfig>>,
                 Option<String>,
                 bool,
                 i32,
                 bool,
                 i32,
-                Option<String>,
                 Option<Vec<u8>>,
                 i64,
             ),
         >(
-            "SELECT ai_expense_draft_enabled, ai_provider_base_url, ai_provider_model, \
+            "SELECT ai_expense_draft_enabled, ai_provider_base_url, ai_provider_models, \
+             ai_provider_default_model, \
              ai_provider_json_mode, ai_provider_timeout_seconds, ai_image_enabled, \
-             ai_provider_max_image_bytes, ai_provider_image_model, ai_provider_api_key_envelope, version \
+             ai_provider_max_image_bytes, ai_provider_api_key_envelope, version \
              FROM system_settings WHERE id = 'singleton'",
         )
         .fetch_optional(&self.pool)
@@ -53,12 +54,12 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
         .map(|row| AiSettings {
             enabled: row.0,
             base_url: row.1,
-            model: row.2,
-            json_mode: row.3,
-            timeout_seconds: row.4,
-            image_enabled: row.5,
-            max_image_bytes: row.6,
-            image_model: row.7,
+            models: row.2.0,
+            default_model: row.3,
+            json_mode: row.4,
+            timeout_seconds: row.5,
+            image_enabled: row.6,
+            max_image_bytes: row.7,
             api_key_envelope: row.8,
             version: row.9,
         })
@@ -73,24 +74,24 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
         now: OffsetDateTime,
     ) -> Result<AiSettings, AiRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(|error| log_error(&error))?;
-        let row = sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool, i32, bool, i32, Option<String>, Option<Vec<u8>>, i64)>(
+        let row = sqlx::query_as::<_, (bool, Option<String>, Json<Vec<crate::application::ai_expense::AiModelConfig>>, Option<String>, bool, i32, bool, i32, Option<Vec<u8>>, i64)>(
             "UPDATE system_settings SET ai_expense_draft_enabled = $1, ai_provider_base_url = $2, \
-             ai_provider_model = $3, ai_provider_json_mode = $4, ai_provider_timeout_seconds = $5, \
-             ai_image_enabled = $6, ai_provider_max_image_bytes = $7, ai_provider_image_model = $8, \
+             ai_provider_models = $3, ai_provider_default_model = $4, ai_provider_json_mode = $5, \
+             ai_provider_timeout_seconds = $6, ai_image_enabled = $7, ai_provider_max_image_bytes = $8, \
              ai_provider_api_key_envelope = $9, version = version + 1, updated_at = $10, updated_by_user_id = $11 \
              WHERE id = 'singleton' AND version = $12 \
-             RETURNING ai_expense_draft_enabled, ai_provider_base_url, ai_provider_model, \
-             ai_provider_json_mode, ai_provider_timeout_seconds, ai_image_enabled, \
-             ai_provider_max_image_bytes, ai_provider_image_model, ai_provider_api_key_envelope, version",
+             RETURNING ai_expense_draft_enabled, ai_provider_base_url, ai_provider_models, \
+             ai_provider_default_model, ai_provider_json_mode, ai_provider_timeout_seconds, \
+             ai_image_enabled, ai_provider_max_image_bytes, ai_provider_api_key_envelope, version",
         )
         .bind(write.enabled)
         .bind(&write.base_url)
-        .bind(&write.model)
+        .bind(Json(write.models.clone()))
+        .bind(&write.default_model)
         .bind(write.json_mode)
         .bind(write.timeout_seconds)
         .bind(write.image_enabled)
         .bind(write.max_image_bytes)
-        .bind(&write.image_model)
         .bind(&write.api_key_envelope)
         .bind(now)
         .bind(actor_user_id)
@@ -122,12 +123,12 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
         Ok(AiSettings {
             enabled: row.0,
             base_url: row.1,
-            model: row.2,
-            json_mode: row.3,
-            timeout_seconds: row.4,
-            image_enabled: row.5,
-            max_image_bytes: row.6,
-            image_model: row.7,
+            models: row.2.0,
+            default_model: row.3,
+            json_mode: row.4,
+            timeout_seconds: row.5,
+            image_enabled: row.6,
+            max_image_bytes: row.7,
             api_key_envelope: row.8,
             version: row.9,
         })

@@ -516,7 +516,7 @@ impl ApiError {
         Self::new(
             StatusCode::FORBIDDEN,
             "AI_IMAGE_DISABLED",
-            "AI 小票图片识别当前未启用。",
+            "AI 图片识别当前未启用。",
             request_id,
         )
     }

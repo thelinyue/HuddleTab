@@ -3,6 +3,9 @@ import { NavLink, useLocation } from "react-router-dom";
 
 export function ProductBottomNavigation() {
   const location = useLocation();
+  // “我的”下级页面和系统管理页拥有自己的返回入口；路由切换后立即移除悬浮胶囊，避免遮挡表单和设置内容。
+  const isSecondaryPage = location.pathname.startsWith("/me/") || location.pathname === "/admin" || location.pathname.startsWith("/admin/");
+  if (isSecondaryPage) return null;
   const items = [
     { to: "/activities", label: "活动", Icon: UsersRound },
     { to: "/me", label: "我的", Icon: UserRound },

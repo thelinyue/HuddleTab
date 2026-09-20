@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
   reset: { isPending: false, mutateAsync: vi.fn(), variables: undefined },
   policy: { policy: "INVITE_ONLY", version: 1 },
   policyUpdate: { isPending: false, mutateAsync: vi.fn() },
-  aiSettings: { apiKeyStatus: "CONFIGURED", enabled: true, jsonMode: true, timeoutSeconds: 30, imageEnabled: false, maxImageBytes: 10 * 1024 * 1024, imageModel: null, version: 4, baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  aiSettings: { apiKeyStatus: "CONFIGURED", enabled: true, jsonMode: true, timeoutSeconds: 30, imageEnabled: false, maxImageBytes: 10 * 1024 * 1024, version: 4, baseUrl: "https://api.deepseek.com/v1", models: [{ name: "deepseek-chat", supportsImage: false }], defaultModel: "deepseek-chat" },
   aiUpdate: { isPending: false, mutateAsync: vi.fn() },
 }));
 
@@ -32,9 +32,9 @@ vi.mock("./api", () => ({
   useUpdateAiSettingsMutation: () => state.aiUpdate,
 }));
 
-import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "./pages";
+import { AdminAiSettingsPage, AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUsersPage } from "./pages";
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; state.aiSettings.apiKeyStatus = "CONFIGURED"; state.aiSettings.imageEnabled = false; });
+afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; state.aiSettings.apiKeyStatus = "CONFIGURED"; state.aiSettings.imageEnabled = false; state.aiSettings.models = [{ name: "deepseek-chat", supportsImage: false }]; state.aiSettings.defaultModel = "deepseek-chat"; });
 
 describe("系统管理页面", () => {
   it("用户管理提供启用、管理员和重置密码操作", () => {
@@ -50,6 +50,7 @@ describe("系统管理页面", () => {
   it("系统管理首页返回我的，二级页面返回系统管理", () => {
     const home = render(<MemoryRouter><AdminHomePage /></MemoryRouter>);
     expect(screen.getByRole("link", { name: "返回我的" })).toHaveAttribute("href", "/me");
+    expect(screen.getByRole("link", { name: "AI 智能录入" })).toHaveAttribute("href", "/admin/ai");
     home.unmount();
 
     render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
@@ -81,34 +82,35 @@ describe("系统管理页面", () => {
     await waitFor(() => expect(state.policyUpdate.mutateAsync).toHaveBeenCalledWith({ policy: "OPEN", version: 1 }));
   });
 
-  it("AI 设置不回显密钥，保存继续使用 version 并支持 JSON Mode", async () => {
-    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+  it("AI 设置独立页面不回显密钥，保存继续使用 version 并支持 JSON Mode", async () => {
+    render(<MemoryRouter><AdminAiSettingsPage /></MemoryRouter>);
     expect(screen.getByText("当前状态：已配置。不会回显密钥。")).toBeInTheDocument();
     expect(screen.getByText(/不支持 response_format/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "deepseek-reasoner" } });
+    fireEvent.change(screen.getByLabelText("模型名称 1"), { target: { value: "deepseek-reasoner" } });
+    fireEvent.click(screen.getByLabelText("模型 1 设为默认"));
     fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
-    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ model: "deepseek-reasoner", version: 4, jsonMode: true, clearApiKey: false })));
+    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ models: [{ name: "deepseek-reasoner", supportsImage: false }], defaultModel: "deepseek-reasoner", version: 4, jsonMode: true, clearApiKey: false })));
     expect(screen.getByPlaceholderText("已配置；留空表示保留")).toHaveValue("");
   });
 
-  it("AI 设置可独立配置图片模型和识别开关", async () => {
-    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
-    fireEvent.click(screen.getByLabelText("启用小票图片识别"));
-    fireEvent.change(screen.getByLabelText("图片 Model"), { target: { value: "deepseek-vl" } });
+  it("模型列表可勾选图片能力并启用图片识别", async () => {
+    render(<MemoryRouter><AdminAiSettingsPage /></MemoryRouter>);
+    fireEvent.click(screen.getByLabelText("模型 1 支持图片识别"));
+    fireEvent.click(screen.getByLabelText("启用图片识别"));
     fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
-    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ imageEnabled: true, imageModel: "deepseek-vl", maxImageBytes: 10 * 1024 * 1024, version: 4 })));
+    await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ imageEnabled: true, models: [{ name: "deepseek-chat", supportsImage: true }], defaultModel: "deepseek-chat", maxImageBytes: 10 * 1024 * 1024, version: 4 })));
   });
 
   it("关闭基础 AI 时不会保留图片能力", async () => {
     state.aiSettings.imageEnabled = true;
-    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    render(<MemoryRouter><AdminAiSettingsPage /></MemoryRouter>);
     fireEvent.click(screen.getByLabelText("启用 AI 智能录入"));
     fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
     await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ enabled: false, imageEnabled: false, version: 4 })));
   });
 
   it("清除 API Key 时强制关闭 AI", async () => {
-    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    render(<MemoryRouter><AdminAiSettingsPage /></MemoryRouter>);
     fireEvent.click(screen.getByLabelText("清除 API Key"));
     fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
     await waitFor(() => expect(state.aiUpdate.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ clearApiKey: true, enabled: false, version: 4 })));
@@ -116,14 +118,14 @@ describe("系统管理页面", () => {
 
   it("密钥无法恢复时提示重新配置", () => {
     state.aiSettings.apiKeyStatus = "RECONFIGURATION_REQUIRED";
-    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    render(<MemoryRouter><AdminAiSettingsPage /></MemoryRouter>);
     expect(screen.getByRole("alert")).toHaveTextContent("API Key 无法解密");
     expect(screen.getByPlaceholderText("请输入 API Key")).toBeInTheDocument();
   });
 
   it("设置 version 冲突时要求重新加载而不静默覆盖", async () => {
     state.aiUpdate.mutateAsync.mockRejectedValueOnce(new ApiRequestError(409));
-    render(<MemoryRouter><AdminSettingsPage /></MemoryRouter>);
+    render(<MemoryRouter><AdminAiSettingsPage /></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: "保存 AI 设置" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("其他管理员修改");
     expect(screen.getByRole("button", { name: "重新加载设置" })).toBeInTheDocument();

@@ -1,7 +1,7 @@
 import { ApiRequestError } from "../../api/error";
-import { Filter, Info, Plus, ReceiptText, ImageDown } from "lucide-react";
+import { BarChart3, Filter, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
 import { Popover } from "radix-ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, Select, StateIllustration } from "../../components/ui";
@@ -10,10 +10,12 @@ import { useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
 import {
   type ExpenseAggregate,
+  useAiCapabilityQuery,
   useDiscardPendingExpenseMutation,
   useExpensesQuery
 } from "./api";
 import { usePendingExpenseMutations } from "./expense-queue-sync";
+import { AiExpenseEntry, type AiExpenseEditorInitialValues } from "./ai-expense-entry";
 
 import { retryableLazy } from "../../components/retryable-lazy";
 import { categories, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
@@ -61,7 +63,10 @@ export function ExpenseFeedPage() {
   );
   const discardPending = useDiscardPendingExpenseMutation(session.userId);
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
+  const aiCapability = useAiCapabilityQuery(session.userId, activity.activityId, !offline && activity.status === "ACTIVE");
   const [entryOpen, setEntryOpen] = useState(false);
+  const [entryMode, setEntryMode] = useState<"manual" | "ai">("manual");
+  const [initialDraft, setInitialDraft] = useState<AiExpenseEditorInitialValues>();
   const [quickView, setQuickView] = useState<QuickExpenseView>("entry");
   const [rejectedView, setRejectedView] = useState<QuickExpenseView>("entry");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -69,6 +74,14 @@ export function ExpenseFeedPage() {
   const [category, setCategory] = useState("");
   const [rejectedDraft, setRejectedDraft] = useState<PendingExpenseDraft>();
   const [discardTarget, setDiscardTarget] = useState<{ mutationId: string; activityId: string }>();
+
+  // 活动切换时关闭当前录入层，避免旧活动的草稿或异步响应进入新活动。
+  useEffect(() => {
+    setEntryOpen(false);
+    setEntryMode("manual");
+    setInitialDraft(undefined);
+    setQuickView("entry");
+  }, [activity.activityId]);
 
   async function confirmDiscard() {
     if (!discardTarget) return;
@@ -104,6 +117,7 @@ export function ExpenseFeedPage() {
   const foreignTotals = new Map<string, bigint>();
   // 生命周期只约束本领域写面：结束后账单只读，但不会反推活动管理权限。
   const expenseWritable = activity.status === "ACTIVE";
+  const aiAvailable = !offline && expenseWritable && aiCapability.data?.textDraftAvailable === true;
   const existingExpenseWritable = expenseWritable && !offline;
   const editExpenseId = existingExpenseWritable ? searchParams.get("editExpense") ?? "" : "";
   const closeEditExpense = () => {
@@ -127,7 +141,10 @@ export function ExpenseFeedPage() {
       <section className="expense-summary" aria-label="消费摘要">
         {/* 与结算摘要共用标题行，保证两个工作台页面的卡片视觉基准一致。 */}
         <header className="accounting-summary__header"><p>总消费</p><Link className="settlement-share-entry" to={`/share-feed/${encodeURIComponent(activity.activityId)}`}><ImageDown aria-hidden="true" size={17} />分享流水小票</Link></header>
-        <div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div>
+        <div className="expense-summary__value-row">
+          <div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div>
+          <Link className="settlement-share-entry activity-statistics-entry" to={`/activities/${encodeURIComponent(activity.activityId)}/statistics`} state={{ activityStatisticsFromFeed: true }}><BarChart3 aria-hidden="true" size={17} />活动统计</Link>
+        </div>
         {[...foreignTotals].length ? <p className="expense-summary__foreign">其中外币消费 {[...foreignTotals].map(([currencyCode, amount]) => formatMoney(currencyCode, amount.toString())).join(" · ")} · 已折算</p> : null}
         <p className="expense-summary__meta accounting-summary__meta">
           <span>{allExpenses.length} 笔消费 · 人均消费 <strong>{formatMoney(activity.baseCurrency, average.toString())}</strong></span>
@@ -221,18 +238,28 @@ export function ExpenseFeedPage() {
         )) : <EmptyState icon={<ReceiptText size={28} />} visual={allExpenses.length ? undefined : <StateIllustration src="/illustrations/expense-feed-empty.webp" />} title={allExpenses.length ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length ? "调整筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} />}
       </section>
 
-      {expenseWritable ? <button className="activity-add-fab quick-expense-trigger" type="button" aria-label="记一笔" title="记一笔" onClick={() => { setQuickView("entry"); setEntryOpen(true); }}><Plus aria-hidden="true" size={24} /></button> : null}
+      {expenseWritable ? <div className="expense-entry-fabs">
+        {aiAvailable ? <button className="expense-ai-fab" type="button" aria-label="智能录入" title="智能录入" onClick={() => { setEntryMode("ai"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(true); }}><Sparkles aria-hidden="true" size={18} /><span>AI</span></button> : null}
+        <button className="activity-add-fab quick-expense-trigger" type="button" aria-label="记一笔" title="记一笔" onClick={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(true); }}><Plus aria-hidden="true" size={24} /></button>
+      </div> : null}
       {expenseWritable && entryOpen ? <Overlay
         open={true}
-        title={quickExpenseViewTitle(quickView)}
+        title={entryMode === "ai" ? "智能录入" : quickExpenseViewTitle(quickView)}
         onBack={quickView === "entry" ? undefined : { label: quickExpenseBackLabel(quickView), onClick: () => setQuickView(parentQuickExpenseView(quickView)) }}
-        focusKey={quickView}
+        focusKey={`${entryMode}-${quickView}-${initialDraft?.draftKey ?? "new"}`}
         initialFocus="mobile-dialog"
         mobileSheet={quickExpenseMobileSheet(quickView)}
-        onClose={() => { setQuickView("entry"); setEntryOpen(false); }}
-        className={quickExpenseOverlayClass(quickView)}
+        onClose={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(false); }}
+        className={`${quickExpenseOverlayClass(quickView)}${entryMode === "ai" ? " ai-expense-overlay" : ""}`}
       >
-        <UnifiedExpenseEditor view={quickView} onViewChange={setQuickView} onSaved={() => { setQuickView("entry"); setEntryOpen(false); }} />
+        {entryMode === "ai" ? <AiExpenseEntry
+          activityId={activity.activityId}
+          members={memberData}
+          baseCurrency={activity.baseCurrency}
+          imageAvailable={aiCapability.data?.imageDraftAvailable === true}
+          onManual={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); }}
+          onDraft={(draft) => { setInitialDraft(draft); setEntryMode("manual"); setQuickView("entry"); }}
+        /> : <UnifiedExpenseEditor initialDraft={initialDraft} view={quickView} onViewChange={setQuickView} onSaved={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(false); }} />}
       </Overlay> : null}
       {rejectedDraft ? <Overlay open={true} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : { label: quickExpenseBackLabel(rejectedView, "修改被拒账单"), onClick: () => setRejectedView(parentQuickExpenseView(rejectedView)) }} focusKey={rejectedView} initialFocus="mobile-dialog" mobileSheet={quickExpenseMobileSheet(rejectedView)} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className={quickExpenseOverlayClass(rejectedView)}><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></Overlay> : null}
       {editExpenseId ? <ExpenseEditOverlay expenseId={editExpenseId} onClose={closeEditExpense} /> : null}

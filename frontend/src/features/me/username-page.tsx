@@ -44,7 +44,7 @@ export function ChangeUsernamePage() {
 
   return (
     <div className="top-level-page">
-      <main className="app-frame app-frame--with-nav">
+      <main className="app-frame app-frame--no-nav">
         <header className="me-subpage-header">
           <Link className="icon-button" to="/me" aria-label="返回我的"><ArrowLeft aria-hidden="true" size={20} /></Link>
           <h1>修改用户名</h1><span aria-hidden="true" />

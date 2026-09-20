@@ -68,16 +68,12 @@ describe("AI 文字草稿适配", () => {
 });
 
 describe("AI 文字录入界面", () => {
-  it("隐私确认前不发送请求，确认后保留输入并生成草稿", async () => {
+  it("点击生成后直接请求并保留输入生成草稿", async () => {
     vi.mocked(createAiTextDraft).mockResolvedValue(draft);
     const onDraft = vi.fn();
     render(<AiExpenseEntry activityId="activity-1" members={members} baseCurrency="CNY" onDraft={onDraft} onManual={vi.fn()} />);
     const input = screen.getByRole("textbox", { name: /账单描述/ });
     fireEvent.change(input, { target: { value: "昨晚晚餐 12800 日元" } });
-    fireEvent.click(screen.getByRole("button", { name: /生成账单草稿|重新生成草稿/ }));
-    expect(createAiTextDraft).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent("确认");
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /生成账单草稿|重新生成草稿/ }));
     await waitFor(() => expect(onDraft).toHaveBeenCalledOnce());
     expect(createAiTextDraft).toHaveBeenCalledWith("activity-1", "昨晚晚餐 12800 日元", expect.any(AbortSignal));
@@ -88,7 +84,6 @@ describe("AI 文字录入界面", () => {
     vi.mocked(createAiTextDraft).mockImplementation(() => new Promise((complete) => { resolve = complete; }));
     render(<AiExpenseEntry activityId="activity-1" members={members} baseCurrency="CNY" onDraft={vi.fn()} onManual={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox", { name: /账单描述/ }), { target: { value: "一笔账" } });
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "生成账单草稿" }));
     expect(screen.getByRole("button", { name: "取消智能录入" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "取消智能录入" }));
@@ -100,24 +95,20 @@ describe("AI 文字录入界面", () => {
     vi.mocked(createAiTextDraft).mockRejectedValue(new ApiRequestError(429, undefined, 12));
     render(<AiExpenseEntry activityId="activity-1" members={members} baseCurrency="CNY" onDraft={vi.fn()} onManual={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox", { name: /账单描述/ }), { target: { value: "一笔账" } });
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "生成账单草稿" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("12 秒");
     expect(screen.queryByText(/response|prompt|api\.deepseek/i)).not.toBeInTheDocument();
   });
 
-  it("图片模式先确认隐私、只在内存预览并可请求图片草稿", async () => {
+  it("图片模式只在内存预览并可请求图片草稿", async () => {
     vi.mocked(createAiImageDraft).mockResolvedValue(draft);
     const onDraft = vi.fn();
     const revoke = vi.spyOn(URL, "revokeObjectURL");
     const view = render(<AiExpenseEntry activityId="activity-1" members={members} baseCurrency="CNY" imageAvailable onDraft={onDraft} onManual={vi.fn()} />);
-    fireEvent.click(screen.getByRole("tab", { name: "上传小票" }));
+    fireEvent.click(screen.getByRole("tab", { name: "图片识别" }));
     const file = new File([new Uint8Array([1, 2, 3])], "receipt.jpg", { type: "image/jpeg" });
     fireEvent.change(screen.getByLabelText("小票图片"), { target: { files: [file] } });
     fireEvent.click(screen.getByRole("button", { name: "识别小票" }));
-    expect(createAiImageDraft).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("checkbox", { name: /确认将小票图片/ }));
-    fireEvent.click(screen.getByRole("button", { name: "重新识别" }));
     await waitFor(() => expect(onDraft).toHaveBeenCalledOnce());
     expect(createAiImageDraft).toHaveBeenCalledWith("activity-1", file, expect.any(String), expect.any(AbortSignal));
     expect(onDraft.mock.calls[0][0]).toMatchObject({ source: "IMAGE" });

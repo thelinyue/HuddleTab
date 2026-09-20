@@ -25,7 +25,7 @@ WSL 中的临时 PostgreSQL 容器；仍应通过 `TEST_DATABASE_URL` 指向一�
 - AI 默认关闭；启用后由服务端访问管理员配置的 OpenAI-compatible Chat Completions 地址，浏览器不会直连 Provider。
 - Base URL 仅接受无凭据、无 query/fragment 的 HTTP(S) 地址；loopback 和 RFC1918 私网地址可用于本地模型。请求禁止重定向并禁用 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 环境代理，避免绕过服务端 DNS/IP 校验。
 - 常用 Base URL 示例：DeepSeek 可配置为 `https://api.deepseek.com/v1`，本地 OpenAI-compatible 服务可配置为 `http://127.0.0.1:11434/v1`；服务端会规范化 `/v1`，不会重复追加。
-- 支持 DeepSeek 等支持 JSON Mode 的服务；不兼容 `response_format` 的本地兼容服务请关闭 JSON Mode。`imageModel` 留空时回退到文字 `model`。
+- 支持 DeepSeek 等支持 JSON Mode 的服务；不兼容 `response_format` 的本地兼容服务请关闭 JSON Mode。管理员在模型列表中选择默认模型，并可勾选该模型支持图片识别；文字和图片请求统一使用默认模型。
 - 图片识别只使用服务端安全预处理后的 JPG、PNG 或 WebP（单图最多 10 MiB、最多 4000 万像素，最长边 2048）；默认不保存为账单附件。图片和文字会发送到管理员配置的 Provider，部署者应根据该服务的隐私政策作出选择。
 - API Key 只保存在服务端加密设置中，管理接口不会读取它；数据库与 `/data/app-secret` 必须一起备份。更换 app-secret 后，旧密钥需要重新配置。不要把真实 API Key 放进 issue、日志或截图。
 - AI 限流是当前进程内、按登录用户共享文字/图片额度的固定窗口；单实例有效，服务重启后计数重置，本阶段不提供 Redis 分布式计数。
@@ -45,7 +45,7 @@ cargo test --manifest-path server/Cargo.toml --all -- --include-ignored --test-t
 ## 发布验收清单
 
 - [ ] AI 默认关闭，未配置 Provider 时手动记账可用。
-- [ ] 管理员已确认 Base URL、Model、JSON Mode、imageModel 和 API Key 生命周期配置。
+- [ ] 管理员已确认 Base URL、模型列表、默认模型、图片能力、JSON Mode 和 API Key 生命周期配置。
 - [ ] 数据库与 app-secret 已纳入同一备份策略；更换 app-secret 后重新配置 API Key。
 - [ ] 已验证文字和图片草稿只进入现有 Expense Editor，未创建 Settlement/Allocation。
 - [ ] 图片类型、像素、字节、响应体和限流边界测试通过；图片默认不保存为附件。

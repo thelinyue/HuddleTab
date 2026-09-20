@@ -1028,6 +1028,11 @@ export interface components {
             file: string;
             referenceTime?: string | null;
         };
+        /** @description 管理员配置的 Provider 模型能力；图片能力属于模型本身，而不是另一套模型配置。 */
+        AiModelConfig: {
+            name: string;
+            supportsImage: boolean;
+        };
         AiMoneyData: {
             amountMinor: string;
             currency: string;
@@ -1040,14 +1045,14 @@ export interface components {
             apiKey?: string | null;
             baseUrl?: string | null;
             clearApiKey: boolean;
+            defaultModel?: string | null;
             enabled: boolean;
             imageEnabled: boolean;
-            imageModel?: string | null;
             /** @description `OpenAI` JSON Mode 开关；关闭后仍要求 Provider 返回可解析 JSON，但不发送 `response_format`。 */
             jsonMode: boolean;
             /** Format: int32 */
             maxImageBytes: number;
-            model?: string | null;
+            models: components["schemas"]["AiModelConfig"][];
             /** Format: int32 */
             timeoutSeconds: number;
             /** Format: int64 */
@@ -1056,13 +1061,13 @@ export interface components {
         AiSettingsView: {
             apiKeyStatus: components["schemas"]["ApiKeyStatus"];
             baseUrl?: string | null;
+            defaultModel?: string | null;
             enabled: boolean;
             imageEnabled: boolean;
-            imageModel?: string | null;
             jsonMode: boolean;
             /** Format: int32 */
             maxImageBytes: number;
-            model?: string | null;
+            models: components["schemas"]["AiModelConfig"][];
             /** Format: int32 */
             timeoutSeconds: number;
             /** Format: int64 */

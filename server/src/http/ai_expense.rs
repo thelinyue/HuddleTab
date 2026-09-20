@@ -19,9 +19,9 @@ use uuid::Uuid;
 use crate::{
     application::ai_expense::{
         AI_IMAGE_MAX_BYTES, AI_TEXT_MAX_BYTES, AiExpenseDraftData, AiExpenseDraftProvider,
-        AiExpenseRepository, AiParseError, AiProviderError, AiRepositoryError, AiSettingsError,
-        AiSettingsUpdate, AiSettingsView, parse_draft, prepare_settings_update, settings_view,
-        validate_base_url,
+        AiExpenseRepository, AiModelConfig, AiParseError, AiProviderError, AiRepositoryError,
+        AiSettingsError, AiSettingsUpdate, AiSettingsView, parse_draft, prepare_settings_update,
+        settings_view, validate_base_url,
     },
     infrastructure::{
         ai_expense_repository::PostgresAiExpenseRepository,
@@ -51,13 +51,13 @@ pub struct AiSettingsEnvelope {
 pub struct AiSettingsRequest {
     pub enabled: bool,
     pub base_url: Option<String>,
-    pub model: Option<String>,
+    pub models: Vec<AiModelConfig>,
+    pub default_model: Option<String>,
     /// `OpenAI` JSON Mode 开关；关闭后仍要求 Provider 返回可解析 JSON，但不发送 `response_format`。
     pub json_mode: bool,
     pub timeout_seconds: i32,
     pub image_enabled: bool,
     pub max_image_bytes: i32,
-    pub image_model: Option<String>,
     #[schema(nullable = true, write_only = true)]
     pub api_key: Option<String>,
     pub clear_api_key: bool,
@@ -157,12 +157,12 @@ pub(crate) async fn update_settings(
         AiSettingsUpdate {
             enabled: request.enabled,
             base_url: request.base_url,
-            model: request.model,
+            models: request.models,
+            default_model: request.default_model,
             json_mode: request.json_mode,
             timeout_seconds: request.timeout_seconds,
             image_enabled: request.image_enabled,
             max_image_bytes: request.max_image_bytes,
-            image_model: request.image_model,
             api_key: request.api_key,
             clear_api_key: request.clear_api_key,
             expected_version: request.version,
@@ -223,10 +223,12 @@ pub(crate) async fn capabilities(
             .base_url
             .as_deref()
             .is_some_and(|value| validate_base_url(value).is_ok())
-        && settings
-            .model
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty())
+        && settings.default_model.as_deref().is_some_and(|value| {
+            settings
+                .models
+                .iter()
+                .any(|model| model.name == value && !model.name.trim().is_empty())
+        })
         && settings
             .api_key_envelope
             .as_deref()
@@ -236,11 +238,12 @@ pub(crate) async fn capabilities(
     let image_draft_available = available
         && settings.image_enabled
         && settings.max_image_bytes > 0
-        && settings
-            .image_model
-            .as_deref()
-            .or(settings.model.as_deref())
-            .is_some_and(|value| !value.trim().is_empty());
+        && settings.default_model.as_deref().is_some_and(|value| {
+            settings
+                .models
+                .iter()
+                .any(|model| model.name == value && model.supports_image)
+        });
     Ok(Json(AiCapabilityEnvelope {
         data: AiCapabilityData {
             text_draft_available: available,
@@ -295,7 +298,7 @@ pub(crate) async fn text_draft(
         .as_deref()
         .ok_or_else(|| ApiError::ai_provider_not_configured(request_id.clone()))?;
     let model = settings
-        .model
+        .default_model
         .as_deref()
         .ok_or_else(|| ApiError::ai_provider_not_configured(request_id.clone()))?;
     let envelope = settings
@@ -384,12 +387,21 @@ pub(crate) async fn image_draft(
     if !settings.image_enabled {
         return Err(ApiError::ai_image_disabled(request_id));
     }
+    let default_model_supports_image = settings.default_model.as_deref().is_some_and(|name| {
+        settings
+            .models
+            .iter()
+            .any(|model| model.name == name && model.supports_image)
+    });
+    if !default_model_supports_image {
+        return Err(ApiError::ai_image_disabled(request_id));
+    }
     let base_url = settings
         .base_url
         .as_deref()
         .ok_or_else(|| ApiError::ai_provider_not_configured(request_id.clone()))?;
     let model = settings
-        .model
+        .default_model
         .as_deref()
         .ok_or_else(|| ApiError::ai_provider_not_configured(request_id.clone()))?;
     let envelope = settings
@@ -465,8 +477,7 @@ pub(crate) async fn image_draft(
         settings.timeout_seconds,
         state.ai_provider_semaphore.clone(),
     )
-    .map_err(|_| ApiError::ai_provider_not_configured(request_id.clone()))?
-    .with_image_model(settings.image_model.as_deref());
+    .map_err(|_| ApiError::ai_provider_not_configured(request_id.clone()))?;
     // 图片解码属于 CPU/内存密集阶段，必须先占用 AI 全局 Permit，不能等到 Provider 请求时才限流。
     let (processed, image_permit) =
         process_image_with_semaphore(state.ai_provider_semaphore.clone(), bytes, declared_mime)

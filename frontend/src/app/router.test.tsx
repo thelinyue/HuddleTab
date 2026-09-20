@@ -40,6 +40,7 @@ vi.mock("../features/notifications/pages", () => ({
 }));
 
 vi.mock("../features/accounting/feed-page", () => ({ ExpenseFeedPage: () => <p>流水页</p> }));
+vi.mock("../features/accounting/activity-statistics", () => ({ ActivityStatisticsPage: () => <p>活动统计页</p> }));
 vi.mock("../features/accounting/settlement-page", () => ({ SettlementsPage: () => <p>结算页</p> }));
 vi.mock("../features/accounting/expense-editor", () => ({ ExpenseDetailPage: () => <p>账单详情</p>, NewExpensePage: () => <p>记账页</p> }));
 
@@ -82,6 +83,12 @@ describe("ApplicationRouter", () => {
     renderRoute("/activities/activity-1?tab=settlement");
     expect(await screen.findByText("结算页")).toBeInTheDocument();
     expect(screen.queryByText("流水页")).not.toBeInTheDocument();
+  });
+
+  it("已登录用户可打开活动统计嵌套路由", async () => {
+    renderRoute("/activities/activity-1/statistics");
+    expect(await screen.findByText("活动统计页")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "找不到这个页面" })).not.toBeInTheDocument();
   });
 
   it("已登录用户可打开通知页", async () => {

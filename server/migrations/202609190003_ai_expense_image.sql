@@ -2,5 +2,4 @@
 ALTER TABLE system_settings
     ADD COLUMN ai_image_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN ai_provider_max_image_bytes INTEGER NOT NULL DEFAULT 10485760
-        CHECK (ai_provider_max_image_bytes BETWEEN 1 AND 10485760),
-    ADD COLUMN ai_provider_image_model TEXT;
+        CHECK (ai_provider_max_image_bytes BETWEEN 1 AND 10485760);

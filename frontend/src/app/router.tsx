@@ -17,10 +17,12 @@ import { PwaLaunchScreen } from "./pwa-launch-screen";
 
 const ExpenseDetailPage = retryableLazy(() => import("../features/accounting/expense-editor").then((module) => ({ default: module.ExpenseDetailPage })));
 const ExpenseFeedPage = retryableLazy(() => import("../features/accounting/feed-page").then((module) => ({ default: module.ExpenseFeedPage })), <AccountingSkeleton />);
+const ActivityStatisticsPage = retryableLazy(() => import("../features/accounting/activity-statistics").then((module) => ({ default: module.ActivityStatisticsPage })), <AccountingSkeleton kind="feed" />);
 const NewExpensePage = retryableLazy(() => import("../features/accounting/expense-editor").then((module) => ({ default: module.NewExpensePage })));
 const SettlementsPage = retryableLazy(() => import("../features/accounting/settlement-page").then((module) => ({ default: module.SettlementsPage })), <AccountingSkeleton kind="settlement" />);
 const AdminHomePage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminHomePage })));
 const AdminSettingsPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSettingsPage })));
+const AdminAiSettingsPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminAiSettingsPage })));
 const AdminSystemInformationPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSystemInformationPage })));
 const AdminUsersPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminUsersPage })));
 const ChangeUsernamePage = lazy(() => import("../features/me/username-page").then((module) => ({ default: module.ChangeUsernamePage })));
@@ -105,6 +107,7 @@ export function ApplicationRouter() {
           <Route path="/activities" element={<ActivitiesPage />} />
           <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
             <Route index element={<ActivityPrimaryPage />} />
+            <Route path="statistics" element={<ActivityStatisticsPage />} />
             <Route path="expenses/new" element={<Suspense fallback={<LoadingState label="正在打开记账…" />}><NewExpensePage /></Suspense>} />
             <Route path="expenses/:expenseId" element={<Suspense fallback={<LoadingState label="正在打开账单…" />}><ExpenseDetailPage /></Suspense>} />
           </Route>
@@ -116,6 +119,7 @@ export function ApplicationRouter() {
             <Route path="/admin" element={<Suspense fallback={<LoadingState label="正在打开系统管理…" />}><AdminHomePage /></Suspense>} />
             <Route path="/admin/users" element={<Suspense fallback={<LoadingState label="正在打开用户管理…" />}><AdminUsersPage /></Suspense>} />
             <Route path="/admin/settings" element={<Suspense fallback={<LoadingState label="正在打开系统设置…" />}><AdminSettingsPage /></Suspense>} />
+            <Route path="/admin/ai" element={<Suspense fallback={<LoadingState label="正在打开 AI 设置…" />}><AdminAiSettingsPage /></Suspense>} />
             <Route path="/admin/system" element={<Suspense fallback={<LoadingState label="正在打开系统信息…" />}><AdminSystemInformationPage /></Suspense>} />
           </Route>
           <Route path="/share-summary/:activityId" element={<Suspense fallback={<LoadingState label="正在打开结算摘要…" />}><ShareSummaryPage /></Suspense>} />

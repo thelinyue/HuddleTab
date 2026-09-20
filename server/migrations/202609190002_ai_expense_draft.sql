@@ -2,7 +2,9 @@
 ALTER TABLE system_settings
     ADD COLUMN ai_expense_draft_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN ai_provider_base_url TEXT,
-    ADD COLUMN ai_provider_model TEXT,
+    ADD COLUMN ai_provider_models JSONB NOT NULL DEFAULT '[]'::jsonb
+        CHECK (jsonb_typeof(ai_provider_models) = 'array'),
+    ADD COLUMN ai_provider_default_model TEXT,
     -- 默认启用 JSON Mode；不支持该扩展的本地兼容服务可在管理员设置中关闭。
     ADD COLUMN ai_provider_json_mode BOOLEAN NOT NULL DEFAULT TRUE,
     ADD COLUMN ai_provider_timeout_seconds INTEGER NOT NULL DEFAULT 30

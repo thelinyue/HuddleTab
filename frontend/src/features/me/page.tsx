@@ -149,7 +149,7 @@ export function MePage() {
           <div className="settings-list">
             <Link className="settings-link" to="/admin" aria-label="系统管理">
               <ShieldCheck aria-hidden="true" size={18} />
-              <span><strong>系统管理</strong><small>用户与注册策略</small></span>
+              <span><strong>系统管理</strong><small>用户、注册策略与 AI 智能录入</small></span>
               <ChevronRight aria-hidden="true" size={18} />
             </Link>
           </div>

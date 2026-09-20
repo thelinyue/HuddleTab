@@ -4,7 +4,7 @@
 //! 这里的字段级校验、Money 标准化和活动成员安全匹配，才允许离开服务端。
 
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -24,6 +24,7 @@ pub const AI_IMAGE_MAX_BYTES: usize = 10 * 1024 * 1024;
 /// 管理员可配置的 URL 与模型字段上限，既限制配置存储，也限制 Provider 请求体大小。
 pub const AI_BASE_URL_MAX_BYTES: usize = 2 * 1024;
 pub const AI_MODEL_MAX_CHARS: usize = 128;
+pub const AI_MAX_MODELS: usize = 32;
 pub const AI_TIMEOUT_MIN_SECONDS: i32 = 1;
 pub const AI_TIMEOUT_MAX_SECONDS: i32 = 120;
 
@@ -31,15 +32,23 @@ pub const AI_TIMEOUT_MAX_SECONDS: i32 = 120;
 pub struct AiSettings {
     pub enabled: bool,
     pub base_url: Option<String>,
-    pub model: Option<String>,
+    pub models: Vec<AiModelConfig>,
+    pub default_model: Option<String>,
     /// 是否向 `OpenAI` JSON Mode 发送请求；本地兼容服务可显式关闭。
     pub json_mode: bool,
     pub timeout_seconds: i32,
     pub image_enabled: bool,
     pub max_image_bytes: i32,
-    pub image_model: Option<String>,
     pub api_key_envelope: Option<Vec<u8>>,
     pub version: i64,
+}
+
+/// 管理员配置的 Provider 模型能力；图片能力属于模型本身，而不是另一套模型配置。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiModelConfig {
+    pub name: String,
+    pub supports_image: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, utoipa::ToSchema)]
@@ -55,12 +64,12 @@ pub enum ApiKeyStatus {
 pub struct AiSettingsView {
     pub enabled: bool,
     pub base_url: Option<String>,
-    pub model: Option<String>,
+    pub models: Vec<AiModelConfig>,
+    pub default_model: Option<String>,
     pub json_mode: bool,
     pub timeout_seconds: i32,
     pub image_enabled: bool,
     pub max_image_bytes: i32,
-    pub image_model: Option<String>,
     pub api_key_status: ApiKeyStatus,
     pub version: i64,
 }
@@ -71,12 +80,12 @@ pub struct AiSettingsView {
 pub struct AiSettingsUpdate {
     pub enabled: bool,
     pub base_url: Option<String>,
-    pub model: Option<String>,
+    pub models: Vec<AiModelConfig>,
+    pub default_model: Option<String>,
     pub json_mode: bool,
     pub timeout_seconds: i32,
     pub image_enabled: bool,
     pub max_image_bytes: i32,
-    pub image_model: Option<String>,
     pub api_key: Option<String>,
     pub clear_api_key: bool,
     pub expected_version: i64,
@@ -101,12 +110,12 @@ pub struct AiActivityContext {
 pub struct AiSettingsWrite {
     pub enabled: bool,
     pub base_url: Option<String>,
-    pub model: Option<String>,
+    pub models: Vec<AiModelConfig>,
+    pub default_model: Option<String>,
     pub json_mode: bool,
     pub timeout_seconds: i32,
     pub image_enabled: bool,
     pub max_image_bytes: i32,
-    pub image_model: Option<String>,
     pub api_key_envelope: Option<Vec<u8>>,
     pub changed_fields: Vec<String>,
     pub secret_action: Option<String>,
@@ -289,12 +298,12 @@ pub fn settings_view(settings: &AiSettings, app_secret: &AppSecret) -> AiSetting
     AiSettingsView {
         enabled: settings.enabled,
         base_url: settings.base_url.clone(),
-        model: settings.model.clone(),
+        models: settings.models.clone(),
+        default_model: settings.default_model.clone(),
         json_mode: settings.json_mode,
         timeout_seconds: settings.timeout_seconds,
         image_enabled: settings.image_enabled,
         max_image_bytes: settings.max_image_bytes,
-        image_model: settings.image_model.clone(),
         api_key_status,
         version: settings.version,
     }
@@ -319,12 +328,21 @@ pub fn prepare_settings_update(
         return Err(AiSettingsError::InvalidInput);
     }
     let base_url = normalize_base_url(input.base_url)?;
-    let model = normalize_model(input.model)?;
+    let models = normalize_models(input.models)?;
+    let default_model = normalize_default_model(input.default_model, &models)?;
     if !(1..=i32::try_from(AI_IMAGE_MAX_BYTES).unwrap_or(i32::MAX)).contains(&input.max_image_bytes)
     {
         return Err(AiSettingsError::InvalidInput);
     }
-    let image_model = normalize_model(input.image_model)?;
+    let default_supports_image = default_model.as_deref().and_then(|name| {
+        models
+            .iter()
+            .find(|model| model.name == name)
+            .map(|model| model.supports_image)
+    });
+    if input.image_enabled && default_supports_image != Some(true) {
+        return Err(AiSettingsError::InvalidInput);
+    }
     let envelope = if input.clear_api_key {
         None
     } else if let Some(api_key) = input.api_key.as_deref() {
@@ -335,7 +353,7 @@ pub fn prepare_settings_update(
     } else {
         current.api_key_envelope.clone()
     };
-    if input.enabled && (base_url.is_none() || model.is_none() || envelope.is_none()) {
+    if input.enabled && (base_url.is_none() || default_model.is_none() || envelope.is_none()) {
         return Err(if envelope.is_some() {
             AiSettingsError::NotConfigured
         } else {
@@ -358,8 +376,11 @@ pub fn prepare_settings_update(
     if current.base_url != base_url {
         changed_fields.push("baseUrl".to_owned());
     }
-    if current.model != model {
-        changed_fields.push("model".to_owned());
+    if current.models != models {
+        changed_fields.push("models".to_owned());
+    }
+    if current.default_model != default_model {
+        changed_fields.push("defaultModel".to_owned());
     }
     if current.json_mode != input.json_mode {
         changed_fields.push("jsonMode".to_owned());
@@ -372,9 +393,6 @@ pub fn prepare_settings_update(
     }
     if current.max_image_bytes != input.max_image_bytes {
         changed_fields.push("maxImageBytes".to_owned());
-    }
-    if current.image_model != image_model {
-        changed_fields.push("imageModel".to_owned());
     }
     let secret_action = match (
         current.api_key_envelope.is_some(),
@@ -389,12 +407,12 @@ pub fn prepare_settings_update(
     Ok(AiSettingsWrite {
         enabled: input.enabled,
         base_url,
-        model,
+        models,
+        default_model,
         json_mode: input.json_mode,
         timeout_seconds: input.timeout_seconds,
         image_enabled: input.image_enabled,
         max_image_bytes: input.max_image_bytes,
-        image_model,
         api_key_envelope: envelope,
         changed_fields,
         secret_action,
@@ -407,10 +425,34 @@ fn normalize_base_url(value: Option<String>) -> Result<Option<String>, AiSetting
     Ok(Some(value.trim_end_matches('/').to_owned()))
 }
 
-fn normalize_model(value: Option<String>) -> Result<Option<String>, AiSettingsError> {
+fn normalize_models(values: Vec<AiModelConfig>) -> Result<Vec<AiModelConfig>, AiSettingsError> {
+    if values.len() > AI_MAX_MODELS {
+        return Err(AiSettingsError::InvalidInput);
+    }
+    let mut models = Vec::with_capacity(values.len());
+    for model in values {
+        let name = model.name.trim();
+        if name.is_empty() || name.chars().count() > AI_MODEL_MAX_CHARS {
+            return Err(AiSettingsError::InvalidInput);
+        }
+        if models.iter().any(|item: &AiModelConfig| item.name == name) {
+            return Err(AiSettingsError::InvalidInput);
+        }
+        models.push(AiModelConfig {
+            name: name.to_owned(),
+            supports_image: model.supports_image,
+        });
+    }
+    Ok(models)
+}
+
+fn normalize_default_model(
+    value: Option<String>,
+    models: &[AiModelConfig],
+) -> Result<Option<String>, AiSettingsError> {
     let Some(value) = value else { return Ok(None) };
     let value = value.trim();
-    if value.is_empty() || value.chars().count() > AI_MODEL_MAX_CHARS {
+    if value.is_empty() || !models.iter().any(|model| model.name == value) {
         return Err(AiSettingsError::InvalidInput);
     }
     Ok(Some(value.to_owned()))
@@ -1089,12 +1131,12 @@ mod tests {
         let current = AiSettings {
             enabled: false,
             base_url: None,
-            model: None,
+            models: Vec::new(),
+            default_model: None,
             json_mode: true,
             timeout_seconds: 30,
             image_enabled: false,
             max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
-            image_model: None,
             api_key_envelope: None,
             version: 1,
         };
@@ -1103,12 +1145,15 @@ mod tests {
             AiSettingsUpdate {
                 enabled: true,
                 base_url: Some("https://api.deepseek.com".to_owned()),
-                model: Some("deepseek-chat".to_owned()),
+                models: vec![AiModelConfig {
+                    name: "deepseek-chat".to_owned(),
+                    supports_image: false,
+                }],
+                default_model: Some("deepseek-chat".to_owned()),
                 json_mode: true,
                 timeout_seconds: 30,
                 image_enabled: false,
                 max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
-                image_model: None,
                 api_key: Some("test-key".to_owned()),
                 clear_api_key: false,
                 expected_version: 1,
@@ -1123,12 +1168,12 @@ mod tests {
                 AiSettingsUpdate {
                     enabled: false,
                     base_url: Some("https://user:pass@example.test".to_owned()),
-                    model: None,
+                    models: Vec::new(),
+                    default_model: None,
                     json_mode: true,
                     timeout_seconds: 30,
                     image_enabled: false,
                     max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
-                    image_model: None,
                     api_key: None,
                     clear_api_key: false,
                     expected_version: 1,
@@ -1226,24 +1271,24 @@ mod tests {
         let current = AiSettings {
             enabled: false,
             base_url: None,
-            model: None,
+            models: Vec::new(),
+            default_model: None,
             json_mode: true,
             timeout_seconds: 30,
             image_enabled: false,
             max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
-            image_model: None,
             api_key_envelope: None,
             version: 1,
         };
         let base = |timeout_seconds: i32| AiSettingsUpdate {
             enabled: false,
             base_url: None,
-            model: None,
+            models: Vec::new(),
+            default_model: None,
             json_mode: true,
             timeout_seconds,
             image_enabled: false,
             max_image_bytes: i32::try_from(AI_IMAGE_MAX_BYTES).unwrap(),
-            image_model: None,
             api_key: None,
             clear_api_key: false,
             expected_version: 1,
@@ -1253,6 +1298,30 @@ mod tests {
         let mut image_without_ai = base(30);
         image_without_ai.image_enabled = true;
         assert!(prepare_settings_update(&current, image_without_ai, &secret).is_err());
+        let mut duplicate_models = base(30);
+        duplicate_models.models = vec![
+            AiModelConfig {
+                name: "local".to_owned(),
+                supports_image: false,
+            },
+            AiModelConfig {
+                name: " local ".to_owned(),
+                supports_image: true,
+            },
+        ];
+        duplicate_models.default_model = Some("local".to_owned());
+        assert!(prepare_settings_update(&current, duplicate_models, &secret).is_err());
+        let mut image_unsupported = base(30);
+        image_unsupported.enabled = true;
+        image_unsupported.base_url = Some("https://api.deepseek.com/v1".to_owned());
+        image_unsupported.models = vec![AiModelConfig {
+            name: "text-only".to_owned(),
+            supports_image: false,
+        }];
+        image_unsupported.default_model = Some("text-only".to_owned());
+        image_unsupported.image_enabled = true;
+        image_unsupported.api_key = Some("test-key".to_owned());
+        assert!(prepare_settings_update(&current, image_unsupported, &secret).is_err());
         let mut clear_while_enabled = base(30);
         clear_while_enabled.enabled = true;
         clear_while_enabled.clear_api_key = true;

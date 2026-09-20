@@ -269,6 +269,16 @@ describe("Expense 参考汇率", () => {
 describe("人均消费说明", () => {
   const message = "人均消费仅为统计平均值，不代表任何成员实际应承担金额。";
 
+  it("在分享流水小票下方提供活动统计入口", () => {
+    renderPage(<ExpenseFeedPage />);
+
+    const share = screen.getByRole("link", { name: "分享流水小票" });
+    const statistics = screen.getByRole("link", { name: "活动统计" });
+    expect(statistics).toHaveAttribute("href", "/activities/activity-1/statistics");
+    expect(share.compareDocumentPosition(statistics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(statistics.parentElement).toHaveClass("expense-summary__value-row");
+  });
+
   it("点击后显示完整说明，Escape 关闭并恢复触发器焦点", async () => {
     renderPage(<ExpenseFeedPage />);
     const trigger = screen.getByRole("button", { name: "人均消费说明" });
@@ -1261,12 +1271,15 @@ describe("AI 智能录入入口", () => {
     incompleteFields: [],
   };
 
-  it("能力可用时显示手动与智能录入选择", () => {
+  it("能力可用时在流水页显示 AI 入口并保持记一笔主入口", () => {
     aiCapability.textDraftAvailable = true;
-    renderPage(<NewExpensePage />);
-    expect(screen.getByRole("heading", { name: "新增账单" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "手动填写" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "智能录入" })).toBeInTheDocument();
+    renderPage(<ExpenseFeedPage />);
+    const aiButton = screen.getByRole("button", { name: "智能录入" });
+    const manualButton = screen.getByRole("button", { name: "记一笔" });
+    expect(aiButton).toBeInTheDocument();
+    expect(manualButton).toBeInTheDocument();
+    expect(aiButton.parentElement).toHaveClass("expense-entry-fabs");
+    expect(aiButton.compareDocumentPosition(manualButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("能力不可用时直接进入原有手动编辑器", () => {
@@ -1278,9 +1291,10 @@ describe("AI 智能录入入口", () => {
   it("明确离线时不请求 AI capability", () => {
     workspaceState.offline = true;
     aiCapability.textDraftAvailable = true;
-    renderPage(<NewExpensePage />);
+    renderPage(<ExpenseFeedPage />);
     expect(aiCapabilityQuery).toHaveBeenCalledWith("user-1", "activity-1", false);
-    expect(screen.getByLabelText("金额")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "记一笔" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "智能录入" })).not.toBeInTheDocument();
   });
 
   it("同一草稿的父级刷新不会覆盖用户修改，只有新 key 才重新初始化", async () => {
@@ -1303,33 +1317,34 @@ describe("AI 智能录入入口", () => {
       title: "查询刷新草稿", merchant: null, amount: { amountMinor: "1000", currency: "CNY" }, occurredAt: null,
       categorySuggestion: "FOOD", location: null, note: null, items: [], warnings: [], incompleteFields: [], payerSuggestions: [], splitSuggestion: null,
     });
-    const view = renderPage(<NewExpensePage />);
+    const view = renderPage(<ExpenseFeedPage />);
     fireEvent.click(screen.getByRole("button", { name: "智能录入" }));
     fireEvent.change(screen.getByRole("textbox", { name: /账单描述/ }), { target: { value: "一笔账" } });
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "生成账单草稿" }));
     await screen.findByRole("region", { name: "智能录入提示" });
     fireEvent.change(screen.getByLabelText("用途"), { target: { value: "用户已编辑" } });
-    view.rerender(<MemoryRouter><NewExpensePage /></MemoryRouter>);
+    view.rerender(<MemoryRouter><ExpenseFeedPage /></MemoryRouter>);
     expect(screen.getByLabelText("用途")).toHaveValue("用户已编辑");
   });
 
   it("Activity 切换后不会把旧草稿带入新活动", async () => {
     aiCapability.textDraftAvailable = true;
-    aiTextDraftMutation.mockResolvedValue({
+    const pendingDraft = {
       title: "旧活动草稿", merchant: null, amount: { amountMinor: "1000", currency: "CNY" }, occurredAt: null,
       categorySuggestion: "FOOD", location: null, note: null, items: [], warnings: [], incompleteFields: [],
       payerSuggestions: [{ mention: "我", matchStatus: "MATCHED", memberId: "member-1", candidateMemberIds: [], matchedDisplayName: "甲", candidateCount: null, amount: { amountMinor: "1000", currency: "CNY" } }],
       splitSuggestion: { mode: "EQUAL", participants: [{ mention: "我", matchStatus: "MATCHED", memberId: "member-1", candidateMemberIds: [], matchedDisplayName: "甲", candidateCount: null, value: null }] },
-    });
-    const view = renderPage(<NewExpensePage />);
+    };
+    let resolveDraft: ((value: typeof pendingDraft) => void) | undefined;
+    aiTextDraftMutation.mockImplementation(() => new Promise<typeof pendingDraft>((resolve) => { resolveDraft = resolve; }));
+    const view = renderPage(<ExpenseFeedPage />);
     fireEvent.click(screen.getByRole("button", { name: "智能录入" }));
     fireEvent.change(screen.getByRole("textbox", { name: /账单描述/ }), { target: { value: "旧活动的一笔账" } });
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "生成账单草稿" }));
-    await screen.findByRole("region", { name: "智能录入提示" });
+    expect(await screen.findByRole("button", { name: "取消智能录入" })).toBeInTheDocument();
     activity.activityId = "activity-2";
-    view.rerender(<MemoryRouter><NewExpensePage /></MemoryRouter>);
+    view.rerender(<MemoryRouter><ExpenseFeedPage /></MemoryRouter>);
+    resolveDraft?.(pendingDraft);
     await waitFor(() => expect(screen.queryByRole("region", { name: "智能录入提示" })).not.toBeInTheDocument());
     expect(screen.queryByDisplayValue("旧活动草稿")).not.toBeInTheDocument();
   });

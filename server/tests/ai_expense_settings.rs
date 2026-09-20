@@ -1,6 +1,6 @@
 use huddletab_server::{
     application::ai_expense::{
-        AiExpenseRepository, AiSettingsError, AiSettingsUpdate, AiSettingsWrite,
+        AiExpenseRepository, AiModelConfig, AiSettingsError, AiSettingsUpdate, AiSettingsWrite,
         prepare_settings_update,
     },
     infrastructure::{
@@ -43,8 +43,8 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
     seed_admin(&pool, admin).await;
     sqlx::query(
         "UPDATE system_settings SET ai_expense_draft_enabled = FALSE, ai_provider_base_url = NULL, \
-         ai_provider_model = NULL, ai_provider_json_mode = TRUE, ai_provider_timeout_seconds = 30, \
-         ai_image_enabled = FALSE, ai_provider_max_image_bytes = 10485760, ai_provider_image_model = NULL, \
+         ai_provider_models = '[]'::jsonb, ai_provider_default_model = NULL, ai_provider_json_mode = TRUE, ai_provider_timeout_seconds = 30, \
+         ai_image_enabled = FALSE, ai_provider_max_image_bytes = 10485760, \
          ai_provider_api_key_envelope = NULL, version = 1, updated_at = now(), updated_by_user_id = NULL",
     )
     .execute(&pool)
@@ -62,7 +62,8 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
     assert_eq!(current.timeout_seconds, 30);
     assert!(!current.image_enabled);
     assert_eq!(current.max_image_bytes, 10 * 1024 * 1024);
-    assert!(current.image_model.is_none());
+    assert!(current.models.is_empty());
+    assert!(current.default_model.is_none());
     assert_eq!(current.version, 1);
     assert!(current.api_key_envelope.is_none());
     for invalid_limit in [0, 10 * 1024 * 1024 + 1] {
@@ -80,12 +81,21 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
         AiSettingsUpdate {
             enabled: true,
             base_url: Some("https://api.deepseek.com/v1/".to_owned()),
-            model: Some("deepseek-chat".to_owned()),
+            models: vec![
+                AiModelConfig {
+                    name: "deepseek-chat".to_owned(),
+                    supports_image: true,
+                },
+                AiModelConfig {
+                    name: "deepseek-vision".to_owned(),
+                    supports_image: true,
+                },
+            ],
+            default_model: Some("deepseek-vision".to_owned()),
             json_mode: true,
             timeout_seconds: 30,
             image_enabled: true,
             max_image_bytes: 5 * 1024 * 1024,
-            image_model: Some("deepseek-vision".to_owned()),
             api_key: Some("test-key-value".to_owned()),
             clear_api_key: false,
             expected_version: 1,
@@ -105,7 +115,8 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
     );
     assert!(configured.image_enabled);
     assert_eq!(configured.max_image_bytes, 5 * 1024 * 1024);
-    assert_eq!(configured.image_model.as_deref(), Some("deepseek-vision"));
+    assert_eq!(configured.default_model.as_deref(), Some("deepseek-vision"));
+    assert_eq!(configured.models.len(), 2);
     assert!(configured.api_key_envelope.is_some());
 
     let audit: (Vec<String>, Option<String>) = sqlx::query_as(
@@ -127,12 +138,12 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
                 AiSettingsWrite {
                     enabled: false,
                     base_url: None,
-                    model: None,
+                    models: Vec::new(),
+                    default_model: None,
                     json_mode: true,
                     timeout_seconds: 30,
                     image_enabled: false,
                     max_image_bytes: 10 * 1024 * 1024,
-                    image_model: None,
                     api_key_envelope: None,
                     changed_fields: vec!["enabled".to_owned()],
                     secret_action: None,
@@ -148,12 +159,12 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
         AiSettingsUpdate {
             enabled: true,
             base_url: configured.base_url.clone(),
-            model: configured.model.clone(),
+            models: configured.models.clone(),
+            default_model: configured.default_model.clone(),
             json_mode: false,
             timeout_seconds: 45,
             image_enabled: configured.image_enabled,
             max_image_bytes: configured.max_image_bytes,
-            image_model: configured.image_model.clone(),
             api_key: None,
             clear_api_key: false,
             expected_version: configured.version,
@@ -185,12 +196,12 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
         AiSettingsUpdate {
             enabled: true,
             base_url: preserved.base_url.clone(),
-            model: preserved.model.clone(),
+            models: preserved.models.clone(),
+            default_model: preserved.default_model.clone(),
             json_mode: false,
             timeout_seconds: 45,
             image_enabled: preserved.image_enabled,
             max_image_bytes: preserved.max_image_bytes,
-            image_model: preserved.image_model.clone(),
             api_key: Some("replacement-key".to_owned()),
             clear_api_key: false,
             expected_version: preserved.version,
@@ -218,12 +229,12 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
             AiSettingsUpdate {
                 enabled: true,
                 base_url: corrupted_settings.base_url.clone(),
-                model: corrupted_settings.model.clone(),
+                models: corrupted_settings.models.clone(),
+                default_model: corrupted_settings.default_model.clone(),
                 json_mode: false,
                 timeout_seconds: 45,
                 image_enabled: corrupted_settings.image_enabled,
                 max_image_bytes: corrupted_settings.max_image_bytes,
-                image_model: corrupted_settings.image_model.clone(),
                 api_key: None,
                 clear_api_key: false,
                 expected_version: corrupted_settings.version,
@@ -238,12 +249,12 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
         AiSettingsUpdate {
             enabled: true,
             base_url: corrupted_settings.base_url.clone(),
-            model: corrupted_settings.model.clone(),
+            models: corrupted_settings.models.clone(),
+            default_model: corrupted_settings.default_model.clone(),
             json_mode: false,
             timeout_seconds: 45,
             image_enabled: corrupted_settings.image_enabled,
             max_image_bytes: corrupted_settings.max_image_bytes,
-            image_model: corrupted_settings.image_model.clone(),
             api_key: Some("reconfigured-key".to_owned()),
             clear_api_key: false,
             expected_version: corrupted_settings.version,
@@ -262,12 +273,12 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
         AiSettingsUpdate {
             enabled: false,
             base_url: reconfigured.base_url.clone(),
-            model: reconfigured.model.clone(),
+            models: reconfigured.models.clone(),
+            default_model: reconfigured.default_model.clone(),
             json_mode: false,
             timeout_seconds: 45,
             image_enabled: false,
             max_image_bytes: reconfigured.max_image_bytes,
-            image_model: reconfigured.image_model.clone(),
             api_key: None,
             clear_api_key: true,
             expected_version: reconfigured.version,
@@ -290,12 +301,12 @@ async fn ai_settings_cover_defaults_version_key_lifecycle_and_atomic_audit() {
             AiSettingsWrite {
                 enabled: false,
                 base_url: before_atomic.base_url.clone(),
-                model: before_atomic.model.clone(),
+                models: before_atomic.models.clone(),
+                default_model: before_atomic.default_model.clone(),
                 json_mode: before_atomic.json_mode,
                 timeout_seconds: before_atomic.timeout_seconds,
                 image_enabled: before_atomic.image_enabled,
                 max_image_bytes: before_atomic.max_image_bytes,
-                image_model: before_atomic.image_model.clone(),
                 api_key_envelope: before_atomic.api_key_envelope.clone(),
                 changed_fields: vec!["enabled".to_owned()],
                 secret_action: Some("INVALID".to_owned()),

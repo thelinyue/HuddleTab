@@ -93,15 +93,18 @@ async fn phase2_schema_upgrades_to_ai_image_migration() {
     let upgraded = connect_and_migrate(&database_url)
         .await
         .expect("阶段二结构应升级到图片 AI migration");
-    let settings: (bool, i32, Option<String>, i32) = sqlx::query_as(
-        "SELECT ai_image_enabled, ai_provider_max_image_bytes, ai_provider_image_model, \
-         ai_provider_timeout_seconds \
+    let settings: (bool, i32, String, Option<String>, i32) = sqlx::query_as(
+        "SELECT ai_image_enabled, ai_provider_max_image_bytes, ai_provider_models::text, \
+         ai_provider_default_model, ai_provider_timeout_seconds \
          FROM system_settings WHERE id = 'singleton'",
     )
     .fetch_one(&upgraded)
     .await
     .expect("升级后应读取图片设置");
-    assert_eq!(settings, (false, 10 * 1024 * 1024, None, 30));
+    assert_eq!(
+        settings,
+        (false, 10 * 1024 * 1024, "[]".to_owned(), None, 30)
+    );
     let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
         .fetch_one(&upgraded)
         .await
@@ -117,7 +120,8 @@ fn ai_migration_declares_encrypted_settings_and_secret_free_audit_shape() {
     for fragment in [
         "ai_expense_draft_enabled",
         "ai_provider_base_url",
-        "ai_provider_model",
+        "ai_provider_models JSONB",
+        "ai_provider_default_model",
         "ai_provider_json_mode BOOLEAN NOT NULL DEFAULT TRUE",
         "ai_provider_timeout_seconds",
         "ai_provider_api_key_envelope BYTEA",
@@ -141,7 +145,6 @@ fn ai_image_migration_declares_safe_defaults_and_limit() {
     for fragment in [
         "ai_image_enabled BOOLEAN NOT NULL DEFAULT FALSE",
         "ai_provider_max_image_bytes INTEGER NOT NULL DEFAULT 10485760",
-        "ai_provider_image_model TEXT",
     ] {
         assert!(
             migration.contains(fragment),

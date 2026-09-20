@@ -258,7 +258,7 @@ type RequestState = "IDLE" | "SUBMITTING" | "SUCCESS" | "ERROR" | "CANCELLED";
 function aiErrorMessage(error: unknown): string {
   if (error instanceof ApiRequestError) {
     if (error.status === 429) return error.retryAfterSeconds ? `请求过于频繁，请 ${error.retryAfterSeconds} 秒后重试。` : "请求过于频繁，请稍后重试。";
-    if (error.code === "AI_IMAGE_DISABLED") return "管理员尚未启用小票图片识别。";
+    if (error.code === "AI_IMAGE_DISABLED") return "管理员尚未启用图片识别。";
     if (error.code === "AI_UNSUPPORTED_IMAGE") return "当前支持 JPG、PNG 和 WebP 图片。";
     if (error.code === "AI_API_KEY_RECONFIGURATION_REQUIRED") return "AI API Key 需要管理员重新配置。";
     if (error.status === 403) return "当前账号没有使用智能录入的权限。";
@@ -270,14 +270,13 @@ function aiErrorMessage(error: unknown): string {
   return "智能录入失败，请检查网络后重试。";
 }
 
-/** 文字识别只在当前组件内保存输入、确认和取消状态，不进入持久化缓存或离线队列。 */
+/** AI 识别只在当前组件内保存输入和请求状态，不进入持久化缓存或离线队列。 */
 export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailable = false, onDraft, onManual }: AiExpenseEntryProps) {
   const [mode, setMode] = useState<"text" | "image">("text");
   const [text, setText] = useState("");
   const [file, setFile] = useState<File>();
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [saveAsAttachment, setSaveAsAttachment] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
   const [state, setState] = useState<RequestState>("IDLE");
   const [error, setError] = useState<string>();
   const controllerRef = useRef<AbortController | undefined>(undefined);
@@ -294,7 +293,6 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
     requestIdRef.current += 1;
     setFile(undefined);
     setSaveAsAttachment(false);
-    setConfirmed(false);
   }, [activityId]);
 
   useEffect(() => () => {
@@ -317,7 +315,6 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
     controllerRef.current = undefined;
     setState("IDLE");
     setError(undefined);
-    setConfirmed(false);
     setMode(next);
     if (next === "text") {
       setFile(undefined);
@@ -327,7 +324,6 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
 
   async function submit() {
     if (state === "SUBMITTING") return;
-    if (!confirmed) { setError(`请先确认${mode === "image" ? "小票图片" : "账单描述"}会发送至管理员配置的 AI 服务。`); setState("ERROR"); return; }
     const value = text.trim();
     if (mode === "text" && !value) { setError("请先填写账单描述。"); setState("ERROR"); return; }
     if (mode === "image" && !file) { setError("请先选择小票图片。"); setState("ERROR"); return; }
@@ -358,13 +354,12 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
     <section className="ai-expense-entry" aria-labelledby="ai-expense-entry-title">
       <header className="ai-expense-entry__header">
         <Sparkles aria-hidden="true" size={22} />
-        <div><h2 id="ai-expense-entry-title">智能录入</h2><p>描述账单或上传小票，生成可修改的账单草稿。</p></div>
+        <div><h2 id="ai-expense-entry-title">智能录入</h2><p>文字识别或图片识别，生成可修改的账单草稿。</p></div>
       </header>
       {imageAvailable ? <div className="ai-expense-entry__modes" role="tablist" aria-label="智能录入方式">
-        <button type="button" role="tab" aria-selected={mode === "text"} onClick={() => changeMode("text")}>描述账单</button>
-        <button type="button" role="tab" aria-selected={mode === "image"} onClick={() => changeMode("image")}>上传小票</button>
+        <button type="button" role="tab" aria-selected={mode === "text"} onClick={() => changeMode("text")}>文字识别</button>
+        <button type="button" role="tab" aria-selected={mode === "image"} onClick={() => changeMode("image")}>图片识别</button>
       </div> : null}
-      <p className="ai-expense-entry__privacy">{mode === "image" ? "小票图片将发送至管理员配置的 AI 服务进行识别。识别结果仅作为草稿，默认不会保存图片。" : "账单描述将发送至管理员配置的 AI 服务进行识别。识别结果仅作为草稿，保存前可修改。"}</p>
       {mode === "text" ? <label className="field" htmlFor="ai-expense-description">
         <span className="field__label">账单描述</span>
         <Textarea id="ai-expense-description" aria-label="账单描述" value={text} onChange={(event) => setText(event.target.value)} rows={6} maxLength={4000} placeholder="例如：昨晚居酒屋消费 12800 日元，我先付，林樾、小王和小李三个人平均分摊。" aria-describedby="ai-expense-example" disabled={state === "SUBMITTING"} />
@@ -380,7 +375,6 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
         {previewUrl && file ? <div className="ai-expense-entry__image-preview"><img src={previewUrl} alt="待识别的小票预览" /><Button type="button" variant="ghost" onClick={() => { setFile(undefined); setState("IDLE"); }}>删除图片</Button></div> : null}
         <label className="ai-expense-entry__confirm"><input type="checkbox" checked={saveAsAttachment} onChange={(event) => setSaveAsAttachment(event.target.checked)} disabled={state === "SUBMITTING"} /><span>同时保存为账单附件</span></label>
       </div>}
-      <label className="ai-expense-entry__confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={state === "SUBMITTING"} /><span>我确认将{mode === "image" ? "小票图片" : "账单描述"}发送至已配置的 AI 服务。</span></label>
       {error ? <div className="ai-expense-entry__error" role="alert">{error}</div> : null}
       {state === "CANCELLED" ? <div className="ai-expense-entry__status" role="status">请求已取消，输入内容仍保留。</div> : null}
       {state === "SUCCESS" ? <div className="ai-expense-entry__status" role="status">草稿已生成，正在打开编辑器。</div> : null}

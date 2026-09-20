@@ -42,7 +42,6 @@ pub struct OpenAiCompatibleProvider {
     json_mode: bool,
     timeout: Duration,
     semaphore: std::sync::Arc<Semaphore>,
-    image_model: Option<String>,
 }
 
 impl OpenAiCompatibleProvider {
@@ -76,16 +75,7 @@ impl OpenAiCompatibleProvider {
                 u64::try_from(timeout_seconds).map_err(|_| AiProviderError::Unavailable)?,
             ),
             semaphore,
-            image_model: None,
         })
-    }
-
-    #[must_use]
-    pub fn with_image_model(mut self, image_model: Option<&str>) -> Self {
-        self.image_model = image_model
-            .filter(|value| !value.trim().is_empty() && value.chars().count() <= AI_MODEL_MAX_CHARS)
-            .map(str::to_owned);
-        self
     }
 
     async fn endpoint_and_addresses(
@@ -232,9 +222,8 @@ impl OpenAiCompatibleProvider {
              成员姓名放入 payers 或 split.participants 的 name；不要输出 memberId、member_id 或任何数据库 UUID。\n\
              当前时间为 {now}，活动主币种为 {base_currency}。"
         );
-        let model = self.image_model.as_deref().unwrap_or(&self.model);
         let request_body =
-            build_multimodal_request_body(model, &system_prompt, &data_url, self.json_mode);
+            build_multimodal_request_body(&self.model, &system_prompt, &data_url, self.json_mode);
         request_completion(&client, endpoint, &self.api_key, request_body).await
     }
 }
@@ -545,10 +534,13 @@ mod tests {
     }
 
     #[test]
-    fn image_model_falls_back_to_text_model_when_unset() {
-        let model = None::<String>.as_deref().unwrap_or("deepseek-chat");
-        let body =
-            build_multimodal_request_body(model, "system", "data:image/webp;base64,AA==", true);
+    fn image_request_uses_the_selected_default_model() {
+        let body = build_multimodal_request_body(
+            "deepseek-chat",
+            "system",
+            "data:image/webp;base64,AA==",
+            true,
+        );
         assert_eq!(body["model"], "deepseek-chat");
         assert_eq!(body["response_format"]["type"], "json_object");
     }

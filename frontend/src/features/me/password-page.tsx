@@ -49,7 +49,7 @@ export function ChangePasswordPage() {
 
   return (
     <div className="top-level-page">
-      <main className="app-frame app-frame--with-nav">
+      <main className="app-frame app-frame--no-nav">
         <header className="me-subpage-header">
           <Link className="icon-button" to="/me" aria-label="返回我的" title="返回我的">
             <ArrowLeft aria-hidden="true" size={20} />

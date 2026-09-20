@@ -5157,6 +5157,22 @@
           }
         }
       },
+      "AiModelConfig": {
+        "type": "object",
+        "description": "管理员配置的 Provider 模型能力；图片能力属于模型本身，而不是另一套模型配置。",
+        "required": [
+          "name",
+          "supportsImage"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "supportsImage": {
+            "type": "boolean"
+          }
+        }
+      },
       "AiMoneyData": {
         "type": "object",
         "required": [
@@ -5188,6 +5204,7 @@
         "description": "管理员设置 HTTP DTO；密钥只接收入站请求，不会出现在响应或日志中。",
         "required": [
           "enabled",
+          "models",
           "jsonMode",
           "timeoutSeconds",
           "imageEnabled",
@@ -5212,17 +5229,17 @@
           "clearApiKey": {
             "type": "boolean"
           },
+          "defaultModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "enabled": {
             "type": "boolean"
           },
           "imageEnabled": {
             "type": "boolean"
-          },
-          "imageModel": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "jsonMode": {
             "type": "boolean",
@@ -5232,11 +5249,11 @@
             "type": "integer",
             "format": "int32"
           },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiModelConfig"
+            }
           },
           "timeoutSeconds": {
             "type": "integer",
@@ -5252,6 +5269,7 @@
         "type": "object",
         "required": [
           "enabled",
+          "models",
           "jsonMode",
           "timeoutSeconds",
           "imageEnabled",
@@ -5269,17 +5287,17 @@
               "null"
             ]
           },
+          "defaultModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "enabled": {
             "type": "boolean"
           },
           "imageEnabled": {
             "type": "boolean"
-          },
-          "imageModel": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "jsonMode": {
             "type": "boolean"
@@ -5288,11 +5306,11 @@
             "type": "integer",
             "format": "int32"
           },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiModelConfig"
+            }
           },
           "timeoutSeconds": {
             "type": "integer",

@@ -122,11 +122,11 @@ describe("ChangePasswordPage", () => {
     });
   });
 
-  it("提供返回我的入口并保留产品主导航", () => {
+  it("提供返回我的入口并隐藏悬浮主导航", () => {
     renderPage();
 
     expect(screen.getByRole("link", { name: "返回我的" })).toHaveAttribute("href", "/me");
-    expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "我的" })).toHaveClass("active");
+    expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveClass("app-frame--no-nav");
   });
 });

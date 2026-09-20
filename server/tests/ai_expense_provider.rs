@@ -206,8 +206,8 @@ async fn seed_context() -> TestContext {
         .expect("应清理测试数据");
     sqlx::query(
         "UPDATE system_settings SET ai_expense_draft_enabled = FALSE, ai_provider_base_url = NULL, \
-         ai_provider_model = NULL, ai_provider_json_mode = TRUE, ai_provider_timeout_seconds = 30, \
-         ai_image_enabled = FALSE, ai_provider_max_image_bytes = 10485760, ai_provider_image_model = NULL, \
+         ai_provider_models = '[]'::jsonb, ai_provider_default_model = NULL, ai_provider_json_mode = TRUE, ai_provider_timeout_seconds = 30, \
+         ai_image_enabled = FALSE, ai_provider_max_image_bytes = 10485760, \
          ai_provider_api_key_envelope = NULL, version = 1, updated_at = now(), updated_by_user_id = NULL",
     )
     .execute(&pool)
@@ -368,7 +368,7 @@ async fn json_response(response: axum::response::Response) -> (StatusCode, Value
     (status, json)
 }
 
-async fn configure_ai(context: &TestContext, stub_url: &str, image_model: Option<&str>) -> i64 {
+async fn configure_ai(context: &TestContext, stub_url: &str) -> i64 {
     let response = context
         .app
         .clone()
@@ -380,12 +380,12 @@ async fn configure_ai(context: &TestContext, stub_url: &str, image_model: Option
             &json!({
                 "enabled": true,
                 "baseUrl": stub_url,
-                "model": "stub-text",
+                "models": [{"name": "stub-text", "supportsImage": true}, {"name": "stub-image", "supportsImage": true}],
+                "defaultModel": "stub-text",
                 "jsonMode": true,
                 "timeoutSeconds": 2,
                 "imageEnabled": true,
                 "maxImageBytes": 10_485_760,
-                "imageModel": image_model,
                 "apiKey": TEST_API_KEY,
                 "clearApiKey": false,
                 "version": 1
@@ -407,11 +407,11 @@ async fn configure_ai(context: &TestContext, stub_url: &str, image_model: Option
         .expect("设置响应应返回 version")
 }
 
-async fn update_image_model(
+async fn update_default_model(
     context: &TestContext,
     stub_url: &str,
     version: i64,
-    image_model: Option<&str>,
+    default_model: &str,
 ) -> i64 {
     let response = context
         .app
@@ -424,12 +424,12 @@ async fn update_image_model(
             &json!({
                 "enabled": true,
                 "baseUrl": stub_url,
-                "model": "stub-text",
+                "models": [{"name": "stub-text", "supportsImage": true}, {"name": "stub-image", "supportsImage": true}],
+                "defaultModel": default_model,
                 "jsonMode": true,
                 "timeoutSeconds": 2,
                 "imageEnabled": true,
                 "maxImageBytes": 10_485_760,
-                "imageModel": image_model,
                 "clearApiKey": false,
                 "version": version
             }),
@@ -486,7 +486,7 @@ async fn accounting_counts(pool: &PgPool, activity_id: Uuid) -> (i64, i64, i64, 
 async fn ai_provider_loopback_completes_text_and_image_protocol_chain() {
     let stub = start_stub().await;
     let context = seed_context().await;
-    let version = configure_ai(&context, &stub.base_url, Some("stub-image")).await;
+    let version = configure_ai(&context, &stub.base_url).await;
     let before = accounting_counts(&context.pool, context.activity_id).await;
     let text_uri = format!(
         "/api/activities/{}/ai/expense-draft/text",
@@ -556,7 +556,7 @@ async fn ai_provider_loopback_completes_text_and_image_protocol_chain() {
     assert!(calls.iter().all(|call| call.authorization_present));
     assert_eq!(calls[0].body["model"], "stub-text");
     assert_eq!(calls[0].body["response_format"]["type"], "json_object");
-    assert_eq!(calls[1].body["model"], "stub-image");
+    assert_eq!(calls[1].body["model"], "stub-text");
     assert_eq!(calls[1].body["response_format"]["type"], "json_object");
     let image_data_url = calls[1].body["messages"][1]["content"][1]["image_url"]["url"]
         .as_str()
@@ -565,7 +565,7 @@ async fn ai_provider_loopback_completes_text_and_image_protocol_chain() {
     assert!(!image_data_url.contains("http://"));
     assert!(!image_data_url.contains("https://"));
 
-    update_image_model(&context, &stub.base_url, version, None).await;
+    update_default_model(&context, &stub.base_url, version, "stub-image").await;
     let response = context
         .app
         .clone()
@@ -580,7 +580,7 @@ async fn ai_provider_loopback_completes_text_and_image_protocol_chain() {
     assert_eq!(json_response(response).await.0, StatusCode::OK);
     let calls = stub.calls().await;
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].body["model"], "stub-text");
+    assert_eq!(calls[0].body["model"], "stub-image");
     assert_eq!(
         accounting_counts(&context.pool, context.activity_id).await,
         before
@@ -601,7 +601,7 @@ async fn ai_provider_loopback_completes_text_and_image_protocol_chain() {
 async fn ai_provider_loopback_failures_map_without_retry() {
     let stub = start_stub().await;
     let context = seed_context().await;
-    configure_ai(&context, &stub.base_url, None).await;
+    configure_ai(&context, &stub.base_url).await;
     let text_uri = format!(
         "/api/activities/{}/ai/expense-draft/text",
         context.activity_id

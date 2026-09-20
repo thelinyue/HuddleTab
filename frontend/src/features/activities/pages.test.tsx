@@ -1253,6 +1253,23 @@ describe("活动管理 Overlay", () => {
 });
 
 describe("活动工作台访问边界", () => {
+  it("活动统计使用独立页面外壳并保留工作区上下文", () => {
+    function StatisticsContent() {
+      const workspace = useWorkspace();
+      return <p>{workspace.activity.name}统计内容</p>;
+    }
+    render(<MemoryRouter initialEntries={["/activities/activity-1/statistics"]}><Routes>
+      <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
+        <Route path="statistics" element={<StatisticsContent />} />
+      </Route>
+    </Routes></MemoryRouter>);
+
+    expect(screen.getByRole("heading", { name: "活动统计" })).toBeInTheDocument();
+    expect(screen.getByText("测试活动统计内容")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回流水" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "活动导航" })).not.toBeInTheDocument();
+  });
+
   it.each(["ENDED", "ARCHIVED"])("%s 账单详情使用独立页面外壳并隐藏活动导航", (status) => {
     activityApiState.activity.status = status;
     render(<MemoryRouter initialEntries={["/activities/activity-1/expenses/expense-1"]}><Routes>

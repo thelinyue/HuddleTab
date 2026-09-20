@@ -113,23 +113,20 @@ async function installFixture(page: Page, options: InstallOptions = {}) {
 }
 
 async function openSmartEntry(page: Page) {
-  await page.goto('/activities/demo/expenses/new');
-  await expect(page.getByRole('heading', { name: '新增账单' })).toBeVisible();
+  await page.goto('/activities/demo');
+  await expect(page.getByRole('heading', { name: 'AI 录入测试活动' })).toBeVisible();
   await page.getByRole('button', { name: '智能录入' }).click();
-  await expect(page.getByRole('heading', { name: '智能录入' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '智能录入' })).toBeVisible();
 }
 
-test('智能录入文字草稿经过隐私确认、成员预填、修改后保存到流水', async ({ page }) => {
+test('智能录入文字草稿、成员预填、修改后保存到流水', async ({ page }) => {
   const controls = await installFixture(page);
   await openSmartEntry(page);
-  await expect(page.getByRole('tab', { name: '上传小票' })).not.toBeVisible();
+  await expect(page.getByRole('tab', { name: '图片识别' })).not.toBeVisible();
   await page.getByRole('textbox', { name: '账单描述' }).fill('昨晚居酒屋消费 12800 元，我先付。');
   await page.getByRole('button', { name: '生成账单草稿' }).click();
-  expect(controls.textCalls).toBe(0);
-  await expect(page.getByRole('alert')).toContainText('确认');
-  await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: '重新生成草稿' }).click();
   await expect(page.getByRole('region', { name: '智能录入提示' })).toBeVisible();
+  expect(controls.textCalls).toBe(1);
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   await expect(page.getByRole('button', { name: '付款人：小林' })).toBeVisible();
   await expect(page.getByRole('button', { name: '参与人：2 人' })).toBeVisible();
@@ -143,17 +140,17 @@ test('智能录入文字草稿经过隐私确认、成员预填、修改后保�
 
 test('capability 失败时直接进入手动流程', async ({ page }) => {
   await installFixture(page, { capabilityAvailable: false });
-  await page.goto('/activities/demo/expenses/new');
+  await page.goto('/activities/demo');
+  await expect(page.getByRole('heading', { name: 'AI 录入测试活动' })).toBeVisible();
+  await page.getByRole('button', { name: '记一笔' }).click();
   await expect(page.getByLabel('金额')).toBeVisible();
-  await expect(page.getByRole('heading', { name: '新增账单' })).not.toBeVisible();
-  await expect(page.getByText('智能录入暂不可用')).toBeVisible();
+  await expect(page.getByRole('button', { name: '智能录入' })).not.toBeVisible();
 });
 
 test('AMBIGUOUS 成员只展示候选，不自动选择', async ({ page }) => {
   await installFixture(page, { ambiguous: true });
   await openSmartEntry(page);
   await page.getByRole('textbox', { name: '账单描述' }).fill('小王参与的晚餐');
-  await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '生成账单草稿' }).click();
   await expect(page.getByText(/候选成员/)).toBeVisible();
   await expect(page.getByRole('button', { name: '参与人：1 人' })).toBeVisible();
@@ -165,22 +162,18 @@ test('390×844 智能录入无横向溢出', async ({ page }) => {
   await openSmartEntry(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('textbox', { name: '账单描述' }).fill('一笔移动端晚餐');
-  await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '生成账单草稿' }).click();
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('小票图片预览、隐私确认、识别成功且默认不保存附件', async ({ page }) => {
+test('小票图片预览、识别成功且默认不保存附件', async ({ page }) => {
   const controls = await installFixture(page, { imageAvailable: true });
   await openSmartEntry(page);
-  await page.getByRole('tab', { name: '上传小票' }).click();
+  await page.getByRole('tab', { name: '图片识别' }).click();
   await page.locator('#ai-expense-image').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
   await expect(page.getByAltText('待识别的小票预览')).toBeVisible();
   await page.getByRole('button', { name: '识别小票' }).click();
-  expect(controls.imageCalls).toBe(0);
-  await page.getByRole('checkbox', { name: /确认将小票图片/ }).check();
-  await page.getByRole('button', { name: '重新识别' }).click();
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   expect(controls.imageCalls).toBe(1);
   await page.getByRole('button', { name: '保存' }).click();
@@ -191,10 +184,9 @@ test('小票图片预览、隐私确认、识别成功且默认不保存附件',
 test('开启保存附件后沿用既有附件上传流程', async ({ page }) => {
   const controls = await installFixture(page, { imageAvailable: true });
   await openSmartEntry(page);
-  await page.getByRole('tab', { name: '上传小票' }).click();
+  await page.getByRole('tab', { name: '图片识别' }).click();
   await page.locator('#ai-expense-image').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
   await page.getByRole('checkbox', { name: '同时保存为账单附件' }).check();
-  await page.getByRole('checkbox', { name: /确认将小票图片/ }).check();
   await page.getByRole('button', { name: '识别小票' }).click();
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   await page.getByRole('button', { name: '保存' }).click();
@@ -205,7 +197,6 @@ test('取消请求后输入仍保留且旧响应不覆盖状态', async ({ page 
   const controls = await installFixture(page, { textDelayMs: 800 });
   await openSmartEntry(page);
   await page.getByRole('textbox', { name: '账单描述' }).fill('取消测试账单');
-  await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '生成账单草稿' }).click();
   await page.getByRole('button', { name: '取消智能录入' }).click();
   await expect(page.getByRole('status')).toContainText('请求已取消');
@@ -219,10 +210,9 @@ test('切换 Activity 后丢弃旧草稿响应', async ({ page }) => {
   await installFixture(page, { textDelayMs: 800 });
   await openSmartEntry(page);
   await page.getByRole('textbox', { name: '账单描述' }).fill('旧活动账单');
-  await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '生成账单草稿' }).click();
-  await page.goto('/activities/other/expenses/new');
-  await expect(page.getByRole('heading', { name: '新增账单' })).toBeVisible();
+  await page.goto('/activities/other');
+  await expect(page.getByRole('heading', { name: '另一活动' })).toBeVisible();
   await page.waitForTimeout(900);
   await expect(page.getByText('AI 晚餐草稿')).not.toBeVisible();
 });
@@ -231,12 +221,12 @@ test('离线时不请求 capability 并保留手动新增入口', async ({ page 
   const controls = await installFixture(page);
   await page.goto('/activities/demo');
   await expect(page.getByRole('heading', { name: '全部流水' })).toBeVisible();
+  const capabilityCallsBeforeOffline = controls.capabilityCalls;
   try {
-    await page.getByRole('button', { name: '记一笔' }).click();
-    await expect(page.getByLabel('金额')).toBeVisible();
     await page.context().setOffline(true);
     await page.evaluate(() => window.dispatchEvent(new Event('offline')));
-    expect(controls.capabilityCalls).toBe(0);
+    await expect(page.getByRole('button', { name: '记一笔' })).toBeVisible();
+    expect(controls.capabilityCalls).toBe(capabilityCallsBeforeOffline);
     await expect(page.getByRole('button', { name: '智能录入' })).not.toBeVisible();
   } finally {
     await page.context().setOffline(false);

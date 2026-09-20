@@ -13,7 +13,6 @@ import {
   type ExpenseAggregate,
   type ExpenseDraft,
   useCreateExpenseMutation,
-  useAiCapabilityQuery,
   useDeleteAttachmentMutation,
   useDeleteExpenseMutation,
   useExchangeRateSuggestionMutation,
@@ -22,7 +21,7 @@ import {
   useUploadAttachmentMutation,
   useUpdateExpenseMutation
 } from "./api";
-import { AiExpenseEntry, aiSuggestionLabel, type AiExpenseEditorInitialValues, type AiExpenseField } from "./ai-expense-entry";
+import { aiSuggestionLabel, type AiExpenseEditorInitialValues, type AiExpenseField } from "./ai-expense-entry";
 
 import { attachmentAccept, ExpenseAttachments, SelectedAttachmentPreviews, validateAttachments } from "./expense-attachments";
 
@@ -992,37 +991,11 @@ function CurrencyQuickList({ value, search, onSelect }: { value: string; search:
 }
 
 export function NewExpensePage() {
-  const { session, activity, members: cachedMembers, offline } = useWorkspace();
-  const capability = useAiCapabilityQuery(session.userId, activity.activityId, !offline);
-  const members = useMembersQuery(session.userId, activity.activityId, !offline);
-  const [entryMode, setEntryMode] = useState<"ai" | "manual">("manual");
-  const [initialDraft, setInitialDraft] = useState<AiExpenseEditorInitialValues>();
-  // 每次明确生成或放弃一份 AI 草稿都换本地 key，确保编辑器只在草稿边界重新初始化。
-  const [draftKey, setDraftKey] = useState(0);
-  const [choiceResolved, setChoiceResolved] = useState(false);
-  useEffect(() => {
-    setEntryMode("manual");
-    setInitialDraft(undefined);
-    setChoiceResolved(false);
-    setDraftKey((current) => current + 1);
-  }, [activity.activityId]);
+  const { activity } = useWorkspace();
   if (activity.status !== "ACTIVE") {
     return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><div className="notice"><Info aria-hidden="true" size={18} /><span>活动已结束或归档，当前不能新增账单；已有账单仍可只读查看。</span></div></div>;
   }
-  const smartAvailable = !offline && capability.data?.textDraftAvailable === true;
-  const activeMembers = members.data ?? cachedMembers;
-  const content = entryMode === "ai" && members.isPending && activeMembers.length === 0 ? <LoadingState label="正在准备活动成员…" /> : entryMode === "ai" ? <AiExpenseEntry
-    activityId={activity.activityId}
-    members={activeMembers}
-    baseCurrency={activity.baseCurrency}
-    imageAvailable={capability.data?.imageDraftAvailable === true}
-    onManual={() => { setChoiceResolved(true); setEntryMode("manual"); setInitialDraft(undefined); setDraftKey((current) => current + 1); }}
-    onDraft={(draft) => { setChoiceResolved(true); setInitialDraft(draft); setEntryMode("manual"); setDraftKey((current) => current + 1); }}
-  /> : <RoutedExpenseEditor initialDraft={initialDraft} />;
-  if (entryMode === "manual" && smartAvailable && !choiceResolved && !initialDraft) {
-      return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><section className="ai-expense-choice" aria-labelledby="new-expense-choice-title"><h2 id="new-expense-choice-title">新增账单</h2><p>选择一种录入方式。</p><div className="ai-expense-choice__actions"><Button type="button" onClick={() => { setChoiceResolved(true); setEntryMode("manual"); setDraftKey((current) => current + 1); }}>手动填写</Button><Button type="button" variant="secondary" onClick={() => { setChoiceResolved(true); setEntryMode("ai"); }}>智能录入</Button></div></section></div>;
-  }
-  return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link>{capability.error && !offline ? <div className="notice" role="status">智能录入暂不可用，仍可直接手动填写。</div> : null}{entryMode === "manual" ? <RoutedExpenseEditor key={`new-expense-${draftKey}`} initialDraft={initialDraft} /> : content}</div>;
+  return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><RoutedExpenseEditor /></div>;
 }
 
 /** 只读账单沿用“记一笔 / 修改账单”的字段名称和顺序，只把输入控件替换为事实展示。 */
