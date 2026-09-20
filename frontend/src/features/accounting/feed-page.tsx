@@ -1,5 +1,5 @@
 import { ApiRequestError } from "../../api/error";
-import { BarChart3, Filter, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
+import { BarChart3, Filter, Image as ImageIcon, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -49,6 +49,11 @@ export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZ
 function dateHeading(date: string): string {
   const [year, month, day] = date.split("-").map(Number);
   return `${year}年${month}月${day}日`;
+}
+
+/** 用一个非交互图标提示流水包含图片；标题链接仍是唯一的交互入口。 */
+function ExpenseAttachmentIndicator() {
+  return <span className="expense-row__attachment-indicator" role="img" aria-label="含图片" title="含图片"><ImageIcon aria-hidden="true" size={14} strokeWidth={1.8} /></span>;
 }
 
 export function ExpenseFeedPage() {
@@ -185,7 +190,7 @@ export function ExpenseFeedPage() {
                 return (
                   <div key={record.id} className="expense-row expense-row--pending">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{record.payload.title}</strong>{record.payload.note ? <span className="expense-row__note">{record.payload.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => { setRejectedView("entry"); setRejectedDraft(record); }}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => setDiscardTarget({ mutationId: record.id, activityId: record.activityId })}>丢弃本地记录</Button></span> : null}</span>
+                    <span className="expense-row__content"><span className="expense-row__title"><strong>{record.payload.title}</strong>{(record.attachments ?? []).some(({ status }) => status !== "REJECTED") ? <ExpenseAttachmentIndicator /> : null}</span>{record.payload.note ? <span className="expense-row__note">{record.payload.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shareCount}人 · {statusLabel}</small>{record.lastError ? <small>{record.lastError.message}</small> : null}{record.status === "REJECTED" ? <span className="pending-expense-actions"><Button type="button" variant="secondary" onClick={() => { setRejectedView("entry"); setRejectedDraft(record); }}>修改后重试</Button><Button type="button" variant="ghost" onClick={() => setDiscardTarget({ mutationId: record.id, activityId: record.activityId })}>丢弃本地记录</Button></span> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(record.payload.originalCurrency, record.payload.originalAmountMinor)} /><small>{new Date(record.payload.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </div>
                 );
@@ -197,7 +202,7 @@ export function ExpenseFeedPage() {
           <section className="expense-date-group" key={group.date} aria-labelledby={`date-${group.date}`}>
             <h3 id={`date-${group.date}`}>{dateHeading(group.date)}</h3>
             <div className="expense-list">
-              {group.expenses.map(({ expense, payments, shares, settlementProgress }) => {
+              {group.expenses.map(({ expense, payments, shares, attachments, settlementProgress }) => {
                 const categoryInfo = categories.find(([value]) => value === expense.category) ?? categories.at(-1)!;
                 const payerNames = payments.map((payment) => memberName(payment.memberId, memberData)).join("、");
                 const local = localRecords.find((record) =>
@@ -209,6 +214,9 @@ export function ExpenseFeedPage() {
                 )?.lastError?.message ?? (local?.attachments.some((attachment) =>
                   ["PENDING", "SYNCING", "RETRYABLE"].includes(attachment.status)
                 ) ? "图片等待同步" : undefined);
+                const hasAttachments = attachments.length > 0 || local?.attachments.some(
+                  (attachment) => attachment.status !== "REJECTED",
+                ) === true;
                 const settlementStatus = settlementProgress?.status;
                 const settlementLabel = settlementStatus === "NO_SETTLEMENT_REQUIRED"
                   ? "无需结算"
@@ -228,7 +236,7 @@ export function ExpenseFeedPage() {
                 return (
                   <Link key={expense.expenseId} to={rowUrl} state={existingExpenseWritable ? { expenseOverlay: true } : { expenseDetailFromFeed: true }} className="expense-row">
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
-                    <span className="expense-row__content"><strong>{expense.title}</strong>{expense.note ? <span className="expense-row__note">{expense.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shares.length}人{settlementLabel ? ` · ${settlementLabel}` : ""}</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
+                    <span className="expense-row__content"><span className="expense-row__title"><strong>{expense.title}</strong>{hasAttachments ? <ExpenseAttachmentIndicator /> : null}</span>{expense.note ? <span className="expense-row__note">{expense.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shares.length}人{settlementLabel ? ` · ${settlementLabel}` : ""}</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} /><small>{new Date(expense.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
                   </Link>
                 );

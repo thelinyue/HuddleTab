@@ -7,7 +7,7 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
   const balances = members.map((member, index) => ({ memberId: member.memberId, displayName: member.displayName, netMinor: index ? String(-shareMinor) : String((count - 1) * shareMinor) }));
   const recommendations = { recommendations: members.slice(1).map(member => ({ payerMemberId: member.memberId, receiverMemberId: 'm0', amountMinor: String(shareMinor) })) };
   const records = [{ settlementId: 's1', activityId: 'demo', payerMemberId: 'm1', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '8000', status: 'ACTIVE', createdAt: '2026-09-06T06:30:00Z', version: '1' }, { settlementId: 's2', activityId: 'demo', payerMemberId: 'm2', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '2000', status: 'VOID', createdAt: '2026-09-05T10:20:00Z', version: '1' }];
-  const expenses = [{ expense: { expenseId: 'e1', activityId: 'demo', title: '湖边晚餐', note: '四个人一起吃杭帮菜', baseAmountMinor: '48000', originalAmountMinor: '48000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'FOOD', occurredAt: '2026-09-05T10:00:00Z', exchangeRate: '1', splitMode: 'EQUAL', version: '1' }, payments: [{ memberId: 'm0', originalAmountMinor: '48000', baseAmountMinor: '48000' }], shares: members.map(member => ({ memberId: member.memberId, originalAmountMinor: '12000', baseAmountMinor: '12000' })), attachments: [] }];
+  const expenses = [{ expense: { expenseId: 'e1', activityId: 'demo', title: '湖边晚餐', note: '四个人一起吃杭帮菜', baseAmountMinor: '48000', originalAmountMinor: '48000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'FOOD', occurredAt: '2026-09-05T10:00:00Z', exchangeRate: '1', splitMode: 'EQUAL', version: '1' }, payments: [{ memberId: 'm0', originalAmountMinor: '48000', baseAmountMinor: '48000' }], shares: members.map(member => ({ memberId: member.memberId, originalAmountMinor: '12000', baseAmountMinor: '12000' })), attachments: [{ id: 'a1', byteSize: '456', createdAt: '2026-09-05T10:01:00Z', height: 480, mimeType: 'image/webp', width: 640 }] }];
   const controls = { expenses, activityPending: false, historyPending: false, feedPending: false, snapshotPending: false, historyError: false, ledgerPending: false, failWrite: false, writes: [] as unknown[], summaryReads: 0, members, balances, activity };
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url()); const endpoint = url.pathname.split('/').at(-1);
@@ -234,6 +234,7 @@ test('首次流水骨架与按需模块，历史记录慢不阻塞余额', async
   await page.screenshot({ path: info.outputPath('feed-skeleton.png') });
   control.feedPending = false;
   await expect(page.getByRole('link', { name: /湖边晚餐/ })).toBeVisible();
+  await expect(page.getByRole('img', { name: '含图片' })).toBeVisible();
   expect(scripts.some(url => /expense-editor-|settlement-page-/.test(url))).toBeFalsy();
   await page.screenshot({ path: info.outputPath('feed.png') });
   control.historyPending = true;

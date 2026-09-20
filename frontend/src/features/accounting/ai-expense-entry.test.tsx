@@ -100,20 +100,36 @@ describe("AI 文字录入界面", () => {
     expect(screen.queryByText(/response|prompt|api\.deepseek/i)).not.toBeInTheDocument();
   });
 
-  it("图片模式只在内存预览并可请求图片草稿", async () => {
+  it("图片模式复用记一笔的图片入口并在选图后立即请求图片草稿", async () => {
     vi.mocked(createAiImageDraft).mockResolvedValue(draft);
     const onDraft = vi.fn();
     const revoke = vi.spyOn(URL, "revokeObjectURL");
     const view = render(<AiExpenseEntry activityId="activity-1" members={members} baseCurrency="CNY" imageAvailable onDraft={onDraft} onManual={vi.fn()} />);
     fireEvent.click(screen.getByRole("tab", { name: "图片识别" }));
+    expect(screen.getByText("添加图片")).toBeInTheDocument();
+    expect(screen.getByText("未添加图片")).toBeInTheDocument();
+    const fileInput = screen.getByLabelText("小票图片");
+    expect(fileInput).toHaveClass("quick-expense-attachment__input");
+    expect(fileInput).not.toHaveAttribute("capture");
     const file = new File([new Uint8Array([1, 2, 3])], "receipt.jpg", { type: "image/jpeg" });
-    fireEvent.change(screen.getByLabelText("小票图片"), { target: { files: [file] } });
-    fireEvent.click(screen.getByRole("button", { name: "识别小票" }));
+    fireEvent.change(fileInput, { target: { files: [file] } });
     await waitFor(() => expect(onDraft).toHaveBeenCalledOnce());
     expect(createAiImageDraft).toHaveBeenCalledWith("activity-1", file, expect.any(String), expect.any(AbortSignal));
     expect(onDraft.mock.calls[0][0]).toMatchObject({ source: "IMAGE" });
     view.unmount();
     expect(revoke).toHaveBeenCalled();
     revoke.mockRestore();
+  });
+
+  it("系统来源选择后的图片复用同一套识别流程", async () => {
+    vi.mocked(createAiImageDraft).mockResolvedValue(draft);
+    const onDraft = vi.fn();
+    render(<AiExpenseEntry activityId="activity-1" members={members} baseCurrency="CNY" imageAvailable onDraft={onDraft} onManual={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "图片识别" }));
+    const fileInput = screen.getByLabelText("小票图片");
+    const file = new File([new Uint8Array([1, 2, 3])], "camera.jpg", { type: "image/jpeg" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => expect(onDraft).toHaveBeenCalledOnce());
+    expect(createAiImageDraft).toHaveBeenCalledWith("activity-1", file, expect.any(String), expect.any(AbortSignal));
   });
 });

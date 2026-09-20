@@ -16,6 +16,13 @@ const onePixelPng = Buffer.from(
   "base64",
 );
 
+function boxesOverlap(first: { x: number; y: number; width: number; height: number }, second: { x: number; y: number; width: number; height: number }) {
+  return first.x < second.x + second.width
+    && first.x + first.width > second.x
+    && first.y < second.y + second.height
+    && first.y + first.height > second.y;
+}
+
 test("离线图片附件恢复联网后可查看并即时删除", async ({ page, context }, testInfo) => {
   const suffix = `${testInfo.project.name}-${Date.now()}`;
   const title = `附件餐费 ${suffix}`;
@@ -76,6 +83,42 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
     headers: { "If-None-Match": thumbnail.headers().etag },
   });
   expect(cachedThumbnail.status()).toBe(304);
+
+  let releaseOriginal!: () => void;
+  let markOriginalRequested!: () => void;
+  const originalRequested = new Promise<void>((resolve) => { markOriginalRequested = resolve; });
+  const originalRelease = new Promise<void>((resolve) => { releaseOriginal = resolve; });
+  const attachmentRoute = "**/api/activities/**/expenses/**/attachments/**";
+  await page.route(attachmentRoute, async (route) => {
+    const url = new URL(route.request().url());
+    if (!url.searchParams.has("variant")) {
+      markOriginalRequested();
+      await originalRelease;
+    }
+    await route.continue();
+  });
+  await page.getByRole("link", { name: "查看图片 1" }).click();
+  await originalRequested;
+  const preview = page.getByRole("dialog", { name: "图片大图预览 1" });
+  const loading = preview.locator(".attachment-lightbox__loading");
+  const close = preview.getByRole("button", { name: "关闭图片预览", exact: true });
+  const original = preview.getByRole("link", { name: "打开原图" });
+  await expect(loading).toHaveText("正在加载原图…");
+  await expect(original).toHaveCSS("white-space", "nowrap");
+  const loadingBox = await loading.boundingBox();
+  const closeBox = await close.boundingBox();
+  const originalBox = await original.boundingBox();
+  if (!loadingBox || !closeBox || !originalBox) throw new Error("无法读取原图预览控件尺寸");
+  expect(boxesOverlap(loadingBox, closeBox)).toBe(false);
+  expect(boxesOverlap(loadingBox, originalBox)).toBe(false);
+  expect(boxesOverlap(closeBox, originalBox)).toBe(false);
+  await assertNoHorizontalOverflow(page);
+
+  releaseOriginal();
+  await expect(loading).toHaveCount(0);
+  await expect(preview.locator(".attachment-lightbox__full")).toHaveClass(/loaded/);
+  await page.unroute(attachmentRoute);
+  await close.click();
 
   await page.getByRole("button", { name: "删除图片 1" }).click();
   const deleteConfirmation = page.getByRole("alertdialog", { name: "删除图片" });

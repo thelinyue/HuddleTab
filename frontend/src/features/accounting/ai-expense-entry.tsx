@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { ImagePlus, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiRequestError } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
@@ -322,11 +322,32 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
     }
   }
 
-  async function submit() {
+  function validateImage(next: File): string | undefined {
+    if (!["image/jpeg", "image/png", "image/webp"].includes(next.type)) return "当前支持 JPG、PNG 和 WebP 图片。";
+    if (next.size > 10 * 1024 * 1024) return "图片不能超过 10 MiB。";
+    return undefined;
+  }
+
+  // 选图后立即请求；显式传入 next，避免 setFile 异步更新时请求读到上一张图片。
+  function handleImageSelection(next: File | undefined) {
+    if (!next) return;
+    const validationError = validateImage(next);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setError(undefined);
+    setFile(next);
+    setState("IDLE");
+    void submit(next);
+  }
+
+  async function submit(selectedFile?: File) {
     if (state === "SUBMITTING") return;
     const value = text.trim();
+    const image = selectedFile ?? file;
     if (mode === "text" && !value) { setError("请先填写账单描述。"); setState("ERROR"); return; }
-    if (mode === "image" && !file) { setError("请先选择小票图片。"); setState("ERROR"); return; }
+    if (mode === "image" && !image) { setError("请先选择小票图片。"); setState("ERROR"); return; }
     const controller = new AbortController();
     controllerRef.current = controller;
     const requestId = ++requestIdRef.current;
@@ -334,11 +355,11 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
     setState("SUBMITTING");
     try {
       const response = mode === "image"
-        ? await createAiImageDraft(activityId, file!, new Date().toISOString(), controller.signal)
+        ? await createAiImageDraft(activityId, image!, new Date().toISOString(), controller.signal)
         : await createAiTextDraft(activityId, value, controller.signal);
       if (controller.signal.aborted || requestId !== requestIdRef.current) return;
       const normalized = normalizeAiDraftForEditor(response, members, baseCurrency, mode === "image" ? "IMAGE" : "TEXT");
-      if (mode === "image" && saveAsAttachment && file) normalized.attachments = [file];
+      if (mode === "image" && saveAsAttachment && image) normalized.attachments = [image];
       setState("SUCCESS");
       onDraft(normalized);
     } catch (reason) {
@@ -349,6 +370,8 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
       if (requestId === requestIdRef.current) controllerRef.current = undefined;
     }
   }
+
+  const imageEntryHasManualActionOnly = mode === "image" && state !== "SUBMITTING" && state !== "ERROR" && state !== "CANCELLED";
 
   return (
     <section className="ai-expense-entry" aria-labelledby="ai-expense-entry-title">
@@ -365,22 +388,27 @@ export function AiExpenseEntry({ activityId, members, baseCurrency, imageAvailab
         <Textarea id="ai-expense-description" aria-label="账单描述" value={text} onChange={(event) => setText(event.target.value)} rows={6} maxLength={4000} placeholder="例如：昨晚居酒屋消费 12800 日元，我先付，林樾、小王和小李三个人平均分摊。" aria-describedby="ai-expense-example" disabled={state === "SUBMITTING"} />
         <span id="ai-expense-example" className="field__hint">可以写金额、币种、付款人和参与成员；不确定的信息会留给你确认。</span>
       </label> : <div className="ai-expense-entry__image-input">
-        <label className="field" htmlFor="ai-expense-image"><span className="field__label">小票图片</span><input id="ai-expense-image" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" capture="environment" disabled={state === "SUBMITTING"} onChange={(event) => {
-          const next = event.target.files?.[0];
-          if (!next) return;
-          if (!["image/jpeg", "image/png", "image/webp"].includes(next.type)) { setError("当前支持 JPG、PNG 和 WebP 图片。"); return; }
-          if (next.size > 10 * 1024 * 1024) { setError("图片不能超过 10 MiB。"); return; }
-          setError(undefined); setFile(next); setState("IDLE");
-        }} /></label>
+        <span className="field__label">小票图片</span>
+        <span className="field__hint">拍照或选择图片，选定后自动识别</span>
         {previewUrl && file ? <div className="ai-expense-entry__image-preview"><img src={previewUrl} alt="待识别的小票预览" /><Button type="button" variant="ghost" onClick={() => { setFile(undefined); setState("IDLE"); }}>删除图片</Button></div> : null}
         <label className="ai-expense-entry__confirm"><input type="checkbox" checked={saveAsAttachment} onChange={(event) => setSaveAsAttachment(event.target.checked)} disabled={state === "SUBMITTING"} /><span>同时保存为账单附件</span></label>
+        <div className="quick-expense-attachment ai-expense-entry__image-source">
+          {/* 沿用“记一笔”的单一图片输入，让移动端系统提供图库、拍照和文件来源菜单。 */}
+          <input className="quick-expense-attachment__input" id="ai-expense-image-file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-label="小票图片" disabled={state === "SUBMITTING"} onChange={(event) => { handleImageSelection(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
+          <span className="quick-expense-attachment__surface">
+            <ImagePlus aria-hidden="true" size={18} />
+            <strong>{file ? "更换图片" : "添加图片"}</strong>
+            <small>{file ? "已添加图片" : "未添加图片"}</small>
+          </span>
+        </div>
       </div>}
       {error ? <div className="ai-expense-entry__error" role="alert">{error}</div> : null}
+      {state === "SUBMITTING" && mode === "image" ? <div className="ai-expense-entry__status" role="status">正在识别小票…</div> : null}
       {state === "CANCELLED" ? <div className="ai-expense-entry__status" role="status">请求已取消，输入内容仍保留。</div> : null}
       {state === "SUCCESS" ? <div className="ai-expense-entry__status" role="status">草稿已生成，正在打开编辑器。</div> : null}
-      <div className="ai-expense-entry__actions">
+      <div className={`ai-expense-entry__actions${imageEntryHasManualActionOnly ? " ai-expense-entry__actions--single" : ""}`}>
         <Button type="button" variant="ghost" onClick={onManual} disabled={state === "SUBMITTING"}>手动填写</Button>
-        {state === "SUBMITTING" ? <Button type="button" variant="secondary" onClick={cancel} aria-label="取消智能录入">取消</Button> : <Button type="button" onClick={() => void submit()} busy={false} disabled={mode === "text" ? !text.trim() : !file} aria-busy={false}>{state === "ERROR" || state === "CANCELLED" ? mode === "image" ? "重新识别" : "重新生成草稿" : mode === "image" ? "识别小票" : "生成账单草稿"}</Button>}
+        {state === "SUBMITTING" ? <Button type="button" variant="secondary" onClick={cancel} aria-label={mode === "image" ? "取消识别" : "取消智能录入"}>{mode === "image" ? "取消识别" : "取消"}</Button> : mode === "text" || state === "ERROR" || state === "CANCELLED" ? <Button type="button" onClick={() => void submit()} busy={false} disabled={mode === "text" ? !text.trim() : !file} aria-busy={false}>{state === "ERROR" || state === "CANCELLED" ? mode === "image" ? "重新识别" : "重新生成草稿" : "生成账单草稿"}</Button> : null}
       </div>
     </section>
   );

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-type InstallOptions = { capabilityAvailable?: boolean; ambiguous?: boolean; imageAvailable?: boolean; textDelayMs?: number };
+type InstallOptions = { capabilityAvailable?: boolean; ambiguous?: boolean; imageAvailable?: boolean; textDelayMs?: number; imageDelayMs?: number };
 
 const activity = {
   activityId: 'demo',
@@ -79,6 +79,7 @@ async function installFixture(page: Page, options: InstallOptions = {}) {
     }
     if (path.endsWith('/ai/expense-draft/image')) {
       controls.imageCalls += 1;
+      if (options.imageDelayMs) await new Promise((resolve) => setTimeout(resolve, options.imageDelayMs));
       await route.fulfill({ json: { data: draft(Boolean(options.ambiguous)) } }); return;
     }
     if (request.method() !== 'GET') {
@@ -168,12 +169,16 @@ test('390×844 智能录入无横向溢出', async ({ page }) => {
 });
 
 test('小票图片预览、识别成功且默认不保存附件', async ({ page }) => {
-  const controls = await installFixture(page, { imageAvailable: true });
+  const controls = await installFixture(page, { imageAvailable: true, imageDelayMs: 800 });
   await openSmartEntry(page);
   await page.getByRole('tab', { name: '图片识别' }).click();
-  await page.locator('#ai-expense-image').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
+  await expect(page.locator('.quick-expense-attachment__surface')).toContainText('添加图片');
+  await expect(page.locator('.quick-expense-attachment__surface')).toContainText('未添加图片');
+  await expect(page.locator('#ai-expense-image-file')).toHaveClass(/quick-expense-attachment__input/);
+  await expect(page.locator('#ai-expense-image-file')).not.toHaveAttribute('capture');
+  await page.locator('#ai-expense-image-file').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
   await expect(page.getByAltText('待识别的小票预览')).toBeVisible();
-  await page.getByRole('button', { name: '识别小票' }).click();
+  await expect(page.locator('.ai-expense-entry__status')).toContainText('正在识别小票');
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   expect(controls.imageCalls).toBe(1);
   await page.getByRole('button', { name: '保存' }).click();
@@ -185,9 +190,8 @@ test('开启保存附件后沿用既有附件上传流程', async ({ page }) => 
   const controls = await installFixture(page, { imageAvailable: true });
   await openSmartEntry(page);
   await page.getByRole('tab', { name: '图片识别' }).click();
-  await page.locator('#ai-expense-image').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
   await page.getByRole('checkbox', { name: '同时保存为账单附件' }).check();
-  await page.getByRole('button', { name: '识别小票' }).click();
+  await page.locator('#ai-expense-image-file').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
   await expect(page.getByRole('heading', { name: '记一笔' })).toBeVisible();
   await page.getByRole('button', { name: '保存' }).click();
   await expect.poll(() => controls.writes.filter((write) => typeof write === 'object' && write !== null && 'file' in write).length).toBeGreaterThan(0);

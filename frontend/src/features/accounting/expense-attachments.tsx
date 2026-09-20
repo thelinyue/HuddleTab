@@ -117,19 +117,21 @@ export function ExpenseAttachments({
             aria-modal="true"
             aria-label={`图片大图预览 ${activeIndex + 1}`}
           >
-            {!fullImageLoaded ? <img
-              className="attachment-lightbox__placeholder"
-              src={attachmentUrl(activityId, expenseId, activeAttachment.id, "thumbnail")}
-              alt=""
-              aria-hidden="true"
-            /> : null}
-            <img
-              className={`attachment-lightbox__full${fullImageLoaded ? " attachment-lightbox__full--loaded" : ""}`}
-              src={attachmentUrl(activityId, expenseId, activeAttachment.id)}
-              alt={`图片 ${activeIndex + 1}`}
-              onLoad={() => setFullImageLoaded(true)}
-            />
-            {!fullImageLoaded ? <span className="attachment-lightbox__loading" role="status">正在加载原图…</span> : null}
+            <div className="attachment-lightbox__stage">
+              {!fullImageLoaded ? <img
+                className="attachment-lightbox__placeholder"
+                src={attachmentUrl(activityId, expenseId, activeAttachment.id, "thumbnail")}
+                alt=""
+                aria-hidden="true"
+              /> : null}
+              <img
+                className={`attachment-lightbox__full${fullImageLoaded ? " attachment-lightbox__full--loaded" : ""}`}
+                src={attachmentUrl(activityId, expenseId, activeAttachment.id)}
+                alt={`图片 ${activeIndex + 1}`}
+                onLoad={() => setFullImageLoaded(true)}
+              />
+              {!fullImageLoaded ? <span className="attachment-lightbox__loading" role="status">正在加载原图…</span> : null}
+            </div>
             <a
               className="attachment-lightbox__original"
               href={attachmentUrl(activityId, expenseId, activeAttachment.id)}
@@ -215,7 +217,9 @@ export function SelectedAttachmentPreviews({
             aria-modal="true"
             aria-label={`图片大图预览 ${activePreview.file.name}`}
           >
-            <img src={activePreview.url} alt={activePreview.file.name} />
+            <div className="attachment-lightbox__stage">
+              <img src={activePreview.url} alt={activePreview.file.name} />
+            </div>
             <button
               type="button"
               className="attachment-lightbox__close"

@@ -740,6 +740,29 @@ describe("流水备注摘要", () => {
   });
 });
 
+describe("流水图片标识", () => {
+  it("在标题后显示含图片标识，并保留流水整行链接", () => {
+    renderPage(<ExpenseFeedPage />);
+
+    const row = screen.getByText("午餐").closest(".expense-row");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByRole("img", { name: "含图片" })).toBeInTheDocument();
+    expect(row).toHaveAttribute("href", "/activities/activity-1?editExpense=expense-1");
+  });
+
+  it("没有图片时不显示标识", () => {
+    const originalAttachments = expense.attachments;
+    expense.attachments = [];
+
+    try {
+      renderPage(<ExpenseFeedPage />);
+      expect(screen.queryByRole("img", { name: "含图片" })).not.toBeInTheDocument();
+    } finally {
+      expense.attachments = originalAttachments;
+    }
+  });
+});
+
 describe("Expense 附件选择与私有预览", () => {
   it("追加图片时释放旧预览，卸载页面时释放所有当前预览", () => {
     let nextUrl = 0;
@@ -891,6 +914,43 @@ describe("Expense 附件选择与私有预览", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭图片预览" }));
     expect(screen.queryByRole("dialog", { name: /图片大图预览/ }))
       .not.toBeInTheDocument();
+  });
+
+  it("服务端图片预览在原图加载前保持稳定的加载提示和原图入口", () => {
+    renderPage(<ExpenseDetailPage />);
+    const noteView = openNoteView();
+    fireEvent.click(within(noteView).getByRole("link", { name: "查看图片 1" }));
+
+    const preview = screen.getByRole("dialog", { name: "图片大图预览 1" });
+    expect(preview.querySelector(".attachment-lightbox__stage")).toBeInTheDocument();
+    expect(within(preview).getByRole("status")).toHaveTextContent("正在加载原图…");
+    const fullImage = within(preview).getByRole("img", { name: "图片 1" });
+    expect(fullImage).toHaveAttribute(
+      "src",
+      "/api/activities/activity-1/expenses/expense-1/attachments/attachment-1",
+    );
+    expect(within(preview).getByRole("link", { name: "打开原图" })).toHaveAttribute(
+      "href",
+      "/api/activities/activity-1/expenses/expense-1/attachments/attachment-1",
+    );
+
+    fireEvent.load(fullImage);
+    expect(within(preview).queryByRole("status")).not.toBeInTheDocument();
+    expect(preview.querySelector(".attachment-lightbox__placeholder")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(preview, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "图片大图预览 1" })).not.toBeInTheDocument();
+  });
+
+  it("服务端图片预览支持点击遮罩关闭", () => {
+    renderPage(<ExpenseDetailPage />);
+    const noteView = openNoteView();
+    fireEvent.click(within(noteView).getByRole("link", { name: "查看图片 1" }));
+
+    const preview = screen.getByRole("dialog", { name: "图片大图预览 1" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭图片预览背景" }));
+
+    expect(screen.queryByRole("dialog", { name: "图片大图预览 1" })).not.toBeInTheDocument();
   });
 
   it("移除选中图片后只提交剩余附件", async () => {
@@ -1052,7 +1112,43 @@ describe("Expense pending 流水隔离", () => {
     expect(screen.getByLabelText("消费摘要")).not.toHaveTextContent("¥12.00");
   });
 
+  it("待同步图片显示标识", () => {
+    pendingMutations.records = [{
+      activityId: "activity-1",
+      attachments: [{ id: "pending-attachment-1", status: "PENDING" }],
+      attemptCount: 0,
+      createdAt: 1,
+      id: "pending-with-attachment",
+      kind: "CREATE_EXPENSE",
+      nextAttemptAt: 1,
+      payload: {
+        category: "FOOD",
+        clientMutationId: "pending-with-attachment",
+        exchangeRate: "1",
+        exchangeRateKind: "IDENTITY",
+        note: "带图早餐",
+        occurredAt: "2026-09-01T10:00:00Z",
+        originalAmountMinor: "200",
+        originalCurrency: "CNY",
+        payments: [{ amountMinor: "200", memberId: "member-1" }],
+        split: { members: ["member-1"], mode: "EQUAL" },
+        title: "带图早餐",
+      },
+      status: "PENDING",
+      updatedAt: 1,
+      userId: "user-1",
+    }];
+
+    renderPage(<ExpenseFeedPage />);
+
+    const row = document.querySelector(".expense-row--pending");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByRole("img", { name: "含图片" })).toBeInTheDocument();
+  });
+
   it("已同步 Expense 的附件拒绝状态附着在权威流水且不重复分组", () => {
+    const originalAttachments = expense.attachments;
+    expense.attachments = [];
     pendingMutations.records = [{
       activityId: "activity-1",
       attachments: [{
@@ -1084,12 +1180,17 @@ describe("Expense pending 流水隔离", () => {
       userId: "user-1",
     }];
 
-    renderPage(<ExpenseFeedPage />);
+    try {
+      renderPage(<ExpenseFeedPage />);
 
-    expect(screen.queryByRole("heading", { name: "待同步" }))
-      .not.toBeInTheDocument();
-    expect(screen.getAllByText("午餐")).toHaveLength(1);
-    expect(screen.getByText("附件被服务器拒绝。")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "待同步" }))
+        .not.toBeInTheDocument();
+      expect(screen.getAllByText("午餐")).toHaveLength(1);
+      expect(screen.getByText("附件被服务器拒绝。")).toBeInTheDocument();
+      expect(screen.queryByRole("img", { name: "含图片" })).not.toBeInTheDocument();
+    } finally {
+      expense.attachments = originalAttachments;
+    }
   });
 
   it("REJECTED 账单载入完整草稿并沿用原 mutation id 重试", async () => {
