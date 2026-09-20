@@ -37,7 +37,7 @@ test("离线图片附件恢复联网后可查看并即时删除", async ({ page,
   await expect(page.getByRole("dialog", {
     name: "图片大图预览 receipt-b.png",
   })).toBeVisible();
-  await page.getByRole("button", { name: "关闭图片预览" }).click();
+  await page.getByRole("button", { name: "关闭图片预览", exact: true }).click();
   await dialog.getByRole("button", { name: "完成", exact: true }).click();
   await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);

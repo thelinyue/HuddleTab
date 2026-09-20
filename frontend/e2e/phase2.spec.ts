@@ -74,7 +74,7 @@ test("Phase 2 离线工作台、幂等重放、REJECTED 修正与 Snapshot 条�
   const snapshot = await page.request.get(`/api/activities/${activityId}/snapshot`);
   expect(snapshot.status()).toBe(200);
   const etag = snapshot.headers().etag;
-  expect(etag).toMatch(/^W\/"\d+"$/);
+  expect(etag).toMatch(/^W\/"snapshot-v2-r\d+"$/);
   const notModified = await page.request.get(`/api/activities/${activityId}/snapshot`, {
     headers: { "If-None-Match": etag },
   });

@@ -181,7 +181,7 @@ test("Chromium 核心账务矩阵覆盖冲突、导出、导航与响应式布�
   await page.goto(`/activities/${activityId}?tab=settlement`);
   await expect(page.getByRole("heading", { name: "推荐转账" })).toBeVisible();
   await recordSettlement(page, "100");
-  await expect(page.getByRole("heading", { name: "推荐转账" }).locator("..")).toContainText("160.00");
+  await expect(page.locator(".settlement-recommendations")).toContainText("160.00");
   await recordSettlement(page, "160");
   await expect(page.getByText("全部已结清", { exact: true })).toBeVisible();
   await settlementConflict(browser, testInfo, storageState, activityId);

@@ -216,7 +216,7 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   await expect(dialog.getByRole("img", { name: "iphone-receipt-a.png 图片缩略图" })).toHaveCount(0);
   await dialog.getByRole("button", { name: "预览图片 iphone-receipt-b.png" }).click();
   await expect(page.getByRole("dialog", { name: "图片大图预览 iphone-receipt-b.png" })).toBeVisible();
-  await page.getByRole("button", { name: "关闭图片预览" }).click();
+  await page.getByRole("button", { name: "关闭图片预览", exact: true }).click();
   await dialog.getByRole("button", { name: "完成", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
   // WebKit 不提供 Chromium 的 Service Worker 能力，持久化和同步由 Chromium Mobile 专项覆盖。
