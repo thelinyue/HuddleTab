@@ -2,10 +2,6 @@
 
  HuddleTab 是一个面向活动、成员、消费记录和结算的多人协作记账应用，当前正式版为 `0.0.14`，运行栈为 React/Vite 与 Rust/Axum。
 
-## 当前源码运行
-
-正式镜像为 `ghcr.io/thelinyue/huddletab:0.0.14`，对应 Git tag `v0.0.14`。该版本使用 Rust/Axum 运行栈。
-
 ## Compose 直接部署
 
 不需要创建 `.env` 文件。将下面的内容复制保存为 `compose.yaml`，并在该文件所在目录执行命令：
