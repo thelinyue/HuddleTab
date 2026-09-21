@@ -13,7 +13,7 @@ use tokio::sync::Semaphore;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::infrastructure::app_secret::AppSecret;
+use crate::infrastructure::{app_secret::AppSecret, push::PushService};
 use crate::{
     application::exchange_rate::ExchangeRateProvider,
     infrastructure::exchange_rate_provider::FrankfurterExchangeRateProvider,
@@ -24,7 +24,7 @@ use super::static_files::mount_static_files;
 use super::{
     accounting, activity, admin, ai_expense, attachment, auth, collaboration,
     error::{ApiError, RequestId},
-    exchange_rate, expense, notification, settlement, sharing, snapshot,
+    exchange_rate, expense, notification, push, settlement, sharing, snapshot,
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -66,6 +66,8 @@ pub struct AppState {
     pub(crate) exchange_rate_provider: Arc<dyn ExchangeRateProvider>,
     /// Provider 并发闸门，避免单实例在上游异常时无限堆积请求。
     pub(crate) ai_provider_semaphore: Arc<Semaphore>,
+    /// VAPID 密钥与 Web Push 发送器；测试路由默认使用禁用实例。
+    pub(crate) push_service: Arc<PushService>,
 }
 
 impl AppState {
@@ -89,6 +91,7 @@ impl AppState {
             uploads_dir: PathBuf::from("/data/uploads"),
             exchange_rate_provider: Arc::new(FrankfurterExchangeRateProvider::new()),
             ai_provider_semaphore: Arc::new(Semaphore::new(4)),
+            push_service: Arc::new(PushService::disabled()),
         }
     }
 
@@ -107,6 +110,12 @@ impl AppState {
     #[must_use]
     pub fn with_exchange_rate_provider(mut self, provider: Arc<dyn ExchangeRateProvider>) -> Self {
         self.exchange_rate_provider = provider;
+        self
+    }
+
+    #[must_use]
+    pub fn with_push_service(mut self, service: Arc<PushService>) -> Self {
+        self.push_service = service;
         self
     }
 }
@@ -159,6 +168,18 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         .route(
             "/me/profile",
             axum::routing::patch(auth::update_profile).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/me/push-settings",
+            get(push::get_push_settings)
+                .put(push::update_push_settings)
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/me/push-subscriptions",
+            axum::routing::post(push::register_subscription)
+                .delete(push::delete_subscription)
+                .fallback(api_method_not_allowed),
         )
         .route(
             "/admin/users",

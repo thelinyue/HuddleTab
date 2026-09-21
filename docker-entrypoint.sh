@@ -73,6 +73,18 @@ if [ -e "$secret_path" ]; then
   chmod 0600 "$secret_path" || fail "无法收紧 app-secret 的权限。"
 fi
 
+# VAPID 私钥用于给浏览器推送签名；它和应用密钥一样只允许服务账号读取，
+# 入口重复启动时收紧已有文件权限，避免宿主挂载保留过宽权限。
+vapid_key_path=/data/vapid-private-key
+if [ -L "$vapid_key_path" ]; then
+  fail "/data/vapid-private-key 不能是符号链接。"
+fi
+if [ -e "$vapid_key_path" ]; then
+  [ -f "$vapid_key_path" ] || fail "/data/vapid-private-key 必须是普通文件。"
+  chown "$puid:$pgid" "$vapid_key_path" || fail "无法设置 VAPID 私钥的属主。"
+  chmod 0600 "$vapid_key_path" || fail "无法收紧 VAPID 私钥的权限。"
+fi
+
 uploads_path=/data/uploads
 if [ -L "$uploads_path" ]; then
   fail "/data/uploads 不能是符号链接。"

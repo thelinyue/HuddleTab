@@ -55,7 +55,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 5);
+    assert_eq!(applied_count, 6);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -109,7 +109,7 @@ async fn phase2_schema_upgrades_to_ai_image_migration() {
         .fetch_one(&upgraded)
         .await
         .expect("应读取升级后的 migration 记录");
-    assert_eq!(migration_count, 5);
+    assert_eq!(migration_count, 6);
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
@@ -160,6 +160,25 @@ fn ai_timeout_migration_aligns_database_with_application_range() {
         migration.contains("DROP CONSTRAINT system_settings_ai_provider_timeout_seconds_check")
     );
     assert!(migration.contains("BETWEEN 1 AND 120"));
+}
+
+#[test]
+fn push_migration_declares_durable_queue_and_safe_device_defaults() {
+    let migration = include_str!("../migrations/202609210001_pwa_push.sql");
+    for fragment in [
+        "ADD COLUMN push_enqueued_at TIMESTAMPTZ",
+        "CREATE TABLE notification_push_preferences",
+        "CREATE TABLE push_subscriptions",
+        "CREATE TABLE notification_push_deliveries",
+        "UNIQUE (notification_id, subscription_id)",
+        "status IN ('PENDING', 'RETRY', 'DELIVERED', 'FAILED', 'CANCELLED')",
+    ] {
+        assert!(
+            migration.contains(fragment),
+            "推送 migration 缺少 {fragment}"
+        );
+    }
+    assert!(migration.contains("SET push_enqueued_at = created_at"));
 }
 
 #[tokio::test]

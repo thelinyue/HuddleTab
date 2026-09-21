@@ -14,6 +14,7 @@ export default defineConfig({
       workbox: {
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api(?:\/|$)/],
+        importScripts: ["/push-service-worker.js"],
         runtimeCaching: [],
       },
       manifest: {
@@ -23,6 +24,7 @@ export default defineConfig({
         theme_color: "#f6f8f7",
         background_color: "#f6f8f7",
         display: "standalone",
+        id: "/",
         start_url: "/",
         icons: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },

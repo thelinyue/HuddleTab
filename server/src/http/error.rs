@@ -160,6 +160,26 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_push_subscription(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_PUSH_SUBSCRIPTION",
+            "推送设备信息无效，请刷新页面后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn push_unavailable(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "PUSH_UNAVAILABLE",
+            "系统推送当前不可用，请稍后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn ai_rate_limited(request_id: RequestId, retry_after: u64) -> Self {
         Self::RateLimited {
             body: Self::body(

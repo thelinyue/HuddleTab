@@ -20,6 +20,10 @@ vi.mock("../auth/api", () => ({
   }),
 }));
 
+vi.mock("../push/components", () => ({
+  PushSettingsControl: () => null,
+}));
+
 import { MePage } from "./page";
 
 beforeEach(() => {

@@ -30,6 +30,7 @@ import {
   useUpdateDisplayNameMutation,
 } from "../auth/api";
 import { useThemePreference, type ThemePreference } from "../../components/theme-provider";
+import { PushSettingsControl } from "../push/components";
 
 /** 当前账户资料和偏好设置；各面板保留自己的草稿与错误状态。 */
 export function MePage() {
@@ -142,6 +143,7 @@ export function MePage() {
               <span className="settings-link__value">{themeLabels[preference]}</span>
               <ChevronRight aria-hidden="true" size={18} />
             </button>
+            <PushSettingsControl userId={session.data?.userId ?? ""} />
           </div>
         </section>
         {session.data?.isSystemAdmin ? <section className="account-settings" aria-labelledby="system-management-heading">

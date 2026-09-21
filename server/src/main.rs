@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Parser)]
@@ -55,6 +56,13 @@ async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {
         &data_dir.join("app-secret"),
     )
     .context("无法初始化持久化 app-secret，请检查 DATA_DIR 的所有权和权限")?;
+    let push_service = Arc::new(
+        huddletab_server::infrastructure::push::PushService::load_or_create(
+            &data_dir,
+            "mailto:push@huddletab.local".to_owned(),
+        )
+        .context("无法初始化持久化 VAPID 私钥，请检查 DATA_DIR 的所有权和权限")?,
+    );
     let base_origin =
         std::env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:5660".to_owned());
     let uploads_dir = data_dir.join("uploads");
@@ -62,9 +70,12 @@ async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {
         database.clone(),
         uploads_dir.clone(),
     );
-    let state = huddletab_server::http::router::AppState::new(database, app_secret, base_origin)
-        .with_data_dir(data_dir.clone())
-        .with_uploads_dir(uploads_dir);
+    let state =
+        huddletab_server::http::router::AppState::new(database.clone(), app_secret, base_origin)
+            .with_data_dir(data_dir.clone())
+            .with_uploads_dir(uploads_dir)
+            .with_push_service(push_service.clone());
+    huddletab_server::infrastructure::push::spawn_push_worker(database, push_service);
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("无法监听 {bind}，请检查端口是否被占用"))?;

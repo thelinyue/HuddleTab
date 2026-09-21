@@ -2,7 +2,7 @@ import { retryableLazy } from "../components/retryable-lazy";
 import { AccountingSkeleton } from "../features/accounting/skeleton";
 import { FileQuestion } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState, StateIllustration } from "../components/ui";
@@ -11,6 +11,7 @@ import { ActivitiesPage } from "../features/activities/activities-page";
 import { ActivityWorkspace } from "../features/activities/activity-workspace";
 import { MePage } from "../features/me/page";
 import { useSessionQuery } from "../features/auth/api";
+import { useMarkNotificationReadMutation } from "../features/notifications/api";
 import { JoinPage, LoginPage, RegisterPage } from "../features/auth/pages";
 import { PwaUpdatePrompt } from "./pwa-update";
 import { PwaLaunchScreen } from "./pwa-launch-screen";
@@ -53,7 +54,36 @@ function ProtectedRoute() {
   const location = useLocation();
   if (session.isPending) return <LoadingState label="正在确认登录状态…" />;
   if (!session.data) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
-  return <><ExpenseQueueSync userId={session.data.userId} /><Outlet /></>;
+  return <><ExpenseQueueSync userId={session.data.userId} /><PushNavigationSync userId={session.data.userId} /><Outlet /></>;
+}
+
+/** 系统通知点击带回通知 ID；到达任意业务详情页后统一确认已读并移除一次性参数。 */
+function PushNavigationSync({ userId }: { userId: string }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const notificationId = searchParams.get("pushNotification");
+  const markRead = useMarkNotificationReadMutation(userId);
+  const markReadRef = useRef(markRead.mutateAsync);
+  markReadRef.current = markRead.mutateAsync;
+  const processedNotification = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!notificationId || processedNotification.current === notificationId) return;
+    processedNotification.current = notificationId;
+    let active = true;
+    const next = new URLSearchParams(searchParams);
+    void markReadRef.current(notificationId)
+      .then(() => {
+        if (!active) return;
+        next.delete("pushNotification");
+        setSearchParams(next, { replace: true });
+      })
+      .catch(() => {
+        // 保留参数，刷新或重新进入页面时可以再次尝试标记已读。
+      });
+    return () => { active = false; };
+  }, [notificationId, searchParams, setSearchParams]);
+
+  return null;
 }
 
 function ProtectedAdminRoute() {

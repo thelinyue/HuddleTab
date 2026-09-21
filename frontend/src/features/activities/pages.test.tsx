@@ -106,6 +106,10 @@ vi.mock("../auth/api", () => ({
   }),
 }));
 
+vi.mock("../push/components", () => ({
+  PushPromptCard: () => null,
+}));
+
 vi.mock("../notifications/api", () => ({
   useNotificationsQuery: () => ({ data: activityApiState.notifications, isPending: false }),
   useMarkNotificationReadMutation: () => activityApiState.notificationMarkRead,

@@ -219,7 +219,7 @@ try {
   if ($accountSanitizerExitCode -ne 0) { throw "初始化场景 artifact 脱敏或扫描失败。" }
   if ($accountExitCode -ne 0) { throw "启动管理员与网页凭据修改浏览器检查失败，脱敏后的报告已留在 frontend/artifacts。" }
   $migration = Invoke-Compose "exec -T postgres psql -U huddletab -d huddletab -At" -InputText "SELECT count(*) FROM _sqlx_migrations WHERE success = true;`n" -Quiet
-  if ([int] $migration.Output.Trim() -ne 5) { throw "全新安装应完成 5 条数据库 migration。" }
+  if ([int] $migration.Output.Trim() -ne 6) { throw "全新安装应完成 6 条数据库 migration。" }
   $matrixLabel = if ($Phase2Only) {
     "Phase 2 Chromium Desktop/Mobile、附件、通知/所有权与 WebKit smoke 矩阵"
   } elseif ($IPhoneSimulationOnly) {

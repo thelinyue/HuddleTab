@@ -8,6 +8,10 @@ HuddleTab 可以直接以 HTTP 运行。默认 Compose 在 `http://localhost:566
 
 公网访问、完整 PWA 安全上下文和更安全的 Session 传输建议由部署者在应用外提供 HTTPS。反向代理和容器日志均应仅向部署管理员开放。
 
+## PWA 系统推送
+
+系统推送依赖浏览器的安全上下文：公网部署必须使用公开 HTTPS 域名（本机 `localhost` 可用于开发），iPhone/iPad 还需要先将站点添加到主屏幕。应用首次启动时会在 `DATA_DIR/vapid-private-key` 生成实例级 VAPID 私钥；请把它和应用数据目录一起备份，恢复时不要更换，否则已登记的浏览器设备需要重新授权。推送发送由应用容器直接访问浏览器厂商 Push Service，反向代理只负责网页和 API 的 HTTPS 入口。
+
 ## Caddy 示例
 
 以下配置由部署者放在 Compose 之外。Caddy 监听公网 HTTPS，再转发给只在本机开放的 HuddleTab 端口：

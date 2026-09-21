@@ -21,6 +21,7 @@ pub mod expense_repository;
 pub mod invitation_token;
 pub mod notification_repository;
 pub mod password;
+pub mod push;
 pub mod registration_repository;
 pub mod session;
 pub mod settlement_repository;

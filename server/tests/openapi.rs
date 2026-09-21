@@ -45,6 +45,41 @@ fn profile_contracts_are_published_for_current_user_and_member_views() {
 }
 
 #[test]
+fn push_contract_publishes_settings_devices_and_preferences() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    for (path, method) in [
+        ("/api/me/push-settings", "get"),
+        ("/api/me/push-settings", "put"),
+        ("/api/me/push-subscriptions", "post"),
+        ("/api/me/push-subscriptions", "delete"),
+    ] {
+        assert!(
+            value["paths"][path][method].is_object(),
+            "缺少 {method} {path}"
+        );
+    }
+    for schema in [
+        "PushSettingsData",
+        "PushPreferencesData",
+        "PushSubscriptionRequest",
+        "PushSubscriptionDeleteRequest",
+    ] {
+        assert!(
+            value["components"]["schemas"][schema].is_object(),
+            "缺少推送 schema {schema}"
+        );
+    }
+    let preferences = &value["components"]["schemas"]["PushPreferencesData"]["properties"];
+    for field in ["membership", "expense", "settlement", "activity"] {
+        assert_eq!(
+            preferences[field]["type"], "boolean",
+            "推送偏好 {field} 应为布尔值"
+        );
+    }
+}
+
+#[test]
 fn summary_publishes_task30_contract() {
     let document = serde_json::to_value(huddletab_server::http::openapi::document())
         .expect("OpenAPI 应可序列化");

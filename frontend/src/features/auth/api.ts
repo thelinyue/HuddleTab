@@ -4,6 +4,7 @@ import { clearCsrfToken, mutationHeaders } from "../../api/csrf";
 import { ApiRequestError, unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
 import { queryKeys } from "../../api/query-keys";
+import { attachPushForLogin, detachPushForLogout } from "../push/api";
 
 export type Session = components["schemas"]["SessionData"];
 export type LoginInput = components["schemas"]["LoginRequest"];
@@ -66,6 +67,7 @@ async function login(input: LoginInput): Promise<Session> {
   const data = unwrap(result).data;
   clearCsrfToken();
   rememberOfflineSession(data);
+  void attachPushForLogin(data.userId);
   return data;
 }
 
@@ -77,10 +79,12 @@ async function register(input: RegisterInput): Promise<Session> {
   const data = unwrap(result).data;
   clearCsrfToken();
   rememberOfflineSession(data);
+  void attachPushForLogin(data.userId);
   return data;
 }
 
 async function logout(): Promise<void> {
+  await detachPushForLogout();
   const result = await apiClient.POST("/api/auth/logout", {
     headers: await mutationHeaders(),
   });

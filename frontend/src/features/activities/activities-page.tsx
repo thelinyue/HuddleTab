@@ -26,6 +26,7 @@ import {
 import { useSessionQuery } from "../auth/api";
 import { useNotificationsQuery } from "../notifications/api";
 import { activityStatus, activityPeriodLabel } from "./presentation";
+import { PushPromptCard } from "../push/components";
 
 function stableIndex(value: string, length: number): number {
   let hash = 0;
@@ -306,6 +307,7 @@ export function ActivitiesPage() {
             </Link>
           </div>
         </header>
+        <PushPromptCard userId={session.data?.userId ?? ""} />
         {!listPending && !listError ? summaries.map(([currency, summary]) => (
           <dl className="home-summary" key={currency} aria-label={`${currency} 跨活动账务摘要`}>
             <div><dt>待支付</dt><dd>{summary.readiness === "pending" ? <span className="home-summary__skeleton" aria-hidden="true" /> : summary.readiness === "error" ? <small className="home-summary__unavailable">暂不可用</small> : <Money value={formatMoney(currency, summary.payable.toString())} tone="negative" />}</dd></div>
