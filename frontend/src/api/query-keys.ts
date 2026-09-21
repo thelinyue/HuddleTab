@@ -6,6 +6,8 @@ export const queryKeys = {
     ["users", userId, "activities", "deleted"] as const,
   activityDetail: (userId: string, activityId: string) =>
     ["users", userId, "activities", "detail", activityId] as const,
+  activityAudit: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "audit-logs"] as const,
   members: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "members"] as const,
   invitations: (userId: string, activityId: string) =>
@@ -18,6 +20,7 @@ export const queryKeys = {
     ["users", userId, "notifications"] as const,
   pushSettings: (userId: string) =>
     ["users", userId, "push-settings"] as const,
+  mcpTokens: (userId: string) => ["users", userId, "mcp-tokens"] as const,
   adminUsers: (userId: string) => ["users", userId, "admin", "users"] as const,
   adminRegistrationPolicy: (userId: string) => ["users", userId, "admin", "registration-policy"] as const,
   adminStorage: (userId: string) => ["users", userId, "admin", "storage"] as const,

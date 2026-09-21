@@ -64,6 +64,11 @@ export default defineConfig({
       use: { ...devices["Pixel 5"], viewport: { width: 320, height: 844 } },
     },
     {
+      name: "chromium-management-narrow",
+      testMatch: "activity-management-layout.spec.ts",
+      use: { ...devices["Pixel 5"], viewport: { width: 375, height: 844 } },
+    },
+    {
       name: "webkit-smoke",
       testMatch: "smoke.spec.ts",
       use: { ...devices["Desktop Safari"], viewport: { width: 1440, height: 1000 } },

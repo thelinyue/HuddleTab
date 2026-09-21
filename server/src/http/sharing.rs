@@ -175,7 +175,7 @@ async fn authenticated_activity(
     Ok((activity_id, actor))
 }
 
-fn summary_data(summary: ActivitySummary) -> ActivitySummaryData {
+pub(crate) fn summary_data(summary: ActivitySummary) -> ActivitySummaryData {
     ActivitySummaryData {
         activity_name: summary.activity_name,
         start_date: summary.start_date,

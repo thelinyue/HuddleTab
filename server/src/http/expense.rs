@@ -12,9 +12,9 @@ use uuid::Uuid;
 
 use crate::{
     application::expense::{
-        CreateExpenseInput, ExpenseAggregate, ExpenseAttachmentRecord, ExpenseDraftInput,
-        ExpenseError, UpdateExpenseInput, create_expense, delete_expense, get_expense,
-        list_expenses, update_expense,
+        CreateExpenseInput, ExpenseAggregate, ExpenseAttachmentRecord, ExpenseAuditSource,
+        ExpenseDraftInput, ExpenseError, UpdateExpenseInput, create_expense, delete_expense,
+        get_expense, list_expenses, update_expense,
     },
     domain::expense::{ExpenseSplitInput, PaymentInput, SplitEntryInput},
     domain::settlement_progress::{ExpenseSettlementProgress, MemberSettlementProgress},
@@ -224,6 +224,7 @@ pub(crate) async fn create(
         CreateExpenseInput {
             activity_id,
             actor_user_id: actor.user_id,
+            audit_source: ExpenseAuditSource::Web,
             draft: draft(request, &request_id)?,
         },
     )

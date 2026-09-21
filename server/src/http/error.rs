@@ -140,6 +140,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invalid_activity_audit_cursor(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INVALID_ACTIVITY_AUDIT_CURSOR",
+            "活动记录分页游标无效，请重新加载。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn invalid_ownership_target(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -217,6 +227,16 @@ impl ApiError {
             StatusCode::UNPROCESSABLE_ENTITY,
             "INVALID_ADMIN_INPUT",
             "系统管理请求不合法，请检查后重试。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn invalid_mcp_token(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_MCP_TOKEN",
+            "MCP 令牌信息无效，请检查名称、权限和到期时间。",
             request_id,
         )
     }

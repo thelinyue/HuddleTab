@@ -1,14 +1,15 @@
 use std::collections::BTreeSet;
 
 use async_trait::async_trait;
+use serde_json::{Map, Value};
 use sqlx::{FromRow, PgConnection, PgPool};
-use time::{Date, OffsetDateTime};
+use time::{Date, OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
 use crate::application::expense::{
     ActivityExpenseContext, CreatedExpense, ExpenseAggregate, ExpenseAttachmentRecord,
-    ExpenseDelete, ExpensePayment, ExpenseRecord, ExpenseRepository, ExpenseRepositoryError,
-    ExpenseShare, ExpenseUpdate, NewExpense,
+    ExpenseAuditSource, ExpenseDelete, ExpensePayment, ExpenseRecord, ExpenseRepository,
+    ExpenseRepositoryError, ExpenseShare, ExpenseUpdate, NewExpense,
 };
 use crate::domain::expense::{ExpenseFactRow, PreparedExpense};
 use crate::domain::ledger::{LedgerEntry, SettlementFact};
@@ -178,6 +179,17 @@ impl ExpenseRepository for PostgresExpenseRepository {
                 actor_member_id: expense.actor_member_id,
                 action: "EXPENSE_CREATED",
                 expense_id: expense.id,
+                details: expense_audit_details(&ExpenseAuditSnapshot {
+                    title: &expense.title,
+                    category: &expense.category,
+                    note: expense.note.as_deref(),
+                    original_currency: &expense.prepared.original_currency,
+                    original_amount_minor: expense.prepared.original_amount_minor,
+                    occurred_at: expense.occurred_at,
+                    split_mode: &expense.prepared.split_mode,
+                    source: Some(expense.audit_source),
+                    before: None,
+                }),
                 now: expense.now,
             },
         )
@@ -322,6 +334,17 @@ impl ExpenseRepository for PostgresExpenseRepository {
                 actor_member_id: expense.actor_member_id,
                 action: "EXPENSE_UPDATED",
                 expense_id: expense.expense_id,
+                details: expense_audit_details(&ExpenseAuditSnapshot {
+                    title: &expense.title,
+                    category: &expense.category,
+                    note: expense.note.as_deref(),
+                    original_currency: &expense.prepared.original_currency,
+                    original_amount_minor: expense.prepared.original_amount_minor,
+                    occurred_at: expense.occurred_at,
+                    split_mode: &expense.prepared.split_mode,
+                    source: None,
+                    before: Some(&current.expense),
+                }),
                 now: expense.now,
             },
         )
@@ -393,6 +416,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
                 actor_member_id: expense.actor_member_id,
                 action: "EXPENSE_DELETED",
                 expense_id: expense.expense_id,
+                details: Value::Object(Map::default()),
                 now: expense.now,
             },
         )
@@ -849,7 +873,109 @@ struct ExpenseAudit {
     actor_member_id: Uuid,
     action: &'static str,
     expense_id: Uuid,
+    details: Value,
     now: OffsetDateTime,
+}
+
+/// 审计摘要的统一快照，避免创建和修改路径传递一长串相同参数。
+struct ExpenseAuditSnapshot<'a> {
+    title: &'a str,
+    category: &'a str,
+    note: Option<&'a str>,
+    original_currency: &'a str,
+    original_amount_minor: i64,
+    occurred_at: OffsetDateTime,
+    split_mode: &'a str,
+    source: Option<ExpenseAuditSource>,
+    before: Option<&'a ExpenseRecord>,
+}
+
+/// 账单审计只保留列表阅读所需摘要；备注、分摊明细和附件等内容仍通过账单详情读取。
+fn expense_audit_details(snapshot: &ExpenseAuditSnapshot<'_>) -> Value {
+    let occurred_at = snapshot
+        .occurred_at
+        .format(&Rfc3339)
+        .expect("账单发生时间始终可格式化");
+    let mut details = serde_json::json!({
+        "expense": {
+            "title": snapshot.title,
+            "category": snapshot.category,
+            "originalCurrency": snapshot.original_currency,
+            "originalAmountMinor": snapshot.original_amount_minor.to_string(),
+            "occurredAt": occurred_at,
+            "splitMode": snapshot.split_mode,
+        }
+    });
+    if snapshot.source == Some(ExpenseAuditSource::Mcp) {
+        details["source"] = Value::String("MCP".to_owned());
+    }
+    if let Some(before) = snapshot.before {
+        let before_occurred_at = before
+            .occurred_at
+            .format(&Rfc3339)
+            .expect("账单发生时间始终可格式化");
+        let before_amount = before.original_amount_minor.to_string();
+        let after_amount = snapshot.original_amount_minor.to_string();
+        let mut changes = Map::new();
+        push_expense_audit_change(
+            &mut changes,
+            "title",
+            Some(before.title.as_str()),
+            Some(snapshot.title),
+        );
+        push_expense_audit_change(
+            &mut changes,
+            "category",
+            Some(before.category.as_str()),
+            Some(snapshot.category),
+        );
+        push_expense_audit_change(&mut changes, "note", before.note.as_deref(), snapshot.note);
+        push_expense_audit_change(
+            &mut changes,
+            "originalCurrency",
+            Some(before.original_currency.as_str()),
+            Some(snapshot.original_currency),
+        );
+        push_expense_audit_change(
+            &mut changes,
+            "originalAmountMinor",
+            Some(before_amount.as_str()),
+            Some(after_amount.as_str()),
+        );
+        push_expense_audit_change(
+            &mut changes,
+            "occurredAt",
+            Some(before_occurred_at.as_str()),
+            Some(occurred_at.as_str()),
+        );
+        // 分摊方式是账单可见的核心属性；付款人/参与人明细仍留在账单详情页。
+        push_expense_audit_change(
+            &mut changes,
+            "splitMode",
+            Some(before.split_mode.as_str()),
+            Some(snapshot.split_mode),
+        );
+        details["expenseChanges"] = Value::Object(changes);
+    }
+    details
+}
+
+fn push_expense_audit_change(
+    changes: &mut Map<String, Value>,
+    field: &str,
+    before: Option<&str>,
+    after: Option<&str>,
+) {
+    if before == after {
+        return;
+    }
+    changes.insert(
+        field.to_owned(),
+        serde_json::json!({
+            "before": before,
+            "after": after,
+        }),
+    );
 }
 
 async fn revise_and_audit(
@@ -867,8 +993,8 @@ async fn revise_and_audit(
     .map_err(log_repository_error)?;
     sqlx::query(
         "INSERT INTO activity_audit_logs (id, activity_id, actor_user_id, actor_member_id, \
-         action, resource_type, resource_id, activity_revision, created_at) \
-         VALUES ($1, $2, $3, $4, $5, 'EXPENSE', $6, $7, $8)",
+         action, resource_type, resource_id, activity_revision, details, created_at) \
+         VALUES ($1, $2, $3, $4, $5, 'EXPENSE', $6, $7, $8, $9)",
     )
     .bind(Uuid::new_v4())
     .bind(audit.activity_id)
@@ -877,6 +1003,7 @@ async fn revise_and_audit(
     .bind(audit.action)
     .bind(audit.expense_id)
     .bind(revision)
+    .bind(audit.details)
     .bind(audit.now)
     .execute(connection)
     .await
@@ -892,4 +1019,33 @@ fn log_repository_error(error: sqlx::Error) -> ExpenseRepositoryError {
     tracing::error!(%error, "Expense 聚合事务执行失败");
     drop(error);
     ExpenseRepositoryError::Unavailable
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_source_is_written_only_for_mcp_created_expenses() {
+        let snapshot = ExpenseAuditSnapshot {
+            title: "西湖午餐",
+            category: "餐饮",
+            note: None,
+            original_currency: "CNY",
+            original_amount_minor: 12800,
+            occurred_at: OffsetDateTime::UNIX_EPOCH,
+            split_mode: "EQUAL",
+            source: Some(ExpenseAuditSource::Mcp),
+            before: None,
+        };
+        let details = expense_audit_details(&snapshot);
+        assert_eq!(details["source"], "MCP");
+
+        let web_snapshot = ExpenseAuditSnapshot {
+            source: Some(ExpenseAuditSource::Web),
+            ..snapshot
+        };
+        let web_details = expense_audit_details(&web_snapshot);
+        assert!(web_details.get("source").is_none());
+    }
 }

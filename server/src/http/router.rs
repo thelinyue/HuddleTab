@@ -24,7 +24,7 @@ use super::static_files::mount_static_files;
 use super::{
     accounting, activity, admin, ai_expense, attachment, auth, collaboration,
     error::{ApiError, RequestId},
-    exchange_rate, expense, notification, push, settlement, sharing, snapshot,
+    exchange_rate, expense, mcp, notification, push, settlement, sharing, snapshot,
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -182,6 +182,16 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .fallback(api_method_not_allowed),
         )
         .route(
+            "/me/mcp-tokens",
+            get(mcp::list_tokens)
+                .post(mcp::create_token)
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/me/mcp-tokens/{token_id}",
+            axum::routing::delete(mcp::revoke_token).fallback(api_method_not_allowed),
+        )
+        .route(
             "/admin/users",
             get(admin::users).fallback(api_method_not_allowed),
         )
@@ -242,6 +252,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             axum::routing::post(ai_expense::image_draft)
                 .layer(DefaultBodyLimit::max(attachment::MAX_MULTIPART_BYTES))
                 .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/audit-logs",
+            get(activity::list_audit_logs).fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}",
@@ -389,13 +403,28 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         )
         .fallback(api_not_found)
         .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(state, attach_client_ip));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            attach_client_ip,
+        ));
 
-    finish_router(api, static_dir)
+    finish_router_with_mcp(api, static_dir, state)
 }
 
 fn finish_router(api: Router, static_dir: Option<PathBuf>) -> Router {
-    let router = Router::new().nest("/api", api);
+    finish_outer_router(Router::new().nest("/api", api), static_dir)
+}
+
+fn finish_router_with_mcp(api: Router, static_dir: Option<PathBuf>, state: AppState) -> Router {
+    finish_outer_router(
+        Router::new()
+            .nest("/api", api)
+            .nest("/mcp", mcp::service(state)),
+        static_dir,
+    )
+}
+
+fn finish_outer_router(router: Router, static_dir: Option<PathBuf>) -> Router {
     let router = static_dir.map_or(router.clone(), |directory| {
         mount_static_files(router, &directory)
     });

@@ -86,6 +86,48 @@ pub struct ActivityMemberView {
     pub version: i64,
 }
 
+/// 活动记录中的单个字段变化；`None` 表示该字段在变更前或变更后未设置。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActivityAuditChange {
+    pub field: String,
+    pub before_value: Option<String>,
+    pub after_value: Option<String>,
+}
+
+/// 活动记录中的账单摘要；只保留成员查看账单时需要的展示字段，避免把账单 JSON 原样透传。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActivityAuditExpense {
+    pub expense_id: Uuid,
+    pub title: String,
+    pub category: String,
+    pub original_currency: String,
+    pub original_amount_minor: i64,
+    pub occurred_at: OffsetDateTime,
+}
+
+/// 活动记录条目只暴露可供界面阅读的审计事实，不透传数据库 JSON 详情。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActivityAuditEntry {
+    pub id: Uuid,
+    pub action: String,
+    pub source: Option<String>,
+    pub actor_user_id: Option<Uuid>,
+    pub actor_member_id: Option<Uuid>,
+    pub actor_display_name: String,
+    pub actor_avatar_preset: Option<i16>,
+    pub revision: i64,
+    pub changes: Vec<ActivityAuditChange>,
+    pub expense: Option<ActivityAuditExpense>,
+    pub created_at: OffsetDateTime,
+}
+
+/// 游标读取的活动记录页；游标只指向同一活动内的最后一条记录。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActivityAuditPage {
+    pub entries: Vec<ActivityAuditEntry>,
+    pub next_cursor: Option<Uuid>,
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum ActivityRepositoryError {
     #[error("活动不存在或当前用户不可访问")]
@@ -102,6 +144,8 @@ pub enum ActivityRepositoryError {
     InvalidTransition,
     #[error("活动已超过恢复期限")]
     RestoreExpired,
+    #[error("活动记录分页游标无效")]
+    InvalidAuditCursor,
     #[error("活动数据访问失败")]
     Unavailable,
 }
@@ -135,6 +179,13 @@ pub trait ActivityRepository: Send + Sync {
         activity_id: Uuid,
         user_id: Uuid,
     ) -> Result<Vec<ActivityMemberView>, ActivityRepositoryError>;
+
+    async fn list_audit_logs(
+        &self,
+        activity_id: Uuid,
+        user_id: Uuid,
+        cursor: Option<Uuid>,
+    ) -> Result<ActivityAuditPage, ActivityRepositoryError>;
 
     async fn update(
         &self,
@@ -274,6 +325,16 @@ pub enum ReadActivityError {
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum ReadActivityAuditError {
+    #[error("活动记录分页游标无效")]
+    InvalidCursor,
+    #[error("活动不存在或当前用户不可访问")]
+    NotFound,
+    #[error("读取活动记录失败")]
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum UpdateActivityError {
     #[error("活动输入无效")]
     InvalidInput,
@@ -390,6 +451,23 @@ pub async fn list_activity_members(
         .list_members(activity_id, user_id)
         .await
         .map_err(map_read_error)
+}
+
+/// 读取活动内的完整操作历史；权限和删除状态由 Repository 统一约束。
+///
+/// # Errors
+///
+/// 活动不可见、游标无效或数据访问失败时返回稳定错误。
+pub async fn list_activity_audit_logs(
+    repository: &dyn ActivityRepository,
+    activity_id: Uuid,
+    user_id: Uuid,
+    cursor: Option<Uuid>,
+) -> Result<ActivityAuditPage, ReadActivityAuditError> {
+    repository
+        .list_audit_logs(activity_id, user_id, cursor)
+        .await
+        .map_err(map_audit_read_error)
 }
 
 /// 更新活动资料；Repository 在活动行锁内完成权限、版本、Audit 与 revision 副作用。
@@ -574,7 +652,22 @@ fn map_read_error(error: ActivityRepositoryError) -> ReadActivityError {
         | ActivityRepositoryError::FieldLocked
         | ActivityRepositoryError::BaseCurrencyLocked
         | ActivityRepositoryError::InvalidTransition
-        | ActivityRepositoryError::RestoreExpired => ReadActivityError::NotFound,
+        | ActivityRepositoryError::RestoreExpired
+        | ActivityRepositoryError::InvalidAuditCursor => ReadActivityError::NotFound,
+    }
+}
+
+fn map_audit_read_error(error: ActivityRepositoryError) -> ReadActivityAuditError {
+    match error {
+        ActivityRepositoryError::InvalidAuditCursor => ReadActivityAuditError::InvalidCursor,
+        ActivityRepositoryError::Unavailable => ReadActivityAuditError::Unavailable,
+        ActivityRepositoryError::NotFound
+        | ActivityRepositoryError::Forbidden
+        | ActivityRepositoryError::VersionConflict
+        | ActivityRepositoryError::FieldLocked
+        | ActivityRepositoryError::BaseCurrencyLocked
+        | ActivityRepositoryError::InvalidTransition
+        | ActivityRepositoryError::RestoreExpired => ReadActivityAuditError::NotFound,
     }
 }
 
@@ -597,6 +690,7 @@ fn map_update_error(error: ActivityRepositoryError) -> UpdateActivityError {
         ActivityRepositoryError::BaseCurrencyLocked => UpdateActivityError::BaseCurrencyLocked,
         ActivityRepositoryError::InvalidTransition => UpdateActivityError::InvalidTransition,
         ActivityRepositoryError::RestoreExpired => UpdateActivityError::RestoreExpired,
+        ActivityRepositoryError::InvalidAuditCursor => UpdateActivityError::InvalidInput,
         ActivityRepositoryError::Unavailable => UpdateActivityError::Unavailable,
     }
 }

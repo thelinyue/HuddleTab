@@ -84,6 +84,7 @@ pub struct NewExpense {
     pub activity_id: Uuid,
     pub actor_user_id: Uuid,
     pub actor_member_id: Uuid,
+    pub audit_source: ExpenseAuditSource,
     pub client_mutation_id: Uuid,
     pub title: String,
     pub category: String,
@@ -197,7 +198,15 @@ pub struct ExpenseDraftInput {
 pub struct CreateExpenseInput {
     pub activity_id: Uuid,
     pub actor_user_id: Uuid,
+    pub audit_source: ExpenseAuditSource,
     pub draft: ExpenseDraftInput,
+}
+
+/// 标记账单由哪个入口创建；来源只用于活动记录展示，不改变账单权限或业务规则。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExpenseAuditSource {
+    Web,
+    Mcp,
 }
 
 #[derive(Clone, Debug)]
@@ -252,6 +261,7 @@ pub async fn create_expense(
             activity_id: input.activity_id,
             actor_user_id: input.actor_user_id,
             actor_member_id: context.actor_member_id,
+            audit_source: input.audit_source,
             client_mutation_id: input.draft.client_mutation_id,
             title: input.draft.title.trim().to_owned(),
             category: input.draft.category.trim().to_owned(),

@@ -14,7 +14,7 @@ test("活动管理字段、命令与 PWA 导出在目标视口保持统一", asy
 
   await expect(management.getByRole("list")).toHaveCount(1);
   await expect(management.locator(".activity-more > section > h2")).toHaveCount(0);
-  await expect(management.getByRole("listitem")).toHaveCount(11);
+  await expect(management.getByRole("listitem")).toHaveCount(12);
   await assertNoHorizontalOverflow(page);
 
   const geometry = await management.evaluate((dialog) => {
@@ -36,7 +36,7 @@ test("活动管理字段、命令与 PWA 导出在目标视口保持统一", asy
       .map((title) => title.getBoundingClientRect().left);
     return { actionHeights, actionTitleEdges, fieldTitleEdges, statusEdges, valueEdges };
   });
-  expect(geometry.actionTitleEdges).toHaveLength(4);
+  expect(geometry.actionTitleEdges).toHaveLength(5);
   expect(Math.max(...geometry.fieldTitleEdges, ...geometry.actionTitleEdges) - Math.min(...geometry.fieldTitleEdges, ...geometry.actionTitleEdges)).toBeLessThanOrEqual(1);
   expect(Math.max(...geometry.valueEdges) - Math.min(...geometry.valueEdges)).toBeLessThanOrEqual(1);
   expect(Math.max(...geometry.statusEdges) - Math.min(...geometry.statusEdges)).toBeLessThanOrEqual(1);
@@ -51,7 +51,17 @@ test("活动管理字段、命令与 PWA 导出在目标视口保持统一", asy
   await management.getByRole("button", { name: "直接加入" }).click();
 
   await expect(management.locator(".management-action-row--command .lucide-chevron-right")).toHaveCount(0);
-  await expect(management.locator(".management-action-row--navigate .lucide-chevron-right")).toHaveCount(1);
+  await expect(management.locator(".management-action-row--navigate .lucide-chevron-right")).toHaveCount(2);
+
+  const auditTrigger = management.getByRole("button", { name: /^活动记录/ });
+  await auditTrigger.click();
+  const auditDialog = page.getByRole("dialog", { name: "活动记录" });
+  await expect(auditDialog).toBeVisible();
+  await expect(auditDialog.getByText("创建了活动")).toBeVisible();
+  await assertNoHorizontalOverflow(page);
+  await auditDialog.getByRole("button", { name: "返回活动管理" }).click();
+  await expect(page.getByRole("dialog", { name: "活动管理" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^活动记录/ })).toBeFocused();
 
   await page.evaluate(() => {
     Object.defineProperty(navigator, "standalone", { configurable: true, value: true });

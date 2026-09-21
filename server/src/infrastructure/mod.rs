@@ -19,6 +19,7 @@ pub mod exchange_rate_provider;
 pub mod exchange_rate_repository;
 pub mod expense_repository;
 pub mod invitation_token;
+pub mod mcp_token;
 pub mod notification_repository;
 pub mod password;
 pub mod push;

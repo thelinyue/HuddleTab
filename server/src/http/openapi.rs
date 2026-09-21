@@ -13,14 +13,15 @@ use super::{
     },
     activity::{
         __path_create, __path_delete as __path_activity_delete, __path_get as __path_activity_get,
-        __path_list as __path_activity_list, __path_list_members,
+        __path_list as __path_activity_list, __path_list_audit_logs, __path_list_members,
         __path_restore as __path_activity_restore,
         __path_transfer_ownership as __path_activity_transfer_ownership,
         __path_transition as __path_activity_transition, __path_update as __path_activity_update,
-        ActivityData, ActivityEnvelope, ActivityFieldPermissionsData, ActivityLifecycleRequest,
-        ActivityListEnvelope, ActivityMemberData, ActivityMemberListEnvelope,
-        ActivityUpdateEnvelope, ActivityVersionRequest, CreateActivityRequest,
-        TransferOwnershipRequest, UpdateActivityRequest,
+        ActivityAuditChangeData, ActivityAuditData, ActivityAuditExpenseData,
+        ActivityAuditListEnvelope, ActivityData, ActivityEnvelope, ActivityFieldPermissionsData,
+        ActivityLifecycleRequest, ActivityListEnvelope, ActivityMemberData,
+        ActivityMemberListEnvelope, ActivityUpdateEnvelope, ActivityVersionRequest,
+        CreateActivityRequest, TransferOwnershipRequest, UpdateActivityRequest,
     },
     admin::{
         __path_registration_policy, __path_reset_user_password, __path_storage,
@@ -77,6 +78,10 @@ use super::{
         ExpenseListEnvelope, ExpensePaymentRequest, ExpenseSettlementProgressData,
         ExpenseSplitEntryRequest, ExpenseSplitRequest, MemberSettlementProgressData,
         UpdateExpenseRequest,
+    },
+    mcp::{
+        __path_create_token, __path_list_tokens, __path_revoke_token, CreateMcpTokenRequest,
+        CreatedMcpTokenData, CreatedMcpTokenEnvelope, McpTokenData, McpTokenListEnvelope,
     },
     notification::{
         __path_clear as __path_notification_clear, __path_delete as __path_notification_delete,
@@ -144,6 +149,7 @@ use super::{
         create,
         activity_list,
         activity_get,
+        list_audit_logs,
         activity_update,
         activity_delete,
         activity_transition,
@@ -188,7 +194,10 @@ use super::{
         settlement_list,
         settlement_get,
         settlement_update,
-        settlement_void
+        settlement_void,
+        create_token,
+        list_tokens,
+        revoke_token
     ),
     components(schemas(
         HealthData,
@@ -254,6 +263,10 @@ use super::{
         ActivityVersionRequest,
         TransferOwnershipRequest,
         ActivityData,
+        ActivityAuditChangeData,
+        ActivityAuditData,
+        ActivityAuditExpenseData,
+        ActivityAuditListEnvelope,
         ActivityFieldPermissionsData,
         ActivityEnvelope,
         ActivityUpdateEnvelope,
@@ -343,7 +356,12 @@ use super::{
         SettlementEnvelope,
         CreatedSettlementData,
         CreatedSettlementEnvelope,
-        SettlementListEnvelope
+        SettlementListEnvelope,
+        CreateMcpTokenRequest,
+        McpTokenData,
+        CreatedMcpTokenData,
+        CreatedMcpTokenEnvelope,
+        McpTokenListEnvelope
     ))
 )]
 struct ApiDoc;

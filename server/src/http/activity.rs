@@ -11,12 +11,12 @@ use utoipa::ToSchema;
 use crate::{
     application::{
         activity::{
-            ActivityLifecycleInput, ActivityMemberView, ActivityVersionInput, ActivityView,
-            CreateActivityError, CreateActivityInput, ReadActivityError,
-            TransferActivityOwnershipInput, UpdateActivityError, UpdateActivityInput,
-            create_activity, delete_activity, get_activity, list_activities, list_activity_members,
-            list_deleted_activities, restore_activity, transfer_activity_ownership,
-            transition_activity, update_activity,
+            ActivityAuditEntry, ActivityLifecycleInput, ActivityMemberView, ActivityVersionInput,
+            ActivityView, CreateActivityError, CreateActivityInput, ReadActivityAuditError,
+            ReadActivityError, TransferActivityOwnershipInput, UpdateActivityError,
+            UpdateActivityInput, create_activity, delete_activity, get_activity, list_activities,
+            list_activity_audit_logs, list_activity_members, list_deleted_activities,
+            restore_activity, transfer_activity_ownership, transition_activity, update_activity,
         },
         auth::{CurrentSessionError, current_session},
     },
@@ -92,6 +92,11 @@ pub struct ActivityListQuery {
     pub view: Option<ActivityListView>,
 }
 
+#[derive(Deserialize)]
+pub struct ActivityAuditQuery {
+    pub cursor: Option<String>,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct ActivityEnvelope {
     pub data: ActivityData,
@@ -111,6 +116,48 @@ pub struct ActivityUpdateEnvelope {
 #[derive(Serialize, ToSchema)]
 pub struct ActivityMemberListEnvelope {
     pub data: Vec<ActivityMemberData>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityAuditChangeData {
+    pub field: String,
+    pub before_value: Option<String>,
+    pub after_value: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityAuditExpenseData {
+    pub expense_id: String,
+    pub title: String,
+    pub category: String,
+    pub original_currency: String,
+    pub original_amount_minor: String,
+    pub occurred_at: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityAuditData {
+    pub audit_id: String,
+    pub action: String,
+    pub source: Option<String>,
+    pub actor_user_id: Option<String>,
+    pub actor_member_id: Option<String>,
+    pub actor_display_name: String,
+    pub actor_avatar_preset: Option<i16>,
+    pub revision: String,
+    pub changes: Vec<ActivityAuditChangeData>,
+    pub expense: Option<ActivityAuditExpenseData>,
+    pub created_at: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityAuditListEnvelope {
+    pub data: Vec<ActivityAuditData>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -530,6 +577,50 @@ pub(crate) async fn transfer_ownership(
 
 #[utoipa::path(
     get,
+    path = "/api/activities/{activity_id}/audit-logs",
+    operation_id = "listActivityAuditLogs",
+    params(
+        ("activity_id" = String, Path, description = "活动 UUID"),
+        ("cursor" = inline(Option<String>), Query, description = "同一活动内的下一页游标")
+    ),
+    responses(
+        (status = 200, description = "活动记录", body = ActivityAuditListEnvelope),
+        (status = 400, description = "活动记录分页游标无效", body = super::error::ErrorEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 404, description = "活动不存在", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn list_audit_logs(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    Query(query): Query<ActivityAuditQuery>,
+) -> Result<Json<ActivityAuditListEnvelope>, ApiError> {
+    let actor = authenticate(&state, &jar, request_id.clone()).await?;
+    let activity_id = parse_activity_id(&activity_id, request_id.clone())?;
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(uuid::Uuid::parse_str)
+        .transpose()
+        .map_err(|_| ApiError::invalid_activity_audit_cursor(request_id.clone()))?;
+    let page = list_activity_audit_logs(
+        &PostgresActivityRepository::new(state.pool),
+        activity_id,
+        actor.user_id,
+        cursor,
+    )
+    .await
+    .map_err(|error| map_audit_read_error(error, request_id))?;
+    Ok(Json(ActivityAuditListEnvelope {
+        data: page.entries.into_iter().map(activity_audit_data).collect(),
+        next_cursor: page.next_cursor.map(|value| value.to_string()),
+    }))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/activities/{activity_id}/members",
     operation_id = "listActivityMembers",
     params(("activity_id" = String, Path, description = "活动 UUID")),
@@ -613,10 +704,51 @@ pub(crate) fn member_data(member: ActivityMemberView) -> ActivityMemberData {
     }
 }
 
+fn activity_audit_data(entry: ActivityAuditEntry) -> ActivityAuditData {
+    ActivityAuditData {
+        audit_id: entry.id.to_string(),
+        action: entry.action,
+        source: entry.source,
+        actor_user_id: entry.actor_user_id.map(|value| value.to_string()),
+        actor_member_id: entry.actor_member_id.map(|value| value.to_string()),
+        actor_display_name: entry.actor_display_name,
+        actor_avatar_preset: entry.actor_avatar_preset,
+        revision: entry.revision.to_string(),
+        changes: entry
+            .changes
+            .into_iter()
+            .map(|change| ActivityAuditChangeData {
+                field: change.field,
+                before_value: change.before_value,
+                after_value: change.after_value,
+            })
+            .collect(),
+        expense: entry.expense.map(|expense| ActivityAuditExpenseData {
+            expense_id: expense.expense_id.to_string(),
+            title: expense.title,
+            category: expense.category,
+            original_currency: expense.original_currency,
+            original_amount_minor: expense.original_amount_minor.to_string(),
+            occurred_at: format_time(expense.occurred_at),
+        }),
+        created_at: format_time(entry.created_at),
+    }
+}
+
 fn map_read_error(error: ReadActivityError, request_id: RequestId) -> ApiError {
     match error {
         ReadActivityError::NotFound => ApiError::not_found(request_id),
         ReadActivityError::Unavailable => ApiError::internal(request_id),
+    }
+}
+
+fn map_audit_read_error(error: ReadActivityAuditError, request_id: RequestId) -> ApiError {
+    match error {
+        ReadActivityAuditError::InvalidCursor => {
+            ApiError::invalid_activity_audit_cursor(request_id)
+        }
+        ReadActivityAuditError::NotFound => ApiError::not_found(request_id),
+        ReadActivityAuditError::Unavailable => ApiError::internal(request_id),
     }
 }
 

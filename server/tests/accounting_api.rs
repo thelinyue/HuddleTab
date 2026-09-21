@@ -385,6 +385,18 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
         fact_sum(&created["data"]["shares"], "baseAmountMinor"),
         7207
     );
+    let audit_uri = format!("/api/activities/{}/audit-logs", context.activity_id);
+    let (status, audit_page) =
+        response(&context, request(&context, "GET", audit_uri, json!(null))).await;
+    assert_eq!(status, StatusCode::OK);
+    let created_audit = audit_page["data"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["action"] == "EXPENSE_CREATED"))
+        .expect("账单创建应出现在活动记录");
+    assert_eq!(created_audit["expense"]["title"], "Sushi");
+    assert_eq!(created_audit["expense"]["category"], "FOOD");
+    assert_eq!(created_audit["expense"]["originalCurrency"], "USD");
+    assert_eq!(created_audit["expense"]["originalAmountMinor"], "1001");
 
     let (status, replay) =
         response(&context, request(&context, "POST", uri, payload.clone())).await;
@@ -432,6 +444,17 @@ async fn expense_crud_keeps_double_amount_facts_idempotency_and_versions() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(updated["data"]["expense"]["version"], "2");
     assert_eq!(updated["data"]["expense"]["revision"], "3");
+    let audit_uri = format!("/api/activities/{}/audit-logs", context.activity_id);
+    let (status, audit_page) =
+        response(&context, request(&context, "GET", audit_uri, json!(null))).await;
+    assert_eq!(status, StatusCode::OK);
+    let updated_audit = audit_page["data"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["action"] == "EXPENSE_UPDATED"))
+        .expect("账单修改应出现在活动记录");
+    assert_eq!(updated_audit["changes"][0]["field"], "title");
+    assert_eq!(updated_audit["changes"][0]["beforeValue"], "Sushi");
+    assert_eq!(updated_audit["changes"][0]["afterValue"], "Updated Sushi");
     let (status, _) = response(&context, request(&context, "PUT", item_uri.clone(), update)).await;
     assert_eq!(status, StatusCode::CONFLICT);
 

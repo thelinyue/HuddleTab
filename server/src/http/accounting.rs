@@ -145,7 +145,7 @@ pub(crate) async fn recommendations(
     }))
 }
 
-fn recommendation_data(snapshot: RecommendationSnapshot) -> StrategyRecommendationData {
+pub(crate) fn recommendation_data(snapshot: RecommendationSnapshot) -> StrategyRecommendationData {
     let (effective_strategy, hub_member_id) = match snapshot.effective_strategy {
         crate::domain::settlement::RecommendationStrategy::MinTransfers => {
             ("MIN_TRANSFERS".to_owned(), None)

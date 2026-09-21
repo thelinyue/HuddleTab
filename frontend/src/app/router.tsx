@@ -28,6 +28,7 @@ const AdminSystemInformationPage = lazy(() => import("../features/admin/pages").
 const AdminUsersPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminUsersPage })));
 const ChangeUsernamePage = lazy(() => import("../features/me/username-page").then((module) => ({ default: module.ChangeUsernamePage })));
 const ChangePasswordPage = lazy(() => import("../features/me/password-page").then((module) => ({ default: module.ChangePasswordPage })));
+const McpPage = lazy(() => import("../features/me/mcp-page").then((module) => ({ default: module.McpPage })));
 const NotificationsPage = lazy(() => import("../features/notifications/pages").then((module) => ({ default: module.NotificationsPage })));
 const ShareSummaryPage = lazy(() => import("../features/sharing/page").then((module) => ({ default: module.ShareSummaryPage })));
 const ReceiptSharePage = lazy(() => import("../features/sharing/receipt-page").then((module) => ({ default: module.ReceiptSharePage })));
@@ -145,6 +146,7 @@ export function ApplicationRouter() {
           <Route path="/me" element={<MePage />} />
           <Route path="/me/username" element={<Suspense fallback={<LoadingState label="正在打开用户名设置…" />}><ChangeUsernamePage /></Suspense>} />
           <Route path="/me/password" element={<Suspense fallback={<LoadingState label="正在打开密码设置…" />}><ChangePasswordPage /></Suspense>} />
+          <Route path="/me/mcp" element={<Suspense fallback={<LoadingState label="正在打开 MCP 设置…" />}><McpPage /></Suspense>} />
           <Route element={<ProtectedAdminRoute />}>
             <Route path="/admin" element={<Suspense fallback={<LoadingState label="正在打开系统管理…" />}><AdminHomePage /></Suspense>} />
             <Route path="/admin/users" element={<Suspense fallback={<LoadingState label="正在打开用户管理…" />}><AdminUsersPage /></Suspense>} />

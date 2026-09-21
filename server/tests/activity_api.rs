@@ -264,6 +264,82 @@ async fn owner_update_is_versioned_and_noop_has_no_side_effects() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn audit_logs_endpoint_returns_structured_changes_and_stable_cursor_errors() {
+    let (_pool, app, session, csrf, _user_id) = seed_authenticated_actor().await;
+    let created = create_activity(app.clone(), &session, &csrf).await;
+    let activity_id = created["activityId"].as_str().expect("应返回 activityId");
+    let (status, _) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "PUT",
+            &format!("/api/activities/{activity_id}"),
+            r#"{"version":"1","location":"苏州"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, page) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "GET",
+            &format!("/api/activities/{activity_id}/audit-logs"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(page["data"].as_array().map(Vec::len), Some(2));
+    let update = page["data"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["action"] == "ACTIVITY_UPDATED"))
+        .expect("应返回资料变更记录");
+    assert_eq!(update["actorDisplayName"], "Alice");
+    assert_eq!(update["changes"][0]["field"], "location");
+    assert_eq!(update["changes"][0]["beforeValue"], "Tokyo");
+    assert_eq!(update["changes"][0]["afterValue"], "苏州");
+    assert!(page["nextCursor"].is_null());
+
+    let (status, body) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "GET",
+            &format!("/api/activities/{activity_id}/audit-logs?cursor=invalid"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "INVALID_ACTIVITY_AUDIT_CURSOR");
+
+    let other = create_activity(app.clone(), &session, &csrf).await;
+    let other_id = other["activityId"]
+        .as_str()
+        .expect("应返回第二个 activityId");
+    let cursor = page["data"][0]["auditId"].as_str().expect("应返回 auditId");
+    let (status, body) = json_response(
+        app,
+        authenticated_request(
+            &session,
+            &csrf,
+            "GET",
+            &format!("/api/activities/{other_id}/audit-logs?cursor={cursor}"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "INVALID_ACTIVITY_AUDIT_CURSOR");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn invite_mode_update_advances_once_and_noop_has_no_side_effects() {
     let (pool, app, session, csrf, _) = seed_authenticated_actor().await;
     let created = create_activity(app.clone(), &session, &csrf).await;

@@ -12,6 +12,36 @@ fn document_contains_health_and_shared_envelopes() {
 }
 
 #[test]
+fn activity_audit_contract_publishes_cursor_and_structured_change_schemas() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    let operation = &value["paths"]["/api/activities/{activity_id}/audit-logs"]["get"];
+    assert!(operation.is_object());
+    assert_eq!(operation["operationId"], "listActivityAuditLogs");
+    assert!(
+        operation["parameters"]
+            .as_array()
+            .is_some_and(|parameters| parameters
+                .iter()
+                .any(|parameter| { parameter["name"] == "cursor" && parameter["in"] == "query" }))
+    );
+    for schema in [
+        "ActivityAuditChangeData",
+        "ActivityAuditData",
+        "ActivityAuditExpenseData",
+        "ActivityAuditListEnvelope",
+    ] {
+        assert!(
+            value["components"]["schemas"][schema].is_object(),
+            "缺少活动记录 schema {schema}"
+        );
+    }
+    assert!(
+        value["components"]["schemas"]["ActivityAuditData"]["properties"]["source"].is_object()
+    );
+}
+
+#[test]
 fn profile_contracts_are_published_for_current_user_and_member_views() {
     let value = serde_json::to_value(huddletab_server::http::openapi::document())
         .expect("OpenAPI 应可序列化");
@@ -77,6 +107,35 @@ fn push_contract_publishes_settings_devices_and_preferences() {
             "推送偏好 {field} 应为布尔值"
         );
     }
+}
+
+#[test]
+fn mcp_token_contract_publishes_one_time_secret_and_revoke_route() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document())
+        .expect("OpenAPI 应可序列化");
+    let create = &value["paths"]["/api/me/mcp-tokens"]["post"];
+    let list = &value["paths"]["/api/me/mcp-tokens"]["get"];
+    let revoke = &value["paths"]["/api/me/mcp-tokens/{token_id}"]["delete"];
+    assert!(create.is_object());
+    assert!(list.is_object());
+    assert!(revoke.is_object());
+    assert_eq!(
+        create["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/CreatedMcpTokenEnvelope"
+    );
+    assert_eq!(
+        create["responses"]["200"]["headers"]["Cache-Control"]["schema"]["type"],
+        "string"
+    );
+    assert!(value["components"]["schemas"]["CreateMcpTokenRequest"].is_object());
+    assert!(value["components"]["schemas"]["McpTokenData"].is_object());
+    assert!(
+        value["components"]["schemas"]["CreatedMcpTokenData"]["allOf"]
+            .as_array()
+            .and_then(|parts| parts.get(1))
+            .and_then(|part| part["properties"]["secret"].as_object())
+            .is_some()
+    );
 }
 
 #[test]

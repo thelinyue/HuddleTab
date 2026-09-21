@@ -132,6 +132,11 @@ export function MePage() {
               <span><strong>修改密码</strong><small>更新当前登录凭证</small></span>
               <ChevronRight aria-hidden="true" size={18} />
             </Link>
+            <Link className="settings-link" to="/me/mcp" aria-label="MCP 连接">
+              <KeyRound aria-hidden="true" size={18} />
+              <span><strong>MCP 连接</strong><small>管理 AI 客户端的远程账务访问令牌</small></span>
+              <ChevronRight aria-hidden="true" size={18} />
+            </Link>
           </div>
         </section>
         <section className="account-settings" aria-labelledby="preferences-heading">

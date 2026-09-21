@@ -9,6 +9,7 @@ pub mod error;
 pub mod exchange_rate;
 pub mod expense;
 mod formatting;
+pub mod mcp;
 pub mod notification;
 pub mod openapi;
 pub mod push;

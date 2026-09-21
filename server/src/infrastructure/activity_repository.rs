@@ -1,10 +1,12 @@
 use async_trait::async_trait;
+use serde_json::Value;
 use sqlx::PgPool;
-use time::{Date, OffsetDateTime};
+use time::{Date, OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
 use crate::{
     application::activity::{
+        ActivityAuditChange, ActivityAuditEntry, ActivityAuditExpense, ActivityAuditPage,
         ActivityDeletion, ActivityMemberView, ActivityMutationResult, ActivityOwnershipTransfer,
         ActivityRepository, ActivityRepositoryError, ActivityRestoration, ActivityTransition,
         ActivityUpdate, ActivityView, CreatedActivity, NewActivity,
@@ -31,6 +33,26 @@ struct ActivityRow {
     has_accounting_records: bool,
     earliest_expense_date: Option<Date>,
     invite_mode: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct ActivityAuditRow {
+    id: Uuid,
+    action: String,
+    resource_type: String,
+    resource_id: Uuid,
+    actor_user_id: Option<Uuid>,
+    actor_member_id: Option<Uuid>,
+    actor_display_name: String,
+    actor_avatar_preset: Option<i16>,
+    activity_revision: i64,
+    details: Value,
+    created_at: OffsetDateTime,
+}
+
+#[derive(sqlx::FromRow)]
+struct ActivityAuditCursorRow {
+    created_at: OffsetDateTime,
 }
 
 #[derive(Clone, Debug)]
@@ -244,6 +266,92 @@ impl ActivityRepository for PostgresActivityRepository {
                 },
             )
             .collect())
+    }
+
+    async fn list_audit_logs(
+        &self,
+        activity_id: Uuid,
+        user_id: Uuid,
+        cursor: Option<Uuid>,
+    ) -> Result<ActivityAuditPage, ActivityRepositoryError> {
+        const PAGE_SIZE: i64 = 30;
+
+        let visible = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                 SELECT 1 FROM activities activity
+                 JOIN activity_members viewer ON viewer.activity_id = activity.id
+                 WHERE activity.id = $1 AND activity.deleted_at IS NULL
+                   AND viewer.user_id = $2 AND viewer.status = 'ACTIVE'
+             )",
+        )
+        .bind(activity_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(log_read_error)?;
+        if !visible {
+            return Err(ActivityRepositoryError::NotFound);
+        }
+
+        let boundary = if let Some(cursor_id) = cursor {
+            Some(
+                sqlx::query_as::<_, ActivityAuditCursorRow>(
+                    "SELECT created_at FROM activity_audit_logs
+                     WHERE id = $1 AND activity_id = $2",
+                )
+                .bind(cursor_id)
+                .bind(activity_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(log_read_error)?
+                .ok_or(ActivityRepositoryError::InvalidAuditCursor)?,
+            )
+        } else {
+            None
+        };
+
+        let rows = sqlx::query_as::<_, ActivityAuditRow>(
+            "SELECT log.id, log.action, log.resource_type, log.resource_id,
+                    log.actor_user_id, log.actor_member_id,
+                    COALESCE(actor_member.display_name, actor_user.display_name, '系统') AS actor_display_name,
+                    actor_user.avatar_preset AS actor_avatar_preset,
+                    log.activity_revision, log.details, log.created_at
+             FROM activity_audit_logs log
+             JOIN activities activity ON activity.id = log.activity_id
+             LEFT JOIN activity_members actor_member
+               ON actor_member.id = log.actor_member_id
+              AND actor_member.activity_id = log.activity_id
+             LEFT JOIN users actor_user
+               ON actor_user.id = COALESCE(log.actor_user_id, actor_member.user_id)
+             WHERE log.activity_id = $1 AND activity.deleted_at IS NULL
+               AND ($2::timestamptz IS NULL
+                    OR log.created_at < $2
+                    OR (log.created_at = $2 AND log.id > $3))
+             ORDER BY log.created_at DESC, log.id ASC
+             LIMIT $4",
+        )
+        .bind(activity_id)
+        .bind(boundary.as_ref().map(|value| value.created_at))
+        .bind(cursor)
+        .bind(PAGE_SIZE + 1)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(log_read_error)?;
+
+        let mut entries = rows
+            .into_iter()
+            .map(activity_audit_from_row)
+            .collect::<Vec<_>>();
+        let page_size = usize::try_from(PAGE_SIZE).expect("活动记录页大小应可转换为 usize");
+        let next_cursor = if entries.len() > page_size {
+            entries.pop().map(|entry| entry.id)
+        } else {
+            None
+        };
+        Ok(ActivityAuditPage {
+            entries,
+            next_cursor,
+        })
     }
 
     async fn update(
@@ -737,6 +845,147 @@ async fn lock_activity(
     Ok(activity_from_row(row))
 }
 
+fn activity_audit_from_row(row: ActivityAuditRow) -> ActivityAuditEntry {
+    let expense = activity_audit_expense(
+        &row.action,
+        &row.resource_type,
+        row.resource_id,
+        &row.details,
+    );
+    ActivityAuditEntry {
+        id: row.id,
+        action: row.action,
+        source: activity_audit_source(&row.details),
+        actor_user_id: row.actor_user_id,
+        actor_member_id: row.actor_member_id,
+        actor_display_name: row.actor_display_name,
+        actor_avatar_preset: row.actor_avatar_preset,
+        revision: row.activity_revision,
+        changes: activity_audit_changes(&row.details),
+        expense,
+        created_at: row.created_at,
+    }
+}
+
+/// 来源只允许当前已定义的 MCP 标识，未知值和任意 JSON 字段一律不向客户端透传。
+fn activity_audit_source(details: &Value) -> Option<String> {
+    matches!(details.get("source").and_then(Value::as_str), Some("MCP")).then(|| "MCP".to_owned())
+}
+
+/// 只读取账单审计详情的固定字段；历史脏数据或未知结构直接忽略，不能把任意 JSON 送到客户端。
+fn activity_audit_expense(
+    action: &str,
+    resource_type: &str,
+    resource_id: Uuid,
+    details: &Value,
+) -> Option<ActivityAuditExpense> {
+    if resource_type != "EXPENSE" || !matches!(action, "EXPENSE_CREATED" | "EXPENSE_UPDATED") {
+        return None;
+    }
+    let expense = details.get("expense")?.as_object()?;
+    let title = audit_text(expense.get("title"), 120)?;
+    let category = audit_text(expense.get("category"), 64)?;
+    let original_currency = audit_text(expense.get("originalCurrency"), 3)?;
+    if !original_currency
+        .chars()
+        .all(|value| value.is_ascii_uppercase())
+    {
+        return None;
+    }
+    let original_amount_minor = audit_integer(expense.get("originalAmountMinor"))?;
+    if original_amount_minor <= 0 {
+        return None;
+    }
+    let occurred_at = audit_text(expense.get("occurredAt"), 64)
+        .and_then(|value| OffsetDateTime::parse(&value, &Rfc3339).ok())?;
+    Some(ActivityAuditExpense {
+        expense_id: resource_id,
+        title,
+        category,
+        original_currency,
+        original_amount_minor,
+        occurred_at,
+    })
+}
+
+fn audit_text(value: Option<&Value>, max_chars: usize) -> Option<String> {
+    let value = value?.as_str()?.trim();
+    (!value.is_empty() && value.chars().count() <= max_chars).then(|| value.to_owned())
+}
+
+fn audit_integer(value: Option<&Value>) -> Option<i64> {
+    match value? {
+        Value::String(value) => value.parse().ok(),
+        Value::Number(value) => value.as_i64(),
+        _ => None,
+    }
+}
+
+fn activity_audit_changes(details: &Value) -> Vec<ActivityAuditChange> {
+    let mut changes = Vec::new();
+    if let Some(fields) = details.as_object() {
+        append_audit_changes(
+            fields,
+            &[
+                "name",
+                "location",
+                "baseCurrency",
+                "startDate",
+                "endDate",
+                "inviteMode",
+            ],
+            &mut changes,
+        );
+    }
+    if let Some(fields) = details.get("expenseChanges").and_then(Value::as_object) {
+        append_audit_changes(
+            fields,
+            &[
+                "title",
+                "category",
+                "note",
+                "originalCurrency",
+                "originalAmountMinor",
+                "occurredAt",
+                "splitMode",
+            ],
+            &mut changes,
+        );
+    }
+    changes
+}
+
+fn append_audit_changes(
+    fields: &serde_json::Map<String, Value>,
+    allowed_fields: &[&str],
+    changes: &mut Vec<ActivityAuditChange>,
+) {
+    for field in allowed_fields {
+        let Some(change) = fields.get(*field).and_then(Value::as_object) else {
+            continue;
+        };
+        let before_value = audit_detail_value(change.get("before"));
+        let after_value = audit_detail_value(change.get("after"));
+        if before_value.is_none() && after_value.is_none() {
+            continue;
+        }
+        changes.push(ActivityAuditChange {
+            field: (*field).to_owned(),
+            before_value,
+            after_value,
+        });
+    }
+}
+
+fn audit_detail_value(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::String(value) if !value.is_empty() => Some(value.clone()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
 fn log_repository_error(error: sqlx::Error) -> ActivityRepositoryError {
     tracing::error!(%error, "创建活动及 OWNER member 事务失败");
     drop(error);
@@ -768,5 +1017,69 @@ fn activity_from_row(row: ActivityRow) -> ActivityView {
         has_accounting_records: row.has_accounting_records,
         earliest_expense_date: row.earliest_expense_date,
         invite_mode: row.invite_mode,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn expense_audit_summary_reads_only_the_whitelisted_shape() {
+        let expense_id = Uuid::new_v4();
+        let details = json!({
+            "expense": {
+                "title": "西湖午餐",
+                "category": "餐饮",
+                "originalCurrency": "CNY",
+                "originalAmountMinor": "12800",
+                "occurredAt": "2026-09-21T07:30:00Z",
+                "note": "不应透传",
+            },
+            "unknown": {"after": "不应透传"},
+        });
+
+        let summary = activity_audit_expense("EXPENSE_CREATED", "EXPENSE", expense_id, &details)
+            .expect("合法账单摘要应可读取");
+        assert_eq!(summary.expense_id, expense_id);
+        assert_eq!(summary.title, "西湖午餐");
+        assert_eq!(summary.original_amount_minor, 12800);
+
+        let changes = activity_audit_changes(&json!({
+            "expenseChanges": {
+                "title": {"before": "杭州午餐", "after": "西湖午餐"},
+                "unknown": {"before": "不应透传", "after": "仍不应透传"},
+            },
+        }));
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].field, "title");
+        assert_eq!(changes[0].before_value.as_deref(), Some("杭州午餐"));
+        assert_eq!(changes[0].after_value.as_deref(), Some("西湖午餐"));
+
+        assert_eq!(
+            activity_audit_source(&json!({"source": "MCP"})).as_deref(),
+            Some("MCP")
+        );
+        assert!(activity_audit_source(&json!({"source": "other"})).is_none());
+    }
+
+    #[test]
+    fn malformed_expense_audit_details_are_ignored() {
+        let expense_id = Uuid::new_v4();
+        let details = json!({
+            "expense": {
+                "title": "账单",
+                "category": "餐饮",
+                "originalCurrency": "cny",
+                "originalAmountMinor": "not-a-number",
+                "occurredAt": "not-a-time",
+            },
+        });
+
+        assert!(
+            activity_audit_expense("EXPENSE_CREATED", "EXPENSE", expense_id, &details).is_none()
+        );
     }
 }

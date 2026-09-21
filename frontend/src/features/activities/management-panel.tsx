@@ -6,6 +6,7 @@ import {
   CircleDollarSign,
   CircleStop,
   Download,
+  History,
   CalendarDays,
   Check,
   LoaderCircle,
@@ -33,6 +34,7 @@ import {
   useTransferOwnershipMutation,
   useUpdateActivityMutation,
 } from "./api";
+import { ActivityAuditPanel } from "./activity-audit-panel";
 import { useWorkspace } from "./workspace-context";
 import { activityStatus } from "./presentation";
 
@@ -69,7 +71,7 @@ const inviteModeOptions = [
 
 type ActivityField = keyof Activity["fieldPermissions"];
 
-type ActivityManagementView = "root" | "transfer";
+type ActivityManagementView = "root" | "transfer" | "audit";
 
 type ExpandedChoice = "baseCurrency" | "inviteMode" | null;
 
@@ -86,6 +88,7 @@ export function MorePage({
   view = "root",
   onViewChange,
   transferTriggerRef,
+  auditTriggerRef,
 }: {
   onClose: () => void;
   closeAfterSave?: boolean;
@@ -93,6 +96,7 @@ export function MorePage({
   view?: ActivityManagementView;
   onViewChange?: (view: ActivityManagementView) => void;
   transferTriggerRef?: RefObject<HTMLButtonElement | null>;
+  auditTriggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const { session, activity, offline } = useWorkspace();
   const update = useUpdateActivityMutation(session.userId, activity.activityId);
@@ -321,7 +325,7 @@ export function MorePage({
   ) ?? [];
 
   return (
-    <div className="activity-more" data-overlay-initial-focus tabIndex={-1}>
+    <div className={`activity-more activity-more--${view}`} data-overlay-initial-focus tabIndex={-1}>
       {closeAfterSave && actionBusy ? <div className="notice" role="status">正在保存，保存完成后关闭活动管理。</div> : null}
       {offline ? <div className="notice" role="status">当前离线，活动管理需要联网后使用。</div> : null}
       {warnings.map((warning) => (
@@ -342,7 +346,7 @@ export function MorePage({
         {!members.isPending && !members.error && !candidates.length ? <p className="empty-copy">暂无可转让的已绑定账号成员。</p> : null}
         {transferError ?? transfer.error ? <ErrorNotice error={transferError ?? transfer.error} /> : null}
         <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => onViewChange?.("root")}>取消</Button><Button type="button" busy={transfer.isPending} disabled={!memberId || actionBusy} onClick={() => void confirmTransfer()}>确认转让</Button></div>
-      </section> : <section aria-label="活动设置">
+      </section> : view === "audit" ? <section className="management-subview management-subview--audit" aria-label="活动记录"><ActivityAuditPanel userId={session.userId} activityId={activity.activityId} offline={offline} /></section> : <section aria-label="活动设置">
           <div className="management-list" role="list">
             <div className="management-field" role="listitem">
               <div className="management-field__heading"><Pencil aria-hidden="true" size={17} /><span><strong>活动名称</strong></span></div>
@@ -377,6 +381,7 @@ export function MorePage({
               {fieldError("inviteMode")}
             </div>
             <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--command" type="button" aria-label="导出 CSV" disabled={actionBusy} aria-busy={exporting} aria-describedby="activity-export-description" onClick={() => void exportCsv()}><Download aria-hidden="true" size={19} /><span><strong>导出 CSV</strong><small id="activity-export-description">下载活动账务明细</small></span><span className="management-action-row__status" role="status">{exporting ? <LoaderCircle aria-label="正在准备 CSV" className="spinner" size={17} /> : null}</span></button></div>
+            <div className="management-action-item" role="listitem"><button ref={auditTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={offline || actionBusy} onClick={() => onViewChange?.("audit")}><History aria-hidden="true" size={19} /><span><strong>活动记录</strong><small>{offline ? "联网后查看成员与活动的变更历史" : "查看成员与活动的变更历史"}</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div>
             <div className="management-field management-field--readonly" role="listitem">
               <div className="management-field__heading"><UsersRound aria-hidden="true" size={17} /><span><strong>当前状态</strong></span></div>
               <span className="management-field__readonly">{activityStatus(activity.status)}</span>
@@ -417,11 +422,13 @@ export function ActivityManagementOverlay({ onClose }: { onClose: () => void }) 
   const [closeAfterSave, setCloseAfterSave] = useState(false);
   const [view, setView] = useState<ActivityManagementView>("root");
   const transferTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const auditTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousView = useRef<ActivityManagementView>("root");
 
   useEffect(() => {
-    if (view === "root" && previousView.current === "transfer") {
-      transferTriggerRef.current?.focus();
+    if (view === "root") {
+      if (previousView.current === "transfer") transferTriggerRef.current?.focus();
+      if (previousView.current === "audit") auditTriggerRef.current?.focus();
     }
     previousView.current = view;
   }, [view]);
@@ -442,12 +449,12 @@ export function ActivityManagementOverlay({ onClose }: { onClose: () => void }) 
   return (
     <Overlay
       open
-      title={view === "transfer" ? "转让所有权" : "活动管理"}
+      title={view === "transfer" ? "转让所有权" : view === "audit" ? "活动记录" : "活动管理"}
       onBeforeClose={requestClose}
       onClose={onClose}
-      onBack={view === "transfer" ? { label: "返回活动管理", onClick: () => { if (!state.busy) setView("root"); } } : undefined}
+      onBack={view !== "root" ? { label: "返回活动管理", onClick: () => { if (!state.busy) setView("root"); } } : undefined}
       focusKey={`management-${view}`}
-      className="activity-management-overlay"
+      className={`activity-management-overlay activity-management-overlay--${view}`}
     >
       <MorePage
         onClose={onClose}
@@ -456,6 +463,7 @@ export function ActivityManagementOverlay({ onClose }: { onClose: () => void }) 
         view={view}
         onViewChange={setView}
         transferTriggerRef={transferTriggerRef}
+        auditTriggerRef={auditTriggerRef}
       />
     </Overlay>
   );

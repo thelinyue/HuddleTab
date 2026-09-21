@@ -55,7 +55,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 6);
+    assert_eq!(applied_count, 7);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -109,7 +109,7 @@ async fn phase2_schema_upgrades_to_ai_image_migration() {
         .fetch_one(&upgraded)
         .await
         .expect("应读取升级后的 migration 记录");
-    assert_eq!(migration_count, 6);
+    assert_eq!(migration_count, 7);
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
@@ -179,6 +179,27 @@ fn push_migration_declares_durable_queue_and_safe_device_defaults() {
         );
     }
     assert!(migration.contains("SET push_enqueued_at = created_at"));
+}
+
+#[test]
+fn mcp_migration_declares_hashed_scoped_tokens() {
+    let migration = include_str!("../migrations/202609210002_mcp_access_tokens.sql");
+    for fragment in [
+        "CREATE TABLE mcp_access_tokens",
+        "token_hash BYTEA NOT NULL UNIQUE",
+        "scope IN ('READ', 'EXPENSES_CREATE')",
+        "revoked_at TIMESTAMPTZ",
+        "mcp_access_tokens_active_hash_idx",
+    ] {
+        assert!(
+            migration.contains(fragment),
+            "MCP migration 缺少 {fragment}"
+        );
+    }
+    assert!(
+        !migration.contains("token TEXT"),
+        "MCP migration 不得存储令牌原文"
+    );
 }
 
 #[tokio::test]

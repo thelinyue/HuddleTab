@@ -558,6 +558,74 @@
         }
       }
     },
+    "/api/activities/{activity_id}/audit-logs": {
+      "get": {
+        "tags": [],
+        "operationId": "listActivityAuditLogs",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "同一活动内的下一页游标",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "活动记录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityAuditListEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "活动记录分页游标无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "活动不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/exchange-rate": {
       "get": {
         "tags": [],
@@ -3904,6 +3972,191 @@
         }
       }
     },
+    "/api/me/mcp-tokens": {
+      "get": {
+        "tags": [],
+        "operationId": "list_tokens",
+        "responses": {
+          "200": {
+            "description": "当前用户的 MCP 令牌列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpTokenListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "当前登录已失效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务内部错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "summary": "创建 MCP 令牌；服务端只把原始值放入当前响应。",
+        "operationId": "create_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMcpTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "MCP 令牌已创建；原文只在本次响应返回",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedMcpTokenEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求体无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "当前登录已失效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 或来源校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "令牌参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务内部错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/mcp-tokens/{token_id}": {
+      "delete": {
+        "tags": [],
+        "operationId": "revoke_token",
+        "parameters": [
+          {
+            "name": "token_id",
+            "in": "path",
+            "description": "MCP 令牌 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "令牌已撤销"
+          },
+          "401": {
+            "description": "当前登录已失效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF 或来源校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "令牌不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务内部错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me/password": {
       "put": {
         "tags": [],
@@ -4625,6 +4878,149 @@
   },
   "components": {
     "schemas": {
+      "ActivityAuditChangeData": {
+        "type": "object",
+        "required": [
+          "field"
+        ],
+        "properties": {
+          "afterValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "beforeValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivityAuditData": {
+        "type": "object",
+        "required": [
+          "auditId",
+          "action",
+          "actorDisplayName",
+          "revision",
+          "changes",
+          "createdAt"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actorAvatarPreset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "actorDisplayName": {
+            "type": "string"
+          },
+          "actorMemberId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actorUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "auditId": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityAuditChangeData"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expense": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ActivityAuditExpenseData"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ActivityAuditExpenseData": {
+        "type": "object",
+        "required": [
+          "expenseId",
+          "title",
+          "category",
+          "originalCurrency",
+          "originalAmountMinor",
+          "occurredAt"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "expenseId": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "originalAmountMinor": {
+            "type": "string"
+          },
+          "originalCurrency": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivityAuditListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityAuditData"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ActivityData": {
         "type": "object",
         "required": [
@@ -5867,6 +6263,27 @@
           }
         }
       },
+      "CreateMcpTokenRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "scope"
+        ],
+        "properties": {
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        }
+      },
       "CreateSettlementRequest": {
         "type": "object",
         "required": [
@@ -6015,6 +6432,36 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CreatedInvitationData"
+          }
+        }
+      },
+      "CreatedMcpTokenData": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/McpTokenData"
+          },
+          {
+            "type": "object",
+            "required": [
+              "secret"
+            ],
+            "properties": {
+              "secret": {
+                "type": "string",
+                "description": "原始令牌只在创建响应中存在；列表响应不会包含该字段。"
+              }
+            }
+          }
+        ]
+      },
+      "CreatedMcpTokenEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CreatedMcpTokenData"
           }
         }
       },
@@ -7069,6 +7516,65 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LogoutData"
+          }
+        }
+      },
+      "McpTokenData": {
+        "type": "object",
+        "required": [
+          "tokenId",
+          "name",
+          "tokenPrefix",
+          "scope",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string"
+          },
+          "tokenPrefix": {
+            "type": "string"
+          }
+        }
+      },
+      "McpTokenListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpTokenData"
+            }
           }
         }
       },

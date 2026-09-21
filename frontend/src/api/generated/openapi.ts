@@ -84,6 +84,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listActivityAuditLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/exchange-rate": {
         parameters: {
             query?: never;
@@ -742,6 +758,39 @@ export interface paths {
         patch: operations["update_avatar"];
         trace?: never;
     };
+    "/api/me/mcp-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_tokens"];
+        put?: never;
+        /** 创建 MCP 令牌；服务端只把原始值放入当前响应。 */
+        post: operations["create_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/mcp-tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revoke_token"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/password": {
         parameters: {
             query?: never;
@@ -891,6 +940,37 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ActivityAuditChangeData: {
+            afterValue?: string | null;
+            beforeValue?: string | null;
+            field: string;
+        };
+        ActivityAuditData: {
+            action: string;
+            /** Format: int32 */
+            actorAvatarPreset?: number | null;
+            actorDisplayName: string;
+            actorMemberId?: string | null;
+            actorUserId?: string | null;
+            auditId: string;
+            changes: components["schemas"]["ActivityAuditChangeData"][];
+            createdAt: string;
+            expense?: null | components["schemas"]["ActivityAuditExpenseData"];
+            revision: string;
+            source?: string | null;
+        };
+        ActivityAuditExpenseData: {
+            category: string;
+            expenseId: string;
+            occurredAt: string;
+            originalAmountMinor: string;
+            originalCurrency: string;
+            title: string;
+        };
+        ActivityAuditListEnvelope: {
+            data: components["schemas"]["ActivityAuditData"][];
+            nextCursor?: string | null;
+        };
         ActivityData: {
             activityId: string;
             allowedLifecycleActions: string[];
@@ -1189,6 +1269,11 @@ export interface components {
             maxUses?: number | null;
             targetDisplayName?: string | null;
         };
+        CreateMcpTokenRequest: {
+            expiresAt?: string | null;
+            name: string;
+            scope: string;
+        };
         CreateSettlementRequest: {
             allocations?: components["schemas"]["SettlementAllocationRequest"][];
             amountMinor: string;
@@ -1225,6 +1310,13 @@ export interface components {
         };
         CreatedInvitationEnvelope: {
             data: components["schemas"]["CreatedInvitationData"];
+        };
+        CreatedMcpTokenData: components["schemas"]["McpTokenData"] & {
+            /** @description 原始令牌只在创建响应中存在；列表响应不会包含该字段。 */
+            secret: string;
+        };
+        CreatedMcpTokenEnvelope: {
+            data: components["schemas"]["CreatedMcpTokenData"];
         };
         CreatedSettlementData: {
             idempotentReplay: boolean;
@@ -1490,6 +1582,19 @@ export interface components {
         };
         LogoutEnvelope: {
             data: components["schemas"]["LogoutData"];
+        };
+        McpTokenData: {
+            createdAt: string;
+            expiresAt?: string | null;
+            lastUsedAt?: string | null;
+            name: string;
+            revokedAt?: string | null;
+            scope: string;
+            tokenId: string;
+            tokenPrefix: string;
+        };
+        McpTokenListEnvelope: {
+            data: components["schemas"]["McpTokenData"][];
         };
         MemberSettlementProgressData: {
             direction: string;
@@ -2171,6 +2276,59 @@ export interface operations {
                 };
             };
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listActivityAuditLogs: {
+        parameters: {
+            query?: {
+                /** @description 同一活动内的下一页游标 */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 活动记录 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityAuditListEnvelope"];
+                };
+            };
+            /** @description 活动记录分页游标无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 活动不存在 */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4725,6 +4883,172 @@ export interface operations {
             };
             /** @description CSRF 校验失败 */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_tokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 当前用户的 MCP 令牌列表 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpTokenListEnvelope"];
+                };
+            };
+            /** @description 当前登录已失效 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 服务内部错误 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMcpTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description MCP 令牌已创建；原文只在本次响应返回 */
+            200: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedMcpTokenEnvelope"];
+                };
+            };
+            /** @description 请求体无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 当前登录已失效 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 或来源校验失败 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 令牌参数无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 服务内部错误 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    revoke_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description MCP 令牌 UUID */
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 令牌已撤销 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 当前登录已失效 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description CSRF 或来源校验失败 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 令牌不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 服务内部错误 */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

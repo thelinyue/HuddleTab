@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../../api/client";
 import { mutationHeaders } from "../../api/csrf";
 import { ApiRequestError, unwrap } from "../../api/error";
@@ -7,6 +7,8 @@ import { queryKeys } from "../../api/query-keys";
 
 export type Activity = components["schemas"]["ActivityData"];
 export type ActivityMember = components["schemas"]["ActivityMemberData"];
+export type ActivityAuditEntry = components["schemas"]["ActivityAuditData"];
+export type ActivityAuditPage = components["schemas"]["ActivityAuditListEnvelope"];
 export type CreateActivityInput = components["schemas"]["CreateActivityRequest"];
 export type UpdateActivityInput = components["schemas"]["UpdateActivityRequest"];
 export type ActivityUpdateEnvelope = components["schemas"]["ActivityUpdateEnvelope"];
@@ -46,6 +48,20 @@ async function getActivity(activityId: string): Promise<Activity> {
       params: { path: { activity_id: activityId } },
     }),
   ).data;
+}
+
+async function listActivityAuditLogs(
+  activityId: string,
+  cursor?: string,
+): Promise<ActivityAuditPage> {
+  return unwrap(
+    await apiClient.GET("/api/activities/{activity_id}/audit-logs", {
+      params: {
+        path: { activity_id: activityId },
+        query: cursor ? { cursor } : {},
+      },
+    }),
+  );
 }
 
 /** CSV 仍由受认证的同源 API 生成；以 Blob 返回，交由界面按浏览器能力下载或分享。 */
@@ -255,6 +271,18 @@ export function useActivityQuery(userId: string, activityId: string, enabled = t
     queryKey: queryKeys.activityDetail(userId, activityId),
     queryFn: () => getActivity(activityId),
     enabled: enabled && userId.length > 0 && activityId.length > 0,
+  });
+}
+
+export function useActivityAuditQuery(userId: string, activityId: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.activityAudit(userId, activityId),
+    queryFn: ({ pageParam }) => listActivityAuditLogs(activityId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled: enabled && userId.length > 0 && activityId.length > 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -30,6 +30,17 @@ const activityApiState = vi.hoisted(() => ({
     version: "7",
   },
   activityError: null as unknown,
+  auditQuery: {
+    data: undefined as unknown,
+    error: null as unknown,
+    isPending: false,
+    isFetchingNextPage: false,
+    hasNextPage: false,
+    refetch: vi.fn(),
+    fetchNextPage: vi.fn(),
+  },
+  auditQueryCalls: [] as Array<[string, string, boolean]>,
+  online: true,
   activities: [] as Array<Record<string, unknown>>,
   activitiesError: null as unknown,
   activitiesPending: false,
@@ -118,7 +129,7 @@ vi.mock("../notifications/api", () => ({
 }));
 
 vi.mock("./offline-workspace", () => ({
-  useOnlineStatus: () => true,
+  useOnlineStatus: () => activityApiState.online,
   useActivitySnapshotQuery: () => ({ data: activityApiState.snapshotData, error: activityApiState.snapshotError, isPending: false }),
 }));
 
@@ -140,6 +151,10 @@ vi.mock("./api", async (importOriginal) => {
       };
     },
     useActivityQuery: () => ({ data: activityApiState.activity, error: activityApiState.activityError, isPending: false }),
+    useActivityAuditQuery: (userId: string, activityId: string, enabled = true) => {
+      activityApiState.auditQueryCalls.push([userId, activityId, enabled]);
+      return activityApiState.auditQuery;
+    },
     exportActivityCsv: activityApiState.exportCsv,
     useCreateActivityMutation: () => activityApiState.create,
     useUpdateActivityMutation: () => activityApiState.update,
@@ -218,6 +233,15 @@ afterEach(() => {
   activityApiState.activitiesPending = false;
   activityApiState.ledgers = [];
   activityApiState.activityError = null;
+  activityApiState.auditQuery.data = undefined;
+  activityApiState.auditQuery.error = null;
+  activityApiState.auditQuery.isPending = false;
+  activityApiState.auditQuery.isFetchingNextPage = false;
+  activityApiState.auditQuery.hasNextPage = false;
+  activityApiState.auditQuery.refetch.mockReset();
+  activityApiState.auditQuery.fetchNextPage.mockReset();
+  activityApiState.auditQueryCalls.length = 0;
+  activityApiState.online = true;
   activityApiState.deletedActivities = [];
   activityApiState.deletedQueryEnabled.length = 0;
   activityApiState.deletedQueryError = null;
@@ -948,7 +972,7 @@ describe("活动管理 Overlay", () => {
 
     const dialog = screen.getByRole("dialog", { name: "活动管理" });
     expect(within(dialog).getAllByRole("list")).toHaveLength(1);
-    expect(within(dialog).getAllByRole("listitem")).toHaveLength(11);
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(12);
     expect(dialog.querySelectorAll(".activity-more > section > h2")).toHaveLength(0);
     for (const heading of ["活动信息", "协作与数据", "活动状态", "成员与权限", "危险操作"]) {
       expect(within(dialog).queryByText(heading)).not.toBeInTheDocument();
@@ -956,8 +980,140 @@ describe("活动管理 Overlay", () => {
     expect(within(dialog).getByText("当前状态")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "导出 CSV" })).toBeInTheDocument();
     expect([...dialog.querySelectorAll(".management-field__heading strong, .management-action-row strong")].map((node) => node.textContent)).toEqual([
-      "活动名称", "地点", "开始日期", "结束日期", "主币种", "加入方式", "导出 CSV", "当前状态", "结束活动", "转让所有权", "删除活动",
+      "活动名称", "地点", "开始日期", "结束日期", "主币种", "加入方式", "导出 CSV", "活动记录", "当前状态", "结束活动", "转让所有权", "删除活动",
     ]);
+  });
+
+  it("活动记录入口惰性读取同一 Sheet，展示账单、字段变化、未知动作并支持分页", async () => {
+    activityApiState.auditQuery.data = {
+      pages: [{
+        data: [
+          {
+            action: "EXPENSE_CREATED",
+            source: "MCP",
+            revision: "8",
+            actorAvatarPreset: 4,
+            actorDisplayName: "Alice",
+            actorMemberId: "member-owner",
+            actorUserId: "user-1",
+            auditId: "audit-expense",
+            changes: [],
+            expense: {
+              expenseId: "expense-1",
+              title: "西湖午餐",
+              category: "餐饮",
+              originalCurrency: "CNY",
+              originalAmountMinor: "12800",
+              occurredAt: "2026-09-21T07:30:00Z",
+            },
+            createdAt: "2026-09-21T08:00:00Z",
+          },
+          {
+            action: "ACTIVITY_UPDATED",
+            revision: "7",
+            actorAvatarPreset: 4,
+            actorDisplayName: "Alice",
+            actorMemberId: "member-owner",
+            actorUserId: "user-1",
+            auditId: "audit-update",
+            changes: [{ field: "location", beforeValue: "杭州", afterValue: "苏州" }],
+            createdAt: "2026-09-20T08:00:00Z",
+          },
+          {
+            action: "EXPENSE_UPDATED",
+            revision: "6",
+            actorAvatarPreset: 4,
+            actorDisplayName: "Alice",
+            actorMemberId: "member-owner",
+            actorUserId: "user-1",
+            auditId: "audit-expense-update",
+            changes: [
+              { field: "title", beforeValue: "西湖午餐", afterValue: "西湖晚餐" },
+              { field: "originalAmountMinor", beforeValue: "10000", afterValue: "12800" },
+              { field: "occurredAt", beforeValue: "2026-09-20T07:30:00Z", afterValue: "2026-09-21T07:30:00Z" },
+            ],
+            expense: {
+              expenseId: "expense-1",
+              title: "西湖晚餐",
+              category: "餐饮",
+              originalCurrency: "CNY",
+              originalAmountMinor: "12800",
+              occurredAt: "2026-09-21T07:30:00Z",
+            },
+            createdAt: "2026-09-20T07:00:00Z",
+          },
+          {
+            action: "FUTURE_ACTION",
+            revision: "6",
+            actorAvatarPreset: null,
+            actorDisplayName: "系统",
+            actorMemberId: null,
+            actorUserId: null,
+            auditId: "audit-unknown",
+            changes: [],
+            createdAt: "2026-09-19T08:00:00Z",
+          },
+        ],
+        nextCursor: "audit-next",
+      }],
+    };
+    activityApiState.auditQuery.hasNextPage = true;
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    expect(activityApiState.auditQueryCalls).toEqual([]);
+    const trigger = screen.getByRole("button", { name: /^活动记录/ });
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("dialog", { name: "活动记录" })).toBeInTheDocument();
+    expect(activityApiState.auditQueryCalls).toEqual([["user-1", "activity-1", true]]);
+    expect(screen.getByText("新增了账单")).toBeInTheDocument();
+    expect(screen.getByText("通过 MCP")).toBeInTheDocument();
+    expect(screen.getAllByText("西湖午餐")).toHaveLength(2);
+    expect(screen.getAllByText("¥128.00")).toHaveLength(3);
+    expect(screen.getAllByText("餐饮")).toHaveLength(2);
+    expect(screen.getByText("更新了活动资料")).toBeInTheDocument();
+    expect(screen.getByText("杭州")).toBeInTheDocument();
+    expect(screen.getByText("苏州")).toBeInTheDocument();
+    expect(screen.getByText("修改了账单")).toBeInTheDocument();
+    expect(screen.getAllByText("西湖晚餐")).toHaveLength(2);
+    expect(screen.getByText("¥100.00")).toBeInTheDocument();
+    expect(screen.getAllByText("¥128.00")).toHaveLength(3);
+    expect(screen.getByRole("list", { name: "账单修改前后" })).toBeInTheDocument();
+    expect(screen.getByText("记录了一项活动操作")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+    expect(activityApiState.auditQuery.fetchNextPage).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "返回活动管理" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^活动记录/ })).toHaveFocus();
+  });
+
+  it("离线时禁用活动记录入口且不发起请求", () => {
+    activityApiState.online = false;
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    const trigger = screen.getByRole("button", { name: /^活动记录/ });
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveTextContent("联网后查看成员与活动的变更历史");
+    expect(activityApiState.auditQueryCalls).toEqual([]);
+  });
+
+  it.each([
+    ["loading", { isPending: true, data: undefined, error: null }],
+    ["empty", { isPending: false, data: { pages: [{ data: [], nextCursor: null }] }, error: null }],
+    ["error", { isPending: false, data: undefined, error: new Error("读取活动记录失败") }],
+  ])("活动记录支持 %s 状态", async (_name, state) => {
+    Object.assign(activityApiState.auditQuery, state);
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: /^活动记录/ }));
+
+    if (state.isPending) expect(screen.getByText("正在读取活动记录…")).toBeInTheDocument();
+    if (state.error) {
+      expect(screen.getByRole("alert")).toHaveTextContent("读取活动记录失败");
+      fireEvent.click(screen.getByRole("button", { name: "重试" }));
+      expect(activityApiState.auditQuery.refetch).toHaveBeenCalledOnce();
+    }
+    if (!state.isPending && !state.error) expect(screen.getByText("暂无活动记录")).toBeInTheDocument();
   });
 
   it("直接渲染可编辑资料，不展示编辑按钮或字段二级视图", () => {
