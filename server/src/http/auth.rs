@@ -1,7 +1,12 @@
 use axum::{
     Extension, Json,
-    extract::State,
-    http::{HeaderMap, StatusCode, header::ORIGIN},
+    body::Body,
+    extract::{FromRequest as _, Multipart, Path, Request, State},
+    http::{
+        HeaderMap, HeaderValue, StatusCode,
+        header::{CACHE_CONTROL, CONTENT_TYPE, ORIGIN},
+    },
+    response::{IntoResponse as _, Response},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use serde::{Deserialize, Serialize};
@@ -17,7 +22,9 @@ use crate::{
         update_avatar_preset as save_avatar_preset, update_display_name as save_display_name,
     },
     infrastructure::{
-        auth_repository::PostgresAuthRepository,
+        attachment_image::{AttachmentImageError, process_fixed_image},
+        attachment_store::LocalAttachmentStore,
+        auth_repository::{PostgresAuthRepository, UserAvatarImage},
         clock::SystemClock,
         csrf::{CsrfContext, CsrfToken},
         invitation_token::SecureInvitationTokenCodec,
@@ -28,6 +35,7 @@ use crate::{
 };
 
 use super::{
+    collaboration::authenticate,
     error::{ApiError, RequestId},
     rate_limit::{ClientIp, RateLimitCategory},
     router::AppState,
@@ -151,6 +159,7 @@ pub struct LoginData {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<String>,
     pub is_system_admin: bool,
 }
 
@@ -175,6 +184,7 @@ pub struct RegisterData {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<String>,
     pub is_system_admin: bool,
 }
 
@@ -190,6 +200,7 @@ pub struct SessionData {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<String>,
     pub is_system_admin: bool,
 }
 
@@ -236,6 +247,18 @@ pub struct AvatarPresetEnvelope {
 #[serde(rename_all = "camelCase")]
 pub struct AvatarPresetData {
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<String>,
+}
+
+#[derive(ToSchema)]
+#[schema(value_type = String, format = Binary)]
+pub struct AvatarBinary(pub Vec<u8>);
+
+/// 自定义头像上传的 multipart 文件字段。
+#[derive(ToSchema)]
+pub struct UploadAvatarImageRequest {
+    #[schema(value_type = String, format = Binary)]
+    pub file: Vec<u8>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -393,6 +416,7 @@ pub(crate) async fn login(
                 username: result.username,
                 display_name: result.display_name,
                 avatar_preset: result.avatar_preset,
+                avatar_image_id: result.avatar_image_id.map(|value| value.to_string()),
                 is_system_admin: result.is_system_admin,
             },
         }),
@@ -472,6 +496,7 @@ pub(crate) async fn register(
                 username: result.username,
                 display_name: result.display_name,
                 avatar_preset: result.avatar_preset,
+                avatar_image_id: result.avatar_image_id.map(|value| value.to_string()),
                 is_system_admin: false,
             },
         }),
@@ -510,6 +535,7 @@ pub(crate) async fn session(
             username: current.username,
             display_name: current.display_name,
             avatar_preset: current.avatar_preset,
+            avatar_image_id: current.avatar_image_id.map(|value| value.to_string()),
             is_system_admin: current.is_system_admin,
         },
     }))
@@ -553,8 +579,164 @@ pub(crate) async fn update_avatar(
     Ok(Json(AvatarPresetEnvelope {
         data: AvatarPresetData {
             avatar_preset: request.avatar_preset,
+            avatar_image_id: None,
         },
     }))
+}
+
+/// 上传并固定裁剪为 512×512 的自定义头像；认证与 CSRF 先于 multipart 解析。
+#[utoipa::path(
+    post,
+    path = "/api/me/avatar/image",
+    operation_id = "uploadMyAvatarImage",
+    request_body(content = UploadAvatarImageRequest, content_type = "multipart/form-data"),
+    responses((status = 200, description = "头像已更新", body = AvatarPresetEnvelope))
+)]
+pub(crate) async fn upload_avatar_image(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    request: Request,
+) -> Result<Json<AvatarPresetEnvelope>, ApiError> {
+    let token = validate_session_csrf(&state, &jar, &headers, request_id.clone())?;
+    let repository = PostgresAuthRepository::new(state.pool.clone());
+    let current = current_session(&repository, &SystemClock, &token)
+        .await
+        .map_err(|error| match error {
+            CurrentSessionError::Unauthenticated => ApiError::unauthenticated(request_id.clone()),
+            CurrentSessionError::Unavailable => ApiError::internal(request_id.clone()),
+        })?;
+    let mut multipart = Multipart::from_request(request, &state)
+        .await
+        .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?;
+    let mut file = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?
+    {
+        if field.name() != Some("file") || file.is_some() {
+            return Err(ApiError::invalid_attachment(request_id));
+        }
+        let mime = field
+            .content_type()
+            .map(str::to_owned)
+            .ok_or_else(|| ApiError::invalid_attachment(request_id.clone()))?;
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?
+            .to_vec();
+        file = Some((mime, bytes));
+    }
+    let (declared_mime, bytes) =
+        file.ok_or_else(|| ApiError::invalid_attachment(request_id.clone()))?;
+    let processed = process_fixed_image(&bytes, &declared_mime, 512, 512)
+        .map_err(|error| map_avatar_image_error(error, request_id.clone()))?;
+    let image_id = uuid::Uuid::new_v4();
+    let storage_key = format!("avatars/{}/{image_id}.webp", current.user_id);
+    let store = LocalAttachmentStore::new(&state.uploads_dir)
+        .map_err(|_| ApiError::internal(request_id.clone()))?;
+    store
+        .write(&storage_key, &processed.bytes)
+        .await
+        .map_err(|_| ApiError::internal(request_id.clone()))?;
+    let old_storage_key = repository
+        .replace_avatar_image(
+            current.user_id,
+            UserAvatarImage {
+                image_id,
+                storage_key: storage_key.clone(),
+                width: processed.width,
+                height: processed.height,
+                byte_size: i64::try_from(processed.bytes.len()).unwrap_or(i64::MAX),
+            },
+        )
+        .await;
+    let Ok(old_storage_key) = old_storage_key else {
+        if store.remove(&storage_key).await.is_err() {
+            tracing::warn!(storage_key = %storage_key, "删除未提交的用户头像失败，将由孤立图片清理任务回收");
+        }
+        return Err(ApiError::internal(request_id));
+    };
+    if let Some(old_storage_key) = old_storage_key
+        && store.remove(&old_storage_key).await.is_err()
+    {
+        tracing::warn!(storage_key = %old_storage_key, "删除旧用户头像失败，将由孤立图片清理任务回收");
+    }
+    Ok(Json(AvatarPresetEnvelope {
+        data: AvatarPresetData {
+            avatar_preset: current.avatar_preset,
+            avatar_image_id: Some(image_id.to_string()),
+        },
+    }))
+}
+
+/// 仅向已登录用户返回指定用户当前仍持有的头像图片。
+#[utoipa::path(
+    get,
+    path = "/api/users/{user_id}/avatar/{image_id}",
+    operation_id = "downloadUserAvatarImage",
+    params(("user_id" = String, Path), ("image_id" = String, Path)),
+    responses(
+        (status = 200, description = "私有 WebP 头像", body = AvatarBinary,
+            content_type = "image/webp",
+            headers(
+                ("Cache-Control" = String, description = "private immutable 缓存"),
+                ("Content-Type" = String, description = "image/webp"),
+                ("X-Content-Type-Options" = String, description = "nosniff")
+            )),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 404, description = "头像不存在或不可访问", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn download_avatar_image(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path((user_id, image_id)): Path<(String, String)>,
+    jar: CookieJar,
+) -> Result<Response, ApiError> {
+    authenticate(&state, &jar, request_id.clone()).await?;
+    let user_id =
+        uuid::Uuid::parse_str(&user_id).map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let image_id =
+        uuid::Uuid::parse_str(&image_id).map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let repository = PostgresAuthRepository::new(state.pool);
+    let image = repository
+        .avatar_image_for_user(user_id, image_id)
+        .await
+        .map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let store = LocalAttachmentStore::new(&state.uploads_dir)
+        .map_err(|_| ApiError::internal(request_id.clone()))?;
+    let bytes = store
+        .read(&image.storage_key)
+        .await
+        .map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let mut response = Body::from(bytes).into_response();
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("image/webp"));
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=31536000, immutable"),
+    );
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
+fn map_avatar_image_error(error: AttachmentImageError, request_id: RequestId) -> ApiError {
+    match error {
+        AttachmentImageError::TooLarge => ApiError::attachment_too_large(request_id),
+        AttachmentImageError::TypeNotAllowed => ApiError::attachment_type_not_allowed(request_id),
+        AttachmentImageError::MimeMismatch => ApiError::attachment_mime_mismatch(request_id),
+        AttachmentImageError::PixelLimitExceeded | AttachmentImageError::InvalidImage => {
+            ApiError::attachment_image_invalid(request_id)
+        }
+    }
 }
 
 /// 当前用户更新全局昵称；已绑定活动成员与 Snapshot revision 由 Repository 原子同步。

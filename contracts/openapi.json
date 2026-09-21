@@ -626,6 +626,161 @@
         }
       }
     },
+    "/api/activities/{activity_id}/cover": {
+      "post": {
+        "tags": [],
+        "summary": "处理并保存自定义封面。认证与 CSRF 完成后才读取 multipart，避免未授权请求触发解码。",
+        "operationId": "uploadActivityCover",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadCoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "封面已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [],
+        "summary": "保存内置封面；只有 Owner 在 ACTIVE 活动中才能修改，提交后清除旧自定义图片。",
+        "operationId": "updateActivityCoverPreset",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "description": "活动 UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCoverPresetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "封面已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/activities/{activity_id}/cover/{image_id}": {
+      "get": {
+        "tags": [],
+        "summary": "按不可变 `image_id` 返回当前活动封面，授权通过后才读取私有存储。",
+        "operationId": "downloadActivityCover",
+        "parameters": [
+          {
+            "name": "activity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "image_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "私有 WebP 封面",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private immutable 缓存"
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "image/webp"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "nosniff"
+              }
+            },
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverBinary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "封面不存在或不可访问",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/activities/{activity_id}/exchange-rate": {
       "get": {
         "tags": [],
@@ -3972,6 +4127,35 @@
         }
       }
     },
+    "/api/me/avatar/image": {
+      "post": {
+        "tags": [],
+        "summary": "上传并固定裁剪为 512×512 的自定义头像；认证与 CSRF 先于 multipart 解析。",
+        "operationId": "uploadMyAvatarImage",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadAvatarImageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "头像已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarPresetEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me/mcp-tokens": {
       "get": {
         "tags": [],
@@ -4874,6 +5058,83 @@
           }
         }
       }
+    },
+    "/api/users/{user_id}/avatar/{image_id}": {
+      "get": {
+        "tags": [],
+        "summary": "仅向已登录用户返回指定用户当前仍持有的头像图片。",
+        "operationId": "downloadUserAvatarImage",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "image_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "私有 WebP 头像",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "private immutable 缓存"
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "image/webp"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "nosniff"
+              }
+            },
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarBinary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "头像不存在或不可访问",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4914,6 +5175,12 @@
         "properties": {
           "action": {
             "type": "string"
+          },
+          "actorAvatarImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "actorAvatarPreset": {
             "type": [
@@ -5060,6 +5327,19 @@
           "canRestore": {
             "type": "boolean"
           },
+          "coverImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coverPreset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
           "currentMemberId": {
             "type": "string"
           },
@@ -5139,10 +5419,14 @@
           "baseCurrency",
           "startDate",
           "endDate",
-          "inviteMode"
+          "inviteMode",
+          "cover"
         ],
         "properties": {
           "baseCurrency": {
+            "type": "boolean"
+          },
+          "cover": {
             "type": "boolean"
           },
           "endDate": {
@@ -5204,6 +5488,12 @@
         "properties": {
           "activityId": {
             "type": "string"
+          },
+          "avatarImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "avatarPreset": {
             "type": [
@@ -5487,6 +5777,12 @@
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avatarPreset": {
             "type": "integer",
             "format": "int32"
@@ -6062,12 +6358,22 @@
           }
         }
       },
+      "AvatarBinary": {
+        "type": "string",
+        "format": "binary"
+      },
       "AvatarPresetData": {
         "type": "object",
         "required": [
           "avatarPreset"
         ],
         "properties": {
+          "avatarImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avatarPreset": {
             "type": "integer",
             "format": "int32"
@@ -6186,6 +6492,10 @@
           }
         }
       },
+      "CoverBinary": {
+        "type": "string",
+        "format": "binary"
+      },
       "CreateActivityRequest": {
         "type": "object",
         "required": [
@@ -6196,6 +6506,14 @@
         "properties": {
           "baseCurrency": {
             "type": "string"
+          },
+          "coverPreset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "未传值的旧客户端默认使用第 12 张“日常通用”封面。"
           },
           "endDate": {
             "type": [
@@ -7453,6 +7771,12 @@
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avatarPreset": {
             "type": "integer",
             "format": "int32"
@@ -7924,6 +8248,12 @@
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avatarPreset": {
             "type": "integer",
             "format": "int32"
@@ -8039,6 +8369,12 @@
           "isSystemAdmin"
         ],
         "properties": {
+          "avatarImageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avatarPreset": {
             "type": "integer",
             "format": "int32"
@@ -8442,6 +8778,22 @@
           }
         }
       },
+      "UpdateCoverPresetRequest": {
+        "type": "object",
+        "required": [
+          "version",
+          "coverPreset"
+        ],
+        "properties": {
+          "coverPreset": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "UpdateDisplayNameRequest": {
         "type": "object",
         "required": [
@@ -8513,6 +8865,36 @@
           "file": {
             "type": "string",
             "format": "binary"
+          }
+        }
+      },
+      "UploadAvatarImageRequest": {
+        "type": "object",
+        "description": "自定义头像上传的 multipart 文件字段。",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          }
+        }
+      },
+      "UploadCoverRequest": {
+        "type": "object",
+        "description": "自定义封面上传的 multipart 字段。版本号与文件一起提交，确保图片替换遵守乐观锁。",
+        "required": [
+          "file",
+          "version"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },

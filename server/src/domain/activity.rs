@@ -245,6 +245,7 @@ pub struct ActivityFieldPermissions {
     pub start_date: bool,
     pub end_date: bool,
     pub invite_mode: bool,
+    pub cover: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -281,6 +282,7 @@ impl ActivityCapabilities {
                 start_date: true,
                 end_date: true,
                 invite_mode: true,
+                cover: true,
             },
             ActivityStatus::Ended | ActivityStatus::Archived => ActivityFieldPermissions::default(),
         };

@@ -4,6 +4,7 @@ import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { Link, Outlet, useLocation, useMatch, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { ErrorNotice } from "../../components/ui";
+import { ActivityCover } from "../../components/activity-cover";
 import { useActivityQuery, useMembersQuery } from "./api";
 import { useSessionQuery } from "../auth/api";
 import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
@@ -30,7 +31,7 @@ function isDefinitiveActivityError(error: unknown): error is ApiRequestError {
  * 直接跟随页面顶部 32px 的滚动进度；窗口监听不捕获 Sheet 内部滚动，
  * DOM 更新按帧合并，不让整个工作台随每个滚动事件重新渲染。
  */
-function WorkspaceHeader({ children, busy = false }: { children: ReactNode; busy?: boolean }) {
+function WorkspaceHeader({ children, busy = false, withCover = false }: { children: ReactNode; busy?: boolean; withCover?: boolean }) {
   const ref = useRef<HTMLElement>(null);
   const location = useLocation();
   useLayoutEffect(() => {
@@ -67,7 +68,7 @@ function WorkspaceHeader({ children, busy = false }: { children: ReactNode; busy
       resize.disconnect();
     };
   }, [location.key, busy]);
-  return <header ref={ref} className="workspace-header" aria-busy={busy || undefined}>{children}</header>;
+  return <header ref={ref} className={`workspace-header${withCover ? " workspace-header--cover" : ""}`} aria-busy={busy || undefined}>{children}</header>;
 }
 
 /**
@@ -131,7 +132,8 @@ export function ActivityWorkspace() {
   return (
       <WorkspaceContext.Provider value={{ session: session.data, activity: activityData, members: membersData, offline: !online, snapshot: snapshot.data }}>
       {standalone ? <StandaloneDetailFrame activityId={activityId} title={standaloneTitle} readOnly={standaloneReadOnly}><Outlet /></StandaloneDetailFrame> : <section className="workspace">
-        <WorkspaceHeader>
+        <WorkspaceHeader withCover>
+          <ActivityCover className="workspace-header__cover" activityId={activityData.activityId} coverPreset={activityData.coverPreset} coverImageId={activityData.coverImageId} alt="" loading="eager" />
           <div className="workspace-header__actions">
             <Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft aria-hidden="true" size={20} /></Link>
             <div className="workspace-header__identity"><h1 title={activityData.name}>{activityData.name}</h1></div>

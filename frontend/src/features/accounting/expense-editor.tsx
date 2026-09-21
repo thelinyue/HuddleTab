@@ -25,7 +25,7 @@ import { aiSuggestionLabel, type AiExpenseEditorInitialValues, type AiExpenseFie
 
 import { attachmentAccept, ExpenseAttachments, SelectedAttachmentPreviews, validateAttachments } from "./expense-attachments";
 
-import { categories, memberAvatarPreset, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
+import { categories, memberAvatarImage, memberAvatarPreset, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
 const splitModes = [
   ["EQUAL", "均摊"], ["EXACT", "按金额"], ["PERCENTAGE", "按比例"], ["WEIGHT", "按份数"],
 ] as const;
@@ -123,7 +123,7 @@ function ExpenseSettlementProgressSection({
           const received = member.direction === "RECEIVABLE";
           const settled = member.status === "SETTLED";
           return <div className="expense-settlement-progress__row" role="row" key={member.memberId}>
-            <span role="cell" className="expense-settlement-progress__member"><MemberAvatar memberId={member.memberId} displayName={memberName(member.memberId, members)} avatarPreset={memberAvatarPreset(member.memberId, members)} size="sm" /><span>{memberName(member.memberId, members)}</span></span>
+            <span role="cell" className="expense-settlement-progress__member"><MemberAvatar memberId={member.memberId} {...memberAvatarImage(member.memberId, members)} displayName={memberName(member.memberId, members)} avatarPreset={memberAvatarPreset(member.memberId, members)} size="sm" /><span>{memberName(member.memberId, members)}</span></span>
             <span role="cell"><small>{received ? "应收" : "应结"}</small>{formatMoney(progress.currency, member.expectedMinor)}</span>
             <span role="cell"><small>{received ? "已收" : "已结"}</small>{formatMoney(progress.currency, member.settledMinor)}</span>
             <span role="cell" className={settled ? "expense-settlement-progress__remaining expense-settlement-progress__remaining--settled" : "expense-settlement-progress__remaining"}><small>{received ? "待收" : "待结"}</small>{formatMoney(progress.currency, member.remainingMinor)}{settled ? <Check aria-label="已结清" size={15} /> : null}</span>
@@ -433,7 +433,7 @@ function QuickMemberChoiceList({ members, mode, selectedIds, onToggle, paymentVa
           return (
             <div className={`quick-member-row${paymentValues && selected ? " quick-member-row--with-input" : ""}`} key={member.memberId}>
               <button type="button" role={mode === "single" ? "radio" : "checkbox"} aria-checked={selected} aria-label={member.displayName} className="quick-member-row__button" onClick={() => onToggle(member.memberId)}>
-                <MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="md" />
+                <MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} size="md" />
                 <span>{member.displayName}</span>
                 <span aria-hidden="true" className={`quick-member-row__check${selected ? " quick-member-row__check--selected" : ""}`}>{selected ? <Check size={15} /> : null}</span>
               </button>
@@ -933,9 +933,9 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
           <div className="quick-expense-grid">
             <QuickValueButton label="分类" value={selectedCategory[1]} initialFocus={entryFocusTarget === "category"} onClick={() => { setEntryFocusTarget("category"); onViewChange("category"); }}><img className="quick-expense-value-button__image" src={`/expense-categories/${selectedCategory[2]}.webp`} width={34} height={34} alt="" /></QuickValueButton>
             <label className="quick-expense-inline-field"><span>用途 {aiBadge("title")}</span><Input ref={titleRef} aria-label="用途" value={title} onChange={(event) => { setTitle(event.target.value); markAiFieldEdited("title"); clearFieldError("title"); }} placeholder="例如：晚餐" maxLength={120} aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? "quick-expense-title-error" : undefined} required />{fieldErrors.title ? <small id="quick-expense-title-error" className="quick-expense-error" role="alert">{fieldErrors.title}</small> : null}</label>
-            <QuickFieldButton label="付款人" value={selectedPayerLabel || "请选择"} initialFocus={entryFocusTarget === "payer"} onClick={openPayer}><span className="quick-expense-avatar-stack" aria-hidden="true">{payerIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>
+            <QuickFieldButton label="付款人" value={selectedPayerLabel || "请选择"} initialFocus={entryFocusTarget === "payer"} onClick={openPayer}><span className="quick-expense-avatar-stack" aria-hidden="true">{payerIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} {...memberAvatarImage(id, activeMembers)} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>
             <QuickTimePicker value={occurredAt} onChange={(value) => { setOccurredAt(value); markAiFieldEdited("occurredAt"); if (exchangeRateKind === "PROVIDER" || exchangeRateKind === "CACHE") { setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); } }} />
-            <div className="quick-expense-participants"><QuickFieldButton label="参与人" value={participantIds.length ? `${participantIds.length} 人` : "请选择"} initialFocus={entryFocusTarget === "participants"} onClick={openParticipants}><span className="quick-expense-avatar-stack" aria-hidden="true">{participantIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>{fieldErrors.participants ? <small className="quick-expense-error" role="alert">{fieldErrors.participants}</small> : null}</div>
+            <div className="quick-expense-participants"><QuickFieldButton label="参与人" value={participantIds.length ? `${participantIds.length} 人` : "请选择"} initialFocus={entryFocusTarget === "participants"} onClick={openParticipants}><span className="quick-expense-avatar-stack" aria-hidden="true">{participantIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} {...memberAvatarImage(id, activeMembers)} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>{fieldErrors.participants ? <small className="quick-expense-error" role="alert">{fieldErrors.participants}</small> : null}</div>
             <QuickValueButton label="分摊设置" value={selectedSplitLabel} initialFocus={entryFocusTarget === "split"} onClick={() => { setEntryFocusTarget("split"); onViewChange("split"); }} />
           </div>
             <QuickFieldButton label="备注" value={noteSummary} initialFocus={entryFocusTarget === "note"} onClick={() => { setEntryFocusTarget("note"); onViewChange("note"); }} />
@@ -963,7 +963,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
                 setSplitValues((current) => ({ ...current, [memberId]: value }));
               };
               return <div className={`quick-split-row${splitMode === "EQUAL" ? " quick-split-row--equal" : ""}`} key={memberId}>
-                <MemberAvatar memberId={memberId} displayName={name} avatarPreset={memberAvatarPreset(memberId, activeMembers)} size="sm" />
+                <MemberAvatar memberId={memberId} {...memberAvatarImage(memberId, activeMembers)} displayName={name} avatarPreset={memberAvatarPreset(memberId, activeMembers)} size="sm" />
                 <span className="quick-split-row__name">{name}</span>
                 {splitMode === "WEIGHT"
                   ? <div className="quick-split-row__control"><QuickIntegerStepper name={name} unit="份数" value={splitValues[memberId] ?? "1"} onChange={updateSplitValue} /></div>
@@ -1006,7 +1006,7 @@ function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { a
   const memberDisplayName = (memberId: string) => memberName(memberId, memberData);
   const memberAvatar = (memberId: string) => memberAvatarPreset(memberId, memberData);
   const memberRows = (items: readonly { factId: string; memberId: string; originalAmountMinor: string }[], showAmount: boolean) => items.length
-    ? <div className="expense-detail-member-list">{items.map((item) => <div className="expense-detail-member-row" key={item.factId}><MemberAvatar memberId={item.memberId} displayName={memberDisplayName(item.memberId)} avatarPreset={memberAvatar(item.memberId)} size="sm" /><span>{memberDisplayName(item.memberId)}</span>{showAmount ? <Money value={formatMoney(aggregate.expense.originalCurrency, item.originalAmountMinor)} /> : null}</div>)}</div>
+    ? <div className="expense-detail-member-list">{items.map((item) => <div className="expense-detail-member-row" key={item.factId}><MemberAvatar memberId={item.memberId} {...memberAvatarImage(item.memberId, memberData)} displayName={memberDisplayName(item.memberId)} avatarPreset={memberAvatar(item.memberId)} size="sm" /><span>{memberDisplayName(item.memberId)}</span>{showAmount ? <Money value={formatMoney(aggregate.expense.originalCurrency, item.originalAmountMinor)} /> : null}</div>)}</div>
     : <span className="expense-detail-empty">无</span>;
   return <section className="standalone-detail-page" aria-label="账单详情">
     {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，账单使用最近一次同步的只读快照。</span></div> : null}

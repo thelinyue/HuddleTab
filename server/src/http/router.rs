@@ -166,6 +166,16 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             axum::routing::patch(auth::update_avatar).fallback(api_method_not_allowed),
         )
         .route(
+            "/me/avatar/image",
+            axum::routing::post(auth::upload_avatar_image)
+                .layer(DefaultBodyLimit::max(attachment::MAX_MULTIPART_BYTES))
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/users/{user_id}/avatar/{image_id}",
+            get(auth::download_avatar_image).fallback(api_method_not_allowed),
+        )
+        .route(
             "/me/profile",
             axum::routing::patch(auth::update_profile).fallback(api_method_not_allowed),
         )
@@ -263,6 +273,17 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .put(activity::update)
                 .delete(activity::delete)
                 .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/cover",
+            axum::routing::patch(activity::update_cover_preset)
+                .post(activity::upload_cover)
+                .layer(DefaultBodyLimit::max(attachment::MAX_MULTIPART_BYTES))
+                .fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/cover/{image_id}",
+            get(activity::download_cover).fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}/lifecycle",

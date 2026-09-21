@@ -112,6 +112,17 @@ async function updateAvatarPreset(avatarPreset: number): Promise<number> {
   return result.avatarPreset;
 }
 
+async function uploadAvatarImage(file: File): Promise<{ avatarPreset: number; avatarImageId: string | null }> {
+  const formData = new FormData();
+  formData.set("file", file, file.name);
+  const result = unwrap(await apiClient.POST("/api/me/avatar/image", {
+    headers: await mutationHeaders(),
+    body: { file: file.name },
+    bodySerializer: () => formData,
+  })).data;
+  return { avatarPreset: result.avatarPreset, avatarImageId: result.avatarImageId ?? null };
+}
+
 async function updateDisplayName(displayName: string): Promise<string> {
   const result = unwrap(await apiClient.PATCH("/api/me/profile", {
     body: { displayName },
@@ -189,7 +200,22 @@ export function useUpdateAvatarPresetMutation() {
     onSuccess: (avatarPreset) => {
       const current = queryClient.getQueryData<Session | null>(queryKeys.session);
       if (!current) return undefined;
-      const next = { ...current, avatarPreset };
+      const next = { ...current, avatarPreset, avatarImageId: null };
+      queryClient.setQueryData<Session | null>(queryKeys.session, next);
+      rememberOfflineSession(next);
+      return queryClient.invalidateQueries({ queryKey: ["users", current.userId] });
+    },
+  });
+}
+
+export function useUploadAvatarImageMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: uploadAvatarImage,
+    onSuccess: ({ avatarPreset, avatarImageId }) => {
+      const current = queryClient.getQueryData<Session | null>(queryKeys.session);
+      if (!current) return undefined;
+      const next = { ...current, avatarPreset, avatarImageId };
       queryClient.setQueryData<Session | null>(queryKeys.session, next);
       rememberOfflineSession(next);
       return queryClient.invalidateQueries({ queryKey: ["users", current.userId] });

@@ -21,6 +21,7 @@ pub struct CreateActivityInput {
     pub base_currency: String,
     pub start_date: String,
     pub end_date: Option<String>,
+    pub cover_preset: Option<i16>,
     pub actor_user_id: Uuid,
     pub actor_display_name: String,
 }
@@ -34,6 +35,7 @@ pub struct NewActivity {
     pub base_currency: String,
     pub start_date: Date,
     pub end_date: Option<Date>,
+    pub cover_preset: Option<i16>,
     pub actor_user_id: Uuid,
     pub actor_display_name: String,
     pub created_at: OffsetDateTime,
@@ -48,6 +50,7 @@ pub struct CreatedActivity {
     pub base_currency: String,
     pub start_date: Date,
     pub end_date: Option<Date>,
+    pub cover_preset: Option<i16>,
     pub invite_mode: String,
     pub version: i64,
     pub revision: i64,
@@ -72,6 +75,8 @@ pub struct ActivityView {
     pub purge_after: Option<OffsetDateTime>,
     pub has_accounting_records: bool,
     pub earliest_expense_date: Option<Date>,
+    pub cover_preset: Option<i16>,
+    pub cover_image_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +86,7 @@ pub struct ActivityMemberView {
     pub user_id: Option<Uuid>,
     pub display_name: String,
     pub avatar_preset: Option<i16>,
+    pub avatar_image_id: Option<Uuid>,
     pub role: String,
     pub status: String,
     pub version: i64,
@@ -115,6 +121,7 @@ pub struct ActivityAuditEntry {
     pub actor_member_id: Option<Uuid>,
     pub actor_display_name: String,
     pub actor_avatar_preset: Option<i16>,
+    pub actor_avatar_image_id: Option<Uuid>,
     pub revision: i64,
     pub changes: Vec<ActivityAuditChange>,
     pub expense: Option<ActivityAuditExpense>,
@@ -373,6 +380,11 @@ pub async fn create_activity(
         .map_err(|_| CreateActivityError::InvalidDetails)?;
     let period = ActivityPeriod::parse(&input.start_date, input.end_date.as_deref())
         .map_err(|_| CreateActivityError::InvalidDetails)?;
+    let cover_preset = match input.cover_preset {
+        Some(value) if (1..=12).contains(&value) => Some(value),
+        Some(_) => return Err(CreateActivityError::InvalidDetails),
+        None => None,
+    };
     repository
         .create(NewActivity {
             activity_id: Uuid::new_v4(),
@@ -382,6 +394,7 @@ pub async fn create_activity(
             base_currency: currency.code().to_owned(),
             start_date: period.start_date(),
             end_date: period.end_date(),
+            cover_preset,
             actor_user_id: input.actor_user_id,
             actor_display_name: input.actor_display_name,
             created_at: clock.now(),

@@ -42,6 +42,8 @@ const fieldLabels: Record<string, string> = {
   startDate: "开始日期",
   endDate: "结束日期",
   inviteMode: "加入方式",
+  coverPreset: "封面主题",
+  cover: "自定义封面",
   title: "账单名称",
   category: "分类",
   note: "备注",
@@ -221,8 +223,10 @@ function AuditEntry({ entry }: { entry: ActivityAuditEntry }) {
     <li className="activity-audit-entry">
       <MemberAvatar
         memberId={actorKey}
+        userId={entry.actorUserId}
         displayName={entry.actorDisplayName}
         avatarPreset={entry.actorAvatarPreset}
+        avatarImageId={entry.actorAvatarImageId}
         size="sm"
       />
       <div className="activity-audit-entry__body">

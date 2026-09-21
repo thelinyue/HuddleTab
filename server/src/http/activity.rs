@@ -1,11 +1,17 @@
 use super::formatting::format_time;
 use axum::{
     Extension, Json,
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    body::Body,
+    extract::{FromRequest as _, Multipart, Path, Query, Request, State},
+    http::{
+        HeaderMap, HeaderValue, StatusCode,
+        header::{CACHE_CONTROL, CONTENT_TYPE},
+    },
+    response::{IntoResponse as _, Response},
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Deserializer, Serialize};
+use time::OffsetDateTime;
 use utoipa::ToSchema;
 
 use crate::{
@@ -22,14 +28,17 @@ use crate::{
     },
     domain::activity::{ActivityCapabilities, ActivityStatus},
     infrastructure::{
-        activity_repository::PostgresActivityRepository, auth_repository::PostgresAuthRepository,
+        activity_repository::{ActivityCoverImage, PostgresActivityRepository},
+        attachment_image::{AttachmentImageError, process_fixed_image},
+        attachment_store::LocalAttachmentStore,
+        auth_repository::PostgresAuthRepository,
         clock::SystemClock,
     },
 };
 
 use super::{
     auth::validate_session_csrf,
-    collaboration::authenticate,
+    collaboration::{authenticate, authenticate_mutation},
     error::{ApiError, RequestId},
     rate_limit::RateLimitCategory,
     router::AppState,
@@ -43,6 +52,8 @@ pub struct CreateActivityRequest {
     pub base_currency: String,
     pub start_date: String,
     pub end_date: Option<String>,
+    /// 未传值的旧客户端默认使用第 12 张“日常通用”封面。
+    pub cover_preset: Option<i16>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -90,6 +101,25 @@ pub enum ActivityListView {
 #[derive(Deserialize)]
 pub struct ActivityListQuery {
     pub view: Option<ActivityListView>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCoverPresetRequest {
+    pub version: String,
+    pub cover_preset: i16,
+}
+
+#[derive(ToSchema)]
+#[schema(value_type = String, format = Binary)]
+pub struct CoverBinary(pub Vec<u8>);
+
+/// 自定义封面上传的 multipart 字段。版本号与文件一起提交，确保图片替换遵守乐观锁。
+#[derive(ToSchema)]
+pub struct UploadCoverRequest {
+    #[schema(value_type = String, format = Binary)]
+    pub file: Vec<u8>,
+    pub version: String,
 }
 
 #[derive(Deserialize)]
@@ -147,6 +177,7 @@ pub struct ActivityAuditData {
     pub actor_member_id: Option<String>,
     pub actor_display_name: String,
     pub actor_avatar_preset: Option<i16>,
+    pub actor_avatar_image_id: Option<String>,
     pub revision: String,
     pub changes: Vec<ActivityAuditChangeData>,
     pub expense: Option<ActivityAuditExpenseData>,
@@ -179,6 +210,8 @@ pub struct ActivityData {
     pub deleted_at: Option<String>,
     pub purge_after: Option<String>,
     pub has_accounting_records: bool,
+    pub cover_preset: Option<i16>,
+    pub cover_image_id: Option<String>,
     pub field_permissions: ActivityFieldPermissionsData,
     pub allowed_lifecycle_actions: Vec<String>,
     pub can_delete: bool,
@@ -196,6 +229,7 @@ pub struct ActivityFieldPermissionsData {
     pub start_date: bool,
     pub end_date: bool,
     pub invite_mode: bool,
+    pub cover: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -206,6 +240,7 @@ pub struct ActivityMemberData {
     pub user_id: Option<String>,
     pub display_name: String,
     pub avatar_preset: Option<i16>,
+    pub avatar_image_id: Option<String>,
     pub role: String,
     pub status: String,
     pub version: String,
@@ -248,6 +283,7 @@ pub(crate) async fn create(
             base_currency: request.base_currency,
             start_date: request.start_date,
             end_date: request.end_date,
+            cover_preset: request.cover_preset,
             actor_user_id: actor.user_id,
             actor_display_name: actor.display_name,
         },
@@ -280,6 +316,8 @@ pub(crate) async fn create(
                 deleted_at: None,
                 purge_after: None,
                 has_accounting_records: false,
+                cover_preset: activity.cover_preset,
+                cover_image_id: None,
                 field_permissions: ActivityFieldPermissionsData {
                     name: true,
                     location: true,
@@ -287,6 +325,7 @@ pub(crate) async fn create(
                     start_date: true,
                     end_date: true,
                     invite_mode: true,
+                    cover: true,
                 },
                 allowed_lifecycle_actions: vec!["END".to_owned()],
                 can_delete: true,
@@ -575,6 +614,268 @@ pub(crate) async fn transfer_ownership(
     }))
 }
 
+/// 保存内置封面；只有 Owner 在 ACTIVE 活动中才能修改，提交后清除旧自定义图片。
+#[utoipa::path(
+    patch,
+    path = "/api/activities/{activity_id}/cover",
+    operation_id = "updateActivityCoverPreset",
+    params(("activity_id" = String, Path, description = "活动 UUID")),
+    request_body = UpdateCoverPresetRequest,
+    responses((status = 200, description = "封面已更新", body = ActivityEnvelope))
+)]
+pub(crate) async fn update_cover_preset(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Json(request): Json<UpdateCoverPresetRequest>,
+) -> Result<Json<ActivityEnvelope>, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    let activity_id = parse_activity_id(&activity_id, request_id.clone())?;
+    let version = request
+        .version
+        .parse::<i64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| ApiError::invalid_activity(request_id.clone()))?;
+    if !(1..=12).contains(&request.cover_preset) {
+        return Err(ApiError::invalid_activity(request_id));
+    }
+    let repository = PostgresActivityRepository::new(state.pool.clone());
+    let (activity, old_storage_key) = repository
+        .set_cover_preset(
+            activity_id,
+            actor.user_id,
+            version,
+            request.cover_preset,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(|error| {
+            map_update_error(map_repository_update_error(error), request_id.clone())
+        })?;
+    remove_old_cover(&state, old_storage_key).await;
+    Ok(Json(ActivityEnvelope {
+        data: activity_data(activity),
+    }))
+}
+
+/// 处理并保存自定义封面。认证与 CSRF 完成后才读取 multipart，避免未授权请求触发解码。
+#[utoipa::path(
+    post,
+    path = "/api/activities/{activity_id}/cover",
+    operation_id = "uploadActivityCover",
+    params(("activity_id" = String, Path, description = "活动 UUID")),
+    request_body(content = UploadCoverRequest, content_type = "multipart/form-data"),
+    responses((status = 200, description = "封面已更新", body = ActivityEnvelope))
+)]
+pub(crate) async fn upload_cover(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(activity_id): Path<String>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    request: Request,
+) -> Result<Json<ActivityEnvelope>, ApiError> {
+    let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    let activity_id = parse_activity_id(&activity_id, request_id.clone())?;
+    let mut multipart = Multipart::from_request(request, &state)
+        .await
+        .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?;
+    let mut file = None;
+    let mut version = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?
+    {
+        match field.name() {
+            Some("file") if file.is_none() => {
+                let mime = field
+                    .content_type()
+                    .map(str::to_owned)
+                    .ok_or_else(|| ApiError::invalid_attachment(request_id.clone()))?;
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?
+                    .to_vec();
+                file = Some((mime, bytes));
+            }
+            Some("version") if version.is_none() => {
+                version = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| ApiError::invalid_attachment(request_id.clone()))?,
+                );
+            }
+            _ => return Err(ApiError::invalid_attachment(request_id)),
+        }
+    }
+    let (declared_mime, bytes) =
+        file.ok_or_else(|| ApiError::invalid_attachment(request_id.clone()))?;
+    let version = version
+        .as_deref()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| ApiError::invalid_activity(request_id.clone()))?;
+    let processed = process_fixed_image(&bytes, &declared_mime, 1200, 900)
+        .map_err(|error| map_cover_image_error(error, request_id.clone()))?;
+    let image_id = uuid::Uuid::new_v4();
+    let storage_key = format!("covers/{activity_id}/{image_id}.webp");
+    let store = LocalAttachmentStore::new(&state.uploads_dir)
+        .map_err(|_| ApiError::internal(request_id.clone()))?;
+    store
+        .write(&storage_key, &processed.bytes)
+        .await
+        .map_err(|_| ApiError::internal(request_id.clone()))?;
+    let repository = PostgresActivityRepository::new(state.pool.clone());
+    let result = repository
+        .replace_cover_image(
+            activity_id,
+            actor.user_id,
+            version,
+            ActivityCoverImage {
+                image_id,
+                storage_key: storage_key.clone(),
+                width: processed.width,
+                height: processed.height,
+                byte_size: i64::try_from(processed.bytes.len()).unwrap_or(i64::MAX),
+            },
+            OffsetDateTime::now_utc(),
+        )
+        .await;
+    let (activity, old_storage_key) = match result {
+        Ok(result) => result,
+        Err(error) => {
+            if store.remove(&storage_key).await.is_err() {
+                tracing::warn!(storage_key = %storage_key, "删除未提交的活动封面失败，将由孤立图片清理任务回收");
+            }
+            return Err(map_update_error(
+                map_repository_update_error(error),
+                request_id,
+            ));
+        }
+    };
+    remove_old_cover(&state, old_storage_key).await;
+    Ok(Json(ActivityEnvelope {
+        data: activity_data(activity),
+    }))
+}
+
+/// 按不可变 `image_id` 返回当前活动封面，授权通过后才读取私有存储。
+#[utoipa::path(
+    get,
+    path = "/api/activities/{activity_id}/cover/{image_id}",
+    operation_id = "downloadActivityCover",
+    params(("activity_id" = String, Path), ("image_id" = String, Path)),
+    responses(
+        (status = 200, description = "私有 WebP 封面", body = CoverBinary,
+            content_type = "image/webp",
+            headers(
+                ("Cache-Control" = String, description = "private immutable 缓存"),
+                ("Content-Type" = String, description = "image/webp"),
+                ("X-Content-Type-Options" = String, description = "nosniff")
+            )),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 404, description = "封面不存在或不可访问", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn download_cover(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path((activity_id, image_id)): Path<(String, String)>,
+    jar: CookieJar,
+) -> Result<Response, ApiError> {
+    let actor = authenticate(&state, &jar, request_id.clone()).await?;
+    let activity_id = parse_activity_id(&activity_id, request_id.clone())?;
+    let image_id =
+        uuid::Uuid::parse_str(&image_id).map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let repository = PostgresActivityRepository::new(state.pool.clone());
+    let image = repository
+        .cover_image_for_user(activity_id, actor.user_id, image_id)
+        .await
+        .map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let store = LocalAttachmentStore::new(&state.uploads_dir)
+        .map_err(|_| ApiError::internal(request_id.clone()))?;
+    let bytes = store
+        .read(&image.storage_key)
+        .await
+        .map_err(|_| ApiError::not_found(request_id.clone()))?;
+    let mut response = Body::from(bytes).into_response();
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("image/webp"));
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=31536000, immutable"),
+    );
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
+async fn remove_old_cover(state: &AppState, old_storage_key: Option<String>) {
+    let Some(storage_key) = old_storage_key else {
+        return;
+    };
+    match LocalAttachmentStore::new(&state.uploads_dir) {
+        Ok(store) if store.remove(&storage_key).await.is_ok() => {}
+        Ok(_) | Err(_) => {
+            tracing::warn!(storage_key = %storage_key, "删除旧活动封面失败，将由孤立图片清理任务回收");
+        }
+    }
+}
+
+fn map_cover_image_error(error: AttachmentImageError, request_id: RequestId) -> ApiError {
+    match error {
+        AttachmentImageError::TooLarge => ApiError::attachment_too_large(request_id),
+        AttachmentImageError::TypeNotAllowed => ApiError::attachment_type_not_allowed(request_id),
+        AttachmentImageError::MimeMismatch => ApiError::attachment_mime_mismatch(request_id),
+        AttachmentImageError::PixelLimitExceeded | AttachmentImageError::InvalidImage => {
+            ApiError::attachment_image_invalid(request_id)
+        }
+    }
+}
+
+fn map_repository_update_error(
+    error: crate::application::activity::ActivityRepositoryError,
+) -> UpdateActivityError {
+    match error {
+        crate::application::activity::ActivityRepositoryError::NotFound => {
+            UpdateActivityError::NotFound
+        }
+        crate::application::activity::ActivityRepositoryError::Forbidden => {
+            UpdateActivityError::Forbidden
+        }
+        crate::application::activity::ActivityRepositoryError::VersionConflict => {
+            UpdateActivityError::VersionConflict
+        }
+        crate::application::activity::ActivityRepositoryError::FieldLocked => {
+            UpdateActivityError::FieldLocked
+        }
+        crate::application::activity::ActivityRepositoryError::BaseCurrencyLocked => {
+            UpdateActivityError::BaseCurrencyLocked
+        }
+        crate::application::activity::ActivityRepositoryError::InvalidTransition => {
+            UpdateActivityError::InvalidTransition
+        }
+        crate::application::activity::ActivityRepositoryError::RestoreExpired => {
+            UpdateActivityError::RestoreExpired
+        }
+        crate::application::activity::ActivityRepositoryError::InvalidAuditCursor => {
+            UpdateActivityError::InvalidInput
+        }
+        crate::application::activity::ActivityRepositoryError::Unavailable => {
+            UpdateActivityError::Unavailable
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/activities/{activity_id}/audit-logs",
@@ -673,6 +974,8 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
         deleted_at: activity.deleted_at.map(format_time),
         purge_after: activity.purge_after.map(format_time),
         has_accounting_records: activity.has_accounting_records,
+        cover_preset: activity.cover_preset,
+        cover_image_id: activity.cover_image_id.map(|value| value.to_string()),
         field_permissions: ActivityFieldPermissionsData {
             name: capabilities.fields.name,
             location: capabilities.fields.location,
@@ -680,6 +983,7 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
             start_date: capabilities.fields.start_date,
             end_date: capabilities.fields.end_date,
             invite_mode: capabilities.fields.invite_mode,
+            cover: capabilities.fields.cover,
         },
         allowed_lifecycle_actions: capabilities
             .lifecycle_actions
@@ -698,6 +1002,7 @@ pub(crate) fn member_data(member: ActivityMemberView) -> ActivityMemberData {
         user_id: member.user_id.map(|value| value.to_string()),
         display_name: member.display_name,
         avatar_preset: member.avatar_preset,
+        avatar_image_id: member.avatar_image_id.map(|value| value.to_string()),
         role: member.role,
         status: member.status,
         version: member.version.to_string(),
@@ -713,6 +1018,7 @@ fn activity_audit_data(entry: ActivityAuditEntry) -> ActivityAuditData {
         actor_member_id: entry.actor_member_id.map(|value| value.to_string()),
         actor_display_name: entry.actor_display_name,
         actor_avatar_preset: entry.actor_avatar_preset,
+        actor_avatar_image_id: entry.actor_avatar_image_id.map(|value| value.to_string()),
         revision: entry.revision.to_string(),
         changes: entry
             .changes
@@ -822,6 +1128,8 @@ mod tests {
                 purge_after: timestamp,
                 has_accounting_records: false,
                 earliest_expense_date: None,
+                cover_preset: None,
+                cover_image_id: None,
             };
             let json = serde_json::to_value(activity_data(activity)).unwrap();
             assert_eq!(json["deletedAt"], serde_json::json!(expected));

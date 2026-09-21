@@ -12,11 +12,12 @@ import {
   Sun,
   SunMoon,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button, ErrorNotice, Field, Input } from "../../components/ui";
 import {
   AVATAR_PRESETS,
+  AVATAR_PRESET_LABELS,
   DEFAULT_AVATAR_PRESET,
   MemberAvatar,
   type AvatarPreset,
@@ -29,6 +30,7 @@ import {
   useUpdateAvatarPresetMutation,
   useUpdateDisplayNameMutation,
 } from "../auth/api";
+import * as authApi from "../auth/api";
 import { useThemePreference, type ThemePreference } from "../../components/theme-provider";
 import { PushSettingsControl } from "../push/components";
 
@@ -37,26 +39,43 @@ export function MePage() {
   const session = useSessionQuery();
   const logout = useLogoutMutation();
   const avatar = useUpdateAvatarPresetMutation();
+  // 旧版嵌入式客户端可能尚未暴露图片 mutation；缺失时仍可使用内置头像选择。
+  const avatarImage = typeof authApi.useUploadAvatarImageMutation === "function"
+    ? authApi.useUploadAvatarImageMutation()
+    : { error: null, isPending: false, mutateAsync: async (_file: File) => undefined, reset: () => undefined };
   const displayNameMutation = useUpdateDisplayNameMutation();
   const navigate = useNavigate();
   const { preference, setPreference } = useThemePreference();
   const currentAvatar = AVATAR_PRESETS.find((preset) => preset === session.data?.avatarPreset) ?? DEFAULT_AVATAR_PRESET;
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<AvatarPreset>(currentAvatar);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [nicknameOpen, setNicknameOpen] = useState(false);
   const [nickname, setNickname] = useState("");
   const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [themeOpen, setThemeOpen] = useState(false);
+  const previewAvatarImageId = !avatarFile && selectedAvatar === currentAvatar
+    ? session.data?.avatarImageId
+    : null;
+
+  useEffect(() => () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+  }, [avatarPreview]);
 
   function openAvatarPicker() {
     avatar.reset();
+    avatarImage.reset();
     setSelectedAvatar(currentAvatar);
+    setAvatarFile(null);
+    setAvatarPreview(null);
     setAvatarOpen(true);
   }
 
   async function saveAvatar() {
     try {
-      await avatar.mutateAsync(selectedAvatar);
+      if (avatarFile) await avatarImage.mutateAsync(avatarFile);
+      else await avatar.mutateAsync(selectedAvatar);
       setAvatarOpen(false);
     } catch {
       // mutation.error 由 Overlay 内的 ErrorNotice 就地展示，保留当前选择。
@@ -113,7 +132,7 @@ export function MePage() {
         <header className="home-header"><h1>我的</h1></header>
         <section className="profile-panel">
           <button className="profile-avatar-button" type="button" aria-label="选择头像" onClick={openAvatarPicker}>
-            <MemberAvatar memberId={session.data?.userId ?? "current-user"} displayName={session.data?.displayName ?? "当前用户"} avatarPreset={currentAvatar} size="lg" decorative />
+            <MemberAvatar memberId={session.data?.userId ?? "current-user"} userId={session.data?.userId} displayName={session.data?.displayName ?? "当前用户"} avatarPreset={currentAvatar} avatarImageId={session.data?.avatarImageId} size="lg" decorative />
           </button>
           <button className="profile-identity-button" type="button" aria-label="修改昵称" onClick={openNicknameEditor}>
             <strong>{session.data?.displayName}</strong><small>{session.data?.username}</small><Pencil aria-hidden="true" size={16} />
@@ -175,24 +194,31 @@ export function MePage() {
       <ProductBottomNavigation />
       <Overlay open={avatarOpen} title="选择头像" onClose={() => setAvatarOpen(false)} focusKey={String(selectedAvatar)}>
         <div className="avatar-picker">
-          <div className="avatar-picker__grid" role="group" aria-label="默认头像">
-            {AVATAR_PRESETS.map((preset) => (
+          <div className="avatar-picker__preview">{avatarPreview ? <img src={avatarPreview} alt="自定义头像预览" /> : <MemberAvatar memberId={session.data?.userId ?? "current-user"} userId={session.data?.userId} displayName={session.data?.displayName ?? "当前用户"} avatarPreset={selectedAvatar} avatarImageId={previewAvatarImageId} size="lg" decorative />}</div>
+          <label className="avatar-picker__upload"><span>上传自定义头像</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0] ?? null; setAvatarFile(file); setAvatarPreview(file ? URL.createObjectURL(file) : null); }} /></label>
+          <div className="avatar-picker__group" role="group" aria-label="人物头像"><small>人物</small><div className="avatar-picker__grid">
+            {AVATAR_PRESETS.slice(0, 6).map((preset) => (
               <button
                 key={preset}
                 type="button"
                 className="avatar-picker__option"
-                aria-label={`头像 ${preset}`}
+                aria-label={AVATAR_PRESET_LABELS[preset]}
                 aria-pressed={selectedAvatar === preset}
                 data-overlay-initial-focus={selectedAvatar === preset ? "" : undefined}
-                onClick={() => setSelectedAvatar(preset)}
+                onClick={() => { setSelectedAvatar(preset); setAvatarFile(null); setAvatarPreview(null); }}
               >
-                <MemberAvatar memberId={`avatar-${preset}`} displayName={`头像 ${preset}`} avatarPreset={preset} size="lg" decorative />
+                <MemberAvatar memberId={`avatar-${preset}`} displayName={AVATAR_PRESET_LABELS[preset]} avatarPreset={preset} size="lg" decorative />
                 <Check aria-hidden="true" size={18} />
               </button>
             ))}
-          </div>
-          {avatar.error ? <ErrorNotice error={avatar.error} /> : null}
-          <Button className="avatar-picker__save" busy={avatar.isPending} onClick={() => void saveAvatar()}>保存头像</Button>
+          </div></div>
+          <div className="avatar-picker__group" role="group" aria-label="动物头像"><small>动物</small><div className="avatar-picker__grid">
+            {AVATAR_PRESETS.slice(6).map((preset) => (
+              <button key={preset} type="button" className="avatar-picker__option" aria-label={AVATAR_PRESET_LABELS[preset]} aria-pressed={selectedAvatar === preset} onClick={() => { setSelectedAvatar(preset); setAvatarFile(null); setAvatarPreview(null); }}><MemberAvatar memberId={`avatar-${preset}`} displayName={AVATAR_PRESET_LABELS[preset]} avatarPreset={preset} size="lg" decorative /><Check aria-hidden="true" size={18} /></button>
+            ))}
+          </div></div>
+          {avatar.error || avatarImage.error ? <ErrorNotice error={avatar.error ?? avatarImage.error} /> : null}
+          <Button className="avatar-picker__save" busy={avatar.isPending || avatarImage.isPending} onClick={() => void saveAvatar()}>保存头像</Button>
         </div>
       </Overlay>
       <Overlay open={nicknameOpen} title="修改昵称" onClose={() => setNicknameOpen(false)} focusKey={nicknameOpen ? "nickname" : "closed"}>

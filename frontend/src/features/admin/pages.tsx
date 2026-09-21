@@ -94,7 +94,7 @@ export function AdminUsersPage() {
         {users.data.map((user) => (
           <li className="admin-user-row" key={user.id}>
             <div className="admin-user-row__identity">
-              <MemberAvatar memberId={user.id} displayName={user.displayName} avatarPreset={user.avatarPreset} />
+              <MemberAvatar memberId={user.id} userId={user.id} displayName={user.displayName} avatarPreset={user.avatarPreset} avatarImageId={user.avatarImageId} />
               <span><strong>{user.displayName}</strong><small>@{user.username} · {user.disabled ? "已禁用" : "正常"}{user.isSystemAdmin ? " · 系统管理员" : ""}</small></span>
             </div>
             <div className="admin-user-row__actions">

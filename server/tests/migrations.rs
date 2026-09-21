@@ -55,7 +55,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .await
         .expect("应可读取 SQLx migration 记录");
 
-    assert_eq!(applied_count, 7);
+    assert_eq!(applied_count, 8);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -109,7 +109,7 @@ async fn phase2_schema_upgrades_to_ai_image_migration() {
         .fetch_one(&upgraded)
         .await
         .expect("应读取升级后的 migration 记录");
-    assert_eq!(migration_count, 7);
+    assert_eq!(migration_count, 8);
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
@@ -200,6 +200,27 @@ fn mcp_migration_declares_hashed_scoped_tokens() {
         !migration.contains("token TEXT"),
         "MCP migration 不得存储令牌原文"
     );
+}
+
+#[test]
+fn activity_profile_image_migration_declares_preset_ranges_and_private_metadata() {
+    let migration = include_str!("../migrations/202609210003_activity_profile_images.sql");
+    for fragment in [
+        "cover_preset SMALLINT",
+        "BETWEEN 1 AND 12",
+        "ALTER COLUMN cover_preset SET DEFAULT 12",
+        "CHECK (avatar_preset BETWEEN 1 AND 11)",
+        "CREATE TABLE activity_cover_images",
+        "CREATE TABLE user_avatar_images",
+        "storage_key TEXT NOT NULL UNIQUE",
+        "width INTEGER NOT NULL CHECK (width = 1200)",
+        "width INTEGER NOT NULL CHECK (width = 512)",
+    ] {
+        assert!(
+            migration.contains(fragment),
+            "图片 migration 缺少 {fragment}"
+        );
+    }
 }
 
 #[tokio::test]

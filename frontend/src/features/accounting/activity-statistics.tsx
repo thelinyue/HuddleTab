@@ -217,7 +217,7 @@ export function ActivityStatisticsPage() {
       <div className="activity-statistics-member-list">
         <div className="activity-statistics-member-head"><span>成员</span><span>总消费</span><span>总支出</span></div>
         {statistics.members.map((item) => <div className="activity-statistics-member-row" key={item.member.memberId}>
-          <div><MemberAvatar memberId={item.member.memberId} displayName={item.member.displayName} avatarPreset={item.member.avatarPreset} size="sm" /><span><strong>{item.member.displayName}</strong>{item.member.status === "LEFT" ? <small>已移除</small> : null}</span></div>
+          <div><MemberAvatar memberId={item.member.memberId} userId={item.member.userId} displayName={item.member.displayName} avatarPreset={item.member.avatarPreset} avatarImageId={item.member.avatarImageId} size="sm" /><span><strong>{item.member.displayName}</strong>{item.member.status === "LEFT" ? <small>已移除</small> : null}</span></div>
           <span><small>总消费</small><Money value={formatMoney(currency, item.consumptionMinor.toString())} /></span>
           <span><small>总支出</small><Money value={formatMoney(currency, item.billPaymentMinor.toString())} /></span>
         </div>)}

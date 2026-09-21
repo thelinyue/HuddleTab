@@ -41,6 +41,10 @@ pub async fn cleanup_orphan_attachments(
         let referenced = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(
                 SELECT 1 FROM expense_attachments WHERE storage_key = $1
+                UNION ALL
+                SELECT 1 FROM activity_cover_images WHERE storage_key = $1
+                UNION ALL
+                SELECT 1 FROM user_avatar_images WHERE storage_key = $1
              )",
         )
         .bind(&file.storage_key)

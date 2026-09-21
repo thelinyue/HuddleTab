@@ -14,6 +14,7 @@ export type UpdateActivityInput = components["schemas"]["UpdateActivityRequest"]
 export type ActivityUpdateEnvelope = components["schemas"]["ActivityUpdateEnvelope"];
 export type ActivityLifecycleInput = components["schemas"]["ActivityLifecycleRequest"];
 export type TransferOwnershipInput = components["schemas"]["TransferOwnershipRequest"];
+export type UpdateCoverPresetInput = components["schemas"]["UpdateCoverPresetRequest"];
 export type Invitation = components["schemas"]["InvitationData"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationData"];
 export type GuestRemoval = components["schemas"]["GuestRemovalData"];
@@ -274,6 +275,30 @@ export function useActivityQuery(userId: string, activityId: string, enabled = t
   });
 }
 
+async function updateCoverPreset(activityId: string, input: UpdateCoverPresetInput): Promise<Activity> {
+  return unwrap(
+    await apiClient.PATCH("/api/activities/{activity_id}/cover", {
+      params: { path: { activity_id: activityId } },
+      body: input,
+      headers: await mutationHeaders(),
+    }),
+  ).data;
+}
+
+export async function uploadActivityCover(activityId: string, version: string, file: File): Promise<Activity> {
+  const formData = new FormData();
+  formData.set("file", file, file.name);
+  formData.set("version", version);
+  return unwrap(
+    await apiClient.POST("/api/activities/{activity_id}/cover", {
+      params: { path: { activity_id: activityId } },
+      body: { file: file.name, version },
+      headers: await mutationHeaders(),
+      bodySerializer: () => formData,
+    }),
+  ).data;
+}
+
 export function useActivityAuditQuery(userId: string, activityId: string, enabled = true) {
   return useInfiniteQuery({
     queryKey: queryKeys.activityAudit(userId, activityId),
@@ -295,20 +320,46 @@ export function useCreateActivityMutation(userId: string) {
   });
 }
 
+export function useUpdateActivityCoverMutation(userId: string, activityId: string) {
+  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  return useMutation({
+    mutationFn: (input: UpdateCoverPresetInput) => updateCoverPreset(activityId, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUploadActivityCoverMutation(userId: string, activityId: string) {
+  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  return useMutation({
+    mutationFn: ({ version, file }: { version: string; file: File }) => uploadActivityCover(activityId, version, file),
+    onSuccess: invalidate,
+  });
+}
+
+/** 创建活动后上传封面使用同一组缓存失效规则，避免列表停留在默认主题。 */
+export function useInvalidateActivityCoverQueries(userId: string) {
+  const queryClient = useQueryClient();
+  return (activityId: string) => invalidateActivityManagementQueries(queryClient, userId, activityId);
+}
+
 /** 删除域操作同时改变已删除列表和通知深链状态；普通资料和状态更新不触发这两类查询。 */
 function useActivityManagementInvalidation(userId: string, activityId: string, includeDeleted: boolean) {
   const queryClient = useQueryClient();
-  return () => Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
-      ...(includeDeleted
-        ? [
-            queryClient.invalidateQueries({ queryKey: queryKeys.activitiesDeleted(userId) }),
-            queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
-          ]
-        : []),
-    ]);
+  return () => invalidateActivityManagementQueries(queryClient, userId, activityId, includeDeleted);
+}
+
+function invalidateActivityManagementQueries(queryClient: ReturnType<typeof useQueryClient>, userId: string, activityId: string, includeDeleted = false) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+    ...(includeDeleted
+      ? [
+          queryClient.invalidateQueries({ queryKey: queryKeys.activitiesDeleted(userId) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
+        ]
+      : []),
+  ]);
 }
 
 export function useUpdateActivityMutation(userId: string, activityId: string) {

@@ -100,6 +100,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 处理并保存自定义封面。认证与 CSRF 完成后才读取 multipart，避免未授权请求触发解码。 */
+        post: operations["uploadActivityCover"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 保存内置封面；只有 Owner 在 ACTIVE 活动中才能修改，提交后清除旧自定义图片。 */
+        patch: operations["updateActivityCoverPreset"];
+        trace?: never;
+    };
+    "/api/activities/{activity_id}/cover/{image_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 按不可变 `image_id` 返回当前活动封面，授权通过后才读取私有存储。 */
+        get: operations["downloadActivityCover"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/exchange-rate": {
         parameters: {
             query?: never;
@@ -758,6 +793,23 @@ export interface paths {
         patch: operations["update_avatar"];
         trace?: never;
     };
+    "/api/me/avatar/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 上传并固定裁剪为 512×512 的自定义头像；认证与 CSRF 先于 multipart 解析。 */
+        post: operations["uploadMyAvatarImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/mcp-tokens": {
         parameters: {
             query?: never;
@@ -936,6 +988,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{user_id}/avatar/{image_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 仅向已登录用户返回指定用户当前仍持有的头像图片。 */
+        get: operations["downloadUserAvatarImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -947,6 +1016,7 @@ export interface components {
         };
         ActivityAuditData: {
             action: string;
+            actorAvatarImageId?: string | null;
             /** Format: int32 */
             actorAvatarPreset?: number | null;
             actorDisplayName: string;
@@ -977,6 +1047,9 @@ export interface components {
             baseCurrency: string;
             canDelete: boolean;
             canRestore: boolean;
+            coverImageId?: string | null;
+            /** Format: int32 */
+            coverPreset?: number | null;
             currentMemberId: string;
             currentMemberRole: string;
             deletedAt?: string | null;
@@ -999,6 +1072,7 @@ export interface components {
         /** @description HTTP 合同逐字段镜像领域权限，客户端只消费服务端结论，不自行重建权限规则。 */
         ActivityFieldPermissionsData: {
             baseCurrency: boolean;
+            cover: boolean;
             endDate: boolean;
             inviteMode: boolean;
             location: boolean;
@@ -1014,6 +1088,7 @@ export interface components {
         };
         ActivityMemberData: {
             activityId: string;
+            avatarImageId?: string | null;
             /** Format: int32 */
             avatarPreset?: number | null;
             displayName: string;
@@ -1081,6 +1156,7 @@ export interface components {
             newPassword: string;
         };
         AdminUserData: {
+            avatarImageId?: string | null;
             /** Format: int32 */
             avatarPreset: number;
             disabled: boolean;
@@ -1215,7 +1291,10 @@ export interface components {
         AttachmentEnvelope: {
             data: components["schemas"]["ExpenseAttachmentData"];
         };
+        /** Format: binary */
+        AvatarBinary: string;
         AvatarPresetData: {
+            avatarImageId?: string | null;
             /** Format: int32 */
             avatarPreset: number;
         };
@@ -1250,8 +1329,15 @@ export interface components {
         ClearNotificationsRequest: {
             filter: components["schemas"]["NotificationFilterData"];
         };
+        /** Format: binary */
+        CoverBinary: string;
         CreateActivityRequest: {
             baseCurrency: string;
+            /**
+             * Format: int32
+             * @description 未传值的旧客户端默认使用第 12 张“日常通用”封面。
+             */
+            coverPreset?: number | null;
             endDate?: string | null;
             location?: string | null;
             name: string;
@@ -1563,6 +1649,7 @@ export interface components {
             data: components["schemas"]["LedgerData"];
         };
         LoginData: {
+            avatarImageId?: string | null;
             /** Format: int32 */
             avatarPreset: number;
             displayName: string;
@@ -1682,6 +1769,7 @@ export interface components {
             receiverMemberId: string;
         };
         RegisterData: {
+            avatarImageId?: string | null;
             /** Format: int32 */
             avatarPreset: number;
             displayName: string;
@@ -1717,6 +1805,7 @@ export interface components {
          */
         RegistrationPolicyValue: "INVITE_ONLY" | "OPEN";
         SessionData: {
+            avatarImageId?: string | null;
             /** Format: int32 */
             avatarPreset: number;
             displayName: string;
@@ -1821,6 +1910,11 @@ export interface components {
             /** Format: int32 */
             avatarPreset: number;
         };
+        UpdateCoverPresetRequest: {
+            /** Format: int32 */
+            coverPreset: number;
+            version: string;
+        };
         UpdateDisplayNameRequest: {
             displayName: string;
         };
@@ -1838,6 +1932,17 @@ export interface components {
             clientAttachmentId: string;
             /** Format: binary */
             file: string;
+        };
+        /** @description 自定义头像上传的 multipart 文件字段。 */
+        UploadAvatarImageRequest: {
+            /** Format: binary */
+            file: string;
+        };
+        /** @description 自定义封面上传的 multipart 字段。版本号与文件一起提交，确保图片替换遵守乐观锁。 */
+        UploadCoverRequest: {
+            /** Format: binary */
+            file: string;
+            version: string;
         };
         UserRoleRequest: {
             granted: boolean;
@@ -2328,6 +2433,107 @@ export interface operations {
                 };
             };
             /** @description 活动不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    uploadActivityCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UploadCoverRequest"];
+            };
+        };
+        responses: {
+            /** @description 封面已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEnvelope"];
+                };
+            };
+        };
+    };
+    updateActivityCoverPreset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCoverPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description 封面已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEnvelope"];
+                };
+            };
+        };
+    };
+    downloadActivityCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                activity_id: string;
+                image_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 私有 WebP 封面 */
+            200: {
+                headers: {
+                    /** @description private immutable 缓存 */
+                    "Cache-Control"?: string;
+                    /** @description image/webp */
+                    "Content-Type"?: string;
+                    /** @description nosniff */
+                    "X-Content-Type-Options"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/webp": components["schemas"]["CoverBinary"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 封面不存在或不可访问 */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4892,6 +5098,30 @@ export interface operations {
             };
         };
     };
+    uploadMyAvatarImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UploadAvatarImageRequest"];
+            };
+        };
+        responses: {
+            /** @description 头像已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvatarPresetEnvelope"];
+                };
+            };
+        };
+    };
     list_tokens: {
         parameters: {
             query?: never;
@@ -5642,6 +5872,53 @@ export interface operations {
                 };
             };
             /** @description 通知不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    downloadUserAvatarImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+                image_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 私有 WebP 头像 */
+            200: {
+                headers: {
+                    /** @description private immutable 缓存 */
+                    "Cache-Control"?: string;
+                    /** @description image/webp */
+                    "Content-Type"?: string;
+                    /** @description nosniff */
+                    "X-Content-Type-Options"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/webp": components["schemas"]["AvatarBinary"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 头像不存在或不可访问 */
             404: {
                 headers: {
                     [name: string]: unknown;

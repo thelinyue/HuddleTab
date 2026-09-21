@@ -127,15 +127,17 @@ impl LocalAttachmentStore {
         {
             return Err(AttachmentStoreError::InvalidKey);
         }
-        let activity = components[0].as_os_str().to_string_lossy();
-        let expense = components[1].as_os_str().to_string_lossy();
+        let first = components[0].as_os_str().to_string_lossy();
+        let second = components[1].as_os_str().to_string_lossy();
         let file = Path::new(components[2].as_os_str());
         let attachment = file
             .file_stem()
             .and_then(|value| value.to_str())
             .ok_or(AttachmentStoreError::InvalidKey)?;
-        if Uuid::parse_str(&activity).is_err()
-            || Uuid::parse_str(&expense).is_err()
+        let valid_owner_namespace =
+            matches!(first.as_ref(), "covers" | "avatars") || Uuid::parse_str(&first).is_ok();
+        if !valid_owner_namespace
+            || Uuid::parse_str(&second).is_err()
             || Uuid::parse_str(attachment).is_err()
             || file.extension().and_then(|value| value.to_str()) != Some("webp")
         {

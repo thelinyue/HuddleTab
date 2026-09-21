@@ -23,6 +23,8 @@ struct ActivityRow {
     base_currency: String,
     start_date: Date,
     end_date: Option<Date>,
+    cover_preset: Option<i16>,
+    cover_image_id: Option<Uuid>,
     status: String,
     version: i64,
     revision: i64,
@@ -45,6 +47,7 @@ struct ActivityAuditRow {
     actor_member_id: Option<Uuid>,
     actor_display_name: String,
     actor_avatar_preset: Option<i16>,
+    actor_avatar_image_id: Option<Uuid>,
     activity_revision: i64,
     details: Value,
     created_at: OffsetDateTime,
@@ -60,11 +63,232 @@ pub struct PostgresActivityRepository {
     pool: PgPool,
 }
 
+/// 活动封面元数据；数据库只保存私有存储键，HTTP 层永远通过 `image_id` 授权读取。
+#[derive(Clone, Debug)]
+pub struct ActivityCoverImage {
+    pub image_id: Uuid,
+    pub storage_key: String,
+    pub width: i32,
+    pub height: i32,
+    pub byte_size: i64,
+}
+
 impl PostgresActivityRepository {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    /// 保存默认封面，并清除当前自定义图片。版本、Owner 和 ACTIVE 状态在行锁内校验。
+    ///
+    /// # Errors
+    ///
+    /// 当数据库不可用、活动不存在、版本冲突或操作者无权修改封面时返回错误。
+    pub async fn set_cover_preset(
+        &self,
+        activity_id: Uuid,
+        actor_user_id: Uuid,
+        expected_version: i64,
+        preset: i16,
+        now: OffsetDateTime,
+    ) -> Result<(ActivityView, Option<String>), ActivityRepositoryError> {
+        if !(1..=12).contains(&preset) {
+            return Err(ActivityRepositoryError::FieldLocked);
+        }
+        let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        let mut current = lock_activity(&mut transaction, activity_id, actor_user_id).await?;
+        authorize_cover_change(&current, expected_version)?;
+        let old_storage_key = sqlx::query_scalar::<_, String>(
+            "DELETE FROM activity_cover_images WHERE activity_id = $1 RETURNING storage_key",
+        )
+        .bind(activity_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        let revision = sqlx::query_scalar::<_, i64>(
+            "UPDATE activities SET cover_preset = $1, version = version + 1, revision = revision + 1, updated_at = $2 WHERE id = $3 RETURNING revision",
+        )
+        .bind(preset)
+        .bind(now)
+        .bind(activity_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        let details = serde_json::json!({
+            "coverPreset": {"before": current.cover_preset, "after": preset}
+        });
+        insert_activity_audit_details(
+            &mut transaction,
+            &current,
+            actor_user_id,
+            revision,
+            details,
+            now,
+        )
+        .await?;
+        current.cover_preset = Some(preset);
+        current.cover_image_id = None;
+        current.version += 1;
+        current.revision = revision;
+        transaction.commit().await.map_err(log_repository_error)?;
+        Ok((current, old_storage_key))
+    }
+
+    /// 原子替换自定义封面元数据；调用方应在提交后删除返回的旧存储键。
+    ///
+    /// # Errors
+    ///
+    /// 当数据库不可用、活动不存在、版本冲突或操作者无权修改封面时返回错误。
+    pub async fn replace_cover_image(
+        &self,
+        activity_id: Uuid,
+        actor_user_id: Uuid,
+        expected_version: i64,
+        image: ActivityCoverImage,
+        now: OffsetDateTime,
+    ) -> Result<(ActivityView, Option<String>), ActivityRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        let mut current = lock_activity(&mut transaction, activity_id, actor_user_id).await?;
+        authorize_cover_change(&current, expected_version)?;
+        let old_storage_key = sqlx::query_scalar::<_, String>(
+            "SELECT storage_key FROM activity_cover_images WHERE activity_id = $1",
+        )
+        .bind(activity_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        sqlx::query(
+            "INSERT INTO activity_cover_images (activity_id, image_id, storage_key, width, height, byte_size, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+             ON CONFLICT (activity_id) DO UPDATE SET image_id = EXCLUDED.image_id, storage_key = EXCLUDED.storage_key,
+                 width = EXCLUDED.width, height = EXCLUDED.height, byte_size = EXCLUDED.byte_size, updated_at = EXCLUDED.updated_at",
+        )
+        .bind(activity_id)
+        .bind(image.image_id)
+        .bind(&image.storage_key)
+        .bind(image.width)
+        .bind(image.height)
+        .bind(image.byte_size)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        let revision = sqlx::query_scalar::<_, i64>(
+            "UPDATE activities SET version = version + 1, revision = revision + 1, updated_at = $1 WHERE id = $2 RETURNING revision",
+        )
+        .bind(now)
+        .bind(activity_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        let details = serde_json::json!({"cover": {"before": current.cover_image_id.map(|value| value.to_string()), "after": image.image_id.to_string()}});
+        insert_activity_audit_details(
+            &mut transaction,
+            &current,
+            actor_user_id,
+            revision,
+            details,
+            now,
+        )
+        .await?;
+        current.cover_image_id = Some(image.image_id);
+        current.version += 1;
+        current.revision = revision;
+        transaction.commit().await.map_err(log_repository_error)?;
+        Ok((current, old_storage_key))
+    }
+
+    /// 只有活动成员能读取当前封面，且 `image_id` 必须仍是当前元数据。
+    ///
+    /// # Errors
+    ///
+    /// 当数据库不可用或封面不存在、已被替换、活动已删除时返回错误。
+    pub async fn cover_image_for_user(
+        &self,
+        activity_id: Uuid,
+        user_id: Uuid,
+        image_id: Uuid,
+    ) -> Result<ActivityCoverImage, ActivityRepositoryError> {
+        sqlx::query_as::<_, ActivityCoverImageRow>(
+            "SELECT cover.image_id, cover.storage_key, cover.width, cover.height, cover.byte_size
+             FROM activity_cover_images cover
+             JOIN activities activity ON activity.id = cover.activity_id
+             JOIN activity_members member ON member.activity_id = activity.id
+             WHERE cover.activity_id = $1 AND cover.image_id = $2 AND member.user_id = $3
+               AND member.status = 'ACTIVE' AND activity.deleted_at IS NULL",
+        )
+        .bind(activity_id)
+        .bind(image_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(log_read_error)?
+        .map(ActivityCoverImage::from)
+        .ok_or(ActivityRepositoryError::NotFound)
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct ActivityCoverImageRow {
+    image_id: Uuid,
+    storage_key: String,
+    width: i32,
+    height: i32,
+    byte_size: i64,
+}
+
+impl From<ActivityCoverImageRow> for ActivityCoverImage {
+    fn from(row: ActivityCoverImageRow) -> Self {
+        Self {
+            image_id: row.image_id,
+            storage_key: row.storage_key,
+            width: row.width,
+            height: row.height,
+            byte_size: row.byte_size,
+        }
+    }
+}
+
+fn authorize_cover_change(
+    activity: &ActivityView,
+    expected_version: i64,
+) -> Result<(), ActivityRepositoryError> {
+    if activity.current_member_role != "OWNER" {
+        return Err(ActivityRepositoryError::Forbidden);
+    }
+    if activity.version != expected_version {
+        return Err(ActivityRepositoryError::VersionConflict);
+    }
+    if activity.status != "ACTIVE" || activity.deleted_at.is_some() {
+        return Err(ActivityRepositoryError::FieldLocked);
+    }
+    Ok(())
+}
+
+async fn insert_activity_audit_details(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    current: &ActivityView,
+    actor_user_id: Uuid,
+    revision: i64,
+    details: Value,
+    now: OffsetDateTime,
+) -> Result<(), ActivityRepositoryError> {
+    sqlx::query(
+        "INSERT INTO activity_audit_logs (id, activity_id, actor_user_id, actor_member_id,
+         action, resource_type, resource_id, activity_revision, details, created_at)
+         VALUES ($1, $2, $3, $4, 'ACTIVITY_UPDATED', 'ACTIVITY', $2, $5, $6, $7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(current.activity_id)
+    .bind(actor_user_id)
+    .bind(current.current_member_id)
+    .bind(revision)
+    .bind(details)
+    .bind(now)
+    .execute(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    Ok(())
 }
 
 // ActivityRepository 的事务实现集中在同一 trait impl，便于审计所有 mutation 的锁与副作用顺序。
@@ -77,9 +301,9 @@ impl ActivityRepository for PostgresActivityRepository {
     ) -> Result<CreatedActivity, ActivityRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
         sqlx::query(
-            "INSERT INTO activities (id, name, location, base_currency, start_date, end_date, \
+            "INSERT INTO activities (id, name, location, base_currency, start_date, end_date, cover_preset, \
              owner_member_id, created_by_user_id, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)",
         )
         .bind(activity.activity_id)
         .bind(&activity.name)
@@ -87,6 +311,7 @@ impl ActivityRepository for PostgresActivityRepository {
         .bind(&activity.base_currency)
         .bind(activity.start_date)
         .bind(activity.end_date)
+        .bind(activity.cover_preset.or(Some(12)))
         .bind(activity.owner_member_id)
         .bind(activity.actor_user_id)
         .bind(activity.created_at)
@@ -128,6 +353,7 @@ impl ActivityRepository for PostgresActivityRepository {
             base_currency: activity.base_currency,
             start_date: activity.start_date,
             end_date: activity.end_date,
+            cover_preset: activity.cover_preset.or(Some(12)),
             invite_mode: "DIRECT_JOIN".to_owned(),
             version: 1,
             revision: 1,
@@ -140,12 +366,13 @@ impl ActivityRepository for PostgresActivityRepository {
     ) -> Result<Vec<ActivityView>, ActivityRepositoryError> {
         let rows = sqlx::query_as::<_, ActivityRow>(
             "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
+             a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
               OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
               WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
+             LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE member.user_id = $1 AND member.status = 'ACTIVE' AND a.deleted_at IS NULL \
              ORDER BY a.updated_at DESC, a.id",
@@ -164,12 +391,13 @@ impl ActivityRepository for PostgresActivityRepository {
     ) -> Result<Vec<ActivityView>, ActivityRepositoryError> {
         let rows = sqlx::query_as::<_, ActivityRow>(
             "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
+             a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
               OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
               WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
+             LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE member.user_id = $1 AND member.status = 'ACTIVE' AND member.role = 'OWNER' \
              AND a.deleted_at IS NOT NULL AND a.purge_after > $2 \
@@ -190,12 +418,13 @@ impl ActivityRepository for PostgresActivityRepository {
     ) -> Result<ActivityView, ActivityRepositoryError> {
         let row = sqlx::query_as::<_, ActivityRow>(
             "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
+             a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
               OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
               WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
+             LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' \
              AND a.deleted_at IS NULL",
@@ -230,11 +459,22 @@ impl ActivityRepository for PostgresActivityRepository {
         }
         let rows = sqlx::query_as::<
             _,
-            (Uuid, Option<Uuid>, String, String, String, i64, Option<i16>),
+            (
+                Uuid,
+                Option<Uuid>,
+                String,
+                String,
+                String,
+                i64,
+                Option<i16>,
+                Option<Uuid>,
+            ),
         >(
             "SELECT member.id, member.user_id, member.display_name, member.role, member.status, \
-             member.version, users.avatar_preset FROM activity_members member \
-             LEFT JOIN users ON users.id = member.user_id WHERE member.activity_id = $1 \
+             member.version, users.avatar_preset, avatar.image_id FROM activity_members member \
+             LEFT JOIN users ON users.id = member.user_id \
+             LEFT JOIN user_avatar_images avatar ON avatar.user_id = member.user_id \
+             WHERE member.activity_id = $1 \
              ORDER BY CASE member.role WHEN 'OWNER' THEN 0 ELSE 1 END, member.joined_at, member.id",
         )
         .bind(activity_id)
@@ -252,6 +492,7 @@ impl ActivityRepository for PostgresActivityRepository {
                     status,
                     version,
                     avatar_preset,
+                    avatar_image_id,
                 )| {
                     ActivityMemberView {
                         member_id,
@@ -259,6 +500,7 @@ impl ActivityRepository for PostgresActivityRepository {
                         user_id: member_user_id,
                         display_name,
                         avatar_preset,
+                        avatar_image_id,
                         role,
                         status,
                         version,
@@ -315,6 +557,7 @@ impl ActivityRepository for PostgresActivityRepository {
                     log.actor_user_id, log.actor_member_id,
                     COALESCE(actor_member.display_name, actor_user.display_name, '系统') AS actor_display_name,
                     actor_user.avatar_preset AS actor_avatar_preset,
+                    actor_avatar.image_id AS actor_avatar_image_id,
                     log.activity_revision, log.details, log.created_at
              FROM activity_audit_logs log
              JOIN activities activity ON activity.id = log.activity_id
@@ -323,6 +566,8 @@ impl ActivityRepository for PostgresActivityRepository {
               AND actor_member.activity_id = log.activity_id
              LEFT JOIN users actor_user
                ON actor_user.id = COALESCE(log.actor_user_id, actor_member.user_id)
+             LEFT JOIN user_avatar_images actor_avatar
+               ON actor_avatar.user_id = actor_user.id
              WHERE log.activity_id = $1 AND activity.deleted_at IS NULL
                AND ($2::timestamptz IS NULL
                     OR log.created_at < $2
@@ -827,12 +1072,13 @@ async fn lock_activity(
 ) -> Result<ActivityView, ActivityRepositoryError> {
     let row = sqlx::query_as::<_, ActivityRow>(
         "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-         a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
+         a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
          a.deleted_at, a.purge_after, \
          (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
           OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
          (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
           WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
+         LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
          JOIN activity_members member ON member.activity_id = a.id \
          WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' FOR UPDATE OF a",
     )
@@ -860,6 +1106,7 @@ fn activity_audit_from_row(row: ActivityAuditRow) -> ActivityAuditEntry {
         actor_member_id: row.actor_member_id,
         actor_display_name: row.actor_display_name,
         actor_avatar_preset: row.actor_avatar_preset,
+        actor_avatar_image_id: row.actor_avatar_image_id,
         revision: row.activity_revision,
         changes: activity_audit_changes(&row.details),
         expense,
@@ -933,6 +1180,8 @@ fn activity_audit_changes(details: &Value) -> Vec<ActivityAuditChange> {
                 "startDate",
                 "endDate",
                 "inviteMode",
+                "coverPreset",
+                "cover",
             ],
             &mut changes,
         );
@@ -1016,6 +1265,8 @@ fn activity_from_row(row: ActivityRow) -> ActivityView {
         purge_after: row.purge_after,
         has_accounting_records: row.has_accounting_records,
         earliest_expense_date: row.earliest_expense_date,
+        cover_preset: row.cover_preset,
+        cover_image_id: row.cover_image_id,
         invite_mode: row.invite_mode,
     }
 }

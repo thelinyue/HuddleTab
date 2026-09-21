@@ -18,7 +18,7 @@ import {
   UserRoundCheck,
   UsersRound,
 } from "lucide-react";
-import { type RefObject, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type RefObject, type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, ConfirmDialog, ErrorNotice, Input, LoadingState } from "../../components/ui";
 import { MemberAvatar } from "../../components/member-avatar";
@@ -33,7 +33,10 @@ import {
   useMembersQuery,
   useTransferOwnershipMutation,
   useUpdateActivityMutation,
+  useUpdateActivityCoverMutation,
+  useUploadActivityCoverMutation,
 } from "./api";
+import { ACTIVITY_COVER_GROUPS, ACTIVITY_COVER_LABELS, ActivityCover, activityCoverPresetPath, type ActivityCoverPreset } from "../../components/activity-cover";
 import { ActivityAuditPanel } from "./activity-audit-panel";
 import { useWorkspace } from "./workspace-context";
 import { activityStatus } from "./presentation";
@@ -71,7 +74,7 @@ const inviteModeOptions = [
 
 type ActivityField = keyof Activity["fieldPermissions"];
 
-type ActivityManagementView = "root" | "transfer" | "audit";
+type ActivityManagementView = "root" | "transfer" | "audit" | "cover";
 
 type ExpandedChoice = "baseCurrency" | "inviteMode" | null;
 
@@ -103,6 +106,8 @@ export function MorePage({
   const lifecycle = useActivityLifecycleMutation(session.userId, activity.activityId);
   const remove = useDeleteActivityMutation(session.userId, activity.activityId);
   const transfer = useTransferOwnershipMutation(session.userId, activity.activityId);
+  const updateCover = useUpdateActivityCoverMutation(session.userId, activity.activityId);
+  const uploadCover = useUploadActivityCoverMutation(session.userId, activity.activityId);
   const navigate = useNavigate();
   const [draft, setDraft] = useState(() => ({
     name: activity.name,
@@ -128,6 +133,10 @@ export function MorePage({
   const [exportError, setExportError] = useState<unknown>();
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>();
+  const [coverPreset, setCoverPreset] = useState<ActivityCoverPreset>(() => (activity.coverPreset ?? 12) as ActivityCoverPreset);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverError, setCoverError] = useState<unknown>();
   const transferPanelRef = useRef<HTMLElement | null>(null);
   const members = useMembersQuery(session.userId, activity.activityId, view === "transfer");
 
@@ -136,9 +145,9 @@ export function MorePage({
     && activity.fieldPermissions[field]
     && (field !== "baseCurrency" || !activity.hasAccountingRecords);
   const editingBusy = savingField !== null || update.isPending;
-  const actionBusy = editingBusy || lifecycle.isPending || pendingLifecycleAction !== null || transfer.isPending || remove.isPending || deleting || exporting;
+  const actionBusy = editingBusy || lifecycle.isPending || pendingLifecycleAction !== null || transfer.isPending || remove.isPending || deleting || exporting || updateCover.isPending || uploadCover.isPending;
   const hasError = Object.values(fieldErrors).some(Boolean)
-    || Boolean(lifecycleActionError || transferError || transfer.error || exportError || deleteError || remove.error);
+    || Boolean(lifecycleActionError || transferError || transfer.error || exportError || deleteError || remove.error || coverError);
 
   useEffect(() => {
     setVersion(activity.version);
@@ -153,6 +162,34 @@ export function MorePage({
     transferPanelRef.current?.focus();
   }, [view]);
 
+  useEffect(() => {
+    if (view !== "cover") return;
+    setCoverPreset((activity.coverPreset ?? 12) as ActivityCoverPreset);
+    setCoverFile(null);
+    setCoverPreview(null);
+    setCoverError(undefined);
+  }, [activity.coverPreset, view]);
+
+  useEffect(() => () => {
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+  }, [coverPreview]);
+
+  async function saveCover() {
+    if (!canEdit("cover") || actionBusy) return;
+    setCoverError(undefined);
+    try {
+      const result = coverFile
+        ? await uploadCover.mutateAsync({ version, file: coverFile })
+        : await updateCover.mutateAsync({ version, coverPreset });
+      setVersion(result.version);
+      setCoverFile(null);
+      setCoverPreview(null);
+      onViewChange?.("root");
+    } catch (reason) {
+      setCoverError(reason);
+    }
+  }
+
   function setDraftValue(field: ActivityField, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
     setLastSavedField(null);
@@ -164,6 +201,7 @@ export function MorePage({
   }
 
   function currentFieldValue(field: ActivityField): string {
+    if (field === "cover") return String(activity.coverPreset ?? "");
     if (field === "location") return activity.location ?? "";
     if (field === "endDate") return activity.endDate ?? "";
     return String(activity[field]);
@@ -335,19 +373,26 @@ export function MorePage({
             : warning}
         </div>
       ))}
-      {view === "transfer" ? <section ref={transferPanelRef} className="management-subview" aria-labelledby="activity-transfer-heading" tabIndex={-1}>
+      {view === "cover" ? <section className="management-subview management-cover-subview" aria-labelledby="activity-cover-heading">
+        <div className="management-subview__intro"><h3 id="activity-cover-heading">选择活动封面</h3><p>保存后会同步到活动列表和工作台页头。</p></div>
+        <div className="management-cover-preview">{coverPreview ? <img src={coverPreview} alt="自定义封面预览" /> : <ActivityCover activityId={activity.activityId} coverPreset={coverPreset} coverImageId={activity.coverImageId} alt="当前活动封面" />}</div>
+        <div className="activity-cover-picker" role="group" aria-label="活动封面选项">{ACTIVITY_COVER_GROUPS.map((group) => <div key={group.label}><small>{group.label}</small><div className="activity-cover-picker__grid">{group.presets.map((preset) => <button key={preset} type="button" className={coverPreset === preset && !coverFile ? "is-selected" : ""} aria-label={ACTIVITY_COVER_LABELS[preset]} aria-pressed={coverPreset === preset && !coverFile} onClick={() => { setCoverPreset(preset); setCoverFile(null); setCoverPreview(null); }}><img src={activityCoverPresetPath(preset)} alt="" width={80} height={60} /></button>)}</div></div>)}<label className="activity-cover-upload"><span>上传自定义封面</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0] ?? null; setCoverFile(file); setCoverPreview(file ? URL.createObjectURL(file) : null); }} /></label></div>
+        {coverError || updateCover.error || uploadCover.error ? <ErrorNotice error={coverError ?? updateCover.error ?? uploadCover.error} /> : null}
+        <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => onViewChange?.("root")}>取消</Button><Button type="button" busy={updateCover.isPending || uploadCover.isPending} disabled={offline || actionBusy} onClick={() => void saveCover()}>保存封面</Button></div>
+      </section> : view === "transfer" ? <section ref={transferPanelRef} className="management-subview" aria-labelledby="activity-transfer-heading" tabIndex={-1}>
         <div className="management-subview__intro">
           <h3 id="activity-transfer-heading">选择新的活动所有者</h3>
           <p>转让后，新成员将成为活动所有者，你会变为普通成员。</p>
         </div>
         {members.isPending ? <LoadingState label="正在读取可转让成员…" /> : null}
         {members.error ? <ErrorNotice error={members.error} /> : null}
-        {!members.isPending && !members.error && candidates.length ? <div className="management-member-list" role="radiogroup" aria-label="新所有者">{candidates.map((member) => <button key={member.memberId} type="button" role="radio" aria-checked={memberId === member.memberId} disabled={actionBusy} onClick={() => setMemberId(member.memberId)}><MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="sm" /><span>{member.displayName}</span>{memberId === member.memberId ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
+        {!members.isPending && !members.error && candidates.length ? <div className="management-member-list" role="radiogroup" aria-label="新所有者">{candidates.map((member) => <button key={member.memberId} type="button" role="radio" aria-checked={memberId === member.memberId} disabled={actionBusy} onClick={() => setMemberId(member.memberId)}><MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} size="sm" /><span>{member.displayName}</span>{memberId === member.memberId ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
         {!members.isPending && !members.error && !candidates.length ? <p className="empty-copy">暂无可转让的已绑定账号成员。</p> : null}
         {transferError ?? transfer.error ? <ErrorNotice error={transferError ?? transfer.error} /> : null}
         <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => onViewChange?.("root")}>取消</Button><Button type="button" busy={transfer.isPending} disabled={!memberId || actionBusy} onClick={() => void confirmTransfer()}>确认转让</Button></div>
       </section> : view === "audit" ? <section className="management-subview management-subview--audit" aria-label="活动记录"><ActivityAuditPanel userId={session.userId} activityId={activity.activityId} offline={offline} /></section> : <section aria-label="活动设置">
           <div className="management-list" role="list">
+            {!offline && activity.currentMemberRole === "OWNER" ? <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy || !activity.fieldPermissions.cover} onClick={() => onViewChange?.("cover")}><Pencil aria-hidden="true" size={19} /><span><strong>封面</strong><small>选择默认主题或上传自定义图片</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div> : null}
             <div className="management-field" role="listitem">
               <div className="management-field__heading"><Pencil aria-hidden="true" size={17} /><span><strong>活动名称</strong></span></div>
               {canEdit("name") ? <div className="management-field__control"><Input aria-label="活动名称" value={draft.name} disabled={editingBusy} required maxLength={120} onChange={(event) => setDraftValue("name", event.target.value)} onBlur={(event) => void saveField("name", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("name")}</div> : <span className="management-field__readonly">{activity.name}</span>}
@@ -449,7 +494,7 @@ export function ActivityManagementOverlay({ onClose }: { onClose: () => void }) 
   return (
     <Overlay
       open
-      title={view === "transfer" ? "转让所有权" : view === "audit" ? "活动记录" : "活动管理"}
+      title={view === "transfer" ? "转让所有权" : view === "audit" ? "活动记录" : view === "cover" ? "活动封面" : "活动管理"}
       onBeforeClose={requestClose}
       onClose={onClose}
       onBack={view !== "root" ? { label: "返回活动管理", onClick: () => { if (!state.busy) setView("root"); } } : undefined}

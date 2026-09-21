@@ -56,6 +56,7 @@ const activityApiState = vi.hoisted(() => ({
   snapshotData: undefined as unknown,
   snapshotError: null as unknown,
   create: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
+  invalidateCover: vi.fn(),
   update: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   lifecycle: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   remove: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
@@ -157,7 +158,10 @@ vi.mock("./api", async (importOriginal) => {
     },
     exportActivityCsv: activityApiState.exportCsv,
     useCreateActivityMutation: () => activityApiState.create,
+    useInvalidateActivityCoverQueries: () => activityApiState.invalidateCover,
     useUpdateActivityMutation: () => activityApiState.update,
+    useUpdateActivityCoverMutation: () => activityApiState.update,
+    useUploadActivityCoverMutation: () => activityApiState.update,
     useActivityLifecycleMutation: () => activityApiState.lifecycle,
     useDeleteActivityMutation: () => activityApiState.remove,
     useRemoveGuestMutation: () => activityApiState.removeGuest,
@@ -249,6 +253,7 @@ afterEach(() => {
   activityApiState.snapshotData = undefined;
   activityApiState.snapshotError = null;
   activityApiState.exportCsv.mockReset();
+  activityApiState.invalidateCover.mockReset();
   activityApiState.exportCsv.mockResolvedValue(new Blob(["csv"], { type: "text/csv" }));
   activityApiState.pwaStandalone = false;
   for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.removeGuest, activityApiState.restore, activityApiState.transfer]) {
@@ -906,6 +911,23 @@ describe("创建活动 Overlay", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/activities");
   });
 
+  it("默认只显示轻量封面预览，点击预览后展开并在选择后收起选项", () => {
+    renderActivitiesPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "创建活动" })[0]);
+
+    const dialog = screen.getByRole("dialog", { name: "创建活动" });
+    expect(within(dialog).getByRole("button", { name: "点击更换活动封面" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(dialog).queryByRole("group", { name: "选择活动封面" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "点击更换活动封面" }));
+    const picker = within(dialog).getByRole("group", { name: "选择活动封面" });
+    expect(within(dialog).getByRole("button", { name: "收起封面选择" })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(within(picker).getByRole("button", { name: "旅行" }));
+
+    expect(within(dialog).queryByRole("group", { name: "选择活动封面" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "点击更换活动封面" })).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("无效 panel 按普通首页处理且不启用已删除活动查询", () => {
     renderActivitiesPage("/activities?panel=unknown", true);
 
@@ -972,7 +994,7 @@ describe("活动管理 Overlay", () => {
 
     const dialog = screen.getByRole("dialog", { name: "活动管理" });
     expect(within(dialog).getAllByRole("list")).toHaveLength(1);
-    expect(within(dialog).getAllByRole("listitem")).toHaveLength(12);
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(13);
     expect(dialog.querySelectorAll(".activity-more > section > h2")).toHaveLength(0);
     for (const heading of ["活动信息", "协作与数据", "活动状态", "成员与权限", "危险操作"]) {
       expect(within(dialog).queryByText(heading)).not.toBeInTheDocument();
@@ -980,7 +1002,7 @@ describe("活动管理 Overlay", () => {
     expect(within(dialog).getByText("当前状态")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "导出 CSV" })).toBeInTheDocument();
     expect([...dialog.querySelectorAll(".management-field__heading strong, .management-action-row strong")].map((node) => node.textContent)).toEqual([
-      "活动名称", "地点", "开始日期", "结束日期", "主币种", "加入方式", "导出 CSV", "活动记录", "当前状态", "结束活动", "转让所有权", "删除活动",
+      "封面", "活动名称", "地点", "开始日期", "结束日期", "主币种", "加入方式", "导出 CSV", "活动记录", "当前状态", "结束活动", "转让所有权", "删除活动",
     ]);
   });
 

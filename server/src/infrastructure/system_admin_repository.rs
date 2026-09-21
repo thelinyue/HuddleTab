@@ -24,20 +24,21 @@ impl PostgresSystemAdminRepository {
 #[async_trait]
 impl SystemAdminRepository for PostgresSystemAdminRepository {
     async fn list_users(&self) -> Result<Vec<SystemUser>, SystemAdminError> {
-        sqlx::query_as::<_, (Uuid, String, String, i16, Option<OffsetDateTime>, bool)>(
-            "SELECT u.id, u.username, u.display_name, u.avatar_preset, u.disabled_at, \
+        sqlx::query_as::<_, (Uuid, String, String, i16, Option<Uuid>, Option<OffsetDateTime>, bool)>(
+            "SELECT u.id, u.username, u.display_name, u.avatar_preset, avatar.image_id, u.disabled_at, \
              EXISTS (SELECT 1 FROM system_roles sr WHERE sr.user_id = u.id AND sr.role = 'SYSTEM_ADMIN') \
-             FROM users u ORDER BY u.created_at, u.id",
+             FROM users u LEFT JOIN user_avatar_images avatar ON avatar.user_id = u.id ORDER BY u.created_at, u.id",
         )
         .fetch_all(&self.pool)
         .await
         .map(|rows| {
             rows.into_iter()
-                .map(|(id, username, display_name, avatar_preset, disabled_at, is_system_admin)| SystemUser {
+                .map(|(id, username, display_name, avatar_preset, avatar_image_id, disabled_at, is_system_admin)| SystemUser {
                     id,
                     username,
                     display_name,
                     avatar_preset,
+                    avatar_image_id,
                     disabled: disabled_at.is_some(),
                     is_system_admin,
                 })

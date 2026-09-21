@@ -13,6 +13,12 @@ export function memberAvatarPreset(memberId: string, members: readonly ActivityM
   return members?.find((member) => member.memberId === memberId)?.avatarPreset;
 }
 
+/** 统一把成员的自定义头像版本传给 MemberAvatar；临时成员自然回退到内置头像。 */
+export function memberAvatarImage(memberId: string, members: readonly ActivityMember[] | undefined): { userId?: string | null; avatarImageId?: string | null } {
+  const member = members?.find((item) => item.memberId === memberId);
+  return { userId: member?.userId, avatarImageId: member?.avatarImageId };
+}
+
 export type PendingExpenseDraft = PendingExpenseMutation & { attachments: PendingAttachment[] };
 export type QuickExpenseView =
   | "entry"

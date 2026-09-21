@@ -18,6 +18,15 @@ pub struct ProcessedAttachment {
     pub height: i32,
 }
 
+/// 头像和活动封面共用的固定尺寸图片结果。
+#[derive(Debug)]
+pub struct ProcessedProfileImage {
+    pub bytes: Vec<u8>,
+    pub mime_type: &'static str,
+    pub width: i32,
+    pub height: i32,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum AttachmentImageError {
     #[error("图片不能超过 10 MiB")]
@@ -90,6 +99,106 @@ pub fn process_attachment_image(
         mime_type: "image/webp",
         width: i32::try_from(width).map_err(|_| AttachmentImageError::InvalidImage)?,
         height: i32::try_from(height).map_err(|_| AttachmentImageError::InvalidImage)?,
+    })
+}
+
+/// 校正 EXIF 方向后，以中心安全区域裁剪并输出固定尺寸 WebP。
+///
+/// 该入口只处理 JPEG/PNG/WebP，并复用附件上传的大小、像素数和 MIME 交叉校验，
+/// 因而封面与头像不会绕过现有图片安全边界。输出不包含原始元数据。
+///
+/// # Errors
+///
+/// 输入超过大小或像素限制、类型不匹配、内容损坏或重编码失败时返回稳定错误。
+pub fn process_fixed_image(
+    bytes: &[u8],
+    declared_mime: &str,
+    target_width: u32,
+    target_height: u32,
+) -> Result<ProcessedProfileImage, AttachmentImageError> {
+    if target_width == 0 || target_height == 0 {
+        return Err(AttachmentImageError::InvalidImage);
+    }
+    if bytes.len() > MAX_BYTES {
+        return Err(AttachmentImageError::TooLarge);
+    }
+    let declared_format = format_for_mime(declared_mime)?;
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| AttachmentImageError::InvalidImage)?;
+    let detected_format = reader
+        .format()
+        .filter(|format| {
+            matches!(
+                format,
+                ImageFormat::Jpeg | ImageFormat::Png | ImageFormat::WebP
+            )
+        })
+        .ok_or(AttachmentImageError::TypeNotAllowed)?;
+    if detected_format != declared_format {
+        return Err(AttachmentImageError::MimeMismatch);
+    }
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|_| AttachmentImageError::InvalidImage)?;
+    let (width, height) = decoder.dimensions();
+    validate_image_dimensions(width, height)?;
+    let orientation = decoder
+        .orientation()
+        .map_err(|_| AttachmentImageError::InvalidImage)?;
+    let mut image =
+        DynamicImage::from_decoder(decoder).map_err(|_| AttachmentImageError::InvalidImage)?;
+    image.apply_orientation(orientation);
+
+    let source_is_wider = u64::from(image.width()) * u64::from(target_height)
+        > u64::from(image.height()) * u64::from(target_width);
+    let (crop_width, crop_height) = if source_is_wider {
+        (
+            u32::try_from(
+                (u64::from(image.height()) * u64::from(target_width)
+                    + u64::from(target_height) / 2)
+                    / u64::from(target_height),
+            )
+            .map_err(|_| AttachmentImageError::InvalidImage)?
+            .max(1),
+            image.height(),
+        )
+    } else {
+        (
+            image.width(),
+            u32::try_from(
+                (u64::from(image.width()) * u64::from(target_height) + u64::from(target_width) / 2)
+                    / u64::from(target_width),
+            )
+            .map_err(|_| AttachmentImageError::InvalidImage)?
+            .max(1),
+        )
+    };
+    let x = image.width().saturating_sub(crop_width) / 2;
+    let y = image.height().saturating_sub(crop_height) / 2;
+    let image = image
+        .crop_imm(
+            x,
+            y,
+            crop_width.min(image.width()),
+            crop_height.min(image.height()),
+        )
+        .resize_exact(target_width, target_height, FilterType::Lanczos3);
+    let mut output = LimitedImageWriter::new(MAX_PROCESSED_BYTES);
+    image
+        .write_to(&mut output, ImageFormat::WebP)
+        .map_err(|error| {
+            if error.to_string() == PROCESSED_LIMIT_ERROR {
+                AttachmentImageError::TooLarge
+            } else {
+                AttachmentImageError::InvalidImage
+            }
+        })?;
+    Ok(ProcessedProfileImage {
+        bytes: output.into_inner(),
+        mime_type: "image/webp",
+        width: i32::try_from(target_width).map_err(|_| AttachmentImageError::InvalidImage)?,
+        height: i32::try_from(target_height).map_err(|_| AttachmentImageError::InvalidImage)?,
     })
 }
 
@@ -227,6 +336,7 @@ fn resize_without_enlargement(image: DynamicImage) -> DynamicImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::{ImageBuffer, Rgba, RgbaImage};
 
     #[test]
     fn processed_webp_writer_rejects_output_before_growing_past_limit() {
@@ -237,5 +347,61 @@ mod tests {
             PROCESSED_LIMIT_ERROR
         );
         assert_eq!(writer.bytes.len(), 4);
+    }
+
+    #[test]
+    fn fixed_image_center_crops_and_outputs_requested_dimensions() {
+        let source: RgbaImage = ImageBuffer::from_fn(800, 400, |x, _y| {
+            if (100..=700).contains(&x) {
+                Rgba([0, 180, 120, 255])
+            } else {
+                Rgba([255, 0, 0, 255])
+            }
+        });
+        let mut bytes = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(source)
+            .write_to(&mut bytes, ImageFormat::Png)
+            .unwrap();
+        let result = process_fixed_image(bytes.get_ref(), "image/png", 512, 512).unwrap();
+        assert_eq!((result.width, result.height), (512, 512));
+        assert_eq!(result.mime_type, "image/webp");
+        let decoded =
+            image::load_from_memory_with_format(&result.bytes, ImageFormat::WebP).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (512, 512));
+    }
+
+    #[test]
+    fn fixed_image_outputs_cover_dimensions() {
+        let source: RgbaImage = ImageBuffer::from_pixel(400, 300, Rgba([20, 80, 140, 255]));
+        let mut bytes = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(source)
+            .write_to(&mut bytes, ImageFormat::Png)
+            .unwrap();
+        let result = process_fixed_image(bytes.get_ref(), "image/png", 1200, 900).unwrap();
+        assert_eq!((result.width, result.height), (1200, 900));
+        let decoded =
+            image::load_from_memory_with_format(&result.bytes, ImageFormat::WebP).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (1200, 900));
+    }
+
+    #[test]
+    fn fixed_image_rejects_oversized_input_and_pixel_count() {
+        let oversized = vec![0; MAX_BYTES + 1];
+        assert!(matches!(
+            process_fixed_image(&oversized, "image/png", 512, 512),
+            Err(AttachmentImageError::TooLarge)
+        ));
+        assert_eq!(
+            validate_image_dimensions(10_000, 4_001),
+            Err(AttachmentImageError::PixelLimitExceeded)
+        );
+    }
+
+    #[test]
+    fn fixed_image_rejects_mismatched_mime_before_decoding() {
+        assert!(matches!(
+            process_fixed_image(b"not-an-image", "image/jpeg", 1200, 900),
+            Err(AttachmentImageError::TypeNotAllowed)
+        ));
     }
 }

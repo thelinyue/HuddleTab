@@ -1,5 +1,5 @@
 import { ArrowRight, Bell, ChevronRight, Link as LinkIcon, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { formatMoney } from "../../domain-preview/money";
 import {
@@ -20,19 +20,16 @@ import {
   type Activity,
   useActivitiesQuery,
   useCreateActivityMutation,
+  useInvalidateActivityCoverQueries,
+  uploadActivityCover,
   useDeletedActivitiesQuery,
   useRestoreActivityMutation,
 } from "./api";
+import { ACTIVITY_COVER_GROUPS, ACTIVITY_COVER_LABELS, ActivityCover, activityCoverPresetPath, type ActivityCoverPreset } from "../../components/activity-cover";
 import { useSessionQuery } from "../auth/api";
 import { useNotificationsQuery } from "../notifications/api";
 import { activityStatus, activityPeriodLabel } from "./presentation";
 import { PushPromptCard } from "../push/components";
-
-function stableIndex(value: string, length: number): number {
-  let hash = 0;
-  for (const character of value) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return hash % length;
-}
 
 function localCalendarToday(): string {
   const now = new Date();
@@ -145,7 +142,7 @@ function ActivityGroup({ title, activities, allActivities, ledgers }: { title: s
           return (
             <li key={activity.activityId}>
               <Link className="activity-list-item" to={`/activities/${activity.activityId}`}>
-                <img src={`/activity-covers/cover-0${stableIndex(activity.activityId, 6) + 1}.webp`} width={72} height={56} alt="" loading="lazy" decoding="async" />
+                <ActivityCover activityId={activity.activityId} coverPreset={activity.coverPreset} coverImageId={activity.coverImageId} width={72} height={56} alt="" loading="lazy" />
                 <span className="activity-list-item__content"><strong>{activity.name}</strong><small className="activity-list-item__period">{[activityPeriodLabel(activity), activityStatus(activity.status)].filter(Boolean).join(" · ")}</small></span>
                 <span className="activity-list-item__balance">
                   {readiness === "pending" ? <span className="activity-balance-skeleton"><i /><i /></span> : null}
@@ -205,6 +202,7 @@ export function ActivitiesPage() {
   const deletedActivities = useDeletedActivitiesQuery(session.data?.userId ?? "", panel === "deleted");
   const ledgers = useActivityLedgersQuery(session.data?.userId ?? "", activities.data ?? []);
   const create = useCreateActivityMutation(session.data?.userId ?? "");
+  const invalidateCoverQueries = useInvalidateActivityCoverQueries(session.data?.userId ?? "");
   const [joinToken, setJoinToken] = useState("");
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -213,6 +211,16 @@ export function ActivitiesPage() {
   const [startDate, setStartDate] = useState(localCalendarToday);
   const [endDate, setEndDate] = useState("");
   const [createError, setCreateError] = useState<unknown>();
+  const [coverPreset, setCoverPreset] = useState<ActivityCoverPreset>(12);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverPickerOpen, setCoverPickerOpen] = useState(false);
+  const [coverUploadRetry, setCoverUploadRetry] = useState<{ activityId: string; version: string; file: File } | null>(null);
+  const [coverRetrying, setCoverRetrying] = useState(false);
+
+  useEffect(() => () => {
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+  }, [coverPreview]);
 
   function openPanel(nextPanel: ActivityPanel) {
     const next = new URLSearchParams(searchParams);
@@ -221,6 +229,7 @@ export function ActivitiesPage() {
   }
 
   function closePanel() {
+    setCoverPickerOpen(false);
     const depth = activityPanelDepth(routerLocation.state);
     if (depth !== null) {
       navigate(-depth);
@@ -245,18 +254,34 @@ export function ActivitiesPage() {
     event.preventDefault();
     setCreateError(undefined);
     try {
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         name,
         location: location.trim() || null,
         baseCurrency,
         startDate,
         endDate: endDate || null,
+        ...(coverPreset === 12 ? {} : { coverPreset }),
       });
+      if (coverFile) {
+        try {
+          await uploadActivityCover(created.activityId, created.version, coverFile);
+          await invalidateCoverQueries(created.activityId);
+        } catch {
+          setCoverUploadRetry({ activityId: created.activityId, version: created.version, file: coverFile });
+          setCreateError(new Error("活动已创建，封面上传失败；可以重试，之后也可在活动管理中修改。"));
+          return;
+        }
+      }
       setName("");
       setLocation("");
       setBaseCurrency("CNY");
       setStartDate(localCalendarToday());
       setEndDate("");
+      setCoverPreset(12);
+      setCoverFile(null);
+      setCoverPreview(null);
+      setCoverPickerOpen(false);
+      setCoverUploadRetry(null);
       closePanel();
     } catch (error) {
       setCreateError(error);
@@ -336,13 +361,21 @@ export function ActivitiesPage() {
           <button type="button" className="settings-row" onClick={openJoin}><LinkIcon aria-hidden="true" size={20} /><span><strong>加入活动</strong><small>粘贴活动所有者发送的邀请口令</small></span><ChevronRight aria-hidden="true" size={18} /></button>
         </div> : null}
         {panel === "create" ? <form className="form-stack" onSubmit={submit}>
-          <Field label="活动名称"><Input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></Field>
+          <Field label="活动封面">
+            <button type="button" className="activity-cover-create-trigger" aria-label={coverPickerOpen ? "收起封面选择" : "点击更换活动封面"} aria-expanded={coverPickerOpen} aria-controls={coverPickerOpen ? "activity-cover-picker" : undefined} onClick={() => setCoverPickerOpen((open) => !open)}>
+              <span className="activity-cover-create-preview"><img src={coverPreview ?? activityCoverPresetPath(coverPreset)} alt="封面预览" width={240} height={180} /></span>
+              <span className="activity-cover-create-trigger__hint">{coverPickerOpen ? "收起封面选项" : "点击预览更换"}</span>
+            </button>
+            {coverPickerOpen ? <div id="activity-cover-picker" className="activity-cover-picker" role="group" aria-label="选择活动封面">{ACTIVITY_COVER_GROUPS.map((group) => <div key={group.label}><small>{group.label}</small><div className="activity-cover-picker__grid">{group.presets.map((preset) => <button key={preset} type="button" className={coverPreset === preset && !coverFile ? "is-selected" : ""} aria-label={ACTIVITY_COVER_LABELS[preset]} onClick={() => { setCoverFile(null); setCoverPreview(null); setCoverPreset(preset); setCoverPickerOpen(false); }}><img src={activityCoverPresetPath(preset)} alt="" width={72} height={54} /></button>)}</div></div>)}<label className="activity-cover-upload"><span>上传自定义封面</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0] ?? null; setCoverFile(file); setCoverPreview(file ? URL.createObjectURL(file) : null); setCoverPickerOpen(false); }} /></label></div> : null}
+          </Field>
+          <Field label="活动名称"><Input data-overlay-initial-focus value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></Field>
           <Field label="地点（可选）"><Input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} /></Field>
           <Field label="主币种"><Select value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field>
           <Field label="开始日期"><Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field>
           <Field label="结束日期（可选）"><Input type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></Field>
           {createError ?? create.error ? <ErrorNotice error={createError ?? create.error} /> : null}
-          <Button type="submit" busy={create.isPending}>创建活动</Button>
+          {coverUploadRetry ? <Button type="button" variant="secondary" busy={coverRetrying} disabled={coverRetrying} onClick={async () => { if (coverRetrying) return; setCoverRetrying(true); try { await uploadActivityCover(coverUploadRetry.activityId, coverUploadRetry.version, coverUploadRetry.file); await invalidateCoverQueries(coverUploadRetry.activityId); setCoverUploadRetry(null); setCreateError(undefined); setCoverFile(null); setCoverPreview(null); setCoverPreset(12); setCoverRetrying(false); closePanel(); } catch { setCoverRetrying(false); setCreateError(new Error("封面上传仍未成功，请稍后重试。")); } }}>重试上传封面</Button> : null}
+          <Button type="submit" busy={create.isPending} disabled={Boolean(coverUploadRetry)}>创建活动</Button>
         </form> : null}
         {panel === "join" ? <form className="form-stack" onSubmit={(event) => { event.preventDefault(); const token = joinToken.trim(); if (token) navigate(`/join/${encodeURIComponent(token)}`); }}>
           <Field label="邀请口令" hint="向活动所有者索取邀请口令后粘贴到这里。"><Input value={joinToken} onChange={(event) => setJoinToken(event.target.value)} autoComplete="off" autoFocus required /></Field>

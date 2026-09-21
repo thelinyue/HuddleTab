@@ -16,6 +16,7 @@ pub struct SystemUser {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<Uuid>,
     pub disabled: bool,
     pub is_system_admin: bool,
 }

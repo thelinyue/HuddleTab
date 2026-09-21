@@ -27,6 +27,8 @@ struct ActivityRow {
     base_currency: String,
     start_date: Date,
     end_date: Option<Date>,
+    cover_preset: Option<i16>,
+    cover_image_id: Option<Uuid>,
     status: String,
     version: i64,
     revision: i64,
@@ -68,12 +70,13 @@ impl SnapshotRepository for PostgresSnapshotRepository {
             .map_err(log_repository_error)?;
         let row = sqlx::query_as::<_, ActivityRow>(
             "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
+             a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
              a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
               OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
               WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
+             LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
              JOIN activity_members member ON member.activity_id = a.id \
              WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' \
              AND a.deleted_at IS NULL",
@@ -94,11 +97,22 @@ impl SnapshotRepository for PostgresSnapshotRepository {
 
         let members = sqlx::query_as::<
             _,
-            (Uuid, Option<Uuid>, String, String, String, i64, Option<i16>),
+            (
+                Uuid,
+                Option<Uuid>,
+                String,
+                String,
+                String,
+                i64,
+                Option<i16>,
+                Option<Uuid>,
+            ),
         >(
             "SELECT member.id, member.user_id, member.display_name, member.role, member.status, \
-             member.version, users.avatar_preset FROM activity_members member \
-             LEFT JOIN users ON users.id = member.user_id WHERE member.activity_id = $1 \
+             member.version, users.avatar_preset, avatar.image_id FROM activity_members member \
+             LEFT JOIN users ON users.id = member.user_id \
+             LEFT JOIN user_avatar_images avatar ON avatar.user_id = member.user_id \
+             WHERE member.activity_id = $1 \
              ORDER BY CASE member.role WHEN 'OWNER' THEN 0 ELSE 1 END, member.joined_at, member.id",
         )
         .bind(activity_id)
@@ -115,6 +129,7 @@ impl SnapshotRepository for PostgresSnapshotRepository {
             status: row.4,
             version: row.5,
             avatar_preset: row.6,
+            avatar_image_id: row.7,
         })
         .collect::<Vec<_>>();
 
@@ -228,6 +243,8 @@ fn activity_from_row(row: ActivityRow) -> ActivityView {
         purge_after: row.purge_after,
         has_accounting_records: row.has_accounting_records,
         earliest_expense_date: row.earliest_expense_date,
+        cover_preset: row.cover_preset,
+        cover_image_id: row.cover_image_id,
         invite_mode: row.invite_mode,
     }
 }

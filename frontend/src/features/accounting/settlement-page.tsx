@@ -9,7 +9,7 @@ import { amountToMinor, formatMoney, minorToInput } from "../../domain-preview/m
 import { type ActivityMember, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
 import { type ExpenseAggregate, type RecommendationSelection, type RecommendationStrategy, type Settlement, useCreateSettlementMutation, useExpensesQuery, useLedgerQuery, useRecommendationsQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
-import { memberAvatarPreset, memberName } from "./shared";
+import { memberAvatarImage, memberAvatarPreset, memberName } from "./shared";
 import { AccountingSkeleton } from "./skeleton";
 
 type Parties = { payerMemberId: string; receiverMemberId: string };
@@ -105,13 +105,13 @@ function SettlementParties({ members, value, onChange }: { members: readonly Act
       const selected = members.find(member => member.memberId === value[field]);
       return <div key={field} className="settlement-party-field">
         <button ref={node => { triggers.current[field] = node; }} type="button" className="settlement-party-trigger" aria-label={`${label}：${selected?.displayName ?? '请选择'}`} aria-expanded={opened === field} onClick={() => { setOpened(opened === field ? undefined : field); setSearch(""); }}>
-          <span><small>{label}</small><strong>{selected ? <><MemberAvatar memberId={selected.memberId} displayName={selected.displayName} avatarPreset={selected.avatarPreset} size="sm" />{selected.displayName}</> : '请选择'}</strong></span><ChevronDown size={18} aria-hidden="true" />
+          <span><small>{label}</small><strong>{selected ? <><MemberAvatar memberId={selected.memberId} userId={selected.userId} displayName={selected.displayName} avatarPreset={selected.avatarPreset} avatarImageId={selected.avatarImageId} size="sm" />{selected.displayName}</> : '请选择'}</strong></span><ChevronDown size={18} aria-hidden="true" />
         </button>
         {opened === field ? <div className="settlement-member-options" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); close(); } }}>
           <Input aria-label={`搜索${label}`} placeholder="搜索成员姓名" value={search} onChange={event => setSearch(event.target.value)} autoFocus />
           <div className="quick-member-list" role="group" aria-label={`选择${label}`}>
             {members.filter(member => member.status === 'ACTIVE' && member.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map(member => <button type="button" className="quick-member-row__button" key={member.memberId} disabled={member.memberId === other} aria-label={`${member.displayName}${member.memberId === other ? `，已选为${field === "payerMemberId" ? "收款人" : "付款人"}` : ""}`} aria-pressed={member.memberId === value[field]} onClick={() => { onChange({ ...value, [field]: member.memberId }); close(); }}>
-              <MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} size="sm" /><span>{member.displayName}{member.memberId === other ? <small>已选为{field === 'payerMemberId' ? '收款人' : '付款人'}</small> : null}</span>{member.memberId === value[field] ? <Check size={18} aria-hidden="true" /> : <span />}
+              <MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} size="sm" /><span>{member.displayName}{member.memberId === other ? <small>已选为{field === 'payerMemberId' ? '收款人' : '付款人'}</small> : null}</span>{member.memberId === value[field] ? <Check size={18} aria-hidden="true" /> : <span />}
             </button>)}
             {!members.some(member => member.status === 'ACTIVE' && member.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ? <p className="settlement-empty">没有找到成员</p> : null}
           </div><Button variant="ghost" onClick={close}>取消选择</Button>
@@ -161,7 +161,7 @@ function SettlementForm({ initial, existing, members, expenses, onClose }: { ini
 }
 
 function TransferParties({ payer, receiver, members }: { payer: string; receiver: string; members: readonly ActivityMember[] }) {
-  return <span className="settlement-transfer"><span><MemberAvatar memberId={payer} displayName={memberName(payer, members)} avatarPreset={memberAvatarPreset(payer, members)} size="sm" /><strong>{memberName(payer, members)}</strong></span><small>付给</small><span><MemberAvatar memberId={receiver} displayName={memberName(receiver, members)} avatarPreset={memberAvatarPreset(receiver, members)} size="sm" /><strong>{memberName(receiver, members)}</strong></span></span>;
+  return <span className="settlement-transfer"><span><MemberAvatar memberId={payer} {...memberAvatarImage(payer, members)} displayName={memberName(payer, members)} avatarPreset={memberAvatarPreset(payer, members)} size="sm" /><strong>{memberName(payer, members)}</strong></span><small>付给</small><span><MemberAvatar memberId={receiver} {...memberAvatarImage(receiver, members)} displayName={memberName(receiver, members)} avatarPreset={memberAvatarPreset(receiver, members)} size="sm" /><strong>{memberName(receiver, members)}</strong></span></span>;
 }
 
 function SettlementRow({ settlement, members, expenses, writable }: { settlement: Settlement; members: readonly ActivityMember[]; expenses: readonly ExpenseAggregate[]; writable: boolean }) {
@@ -273,7 +273,7 @@ export function SettlementsPage() {
     </section>
     <RecommendationStrategyOverlay open={strategySheetOpen} selected={selectedStrategy} recommended={recommendedCentralized} onClose={() => setStrategySheetOpen(false)} onSelect={strategy => { setStrategySelection(strategy === "centralized" ? { strategy, hubMemberId: activity.currentMemberId } : { strategy }); setStrategySheetOpen(false); setForm(undefined); }} />
     <section className="settlement-section"><button className="balance-entry" type="button" aria-expanded={balanceOpen} onClick={() => setBalanceOpen(value => !value)}><strong>成员余额</strong><ChevronDown className={balanceOpen ? 'is-expanded' : ''} size={18} aria-hidden="true" /></button>
-      {balanceOpen ? balances && memberReady ? <div className="settlement-balance-list">{balances.map(balance => { const net = BigInt(balance.netMinor); return <div className="balance-row" key={balance.memberId}><MemberAvatar memberId={balance.memberId} displayName={memberName(balance.memberId, memberData)} avatarPreset={memberAvatarPreset(balance.memberId, memberData)} /><strong>{memberName(balance.memberId, memberData)}</strong><span>{net > 0n ? '应收' : net < 0n ? '应付' : '已结清'}{net !== 0n ? <Money value={formatMoney(activity.baseCurrency, (net < 0n ? -net : net).toString())} tone={net > 0n ? 'positive' : 'negative'} /> : null}</span></div>; })}</div> : !ledger.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null : null}
+      {balanceOpen ? balances && memberReady ? <div className="settlement-balance-list">{balances.map(balance => { const net = BigInt(balance.netMinor); return <div className="balance-row" key={balance.memberId}><MemberAvatar memberId={balance.memberId} {...memberAvatarImage(balance.memberId, memberData)} displayName={memberName(balance.memberId, memberData)} avatarPreset={memberAvatarPreset(balance.memberId, memberData)} /><strong>{memberName(balance.memberId, memberData)}</strong><span>{net > 0n ? '应收' : net < 0n ? '应付' : '已结清'}{net !== 0n ? <Money value={formatMoney(activity.baseCurrency, (net < 0n ? -net : net).toString())} tone={net > 0n ? 'positive' : 'negative'} /> : null}</span></div>; })}</div> : !ledger.error && !members.error ? <AccountingSkeleton kind="settlement" section /> : null : null}
     </section>
     {fullySettled ? <div className="settlement-complete"><Check size={19} />全部已结清</div> : null}
     <section className="settlement-section" aria-labelledby="settlement-history-heading"><header><h2 id="settlement-history-heading">实际结算记录</h2>{writable && !fullySettled ? <Button variant="ghost" onClick={() => setForm(form?.key === 'manual' ? undefined : { key: 'manual' })}>补记结算</Button> : null}</header>

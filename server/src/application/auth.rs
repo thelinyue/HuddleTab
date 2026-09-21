@@ -24,6 +24,7 @@ pub struct StoredCredentials {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<Uuid>,
     pub password_hash: String,
     pub is_system_admin: bool,
 }
@@ -46,6 +47,7 @@ pub struct StoredSession {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<Uuid>,
     pub password_hash: String,
     pub created_at: OffsetDateTime,
     pub last_seen_at: OffsetDateTime,
@@ -161,6 +163,7 @@ pub struct LoginOutput {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<Uuid>,
     pub session_token: SessionToken,
     pub is_system_admin: bool,
 }
@@ -191,6 +194,7 @@ pub struct RegisterOutput {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<Uuid>,
     pub session_token: SessionToken,
 }
 
@@ -220,6 +224,7 @@ pub struct CurrentSession {
     pub username: String,
     pub display_name: String,
     pub avatar_preset: i16,
+    pub avatar_image_id: Option<Uuid>,
     pub is_system_admin: bool,
 }
 
@@ -352,6 +357,7 @@ pub async fn register(
         username: username.as_str().to_owned(),
         display_name: display_name.to_owned(),
         avatar_preset: DEFAULT_AVATAR_PRESET,
+        avatar_image_id: None,
         session_token,
     })
 }
@@ -412,6 +418,7 @@ pub async fn login(
         username: credentials.username,
         display_name: credentials.display_name,
         avatar_preset: credentials.avatar_preset,
+        avatar_image_id: credentials.avatar_image_id,
         session_token,
         is_system_admin: credentials.is_system_admin,
     })
@@ -456,6 +463,7 @@ pub async fn current_session(
                 username: stored.username,
                 display_name: stored.display_name,
                 avatar_preset: stored.avatar_preset,
+                avatar_image_id: stored.avatar_image_id,
                 is_system_admin: stored.is_system_admin,
             })
         }
@@ -466,13 +474,13 @@ pub async fn current_session(
 ///
 /// # Errors
 ///
-/// 超出六个内置头像时返回输入错误，数据库写入失败时返回稳定服务错误。
+/// 超出十一个内置头像时返回输入错误，数据库写入失败时返回稳定服务错误。
 pub async fn update_avatar_preset(
     repository: &dyn AuthRepository,
     user_id: Uuid,
     avatar_preset: i16,
 ) -> Result<(), UpdateAvatarPresetError> {
-    if !(1..=6).contains(&avatar_preset) {
+    if !(1..=11).contains(&avatar_preset) {
         return Err(UpdateAvatarPresetError::InvalidPreset);
     }
     repository

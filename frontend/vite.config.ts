@@ -10,8 +10,17 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "prompt",
-      includeAssets: ["apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png", "illustrations/activity-list-empty.webp"],
+      includeAssets: [
+        "apple-touch-icon.png",
+        "icons/icon-192.png",
+        "icons/icon-512.png",
+        "illustrations/activity-list-empty.webp",
+        "activity-covers/*.webp",
+        "member-avatars/*.webp",
+      ],
       workbox: {
+        // 默认封面和头像必须能在离线状态回退显示；生成插画单张可能超过 Workbox 默认 2 MiB 上限。
+        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api(?:\/|$)/],
         importScripts: ["/push-service-worker.js"],

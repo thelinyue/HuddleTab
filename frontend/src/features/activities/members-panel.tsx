@@ -275,7 +275,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
             return (
               <div className="member-entry" key={member.memberId}>
                 <div className="member-row">
-                  <MemberAvatar memberId={member.memberId} displayName={member.displayName} avatarPreset={member.avatarPreset} />
+                  <MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} />
                   <span>
                     <strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong>
                     <small>{removed ? `${member.userId ? "正式成员" : "临时成员"} · 已移除` : member.userId ? "正式成员" : "临时成员"}</small>
