@@ -2,6 +2,7 @@ import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../../api/error";
+import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Button, ErrorNotice, Input } from "../../components/ui";
 import { useChangePasswordMutation } from "../auth/api";
@@ -19,6 +20,7 @@ export function ChangePasswordPage() {
   const [successNotice, setSuccessNotice] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const passwordsMismatch = saveError === PASSWORD_MISMATCH;
+  usePwaUpdateBlock(Boolean(currentPassword || newPassword || confirmedPassword || submitting));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

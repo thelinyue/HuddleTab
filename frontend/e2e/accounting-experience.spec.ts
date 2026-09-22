@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 /** 确定性的前端验收数据，只拦截测试浏览器请求，不写入真实活动。 */
 async function installFixture(page: Page, count = 4, shareMinor = 12000) {
   const members = Array.from({ length: count }, (_, index) => ({ activityId: 'demo', memberId: `m${index}`, displayName: ['小林', '小陈', '小周', '小王'][index] ?? `同行成员${index + 1}`, avatarPreset: index % 8, role: index ? 'MEMBER' : 'OWNER', status: 'ACTIVE', userId: `u${index}`, version: '1' }));
-  const activity = { activityId: 'demo', name: '周末杭州小聚', baseCurrency: 'CNY', status: 'ACTIVE', startDate: '2026-09-05', endDate: '2026-09-06', currentMemberId: 'm0', currentMemberRole: 'OWNER', ownerMemberId: 'm0', revision: '1', version: '1' };
+  const activity = { activityId: 'demo', name: '周末杭州小聚', baseCurrency: 'CNY', status: 'ACTIVE', startDate: '2026-09-05', endDate: '2026-09-06', coverPreset: 5, coverImageId: null, currentMemberId: 'm0', currentMemberRole: 'OWNER', ownerMemberId: 'm0', revision: '1', version: '1' };
   const balances = members.map((member, index) => ({ memberId: member.memberId, displayName: member.displayName, netMinor: index ? String(-shareMinor) : String((count - 1) * shareMinor) }));
   const recommendations = { recommendations: members.slice(1).map(member => ({ payerMemberId: member.memberId, receiverMemberId: 'm0', amountMinor: String(shareMinor) })) };
   const records = [{ settlementId: 's1', activityId: 'demo', payerMemberId: 'm1', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '8000', status: 'ACTIVE', createdAt: '2026-09-06T06:30:00Z', version: '1' }, { settlementId: 's2', activityId: 'demo', payerMemberId: 'm2', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '2000', status: 'VOID', createdAt: '2026-09-05T10:20:00Z', version: '1' }];
@@ -279,15 +279,45 @@ test('结算记录失败只影响本区域，可重试且不误报空记录', as
 async function headerGeometry(page: Page) {
   return page.evaluate(() => {
     const header = document.querySelector<HTMLElement>('.workspace-header')!;
+    const actions = header.querySelector<HTMLElement>('.workspace-header__actions')!;
     const metadata = header.querySelector<HTMLElement>('.workspace-header__metadata')!;
     const nav = header.querySelector<HTMLElement>('.workspace-nav')!;
     const content = document.querySelector<HTMLElement>('.workspace-content')!;
-    return { height: header.getBoundingClientRect().height, navBottom: nav.getBoundingClientRect().bottom, opacity: Number(getComputedStyle(metadata).opacity), documentTop: content.getBoundingClientRect().top + scrollY, scroll: scrollY, documentHeight: document.documentElement.scrollHeight };
+    const height = header.getBoundingClientRect().height;
+    // 移动端胶囊的底部留白属于收起后的紧凑页头高度，和工作台的测量逻辑保持一致。
+    const navMarginBottom = Number.parseFloat(getComputedStyle(nav).marginBottom) || 0;
+    const compactHeight = (Number.parseFloat(getComputedStyle(header).paddingTop) || 0) + actions.getBoundingClientRect().height + nav.getBoundingClientRect().height + navMarginBottom;
+    return { height, compactHeight, navMarginBottom, collapseDistance: Math.max(0, height - compactHeight), navBottom: nav.getBoundingClientRect().bottom, opacity: Number(getComputedStyle(metadata).opacity), documentTop: content.getBoundingClientRect().top + scrollY, scroll: scrollY, documentHeight: document.documentElement.scrollHeight };
   });
 }
 
 async function scrollHeader(page: Page, y: number) {
   await page.evaluate(async value => { window.scrollTo(0, value); await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); }, y);
+}
+
+async function dispatchTouchSwipe(page: Page, deltaX: number, deltaY: number) {
+  await page.locator('.workspace-content').evaluate((element, delta) => {
+    const box = element.getBoundingClientRect();
+    const startX = box.left + box.width / 2;
+    const startY = box.top + Math.min(Math.max(96, box.height / 3), 220);
+    const dispatch = (type: 'pointerdown' | 'pointermove' | 'pointerup', clientX: number, clientY: number, buttons: number) => {
+      element.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        buttons,
+        clientX,
+        clientY,
+        isPrimary: true,
+        pointerId: 41,
+        pointerType: 'touch',
+      }));
+    };
+    dispatch('pointerdown', startX, startY, 1);
+    dispatch('pointermove', startX + delta.deltaX * .4, startY + delta.deltaY * .4, 1);
+    dispatch('pointermove', startX + delta.deltaX, startY + delta.deltaY, 1);
+    dispatch('pointerup', startX + delta.deltaX, startY + delta.deltaY, 0);
+  }, { deltaX, deltaY });
 }
 
 test('活动页头：连续收起、回到顶部展开和入口保持稳定', async ({ page }, info) => {
@@ -301,22 +331,24 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
   await expect(page.locator('.expense-row')).toHaveCount(25);
   const expanded = await headerGeometry(page);
   await page.screenshot({ path: info.outputPath('header-expanded.png') });
-  expect(expanded.height).toBe(128);
-  for (const y of [8, 16, 24, 32, 180, 64, 32, 16, 0, 120, 0]) {
+  expect(expanded.height).toBeGreaterThanOrEqual(240);
+  expect(expanded.height).toBeLessThanOrEqual(280);
+  for (const y of [8, 16, 24, 32, Math.ceil(expanded.collapseDistance), 64, 32, 16, 0, 120, 0]) {
     await scrollHeader(page, y);
     const current = await headerGeometry(page);
     expect(current.scroll).toBe(y);
     expect(current.documentHeight).toBe(expanded.documentHeight);
     expect(current.documentTop).toBe(expanded.documentTop);
-    expect(current.opacity).toBeCloseTo(1 - Math.min(y / 32, 1), 2);
-    expect(current.navBottom).toBeCloseTo(expanded.navBottom - Math.min(y, 32), 0);
+    const progress = Math.min(y / Math.max(1, expanded.collapseDistance), 1);
+    expect(current.opacity).toBeCloseTo(1 - progress, 2);
+    expect(current.navBottom).toBeCloseTo(expanded.navBottom - progress * expanded.collapseDistance, 0);
   }
-  await scrollHeader(page, 180);
+  await scrollHeader(page, Math.ceil(expanded.collapseDistance));
   await page.screenshot({ path: info.outputPath('header-collapsed.png') });
   const collapsed = await headerGeometry(page);
-  expect(collapsed.navBottom).toBe(96);
+  expect(collapsed.navBottom).toBeCloseTo(expanded.compactHeight - expanded.navMarginBottom, 0);
   // 裁剪外的旧占位不能继续覆盖正文或拦截点击。
-  expect(await page.evaluate(() => document.elementFromPoint(innerWidth / 2, 110)?.closest('.workspace-header') === null)).toBe(true);
+  expect(await page.evaluate((probeY) => document.elementFromPoint(innerWidth / 2, probeY)?.closest('.workspace-header') === null, Math.ceil(collapsed.compactHeight + 10))).toBe(true);
   await page.getByRole('link', { name: '成员 4', exact: true }).click();
   const members = page.getByRole('dialog');
   await expect(members).toBeVisible();
@@ -332,7 +364,7 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
   await page.getByRole('navigation', { name: '活动导航' }).getByRole('link', { name: '结算', exact: true }).click();
   await expect(page.getByRole('heading', { name: '实际结算记录' })).toBeVisible();
   const settlement = await headerGeometry(page);
-  expect(settlement.opacity).toBeCloseTo(1 - Math.min(settlement.scroll / 32, 1), 2);
+  expect(settlement.opacity).toBeCloseTo(1 - Math.min(settlement.scroll / Math.max(1, settlement.collapseDistance), 1), 2);
   await page.goBack();
   await expect(page.locator('.expense-row')).toHaveCount(25);
   await scrollHeader(page, 0);
@@ -344,6 +376,7 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
   console.log(`${info.project.name}: 页头展开 ${expanded.height}px，收起 ${collapsed.navBottom}px`);
   await page.getByRole('link', { name: '返回活动列表' }).click();
   await expect(page).toHaveURL(/\/activities$/);
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f6f8f7');
   expect(errors).toEqual([]);
 });
 
@@ -357,7 +390,7 @@ test('活动页头：长名称、大人数、深色安全区和放大字体无�
     const pageBackground = getComputedStyle(document.body).backgroundColor;
     const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content;
     return { header, pageBackground, themeColor };
-  })).toMatchObject({ header: 'rgb(246, 248, 247)', pageBackground: 'rgb(246, 248, 247)', themeColor: '#f6f8f7' });
+  })).toMatchObject({ header: 'rgb(36, 52, 47)', pageBackground: 'rgb(246, 248, 247)', themeColor: '#24342f' });
   await page.evaluate(() => { document.documentElement.classList.add('dark', 'pwa-standalone'); document.documentElement.style.setProperty('--safe-area-top', '47px'); });
   const buttons = page.locator('.workspace-header__actions > a');
   for (const button of await buttons.all()) {
@@ -375,23 +408,81 @@ test('活动页头：长名称、大人数、深色安全区和放大字体无�
   await page.screenshot({ path: info.outputPath('header-large-text.png') });
 });
 
+test('活动页头：移动端胶囊导航支持左右滑动切页', async ({ page }, info) => {
+  await installFixture(page);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/activities/demo');
+  await expect(page.getByRole('heading', { name: '全部流水' })).toBeVisible();
+
+  const navigation = page.getByRole('navigation', { name: '活动导航' });
+  const navigationBox = (await navigation.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  if (viewport.width > 639) {
+    expect(navigationBox.width).toBeGreaterThan(400);
+    await dispatchTouchSwipe(page, -72, 0);
+    await expect(page).not.toHaveURL(/tab=settlement/);
+    return;
+  }
+
+  const headerBox = (await page.locator('.workspace-header').boundingBox())!;
+  const navigationStyle = await navigation.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderRadius: Number.parseFloat(style.borderTopLeftRadius), touchAction: getComputedStyle(document.querySelector('.workspace-content')!).touchAction };
+  });
+  expect(navigationBox.width).toBeLessThanOrEqual(281);
+  expect(Math.abs(navigationBox.x + navigationBox.width / 2 - (headerBox.x + headerBox.width / 2))).toBeLessThanOrEqual(1);
+  expect(navigationStyle.borderRadius).toBeGreaterThanOrEqual(navigationBox.height / 2 - 1);
+  expect(navigationStyle.touchAction).toBe('pan-y');
+  for (const link of await navigation.getByRole('link').all()) expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('header-capsule-light-feed.png') });
+
+  await dispatchTouchSwipe(page, -72, 0);
+  await expect(page).toHaveURL(/\/activities\/demo\?tab=settlement$/);
+  await expect(page.getByRole('heading', { name: '实际结算记录' })).toBeVisible();
+  await expect(navigation.getByRole('link', { name: '结算', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.screenshot({ path: info.outputPath('header-capsule-light-settlement.png') });
+
+  await dispatchTouchSwipe(page, 72, 0);
+  await expect(page).toHaveURL(/\/activities\/demo$/);
+  await expect(page.getByRole('heading', { name: '全部流水' })).toBeVisible();
+
+  await dispatchTouchSwipe(page, -24, 0);
+  await expect(page).not.toHaveURL(/tab=settlement/);
+  await dispatchTouchSwipe(page, -16, 72);
+  await expect(page).not.toHaveURL(/tab=settlement/);
+
+  await page.getByRole('link', { name: '成员 4', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await dispatchTouchSwipe(page, -72, 0);
+  await expect(page).toHaveURL(/\/activities\/demo\?panel=members$/);
+  await page.getByRole('dialog').getByRole('button', { name: /^关闭/ }).click();
+
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.goto('/activities/demo');
+  await expect(page.getByRole('heading', { name: '全部流水' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('header-capsule-dark-reduced-motion.png') });
+});
+
 test('活动页头：减少动态效果静态切换，无日期和短内容不误收起', async ({ page }) => {
   const control = await installFixture(page);
   Object.assign(control.activity, { startDate: null, endDate: null });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/activities/demo');
   await expect(page.locator('.workspace-header__metadata')).toHaveText('进行中');
-  expect((await headerGeometry(page)).opacity).toBe(1);
+  const expanded = await headerGeometry(page);
+  expect(expanded.opacity).toBe(1);
   // 短内容先验收，再使用确定高度的测试内容验证滚动阈值。
   await page.locator('.workspace-content').evaluate(element => { element.setAttribute('style', 'min-height: 1800px'); });
-  await scrollHeader(page, 16);
+  const almostCollapsed = Math.max(0, Math.ceil(expanded.collapseDistance) - 1);
+  await scrollHeader(page, almostCollapsed);
   expect((await headerGeometry(page)).opacity).toBe(1);
-  await scrollHeader(page, 32);
+  await scrollHeader(page, Math.ceil(expanded.collapseDistance));
   expect((await headerGeometry(page)).opacity).toBe(0);
-  await scrollHeader(page, 16);
+  await scrollHeader(page, almostCollapsed);
   expect((await headerGeometry(page)).opacity).toBe(1);
   await scrollHeader(page, 0);
-  expect((await headerGeometry(page)).navBottom).toBe(128);
+  expect((await headerGeometry(page)).navBottom).toBeCloseTo(expanded.navBottom, 0);
 });
 
 test('活动页头：加载骨架与完成后的占位一致', async ({ page }) => {

@@ -13,11 +13,13 @@ const activityApiState = vi.hoisted(() => ({
     baseCurrency: "CNY",
     canDelete: true,
     canRestore: false,
+    coverImageId: null as string | null,
+    coverPreset: 12,
     currentMemberId: "member-owner",
     currentMemberRole: "OWNER",
     deletedAt: null as string | null,
     endDate: null as string | null,
-    fieldPermissions: { baseCurrency: false, endDate: true, inviteMode: true, location: true, name: true, startDate: true },
+    fieldPermissions: { baseCurrency: false, cover: true, endDate: true, inviteMode: true, location: true, name: true, startDate: true },
     hasAccountingRecords: true,
     location: "杭州",
     inviteMode: "DIRECT_JOIN",
@@ -221,7 +223,9 @@ afterEach(() => {
   activityApiState.activity.status = "ACTIVE";
   activityApiState.activity.allowedLifecycleActions = ["END"];
   activityApiState.activity.canDelete = true;
-  activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: true, inviteMode: true, location: true, name: true, startDate: true };
+  activityApiState.activity.coverImageId = null;
+  activityApiState.activity.coverPreset = 12;
+  activityApiState.activity.fieldPermissions = { baseCurrency: false, cover: true, endDate: true, inviteMode: true, location: true, name: true, startDate: true };
   activityApiState.activity.hasAccountingRecords = true;
   activityApiState.activity.location = "杭州";
   activityApiState.activity.inviteMode = "DIRECT_JOIN";
@@ -1006,6 +1010,82 @@ describe("活动管理 Overlay", () => {
     ]);
   });
 
+  it("封面编辑使用独立操作栏，未修改时禁用保存并在保存后恢复入口焦点", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+
+    const rootDialog = screen.getByRole("dialog", { name: "活动管理" });
+    const coverTrigger = within(rootDialog).getByRole("button", { name: /^封面/ });
+    coverTrigger.focus();
+    fireEvent.click(coverTrigger);
+
+    const coverDialog = screen.getByRole("dialog", { name: "活动封面" });
+    const save = within(coverDialog).getByRole("button", { name: "保存封面" });
+    expect(save).toBeDisabled();
+    expect(save.parentElement).toHaveClass("management-cover-action-dock");
+
+    const preset = within(coverDialog).getByRole("button", { name: "旅行" });
+    fireEvent.click(preset);
+    expect(save).toBeEnabled();
+    expect(preset).toHaveAttribute("aria-pressed", "true");
+    expect(coverDialog.querySelector('img[src="/activity-covers/cover-07.webp"]')).toBeInTheDocument();
+
+    fireEvent.click(save);
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
+      coverPreset: 7,
+      version: "7",
+    }));
+    const nextRootDialog = await screen.findByRole("dialog", { name: "活动管理" });
+    expect(within(nextRootDialog).getByRole("button", { name: /^封面/ })).toHaveFocus();
+  });
+
+  it("取消封面编辑不发送请求并丢弃草稿", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+    const rootDialog = screen.getByRole("dialog", { name: "活动管理" });
+    fireEvent.click(within(rootDialog).getByRole("button", { name: /^封面/ }));
+
+    const coverDialog = screen.getByRole("dialog", { name: "活动封面" });
+    fireEvent.click(within(coverDialog).getByRole("button", { name: "旅行" }));
+    fireEvent.click(within(coverDialog).getByRole("button", { name: "取消" }));
+
+    const nextRootDialog = await screen.findByRole("dialog", { name: "活动管理" });
+    expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
+    expect(within(nextRootDialog).getByRole("button", { name: /^封面/ })).toHaveFocus();
+  });
+
+  it("上传自定义封面后使用文件上传并保留保存状态", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: /^封面/ }));
+
+    const coverDialog = screen.getByRole("dialog", { name: "活动封面" });
+    const file = new File(["cover"], "trip.webp", { type: "image/webp" });
+    fireEvent.change(within(coverDialog).getByLabelText("上传自定义封面"), { target: { files: [file] } });
+
+    const save = within(coverDialog).getByRole("button", { name: "保存封面" });
+    expect(save).toBeEnabled();
+    expect(within(coverDialog).getByText("已选择自定义封面")).toBeInTheDocument();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
+      file,
+      version: "7",
+    }));
+  });
+
+  it("封面保存失败时保留编辑页、选择和操作栏", async () => {
+    activityApiState.update.mutateAsync.mockRejectedValueOnce(new Error("封面保存失败"));
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: /^封面/ }));
+
+    const coverDialog = screen.getByRole("dialog", { name: "活动封面" });
+    fireEvent.click(within(coverDialog).getByRole("button", { name: "旅行" }));
+    fireEvent.click(within(coverDialog).getByRole("button", { name: "保存封面" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("封面保存失败");
+    expect(screen.getByRole("dialog", { name: "活动封面" })).toBeInTheDocument();
+    expect(within(coverDialog).getByRole("button", { name: "旅行" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(coverDialog).getByRole("button", { name: "保存封面" })).toBeEnabled();
+  });
+
   it("活动记录入口惰性读取同一 Sheet，展示账单、字段变化、未知动作并支持分页", async () => {
     activityApiState.auditQuery.data = {
       pages: [{
@@ -1159,7 +1239,7 @@ describe("活动管理 Overlay", () => {
     activityApiState.activity.currentMemberRole = "MEMBER";
     activityApiState.activity.allowedLifecycleActions = [];
     activityApiState.activity.canDelete = false;
-    activityApiState.activity.fieldPermissions = { baseCurrency: false, endDate: false, inviteMode: false, location: false, name: false, startDate: false };
+    activityApiState.activity.fieldPermissions = { baseCurrency: false, cover: false, endDate: false, inviteMode: false, location: false, name: false, startDate: false };
     renderWorkspace("/activities/activity-1?panel=manage");
 
     expect(screen.queryByRole("textbox", { name: "活动名称" })).not.toBeInTheDocument();

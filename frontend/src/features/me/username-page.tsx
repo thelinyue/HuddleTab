@@ -2,6 +2,7 @@ import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../../api/error";
+import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Button, ErrorNotice, Input } from "../../components/ui";
 import { useChangeUsernameMutation, useSessionQuery } from "../auth/api";
@@ -22,6 +23,7 @@ export function ChangeUsernamePage() {
   const normalized = normalize(username);
   const valid = /^[a-z0-9._-]{3,32}$/.test(normalized);
   const changed = normalized !== session.data?.username;
+  usePwaUpdateBlock(!success && (changed || Boolean(password) || mutation.isPending));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

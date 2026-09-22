@@ -1,7 +1,7 @@
 import { retryableLazy } from "../components/retryable-lazy";
 import { AccountingSkeleton } from "../features/accounting/skeleton";
 import { FileQuestion } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
@@ -108,11 +108,12 @@ function NotFoundPage() {
 function ActivityPrimaryPage() {
   const [searchParams] = useSearchParams();
   const settlement = searchParams.get("tab") === "settlement";
-  // 标签切换只对主内容做轻微位移，页头和滚动容器保持稳定。
+  const reducedMotion = useReducedMotion();
+  // 标签切换只对主内容做轻微位移；减少动态效果时保留淡入，页头和滚动容器保持稳定。
   return (
     <Suspense fallback={<LoadingState label={settlement ? "正在打开结算…" : "正在打开流水…"} />}>
       <AnimatePresence initial={false} mode="popLayout" custom={settlement ? 1 : -1}>
-        <motion.div key={settlement ? "settlement" : "feed"} className="workspace-tab-content" initial={{ opacity: 0, x: settlement ? 12 : -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: settlement ? -12 : 12 }} transition={{ opacity: { duration: 0.16 }, x: { type: "spring", bounce: 0, duration: 0.24 } }}>
+        <motion.div key={settlement ? "settlement" : "feed"} className="workspace-tab-content" initial={reducedMotion ? { opacity: 0 } : { opacity: 0, x: settlement ? 12 : -12 }} animate={{ opacity: 1, x: 0 }} exit={reducedMotion ? { opacity: 0 } : { opacity: 0, x: settlement ? -12 : 12 }} transition={reducedMotion ? { opacity: { duration: 0.12 } } : { opacity: { duration: 0.16 }, x: { type: "spring", bounce: 0, duration: 0.24 } }}>
           {settlement ? <SettlementsPage /> : <ExpenseFeedPage />}
         </motion.div>
       </AnimatePresence>

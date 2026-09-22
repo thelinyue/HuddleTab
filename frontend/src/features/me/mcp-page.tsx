@@ -1,6 +1,7 @@
 import { ArrowLeft, Check, Clipboard, KeyRound, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
+import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
 import { Button, ConfirmDialog, ErrorNotice, Field, Input, Select } from "../../components/ui";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { useSessionQuery } from "../auth/api";
@@ -55,6 +56,7 @@ export function McpPage() {
   const [created, setCreated] = useState<ReturnType<typeof useCreateMcpTokenMutation>["data"]>();
   const [copied, setCopied] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<McpToken | null>(null);
+  usePwaUpdateBlock(Boolean(name.trim() || customExpiry || created || create.isPending));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

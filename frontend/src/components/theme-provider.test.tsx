@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  setActivityCoverThemeColor,
   ThemeProvider,
   useThemePreference,
   type ThemePreference,
@@ -27,6 +28,7 @@ beforeEach(() => {
   localStorage.clear();
   document.documentElement.className = "";
   document.documentElement.removeAttribute("data-theme-preference");
+  document.documentElement.removeAttribute("data-activity-cover");
   document.head.innerHTML = '<meta name="theme-color" content="#087f73" />';
   mediaMatches = false;
   mediaListeners = [];
@@ -52,6 +54,7 @@ afterEach(() => {
   localStorage.clear();
   document.documentElement.className = "";
   document.documentElement.removeAttribute("data-theme-preference");
+  document.documentElement.removeAttribute("data-activity-cover");
 });
 
 describe("ThemeProvider", () => {
@@ -72,6 +75,27 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("resolved")).toHaveTextContent("light");
     expect(document.documentElement).not.toHaveClass("dark");
     expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#f6f8f7");
+  });
+
+  it("活动封面覆盖 theme-color，并在主题切换和离开后恢复", () => {
+    render(<ThemeProvider><ThemeProbe /></ThemeProvider>);
+
+    setActivityCoverThemeColor(true);
+    expect(document.documentElement).toHaveAttribute("data-activity-cover", "true");
+    expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#24342f");
+
+    fireEvent.click(screen.getByRole("button", { name: "DARK" }));
+    expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#24342f");
+
+    setActivityCoverThemeColor(false);
+    expect(document.documentElement).not.toHaveAttribute("data-activity-cover");
+    expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#0d1512");
+
+    fireEvent.click(screen.getByRole("button", { name: "SYSTEM" }));
+    mediaMatches = true;
+    setActivityCoverThemeColor(true);
+    setActivityCoverThemeColor(false);
+    expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#0d1512");
   });
 
   it("手动切换立即持久化并应用三态颜色", () => {

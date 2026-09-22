@@ -6,6 +6,7 @@ export type ResolvedTheme = "light" | "dark";
 const STORAGE_KEY = "huddletab-theme";
 const LIGHT_THEME_COLOR = "#f6f8f7";
 const DARK_THEME_COLOR = "#0d1512";
+const ACTIVITY_COVER_THEME_COLOR = "#24342f";
 
 function preferenceFromStoredValue(value: string | null): ThemePreference {
   if (value === "dark" || value === "DARK") return "DARK";
@@ -35,7 +36,24 @@ export function resolveTheme(preference: ThemePreference): ResolvedTheme {
 function updateThemeColor(theme: ResolvedTheme) {
   if (typeof document === "undefined") return;
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-  meta?.setAttribute("content", theme === "dark" ? DARK_THEME_COLOR : LIGHT_THEME_COLOR);
+  const activityCover = document.documentElement.dataset.activityCover === "true";
+  meta?.setAttribute("content", activityCover ? ACTIVITY_COVER_THEME_COLOR : theme === "dark" ? DARK_THEME_COLOR : LIGHT_THEME_COLOR);
+}
+
+function resolvedThemeFromDocument(): ResolvedTheme {
+  if (typeof document === "undefined") return "light";
+  if (document.documentElement.classList.contains("dark")) return "dark";
+  if (document.documentElement.classList.contains("light")) return "light";
+  return systemTheme();
+}
+
+/** 活动封面只覆盖浏览器 theme-color 提示；Apple 状态栏采用 index.html 的静态全局配置。 */
+export function setActivityCoverThemeColor(active: boolean) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (active) root.dataset.activityCover = "true";
+  else delete root.dataset.activityCover;
+  updateThemeColor(resolvedThemeFromDocument());
 }
 
 /** 在 React 首屏前同步根节点主题，并让独立 PWA 的系统栏跟随实际明暗背景。 */

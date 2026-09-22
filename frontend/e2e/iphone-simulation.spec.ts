@@ -123,17 +123,36 @@ test("iPhone WebKit 模拟在线工作台、附件交互和移动布局", async 
   const activityId = await createActivity(page, activityName);
   const navigation = page.getByRole("navigation", { name: "活动导航" });
   await expect(navigation.getByRole("link")).toHaveText(["流水", "结算"]);
-  await assertActivityChrome(page, { themeColor: "#f6f8f7", backgroundColor: "rgb(246, 248, 247)", translucentHeader: false });
+  await assertActivityChrome(page, { themeColor: "#24342f", backgroundColor: "rgb(246, 248, 247)", translucentHeader: false });
   await page.evaluate(() => localStorage.setItem("huddletab-theme", "dark"));
   await page.reload();
   await expect(page.getByRole("heading", { name: activityName, exact: true })).toBeVisible();
-  await assertActivityChrome(page, { themeColor: "#0d1512", backgroundColor: "rgb(13, 21, 18)", translucentHeader: false });
+  await assertActivityChrome(page, { themeColor: "#24342f", backgroundColor: "rgb(13, 21, 18)", translucentHeader: false });
   await page.evaluate(() => localStorage.setItem("huddletab-theme", "light"));
   await page.reload();
   await expect(page.getByRole("heading", { name: activityName, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "记一笔", exact: true })).toBeVisible();
   await setSafeAreaVariables(page, { top: 47, right: 13, bottom: 34, left: 11 });
   await expect(page.locator(".workspace-header")).toHaveCSS("padding-top", "47px");
+  const coverChrome = await page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>(".workspace-header")!.getBoundingClientRect();
+    const cover = document.querySelector<HTMLElement>(".workspace-header__cover")!.getBoundingClientRect();
+    const nav = document.querySelector<HTMLElement>(".workspace-nav")!.getBoundingClientRect();
+    return {
+      headerHeight: header.height,
+      headerBottom: header.bottom,
+      coverTop: cover.top,
+      coverBottom: cover.bottom,
+      navBottom: nav.bottom,
+      themeColor: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content,
+    };
+  });
+  expect(coverChrome.headerHeight).toBeGreaterThanOrEqual(240);
+  expect(coverChrome.headerHeight).toBeLessThanOrEqual(280);
+  expect(coverChrome.coverTop).toBeLessThanOrEqual(0);
+  expect(coverChrome.coverBottom).toBeGreaterThanOrEqual(coverChrome.headerBottom - 1);
+  expect(coverChrome.navBottom).toBeCloseTo(coverChrome.headerBottom, 0);
+  expect(coverChrome.themeColor).toBe("#24342f");
   const portraitChrome = await page.evaluate(() => {
     const headerButton = document.querySelector<HTMLElement>(".workspace-header .back-link")!.getBoundingClientRect();
     const headerArrow = document.querySelector<SVGElement>(".workspace-header .back-link svg")!.getBoundingClientRect();
@@ -275,6 +294,7 @@ test("生产页面锁定 viewport，并声明 standalone、图标和 Apple touch
     "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
   );
   await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute("content", "yes");
+  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "black-translucent");
   await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute("content", "伙记");
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon.png");
   const navigation = page.getByRole("navigation", { name: "主导航" });

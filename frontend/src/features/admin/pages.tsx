@@ -2,6 +2,7 @@ import { ArrowLeft, Bot, ChevronRight, Database, HardDrive, KeyRound, Plus, Sett
 import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiRequestError, errorMessage } from "../../api/error";
+import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
 import { MemberAvatar } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Button, ErrorNotice, Input, LoadingState } from "../../components/ui";
@@ -163,6 +164,21 @@ function AiExpenseSettingsCard({ userId, online }: { userId: string; online: boo
   const [clearApiKey, setClearApiKey] = useState(false);
   const [error, setError] = useState<unknown>();
   const [versionConflict, setVersionConflict] = useState(false);
+
+  const hasDraft = Boolean(settings.data && (
+    enabled !== settings.data.enabled
+    || baseUrl !== (settings.data.baseUrl ?? "")
+    || JSON.stringify(models) !== JSON.stringify(settings.data.models.map((model) => ({ name: model.name, supportsImage: model.supportsImage })))
+    || defaultModel !== (settings.data.defaultModel ?? "")
+    || timeoutSeconds !== String(settings.data.timeoutSeconds)
+    || imageEnabled !== settings.data.imageEnabled
+    || maxImageBytes !== String(settings.data.maxImageBytes / (1024 * 1024))
+    || jsonMode !== settings.data.jsonMode
+    || apiKey.trim().length > 0
+    || clearApiKey
+  ));
+  // AI 设置是独立路由表单；成功保存后查询刷新，基线更新即可释放保护。
+  usePwaUpdateBlock(online && (hasDraft || update.isPending));
 
   useEffect(() => {
     if (!settings.data) return;

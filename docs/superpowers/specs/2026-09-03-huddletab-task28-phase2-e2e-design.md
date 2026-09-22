@@ -22,7 +22,7 @@ REJECTED 行复用现有记账 Sheet，载入完整原始字段和待上传图�
 
 ## PWA 更新闸门
 
-`PwaUpdatePrompt` 监听既有队列变化事件，读取当前用户两个 object store 的状态。只要 Mutation 或 Attachment 存在 `PENDING`、`SYNCING`、`RETRYABLE` 或 `REJECTED`，沿用 v0.0.2 文案“有新版本可用，完成同步后更新”并禁用刷新。点击刷新前再次读取 IndexedDB；仅全部为空或 `SYNCED` 时调用现有 Service Worker 激活入口。Service Worker 不执行任何业务写入。
+`PwaUpdatePrompt` 监听既有队列变化、联网与页面可见性事件，读取当前用户两个 object store 的状态。只要 Mutation 或 Attachment 存在 `PENDING`、`SYNCING`、`RETRYABLE` 或 `REJECTED`，显示单行文案“有新版本可用，完成同步后将自动更新。”并等待后续事件；仅全部为空或 `SYNCED` 且应用级编辑锁已释放时自动调用现有 Service Worker 激活入口。Service Worker 不执行任何业务写入。
 
 ## UI 与验收
 

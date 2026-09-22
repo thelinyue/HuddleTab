@@ -1,6 +1,7 @@
 import { ArrowLeft, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
 
+import { usePwaUpdateBlock } from "../app/pwa-update-safety";
 import { useSheetDrag } from "./gesture-sheet";
 
 export type OverlayProps = {
@@ -42,6 +43,7 @@ export function Overlay({
   const { present, sheetRef, overlayStyle, requestClose, headerProps, style: sheetStyle } = useSheetDrag({ open, onClose, canClose: onBeforeClose, mobileSheet });
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
+  usePwaUpdateBlock(present);
 
   useEffect(() => {
     if (!present) return;

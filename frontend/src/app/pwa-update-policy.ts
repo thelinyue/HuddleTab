@@ -13,6 +13,6 @@ export function canActivatePwaUpdate(input: {
     ...input.attachmentStatuses,
   ].some((status) => status !== "SYNCED");
   return unfinished
-    ? { allowed: false as const, message: "有新版本可用，完成同步后更新" }
+    ? { allowed: false as const, message: "有新版本可用，完成同步后将自动更新。" }
     : { allowed: true as const };
 }

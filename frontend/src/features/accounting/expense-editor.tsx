@@ -2,6 +2,7 @@ import { ArrowLeft, Check, ChevronRight, ImagePlus, Info, Minus, Plus, Trash2 } 
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
+import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
 import { MemberAvatar } from "../../components/member-avatar";
 import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, ErrorNotice, Field, Input, LoadingState, Money, Textarea } from "../../components/ui";
@@ -76,6 +77,8 @@ type ExpenseEditorProps = {
 
 function RoutedExpenseEditor(props: ExpenseEditorProps) {
   const [view, setView] = useState<QuickExpenseView>("entry");
+  // 独立路由编辑器卸载前都可能保留用户输入，离开路由后再允许新版接管页面。
+  usePwaUpdateBlock(true);
   const rootTitle = props.initial ? "修改账单" : props.rejected ? "修改被拒账单" : "记一笔";
   const title = view === "entry" ? rootTitle : quickExpenseViewTitle(view);
   return (

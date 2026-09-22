@@ -80,6 +80,12 @@ type ExpandedChoice = "baseCurrency" | "inviteMode" | null;
 
 type ManagementConfirmation = { kind: "lifecycle"; action: string } | { kind: "delete" } | null;
 
+/** 封面子视图只在点击保存时提交草稿，避免选择缩略图时提前改变活动资料。 */
+type CoverDraft =
+  | { kind: "preset"; preset: ActivityCoverPreset }
+  | { kind: "upload"; file: File; preview: string }
+  | null;
+
 /**
  * 活动管理根视图保持可扫描的设置列表；资料仍然直接编辑，复杂操作切换到同一 Sheet 的子视图。
  * 每次资料更新只提交一个字段和 version，避免覆盖其他成员的并发修改。
@@ -92,6 +98,7 @@ export function MorePage({
   onViewChange,
   transferTriggerRef,
   auditTriggerRef,
+  coverTriggerRef,
 }: {
   onClose: () => void;
   closeAfterSave?: boolean;
@@ -100,6 +107,7 @@ export function MorePage({
   onViewChange?: (view: ActivityManagementView) => void;
   transferTriggerRef?: RefObject<HTMLButtonElement | null>;
   auditTriggerRef?: RefObject<HTMLButtonElement | null>;
+  coverTriggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const { session, activity, offline } = useWorkspace();
   const update = useUpdateActivityMutation(session.userId, activity.activityId);
@@ -133,9 +141,7 @@ export function MorePage({
   const [exportError, setExportError] = useState<unknown>();
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<unknown>();
-  const [coverPreset, setCoverPreset] = useState<ActivityCoverPreset>(() => (activity.coverPreset ?? 12) as ActivityCoverPreset);
-  const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverDraft, setCoverDraft] = useState<CoverDraft>(null);
   const [coverError, setCoverError] = useState<unknown>();
   const transferPanelRef = useRef<HTMLElement | null>(null);
   const members = useMembersQuery(session.userId, activity.activityId, view === "transfer");
@@ -164,26 +170,52 @@ export function MorePage({
 
   useEffect(() => {
     if (view !== "cover") return;
-    setCoverPreset((activity.coverPreset ?? 12) as ActivityCoverPreset);
-    setCoverFile(null);
-    setCoverPreview(null);
+    setCoverDraft(null);
     setCoverError(undefined);
-  }, [activity.coverPreset, view]);
+  }, [activity.coverImageId, activity.coverPreset, view]);
+
+  useEffect(() => {
+    if (view === "cover") return;
+    setCoverDraft(null);
+    setCoverError(undefined);
+  }, [view]);
 
   useEffect(() => () => {
-    if (coverPreview) URL.revokeObjectURL(coverPreview);
-  }, [coverPreview]);
+    if (coverDraft?.kind === "upload") URL.revokeObjectURL(coverDraft.preview);
+  }, [coverDraft]);
+
+  const currentCoverPreset = (activity.coverPreset ?? 12) as ActivityCoverPreset;
+  const coverBusy = updateCover.isPending || uploadCover.isPending;
+
+  function selectCoverPreset(preset: ActivityCoverPreset) {
+    setCoverError(undefined);
+    if (!activity.coverImageId && preset === currentCoverPreset) {
+      setCoverDraft(null);
+      return;
+    }
+    setCoverDraft({ kind: "preset", preset });
+  }
+
+  function selectCoverFile(file: File | null) {
+    setCoverError(undefined);
+    setCoverDraft(file ? { kind: "upload", file, preview: URL.createObjectURL(file) } : null);
+  }
+
+  function cancelCover() {
+    setCoverDraft(null);
+    setCoverError(undefined);
+    onViewChange?.("root");
+  }
 
   async function saveCover() {
-    if (!canEdit("cover") || actionBusy) return;
+    if (!canEdit("cover") || !coverDraft || actionBusy) return;
     setCoverError(undefined);
     try {
-      const result = coverFile
-        ? await uploadCover.mutateAsync({ version, file: coverFile })
-        : await updateCover.mutateAsync({ version, coverPreset });
+      const result = coverDraft.kind === "upload"
+        ? await uploadCover.mutateAsync({ version, file: coverDraft.file })
+        : await updateCover.mutateAsync({ version, coverPreset: coverDraft.preset });
       setVersion(result.version);
-      setCoverFile(null);
-      setCoverPreview(null);
+      setCoverDraft(null);
       onViewChange?.("root");
     } catch (reason) {
       setCoverError(reason);
@@ -375,10 +407,32 @@ export function MorePage({
       ))}
       {view === "cover" ? <section className="management-subview management-cover-subview" aria-labelledby="activity-cover-heading">
         <div className="management-subview__intro"><h3 id="activity-cover-heading">选择活动封面</h3><p>保存后会同步到活动列表和工作台页头。</p></div>
-        <div className="management-cover-preview">{coverPreview ? <img src={coverPreview} alt="自定义封面预览" /> : <ActivityCover activityId={activity.activityId} coverPreset={coverPreset} coverImageId={activity.coverImageId} alt="当前活动封面" />}</div>
-        <div className="activity-cover-picker" role="group" aria-label="活动封面选项">{ACTIVITY_COVER_GROUPS.map((group) => <div key={group.label}><small>{group.label}</small><div className="activity-cover-picker__grid">{group.presets.map((preset) => <button key={preset} type="button" className={coverPreset === preset && !coverFile ? "is-selected" : ""} aria-label={ACTIVITY_COVER_LABELS[preset]} aria-pressed={coverPreset === preset && !coverFile} onClick={() => { setCoverPreset(preset); setCoverFile(null); setCoverPreview(null); }}><img src={activityCoverPresetPath(preset)} alt="" width={80} height={60} /></button>)}</div></div>)}<label className="activity-cover-upload"><span>上传自定义封面</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0] ?? null; setCoverFile(file); setCoverPreview(file ? URL.createObjectURL(file) : null); }} /></label></div>
+        <div className="management-cover-preview">
+          {coverDraft?.kind === "upload"
+            ? <img src={coverDraft.preview} alt="自定义封面预览" />
+            : coverDraft?.kind === "preset"
+              ? <img src={activityCoverPresetPath(coverDraft.preset)} alt="活动封面预览" />
+              : <ActivityCover activityId={activity.activityId} coverPreset={currentCoverPreset} coverImageId={activity.coverImageId} alt="当前活动封面" />}
+        </div>
+        <div className="activity-cover-picker" role="group" aria-label="活动封面选项">
+          {ACTIVITY_COVER_GROUPS.map((group) => <div key={group.label}>
+            <small>{group.label}</small>
+            <div className="activity-cover-picker__grid">
+              {group.presets.map((preset) => {
+                const selected = coverDraft?.kind === "preset"
+                  ? coverDraft.preset === preset
+                  : !activity.coverImageId && currentCoverPreset === preset;
+                return <button key={preset} type="button" className={selected ? "is-selected" : ""} aria-label={ACTIVITY_COVER_LABELS[preset]} aria-pressed={selected} disabled={actionBusy} onClick={() => selectCoverPreset(preset)}><img src={activityCoverPresetPath(preset)} alt="" width={80} height={60} /></button>;
+              })}
+            </div>
+          </div>)}
+          <label className={`activity-cover-upload${coverDraft?.kind === "upload" ? " is-selected" : ""}`} aria-disabled={actionBusy}>
+            <span>{coverDraft?.kind === "upload" ? "已选择自定义封面" : "上传自定义封面"}</span>
+            <input aria-label="上传自定义封面" type="file" accept="image/jpeg,image/png,image/webp" disabled={actionBusy} onChange={(event: ChangeEvent<HTMLInputElement>) => selectCoverFile(event.target.files?.[0] ?? null)} />
+          </label>
+        </div>
         {coverError || updateCover.error || uploadCover.error ? <ErrorNotice error={coverError ?? updateCover.error ?? uploadCover.error} /> : null}
-        <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => onViewChange?.("root")}>取消</Button><Button type="button" busy={updateCover.isPending || uploadCover.isPending} disabled={offline || actionBusy} onClick={() => void saveCover()}>保存封面</Button></div>
+        <div className="management-cover-action-dock"><Button variant="secondary" type="button" disabled={actionBusy} onClick={cancelCover}>取消</Button><Button type="button" busy={coverBusy} aria-busy={coverBusy} disabled={offline || !coverDraft || actionBusy} onClick={() => void saveCover()}>保存封面</Button></div>
       </section> : view === "transfer" ? <section ref={transferPanelRef} className="management-subview" aria-labelledby="activity-transfer-heading" tabIndex={-1}>
         <div className="management-subview__intro">
           <h3 id="activity-transfer-heading">选择新的活动所有者</h3>
@@ -392,7 +446,7 @@ export function MorePage({
         <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => onViewChange?.("root")}>取消</Button><Button type="button" busy={transfer.isPending} disabled={!memberId || actionBusy} onClick={() => void confirmTransfer()}>确认转让</Button></div>
       </section> : view === "audit" ? <section className="management-subview management-subview--audit" aria-label="活动记录"><ActivityAuditPanel userId={session.userId} activityId={activity.activityId} offline={offline} /></section> : <section aria-label="活动设置">
           <div className="management-list" role="list">
-            {!offline && activity.currentMemberRole === "OWNER" ? <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy || !activity.fieldPermissions.cover} onClick={() => onViewChange?.("cover")}><Pencil aria-hidden="true" size={19} /><span><strong>封面</strong><small>选择默认主题或上传自定义图片</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div> : null}
+            {!offline && activity.currentMemberRole === "OWNER" ? <div className="management-action-item" role="listitem"><button ref={coverTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy || !activity.fieldPermissions.cover} onClick={() => onViewChange?.("cover")}><Pencil aria-hidden="true" size={19} /><span><strong>封面</strong><small>选择默认主题或上传自定义图片</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div> : null}
             <div className="management-field" role="listitem">
               <div className="management-field__heading"><Pencil aria-hidden="true" size={17} /><span><strong>活动名称</strong></span></div>
               {canEdit("name") ? <div className="management-field__control"><Input aria-label="活动名称" value={draft.name} disabled={editingBusy} required maxLength={120} onChange={(event) => setDraftValue("name", event.target.value)} onBlur={(event) => void saveField("name", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("name")}</div> : <span className="management-field__readonly">{activity.name}</span>}
@@ -468,12 +522,14 @@ export function ActivityManagementOverlay({ onClose }: { onClose: () => void }) 
   const [view, setView] = useState<ActivityManagementView>("root");
   const transferTriggerRef = useRef<HTMLButtonElement | null>(null);
   const auditTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const coverTriggerRef = useRef<HTMLButtonElement | null>(null);
   const previousView = useRef<ActivityManagementView>("root");
 
   useEffect(() => {
     if (view === "root") {
       if (previousView.current === "transfer") transferTriggerRef.current?.focus();
       if (previousView.current === "audit") auditTriggerRef.current?.focus();
+      if (previousView.current === "cover") coverTriggerRef.current?.focus();
     }
     previousView.current = view;
   }, [view]);
@@ -509,6 +565,7 @@ export function ActivityManagementOverlay({ onClose }: { onClose: () => void }) 
         onViewChange={setView}
         transferTriggerRef={transferTriggerRef}
         auditTriggerRef={auditTriggerRef}
+        coverTriggerRef={coverTriggerRef}
       />
     </Overlay>
   );
