@@ -1,12 +1,14 @@
 import { AccountingSkeleton } from "../accounting/skeleton";
-import { ArrowLeft, MoreHorizontal, UsersRound } from "lucide-react";
-import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useLayoutEffect, useRef } from "react";
+import { ArrowLeft, MoreHorizontal } from "lucide-react";
+import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { Popover } from "radix-ui";
 import { Link, Outlet, useLocation, useMatch, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { ErrorNotice } from "../../components/ui";
 import { ActivityCover } from "../../components/activity-cover";
+import { MemberAvatar } from "../../components/member-avatar";
 import { setActivityCoverThemeColor } from "../../components/theme-provider";
-import { useActivityQuery, useMembersQuery } from "./api";
+import { type ActivityMember, useActivityQuery, useMembersQuery } from "./api";
 import { useSessionQuery } from "../auth/api";
 import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
 import { WorkspaceContext } from "./workspace-context";
@@ -118,12 +120,88 @@ function isDefinitiveActivityError(error: unknown): error is ApiRequestError {
   return error instanceof ApiRequestError && error.status >= 400 && error.status < 500;
 }
 
+const ACTIVITY_MEMBER_AVATAR_SIZE = 38;
+const ACTIVITY_MEMBER_STACK_OVERLAP = 12;
+const ACTIVITY_MEMBER_STACK_HORIZONTAL_PADDING = 12;
+
+/** 根据头像堆叠实际可用宽度计算可见数量；隐藏成员时预留一个头像槽位给 +N。 */
+export function visibleActivityMemberCount(memberCount: number, availableWidth: number): number {
+  if (memberCount <= 0) return 0;
+  const contentWidth = Math.max(0, availableWidth - ACTIVITY_MEMBER_STACK_HORIZONTAL_PADDING);
+  const step = ACTIVITY_MEMBER_AVATAR_SIZE - ACTIVITY_MEMBER_STACK_OVERLAP;
+  const allMembersWidth = ACTIVITY_MEMBER_AVATAR_SIZE + Math.max(0, memberCount - 1) * step;
+  if (allMembersWidth <= contentWidth) return memberCount;
+  const visibleWithOverflow = Math.floor((contentWidth - ACTIVITY_MEMBER_AVATAR_SIZE) / step);
+  return Math.min(memberCount, Math.max(1, visibleWithOverflow));
+}
+
+/**
+ * 活动页把成员入口收敛为导航附近的头像堆叠，保留整组头像作为一个可点击入口。
+ * 头像只负责视觉识别，链接的 aria-label 和 title 继续明确告知成员数量；鼠标按下不抢焦点，
+ * 避免浏览器把收起状态下经过位移的链接滚回它的原始布局位置，键盘仍可正常聚焦和激活。
+ */
+function ActivityMemberStack({ activityId, tab, members }: { activityId: string; tab: ActivityTab; members: readonly ActivityMember[] }) {
+  const stackRef = useRef<HTMLAnchorElement>(null);
+  const [visibleMemberCount, setVisibleMemberCount] = useState(members.length);
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    if (!stack) return;
+    const updateVisibleMemberCount = () => {
+      // jsdom 没有布局宽度时保留首屏全量渲染，真实浏览器由 ResizeObserver 立即测量。
+      if (!stack.clientWidth) return;
+      const nextCount = visibleActivityMemberCount(members.length, stack.clientWidth);
+      setVisibleMemberCount((current) => current === nextCount ? current : nextCount);
+    };
+    const resize = new ResizeObserver(updateVisibleMemberCount);
+    resize.observe(stack);
+    updateVisibleMemberCount();
+    return () => resize.disconnect();
+  }, [members.length]);
+
+  const visibleMembers = members.slice(0, visibleMemberCount);
+  const hiddenCount = Math.max(0, members.length - visibleMembers.length);
+  return <Link ref={stackRef} className="workspace-header__members-stack" to={tabUrl(activityId, tab, "members")} aria-label={`成员 ${members.length}`} title={`成员 ${members.length}`} onMouseDown={(event) => event.preventDefault()}>
+    <span className="workspace-header__members-stack-list" aria-hidden="true">
+      {visibleMembers.map(member => <span className="workspace-header__members-stack-item" key={member.memberId}><MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} size="sm" decorative /></span>)}
+      {hiddenCount ? <span className="workspace-header__members-stack-overflow">+{hiddenCount}</span> : null}
+  </span>
+  </Link>;
+}
+
+/**
+ * 页头更多操作只承载活动级入口，不把统计混入流水标题栏；菜单用纯文字保持轻量，关闭后仍由 Popover 将焦点还给触发按钮。
+ * 统计入口把当前主页面写入路由 state，独立统计页才能在返回时恢复正确的流水或结算上下文。
+ */
+function ActivityActionsMenu({ activityId, tab }: { activityId: string; tab: ActivityTab }) {
+  const [open, setOpen] = useState(false);
+  const statisticsState = { activityStatisticsFromWorkspace: true, activityStatisticsFromTab: tab };
+  const closeMenu = () => setOpen(false);
+
+  return <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Trigger asChild>
+      <button className="icon-button" type="button" aria-label="更多操作" title="更多操作"><MoreHorizontal aria-hidden="true" size={21} /></button>
+    </Popover.Trigger>
+    <Popover.Portal>
+      <Popover.Content className="activity-actions-popover" side="bottom" align="end" sideOffset={8}>
+        <nav className="activity-actions-popover__list" aria-label="活动操作">
+          <Link className="activity-actions-popover__item" to={`/activities/${encodeURIComponent(activityId)}/statistics`} state={statisticsState} onClick={closeMenu}>
+            <span>活动统计</span>
+          </Link>
+          <Link className="activity-actions-popover__item" to={tabUrl(activityId, tab, "manage")} onClick={closeMenu}>
+            <span>活动管理</span>
+          </Link>
+        </nav>
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>;
+}
+
 /**
  * 页头保留展开时的文档占位，只裁剪表面、移动导航，避免改变高度触发滚动锚定。
  * 封面会把额外海报高度和元信息一起收起，直接跟随实际收起距离的滚动进度；窗口监听不捕获 Sheet 内部滚动，
  * DOM 更新按帧合并，不让整个工作台随每个滚动事件重新渲染。
  */
-function WorkspaceHeader({ children, busy = false, withCover = false }: { children: ReactNode; busy?: boolean; withCover?: boolean }) {
+function WorkspaceHeader({ children, busy = false, withCover = false, memberStackReady = false }: { children: ReactNode; busy?: boolean; withCover?: boolean; memberStackReady?: boolean }) {
   const ref = useRef<HTMLElement>(null);
   const location = useLocation();
   useLayoutEffect(() => {
@@ -131,6 +209,7 @@ function WorkspaceHeader({ children, busy = false, withCover = false }: { childr
     const metadata = header.querySelector<HTMLElement>(".workspace-header__metadata")!;
     const actions = header.querySelector<HTMLElement>(".workspace-header__actions")!;
     const nav = header.querySelector<HTMLElement>(".workspace-nav")!;
+    const memberStack = header.querySelector<HTMLElement>(".workspace-header__members-stack");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let frame = 0;
     let metadataHeight = metadata.getBoundingClientRect().height;
@@ -155,6 +234,8 @@ function WorkspaceHeader({ children, busy = false, withCover = false }: { childr
       const offset = progress * collapseDistance;
       header.style.clipPath = `inset(0 0 ${offset}px 0)`;
       nav.style.transform = `translateY(${-offset}px)`;
+      // 用实际 bottom 位移跟随胶囊，保持头像链接的命中框和视觉位置一致，避免点击前被浏览器滚回原布局位置。
+      if (memberStack) memberStack.style.setProperty("--workspace-header-member-offset", `${offset}px`);
       metadata.style.opacity = String(1 - progress);
       metadata.style.transform = reducedMotion.matches ? "none" : `translateY(${-8 * progress}px)`;
     };
@@ -174,7 +255,7 @@ function WorkspaceHeader({ children, busy = false, withCover = false }: { childr
       reducedMotion.removeEventListener("change", schedule);
       resize.disconnect();
     };
-  }, [location.key, busy, withCover]);
+  }, [location.key, busy, withCover, memberStackReady]);
   return <header ref={ref} className={`workspace-header${withCover ? " workspace-header--cover" : ""}`} aria-busy={busy || undefined}>{children}</header>;
 }
 
@@ -185,15 +266,18 @@ function WorkspaceHeader({ children, busy = false, withCover = false }: { childr
 function StandaloneDetailFrame({ activityId, children, pending = false, readOnly = false, title = "账单详情" }: { activityId: string; children: ReactNode; pending?: boolean; readOnly?: boolean; title?: string }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const state = location.state as { activityStatisticsFromFeed?: boolean; expenseDetailFromFeed?: boolean } | null;
-  const fromFeed = Boolean(state?.expenseDetailFromFeed || state?.activityStatisticsFromFeed);
+  const state = location.state as { activityStatisticsFromFeed?: boolean; activityStatisticsFromWorkspace?: boolean; activityStatisticsFromTab?: ActivityTab; expenseDetailFromFeed?: boolean } | null;
+  const statisticsReturnTab = state?.activityStatisticsFromTab === "settlement" ? "settlement" : "feed";
+  const fromWorkspace = Boolean(state?.expenseDetailFromFeed || state?.activityStatisticsFromFeed || state?.activityStatisticsFromWorkspace);
+  const backTab = title === "活动统计" ? statisticsReturnTab : "feed";
+  const backLabel = backTab === "settlement" ? "结算" : "流水";
   const goBack = () => {
-    if (fromFeed) navigate(-1);
-    else navigate(tabUrl(activityId, "feed"));
+    if (fromWorkspace) navigate(-1);
+    else navigate(tabUrl(activityId, backTab));
   };
   return <section className="standalone-detail-shell">
     <header className="standalone-detail-header">
-      <button className="standalone-detail-header__back" type="button" aria-label="返回流水" onClick={goBack}><ArrowLeft aria-hidden="true" size={18} /><span>流水</span></button>
+      <button className="standalone-detail-header__back" type="button" aria-label={`返回${backLabel}`} onClick={goBack}><ArrowLeft aria-hidden="true" size={18} /><span>{backLabel}</span></button>
       <h1>{title}</h1>
       {readOnly ? <span className="standalone-detail-header__status">只读</span> : pending ? <span className="standalone-detail-header__status standalone-detail-header__status--placeholder" aria-hidden="true" /> : <span aria-hidden="true" />}
     </header>
@@ -246,19 +330,17 @@ export function ActivityWorkspace() {
   return (
       <WorkspaceContext.Provider value={{ session: session.data, activity: activityData, members: membersData, offline: !online, snapshot: snapshot.data }}>
       {standalone ? <StandaloneDetailFrame activityId={activityId} title={standaloneTitle} readOnly={standaloneReadOnly}><Outlet /></StandaloneDetailFrame> : <section className="workspace">
-        <WorkspaceHeader withCover>
+        <WorkspaceHeader withCover memberStackReady={membersData.length > 0}>
           <ActivityCover className="workspace-header__cover" activityId={activityData.activityId} coverPreset={activityData.coverPreset} coverImageId={activityData.coverImageId} alt="" loading="eager" />
           <div className="workspace-header__actions">
             <Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft aria-hidden="true" size={20} /></Link>
             <div className="workspace-header__identity"><h1 title={activityData.name}>{activityData.name}</h1></div>
-            <Link className="workspace-header__members" to={tabUrl(activityId, tab, "members")}>
-              <UsersRound aria-hidden="true" size={17} /> 成员 {membersData.length}
-            </Link>
-            <Link className="icon-button" to={tabUrl(activityId, tab, "manage")} aria-label="活动管理" title="活动管理"><MoreHorizontal aria-hidden="true" size={21} /></Link>
+            <ActivityActionsMenu activityId={activityId} tab={tab} />
           </div>
           <div className="workspace-header__metadata">
             <p>{activityPeriodLabel(activityData) ? `${activityPeriodLabel(activityData)} · ` : null}{activityStatus(activityData.status)}</p>
           </div>
+          {membersData.length ? <ActivityMemberStack activityId={activityId} tab={tab} members={membersData} /> : null}
           <nav className="workspace-nav" aria-label="活动导航">
             <Link className={tab === "feed" ? "active" : ""} aria-current={tab === "feed" ? "page" : undefined} to={tabUrl(activityId, "feed")}>流水</Link>
             <Link className={tab === "settlement" ? "active" : ""} aria-current={tab === "settlement" ? "page" : undefined} to={tabUrl(activityId, "settlement")}>结算</Link>

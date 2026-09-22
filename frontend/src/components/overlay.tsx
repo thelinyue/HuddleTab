@@ -49,7 +49,8 @@ export function Overlay({
     if (!present) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return () => {
-      if (previousFocus?.isConnected) previousFocus.focus();
+      // 页头中的入口可能随滚动发生位移，恢复焦点时禁止浏览器重新定位文档滚动。
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
   }, [present]);
 
@@ -65,7 +66,8 @@ export function Overlay({
       : sheet?.querySelector<HTMLElement>("[data-overlay-initial-focus]")
         ?? sheet?.querySelector<HTMLElement>("input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")
         ?? sheet?.querySelector<HTMLElement>(focusableSelector);
-    initialTarget?.focus();
+    // Sheet 自身已经是固定定位，聚焦内容不应改变背后的工作台滚动位置。
+    initialTarget?.focus({ preventScroll: true });
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {

@@ -68,7 +68,7 @@ test('流水与结算摘要：标题、金额、说明对齐且三种状态等�
   expect(await page.locator('.expense-date-group > h3').first().evaluate(element => {
     const range = document.createRange(); range.selectNodeContents(element);
     const text = range.getBoundingClientRect();
-    const filter = document.querySelector('.expense-feed-section > header > .button')!.getBoundingClientRect();
+    const filter = document.querySelector('.expense-feed-section__actions > .button')!.getBoundingClientRect();
     return text.right <= filter.left || text.top >= filter.bottom;
   })).toBe(true);
   const filter = page.getByRole('button', { name: '筛选', exact: true });
@@ -103,7 +103,7 @@ test('流水与结算摘要：标题、金额、说明对齐且三种状态等�
   await expect(page).toHaveURL(/\/share-summary\/demo$/);
 });
 
-test('活动统计：入口与金额对齐，分类、每日和成员统计在桌面与移动端完整可读', async ({ page }, info) => {
+test('活动统计：通过活动级更多操作进入，分类、每日和成员统计在桌面与移动端完整可读', async ({ page }, info) => {
   const control = await installFixture(page);
   control.expenses.push(
     { expense: { expenseId: 'e2', activityId: 'demo', title: '地铁与打车', note: '', baseAmountMinor: '16000', originalAmountMinor: '16000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'TRANSPORT', occurredAt: '2026-09-06T03:00:00Z', exchangeRate: '1', splitMode: 'EXACT', version: '1' }, payments: [{ memberId: 'm1', originalAmountMinor: '16000', baseAmountMinor: '16000' }], shares: [{ memberId: 'm0', originalAmountMinor: '4000', baseAmountMinor: '4000' }, { memberId: 'm1', originalAmountMinor: '12000', baseAmountMinor: '12000' }], attachments: [] },
@@ -112,12 +112,19 @@ test('活动统计：入口与金额对齐，分类、每日和成员统计在�
   await page.goto('/activities/demo');
 
   const share = page.getByRole('link', { name: '分享流水小票' });
-  const statistics = page.getByRole('link', { name: '活动统计' });
-  const amount = page.locator('.expense-summary .accounting-summary__value');
-  const [shareBox, statisticsBox, amountBox] = await Promise.all([share.boundingBox(), statistics.boundingBox(), amount.boundingBox()]);
-  expect(statisticsBox!.y).toBeGreaterThan(shareBox!.y);
-  expect(Math.abs((statisticsBox!.y + statisticsBox!.height / 2) - (amountBox!.y + amountBox!.height / 2))).toBeLessThanOrEqual(1);
+  const filter = page.getByRole('button', { name: '筛选', exact: true });
+  await expect(share).toBeVisible();
+  await expect(page.getByRole('link', { name: /活动统计/ })).toHaveCount(0);
+  const [filterBox, headerBox] = await Promise.all([
+    filter.boundingBox(),
+    page.locator('.expense-feed-section__header').boundingBox(),
+  ]);
+  expect(filterBox!.x + filterBox!.width).toBeGreaterThanOrEqual(headerBox!.x + headerBox!.width - 1);
 
+  await page.getByRole('button', { name: '更多操作' }).click();
+  const actions = page.getByRole('navigation', { name: '活动操作' });
+  await expect(actions).toBeVisible();
+  const statistics = actions.getByRole('link', { name: /活动统计/ });
   await statistics.click();
   await expect(page).toHaveURL('/activities/demo/statistics');
   await expect(page.getByRole('heading', { name: '活动统计' })).toBeVisible();
@@ -357,7 +364,8 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
   await members.getByRole('button', { name: /^关闭/ }).click();
   await expect(members).toHaveCount(0);
   expect((await headerGeometry(page)).navBottom).toBe(collapsed.navBottom);
-  await page.getByRole('link', { name: '活动管理', exact: true }).click();
+  await page.getByRole('button', { name: '更多操作' }).click();
+  await page.getByRole('navigation', { name: '活动操作' }).getByRole('link', { name: /活动管理/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: /^关闭/ }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -398,8 +406,16 @@ test('活动页头：长名称、大人数、深色安全区和放大字体无�
     expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); expect(box.y).toBeGreaterThanOrEqual(47);
   }
   const title = (await page.locator('.workspace-header h1').boundingBox())!;
-  const member = (await page.getByRole('link', { name: '成员 120', exact: true }).boundingBox())!;
-  expect(title.x + title.width).toBeLessThanOrEqual(member.x);
+  const memberLink = page.getByRole('link', { name: '成员 120', exact: true });
+  const member = (await memberLink.boundingBox())!;
+  const visibleMemberCount = await memberLink.locator('.workspace-header__members-stack-item').count();
+  expect(visibleMemberCount).toBeGreaterThan(0);
+  expect(visibleMemberCount).toBeLessThan(120);
+  await expect(memberLink.locator('.workspace-header__members-stack-overflow')).toHaveText(`+${120 - visibleMemberCount}`);
+  const navigation = (await page.locator('.workspace-nav').boundingBox())!;
+  expect(Math.abs((member.x + member.width / 2) - (navigation.x + navigation.width / 2))).toBeLessThanOrEqual(1);
+  expect(member.y).toBeGreaterThanOrEqual(47);
+  expect(member.y + member.height).toBeLessThanOrEqual(navigation.y + 1);
   const back = (await page.getByRole('link', { name: '返回活动列表' }).boundingBox())!;
   expect(title.x).toBeGreaterThanOrEqual(back.x + back.width);
   await page.screenshot({ path: info.outputPath('header-dark-safe-area.png') });

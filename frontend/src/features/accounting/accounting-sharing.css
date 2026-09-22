@@ -98,12 +98,11 @@
 .settlement-page .balance-entry { margin-top: 0; }
 .balance-entry .is-expanded { transform: rotate(180deg); }
 .settlement-recommendation-item + .settlement-recommendation-item { border-top: 1px solid var(--border); }
-.settlement-section__heading { position: relative; align-items: baseline !important; min-height: 0 !important; margin-bottom: -2px; }
+.settlement-section__heading { align-items: center !important; min-height: 44px !important; }
 .settlement-section__heading h2 { margin: 0; }
-.settlement-strategy-heading { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
-/* 视觉上与“推荐转账”标题上缘对齐；相对定位不撑高标题行，伪元素继续提供 44px 触控范围。 */
-.settlement-strategy-trigger { position: relative; top: -2px; display: inline-flex; min-height: 22px; align-items: center; gap: 3px; border: 0; padding: 0; color: var(--primary); background: transparent; font-size: 12px; font-weight: 650; touch-action: manipulation; }
-.settlement-strategy-trigger::before { position: absolute; inset: 50% 0 auto; min-height: 44px; height: 100%; transform: translateY(-50%); content: ""; }
+.settlement-strategy-heading { display: flex; min-width: 0; flex: 1 1 auto; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+/* 标题和当前方案使用真实布局，窄屏换行时不再依赖负边距或相对定位补偿。 */
+.settlement-strategy-trigger { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; gap: 3px; border: 0; padding: 0; color: var(--primary); background: transparent; font-size: 12px; font-weight: 650; touch-action: manipulation; }
 .settlement-strategy-trigger:hover { color: var(--foreground); }
 .settlement-strategy-trigger:disabled { color: var(--muted-foreground); opacity: .65; cursor: not-allowed; }
 .settlement-strategy-trigger:active { transform: scale(.97); }
@@ -120,10 +119,13 @@
 .settlement-strategy-option em { border-radius: 999px; padding: 2px 6px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); font-size: 11px; font-style: normal; font-weight: 700; }
 .settlement-recommendation-trigger { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; border: 0; padding: 12px; background: var(--surface); color: var(--foreground); text-align: left; }
 button.settlement-recommendation-trigger:hover { background: var(--surface-muted); }
-.settlement-transfer { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; min-width: 0; }
-.settlement-transfer > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
-.settlement-transfer strong { font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
-.settlement-transfer > small { color: var(--muted-foreground); white-space: nowrap; }
+.settlement-recommendation-trigger > .money { white-space: nowrap; }
+.settlement-transfer { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 5px; }
+.settlement-transfer > span { display: inline-flex; min-width: 0; align-items: center; gap: 5px; }
+.settlement-transfer > span:last-child { justify-content: flex-start; }
+.settlement-transfer strong { display: -webkit-box; min-width: 0; overflow-wrap: anywhere; overflow: hidden; font-size: 14px; line-height: 1.3; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.settlement-transfer > small { display: inline-flex; width: 16px; align-items: center; justify-content: center; color: var(--muted-foreground); font-size: 0; line-height: 1; white-space: nowrap; }
+.settlement-transfer > small::before { font-size: 16px; content: "→"; }
 .settlement-inline-form { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); animation: settlement-reveal 140ms ease-out; }
 .settlement-allocation-picker { display: grid; gap: 10px; padding-top: 4px; }
 .settlement-allocation-picker > header { display: grid; gap: 2px; }

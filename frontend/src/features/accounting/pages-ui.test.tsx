@@ -269,14 +269,12 @@ describe("Expense 参考汇率", () => {
 describe("人均消费说明", () => {
   const message = "人均消费仅为统计平均值，不代表任何成员实际应承担金额。";
 
-  it("在分享流水小票下方提供活动统计入口", () => {
+  it("流水标题栏只保留右侧筛选入口", () => {
     renderPage(<ExpenseFeedPage />);
 
-    const share = screen.getByRole("link", { name: "分享流水小票" });
-    const statistics = screen.getByRole("link", { name: "活动统计" });
-    expect(statistics).toHaveAttribute("href", "/activities/activity-1/statistics");
-    expect(share.compareDocumentPosition(statistics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(statistics.parentElement).toHaveClass("expense-summary__value-row");
+    expect(screen.queryByRole("link", { name: /活动统计/ })).not.toBeInTheDocument();
+    const filter = screen.getByRole("button", { name: /^筛选$/ });
+    expect(filter.parentElement).toHaveClass("expense-feed-section__actions");
   });
 
   it("点击后显示完整说明，Escape 关闭并恢复触发器焦点", async () => {

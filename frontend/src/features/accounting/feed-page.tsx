@@ -1,5 +1,5 @@
 import { ApiRequestError } from "../../api/error";
-import { BarChart3, Filter, Image as ImageIcon, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
+import { Filter, Image as ImageIcon, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -146,10 +146,7 @@ export function ExpenseFeedPage() {
       <section className="expense-summary" aria-label="消费摘要">
         {/* 与结算摘要共用标题行，保证两个工作台页面的卡片视觉基准一致。 */}
         <header className="accounting-summary__header"><p>总消费</p><Link className="settlement-share-entry" to={`/share-feed/${encodeURIComponent(activity.activityId)}`}><ImageDown aria-hidden="true" size={17} />分享流水小票</Link></header>
-        <div className="expense-summary__value-row">
-          <div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div>
-          <Link className="settlement-share-entry activity-statistics-entry" to={`/activities/${encodeURIComponent(activity.activityId)}/statistics`} state={{ activityStatisticsFromFeed: true }}><BarChart3 aria-hidden="true" size={17} />活动统计</Link>
-        </div>
+        <div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div>
         {[...foreignTotals].length ? <p className="expense-summary__foreign">其中外币消费 {[...foreignTotals].map(([currencyCode, amount]) => formatMoney(currencyCode, amount.toString())).join(" · ")} · 已折算</p> : null}
         <p className="expense-summary__meta accounting-summary__meta">
           <span>{allExpenses.length} 笔消费 · 人均消费 <strong>{formatMoney(activity.baseCurrency, average.toString())}</strong></span>
@@ -170,7 +167,12 @@ export function ExpenseFeedPage() {
       </section>
 
       <section className="expense-feed-section" aria-labelledby="expense-feed-heading">
-        <header><h2 id="expense-feed-heading">全部流水</h2><Button variant="ghost" onClick={() => setFilterOpen(true)}><Filter aria-hidden="true" size={16} /> 筛选{query || category ? " · 已启用" : ""}</Button></header>
+        <header className="expense-feed-section__header">
+          <h2 id="expense-feed-heading">全部流水</h2>
+          <div className="expense-feed-section__actions">
+            <Button variant="ghost" onClick={() => setFilterOpen(true)}><Filter aria-hidden="true" size={16} /> 筛选{query || category ? " · 已启用" : ""}</Button>
+          </div>
+        </header>
         {pendingExpenses.error ? <ErrorNotice error={pendingExpenses.error} /> : null}
         {filteredPending.length ? (
           <section className="expense-date-group" aria-labelledby="pending-expenses-heading">

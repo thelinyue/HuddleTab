@@ -187,7 +187,7 @@ vi.mock("./api", async (importOriginal) => {
 });
 
 import { ActivitiesPage } from "./activities-page";
-import { ActivityWorkspace } from "./activity-workspace";
+import { ActivityWorkspace, visibleActivityMemberCount } from "./activity-workspace";
 import { MemberInvitationPanel } from "./members-panel";
 import { useWorkspace } from "./workspace-context";
 
@@ -1370,9 +1370,10 @@ describe("活动管理 Overlay", () => {
 
   it("关闭单层管理 Sheet 后仍将焦点还给页头触发器", async () => {
     renderWorkspace("/activities/activity-1");
-    const trigger = screen.getByRole("link", { name: "活动管理" });
+    const trigger = screen.getByRole("button", { name: "更多操作" });
     trigger.focus();
     fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("link", { name: /活动管理/ }));
     fireEvent.click(screen.getByRole("button", { name: "关闭活动管理" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "活动管理" })).not.toBeInTheDocument());
@@ -1507,10 +1508,35 @@ describe("活动管理 Overlay", () => {
     await waitFor(() => expect(activityApiState.remove.mutateAsync).toHaveBeenCalledWith("8"));
   });
 
+  it("按头像堆叠可用宽度动态计算可见成员数量", () => {
+    expect(visibleActivityMemberCount(4, 128)).toBe(4);
+    expect(visibleActivityMemberCount(120, 280)).toBe(8);
+    expect(visibleActivityMemberCount(120, 160)).toBe(4);
+  });
+
   it("主导航始终严格保持流水和结算两项", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
     expect(screen.getByRole("navigation", { name: "活动导航" }).querySelectorAll("a")).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: /^(流水|结算)$/ }).map((link) => link.textContent)).toEqual(["流水", "结算"]);
+    const members = screen.getByRole("link", { name: "成员 2" });
+    expect(members).toHaveClass("workspace-header__members-stack");
+    expect(members.querySelectorAll(".workspace-header__members-stack-item")).toHaveLength(2);
+  });
+
+  it("页头更多操作菜单提供活动统计和活动管理，并支持 Escape 恢复焦点", async () => {
+    renderWorkspace("/activities/activity-1");
+    const trigger = screen.getByRole("button", { name: "更多操作" });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const actions = screen.getByRole("navigation", { name: "活动操作" });
+    expect(within(actions).getByRole("link", { name: /活动统计/ })).toBeInTheDocument();
+    expect(within(actions).getByRole("link", { name: /活动管理/ })).toBeInTheDocument();
+    expect(actions.querySelectorAll("svg, small")).toHaveLength(0);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("navigation", { name: "活动操作" })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
   });
 });
 
@@ -1530,6 +1556,22 @@ describe("活动工作台访问边界", () => {
     expect(screen.getByText("测试活动统计内容")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "返回流水" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "活动导航" })).not.toBeInTheDocument();
+  });
+
+  it("从结算页打开活动统计后返回原来的结算页", () => {
+    render(<MemoryRouter initialEntries={["/activities/activity-1?tab=settlement"]}><Routes>
+      <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
+        <Route index element={<p>结算工作台</p>} />
+        <Route path="statistics" element={<p>统计内容</p>} />
+      </Route>
+    </Routes></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("link", { name: /活动统计/ }));
+    expect(screen.getByRole("button", { name: "返回结算" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "返回结算" }));
+    expect(screen.getByText("结算工作台")).toBeInTheDocument();
   });
 
   it.each(["ENDED", "ARCHIVED"])("%s 账单详情使用独立页面外壳并隐藏活动导航", (status) => {
