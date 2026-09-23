@@ -1,5 +1,8 @@
-import { ArrowRight, Bell, ChevronRight, Link as LinkIcon, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { ArrowRight, Bell, CalendarDays, ChevronDown, ChevronRight, Link as LinkIcon, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Popover } from "radix-ui";
+import { DayPicker } from "react-day-picker";
+import { zhCN } from "react-day-picker/locale";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { formatMoney } from "../../domain-preview/money";
 import {
@@ -34,6 +37,15 @@ import { PushPromptCard } from "../push/components";
 function localCalendarToday(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function dateFromIso(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function isoFromDate(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 /** 首页四种面板状态统一由 URL 驱动，便于系统返回和刷新后恢复可预测的入口层级。 */
@@ -210,6 +222,12 @@ export function ActivitiesPage() {
   const [baseCurrency, setBaseCurrency] = useState("CNY");
   const [startDate, setStartDate] = useState(localCalendarToday);
   const [endDate, setEndDate] = useState("");
+  const [dateOpen, setDateOpen] = useState(false);
+  const [dateStart, setDateStart] = useState(startDate);
+  const [dateEnd, setDateEnd] = useState(endDate);
+  const [dateStep, setDateStep] = useState<"start" | "end">("start");
+  const [dateMonth, setDateMonth] = useState(() => dateFromIso(startDate));
+  const datePickerHeadingRef = useRef<HTMLDivElement | null>(null);
   const [createError, setCreateError] = useState<unknown>();
   const [coverPreset, setCoverPreset] = useState<ActivityCoverPreset>(12);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -221,6 +239,32 @@ export function ActivitiesPage() {
   useEffect(() => () => {
     if (coverPreview) URL.revokeObjectURL(coverPreview);
   }, [coverPreview]);
+
+  useEffect(() => {
+    if (panel !== "create") setDateOpen(false);
+  }, [panel]);
+
+  function openDatePicker(open: boolean) {
+    if (open) {
+      setDateStart(startDate);
+      setDateEnd(endDate);
+      setDateStep("start");
+      setDateMonth(dateFromIso(startDate));
+    }
+    setDateOpen(open);
+  }
+
+  function selectDate(day: Date) {
+    const value = isoFromDate(day);
+    if (dateStep === "start") {
+      setDateStart(value);
+      setDateEnd("");
+      setDateStep("end");
+    } else {
+      setDateEnd(value);
+      setDateStep("start");
+    }
+  }
 
   function openPanel(nextPanel: ActivityPanel) {
     const next = new URLSearchParams(searchParams);
@@ -371,8 +415,22 @@ export function ActivitiesPage() {
           <Field label="活动名称"><Input data-overlay-initial-focus value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></Field>
           <Field label="地点（可选）"><Input value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} /></Field>
           <Field label="主币种"><Select value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="EUR">EUR 欧元</option><option value="JPY">JPY 日元</option></Select></Field>
-          <Field label="开始日期"><Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field>
-          <Field label="结束日期（可选）"><Input type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></Field>
+          <div className="field">
+            <span className="field__label" id="create-activity-date-label">活动日期</span>
+            <Popover.Root open={dateOpen} onOpenChange={openDatePicker} modal>
+              <Popover.Trigger asChild><button className="input activity-create-date-trigger" type="button" aria-labelledby="create-activity-date-label create-activity-date-value" disabled={create.isPending}>
+                <span id="create-activity-date-value"><CalendarDays aria-hidden="true" size={18} />{startDate}{endDate ? ` – ${endDate}` : " 起"}</span><ChevronDown aria-hidden="true" size={17} />
+              </button></Popover.Trigger>
+              <Popover.Portal><Popover.Content className="management-date-popover" side="bottom" align="end" sideOffset={8} collisionPadding={12} onOpenAutoFocus={(event) => { event.preventDefault(); datePickerHeadingRef.current?.focus({ preventScroll: true }); }} onKeyDownCapture={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); openDatePicker(false); } }}>
+                <div ref={datePickerHeadingRef} className="management-date-popover__heading" tabIndex={-1}>选择活动日期</div>
+                <div className="management-date-popover__range" aria-live="polite">
+                  <span>开始日期 <strong>{dateStart}</strong></span><span>结束日期 <strong>{dateEnd || "未设置"}</strong></span>
+                </div>
+                <DayPicker mode="range" locale={zhCN} month={dateMonth} onMonthChange={setDateMonth} selected={{ from: dateFromIso(dateStart), to: dateEnd ? dateFromIso(dateEnd) : undefined }} onDayClick={selectDate} disabled={dateStep === "end" ? { before: dateFromIso(dateStart) } : undefined} />
+                <div className="management-date-popover__actions"><Button variant="ghost" type="button" disabled={!dateEnd} onClick={() => setDateEnd("")}>清除结束日期</Button><Button variant="secondary" type="button" onClick={() => openDatePicker(false)}>取消</Button><Button type="button" disabled={!dateStart || (Boolean(dateEnd) && dateEnd < dateStart)} onClick={() => { setStartDate(dateStart); setEndDate(dateEnd); setDateOpen(false); }}>保存</Button></div>
+              </Popover.Content></Popover.Portal>
+            </Popover.Root>
+          </div>
           {createError ?? create.error ? <ErrorNotice error={createError ?? create.error} /> : null}
           {coverUploadRetry ? <Button type="button" variant="secondary" busy={coverRetrying} disabled={coverRetrying} onClick={async () => { if (coverRetrying) return; setCoverRetrying(true); try { await uploadActivityCover(coverUploadRetry.activityId, coverUploadRetry.version, coverUploadRetry.file); await invalidateCoverQueries(coverUploadRetry.activityId); setCoverUploadRetry(null); setCreateError(undefined); setCoverFile(null); setCoverPreview(null); setCoverPreset(12); setCoverRetrying(false); closePanel(); } catch { setCoverRetrying(false); setCreateError(new Error("封面上传仍未成功，请稍后重试。")); } }}>重试上传封面</Button> : null}
           <Button type="submit" busy={create.isPending} disabled={Boolean(coverUploadRetry)}>创建活动</Button>

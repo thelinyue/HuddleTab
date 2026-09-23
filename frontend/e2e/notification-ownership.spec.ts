@@ -6,7 +6,8 @@ type JoinedUser = { context: BrowserContext; page: Page; displayName: string };
 async function issueLinkInvitation(page: Page): Promise<string> {
   await page.getByRole("link", { name: /成员 \d+/ }).click();
   const members = page.getByRole("dialog", { name: "成员" });
-  await members.getByRole("button", { name: "邀请成员" }).click();
+  await members.getByRole("button", { name: "邀请" }).click();
+  await page.getByRole("menuitem", { name: "邀请成员" }).click();
   const invitation = page.getByRole("dialog", { name: "邀请成员" });
   await invitation.getByRole("button", { name: "生成链接邀请" }).click();
   const invitationUrl = await invitation.getByRole("link", { name: "邀请链接，可左右滑动查看完整地址" }).getAttribute("href");
@@ -157,10 +158,38 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
       await page.goto(`/activities/${activityId}?panel=manage`);
       const management = page.locator(".activity-management-overlay").getByRole("dialog");
       await management.getByRole("button", { name: /^转让所有权/ }).click();
+      const confirmTransfer = management.getByRole("button", { name: "确认转让" });
+      async function assertMobileTransferActions(enabled: boolean) {
+        if (!testInfo.project.name.endsWith("-mobile")) return;
+        const originalViewport = page.viewportSize()!;
+        for (const width of [320, 390]) {
+          await page.setViewportSize({ width, height: originalViewport.height });
+          const layout = await management.locator(".management-expansion__actions").evaluate((actions) => {
+            const [cancel, confirm] = actions.querySelectorAll<HTMLButtonElement>("button");
+            const area = actions.getBoundingClientRect();
+            const left = cancel.getBoundingClientRect();
+            const right = confirm.getBoundingClientRect();
+            return {
+              sameRow: Math.abs(left.top - right.top) <= 1,
+              sameHeight: Math.abs(left.height - right.height) <= 1 && left.height >= 50,
+              orderedWidths: left.width < right.width,
+              fillsArea: Math.abs(left.left - area.left) <= 1 && Math.abs(right.right - area.right) <= 1,
+              textFits: [cancel, confirm].every((button) => button.scrollWidth <= button.clientWidth + 1),
+            };
+          });
+          expect(layout).toEqual({ sameRow: true, sameHeight: true, orderedWidths: true, fillsArea: true, textFits: true });
+          if (enabled) await expect(confirmTransfer).toBeEnabled();
+          else await expect(confirmTransfer).toBeDisabled();
+          await assertNoHorizontalOverflow(page);
+        }
+        await page.setViewportSize(originalViewport);
+      }
+      await assertMobileTransferActions(false);
       const ownership = management.getByRole("radiogroup", { name: "新所有者" });
       await ownership.getByRole("radio", { name: new RegExp(member.displayName) }).click();
-      await expect(management).toContainText("你会变为普通成员");
-      await management.getByRole("button", { name: "确认转让" }).click();
+      await assertMobileTransferActions(true);
+      await expect(management).toContainText("你将成为普通成员");
+      await confirmTransfer.click();
       await expect(management).toBeHidden();
 
       await member.page.goto("/notifications");

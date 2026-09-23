@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "../../api/error";
@@ -103,6 +104,8 @@ const activityApiState = vi.hoisted(() => ({
   }>,
   joinQueryEnabled: [] as boolean[],
   joinRequests: [] as Array<Record<string, unknown>>,
+  joinRequestsPending: false,
+  createGuest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   createGuestBinding: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   decideJoinRequest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   exportCsv: vi.fn(),
@@ -174,13 +177,13 @@ vi.mock("./api", async (importOriginal) => {
       activityApiState.invitationQueryEnabled.push(enabled);
       return { data: activityApiState.invitations, isPending: false };
     },
-    useCreateGuestMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
+    useCreateGuestMutation: () => activityApiState.createGuest,
     useCreateInvitationMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
     useCreateGuestBindingInvitationMutation: () => activityApiState.createGuestBinding,
     useRevokeInvitationMutation: () => ({ isPending: false, mutate: vi.fn() }),
     useJoinRequestsQuery: (_userId: string, _activityId: string, enabled: boolean) => {
       activityApiState.joinQueryEnabled.push(enabled);
-      return { data: activityApiState.joinRequests, isPending: false };
+      return { data: activityApiState.joinRequests, isPending: activityApiState.joinRequestsPending };
     },
     useDecideJoinRequestMutation: () => activityApiState.decideJoinRequest,
   };
@@ -271,6 +274,7 @@ afterEach(() => {
   activityApiState.update.mutateAsync.mockResolvedValue({ data: activityApiState.activity, warnings: [] });
   activityApiState.restore.mutate.mockReset();
   activityApiState.invitationQueryEnabled.length = 0;
+  activityApiState.members.length = 2;
   activityApiState.members[1] = {
     activityId: "activity-1",
     displayName: "临时成员",
@@ -283,6 +287,11 @@ afterEach(() => {
   activityApiState.invitations = [];
   activityApiState.joinQueryEnabled.length = 0;
   activityApiState.joinRequests = [];
+  activityApiState.joinRequestsPending = false;
+  activityApiState.createGuest.error = null;
+  activityApiState.createGuest.isPending = false;
+  activityApiState.createGuest.mutateAsync.mockReset();
+  activityApiState.createGuest.mutateAsync.mockResolvedValue(undefined);
   activityApiState.createGuestBinding.error = null;
   activityApiState.createGuestBinding.isPending = false;
   activityApiState.createGuestBinding.mutateAsync.mockReset();
@@ -430,15 +439,88 @@ describe("MemberInvitationPanel", () => {
 });
 
 describe("成员 Overlay", () => {
-  it("从成员列表进入邀请子面板并可返回", () => {
+  it("成员列表优先展示，邀请菜单进入邀请子面板并可返回", async () => {
+    const user = userEvent.setup();
     renderWorkspace();
 
-    fireEvent.click(screen.getByRole("button", { name: "邀请成员" }));
+    const dialog = screen.getByRole("dialog", { name: "成员" });
+    expect(dialog.querySelector(".member-section h2")).toHaveTextContent("活动成员 · 2人");
+    expect(within(dialog).getAllByRole("button", { name: "邀请" })).toHaveLength(1);
+    await user.click(within(dialog).getByRole("button", { name: "邀请" }));
+    await user.click(screen.getByRole("menuitem", { name: "邀请成员" }));
     expect(screen.getByRole("heading", { name: "邀请成员" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "链接邀请" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "链接邀请" })).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "返回成员" }));
     expect(screen.getByRole("heading", { name: "成员" })).toBeInTheDocument();
+  });
+
+  it("菜单可由 Escape 单独关闭并把焦点还给邀请按钮", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    const trigger = screen.getByRole("button", { name: "邀请" });
+    await user.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "添加临时成员" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "成员" })).toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("添加临时成员按需展开，失败保留输入，成功后收起", async () => {
+    const user = userEvent.setup();
+    activityApiState.createGuest.mutateAsync.mockRejectedValueOnce(new Error("添加临时成员失败")).mockImplementationOnce(async (displayName: string) => {
+      activityApiState.members.push({ activityId: "activity-1", displayName, memberId: "guest-2", role: "MEMBER", status: "ACTIVE", userId: null, version: "1" });
+    });
+    renderWorkspace();
+    expect(screen.queryByLabelText("临时成员名称")).not.toBeInTheDocument();
+
+    const trigger = screen.getByRole("button", { name: "邀请" });
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "添加临时成员" }));
+    const draft = screen.getByRole("dialog", { name: "成员" }).querySelector<HTMLElement>(".member-list > .member-entry--draft")!;
+    expect(draft).toBeInTheDocument();
+    expect(within(draft).getByPlaceholderText("临时成员名称")).toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "临时成员名称" });
+    expect(input).toHaveFocus();
+    await user.type(input, "新成员");
+    await user.click(within(draft).getByRole("button", { name: "确认" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("添加临时成员失败");
+    expect(input).toHaveValue("新成员");
+    await user.click(within(draft).getByRole("button", { name: "确认" }));
+    await waitFor(() => expect(screen.queryByLabelText("临时成员名称")).not.toBeInTheDocument());
+    expect(activityApiState.createGuest.mutateAsync).toHaveBeenLastCalledWith("新成员");
+    expect(screen.getByText("新成员")).toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("每个成员只显示一个身份标签", () => {
+    renderWorkspace();
+    const owner = screen.getByText("测试用户（我）").closest<HTMLElement>(".member-entry")!;
+    const guest = screen.getByText("临时成员", { selector: "strong" }).closest<HTMLElement>(".member-entry")!;
+    expect(within(owner).getByText("所有者")).toBeInTheDocument();
+    expect(within(owner).queryByText("正式成员")).not.toBeInTheDocument();
+    expect(within(guest).getByText("临时成员", { selector: ".tag" })).toBeInTheDocument();
+    expect(within(guest).queryByText("成员", { selector: ".tag" })).not.toBeInTheDocument();
+
+    cleanup();
+    activityApiState.members[1] = { ...activityApiState.members[1], userId: "user-2" };
+    renderWorkspace();
+    const boundMember = screen.getByText("临时成员", { selector: "strong" }).closest<HTMLElement>(".member-entry")!;
+    expect(within(boundMember).getByText("成员", { selector: ".tag" })).toBeInTheDocument();
+    expect(within(boundMember).queryByText("正式成员")).not.toBeInTheDocument();
+  });
+
+  it("审批请求加载不生成高占位，成员保持在首位", () => {
+    activityApiState.joinRequestsPending = true;
+    renderWorkspace();
+    const dialog = screen.getByRole("dialog", { name: "成员" });
+    expect(dialog.querySelector(".member-section h2")).toHaveTextContent("活动成员 · 2人");
+    expect(dialog.querySelector(".page-state")).toBeNull();
+    expect(within(dialog).getByRole("status", { name: "" })).toHaveTextContent("正在读取待审批申请");
   });
 
   it.each([
@@ -449,7 +531,7 @@ describe("成员 Overlay", () => {
     activityApiState.activity.status = status;
     renderWorkspace();
 
-    expect(screen.queryByRole("button", { name: "邀请成员" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "邀请" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("临时成员名称")).not.toBeInTheDocument();
     expect(activityApiState.invitationQueryEnabled.at(-1)).toBe(false);
     expect(activityApiState.joinQueryEnabled.at(-1)).toBe(role === "OWNER");
@@ -607,8 +689,9 @@ describe("成员 Overlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "移除成员 临时成员" }));
     fireEvent.click(screen.getByRole("button", { name: "移除成员" }));
 
-    await waitFor(() => expect(screen.getByText("临时成员 · 已移除")).toBeInTheDocument());
-    expect(screen.getByText("已移除")).toBeInTheDocument();
+    const removedRow = screen.getByText("临时成员", { selector: "strong" }).closest<HTMLElement>(".member-entry")!;
+    await waitFor(() => expect(within(removedRow).getByText("已移除")).toBeInTheDocument());
+    expect(within(removedRow).getByText("临时成员", { selector: ".tag" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "活动成员 · 1人 · 已移除 1人" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /移除成员|退出活动/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "绑定账号" })).not.toBeInTheDocument();
@@ -947,19 +1030,45 @@ describe("创建活动 Overlay", () => {
 
     fireEvent.change(screen.getByRole("textbox", { name: "活动名称" }), { target: { value: "国庆旅行" } });
     fireEvent.change(screen.getByRole("textbox", { name: "地点（可选）" }), { target: { value: "   " } });
-    fireEvent.change(screen.getByLabelText("结束日期（可选）"), { target: { value: "2026-10-07" } });
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    fireEvent.click(screen.getByRole("button", { name: /活动日期/ }));
+    fireEvent.click(document.querySelector(`[data-day="${month}-01"] button`)!);
+    fireEvent.click(document.querySelector(`[data-day="${month}-03"] button`)!);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     fireEvent.change(screen.getByRole("combobox", { name: "主币种" }), { target: { value: "USD" } });
     fireEvent.click(within(screen.getByRole("dialog", { name: "创建活动" })).getByRole("button", { name: "创建活动" }));
 
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     await waitFor(() => expect(activityApiState.create.mutateAsync).toHaveBeenCalledWith({
       baseCurrency: "USD",
-      endDate: "2026-10-07",
+      endDate: `${month}-03`,
       location: null,
       name: "国庆旅行",
-      startDate: today,
+      startDate: `${month}-01`,
     }));
+  });
+
+  it("只设置开始日期也可创建，取消选择不改变日期", async () => {
+    renderActivitiesPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "创建活动" })[0]);
+    fireEvent.change(screen.getByRole("textbox", { name: "活动名称" }), { target: { value: "短途旅行" } });
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const month = today.slice(0, 7);
+
+    fireEvent.click(screen.getByRole("button", { name: /活动日期/ }));
+    fireEvent.click(document.querySelector(`[data-day="${month}-01"] button`)!);
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.getByRole("button", { name: /活动日期/ })).toHaveTextContent(today);
+
+    fireEvent.click(screen.getByRole("button", { name: /活动日期/ }));
+    fireEvent.click(document.querySelector(`[data-day="${month}-02"] button`)!);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "创建活动" })).getByRole("button", { name: "创建活动" }));
+
+    await waitFor(() => expect(activityApiState.create.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      startDate: `${month}-02`, endDate: null,
+    })));
   });
 
   it("服务端失败后保留全部输入并展示错误", async () => {
@@ -969,15 +1078,19 @@ describe("创建活动 Overlay", () => {
 
     fireEvent.change(screen.getByRole("textbox", { name: "活动名称" }), { target: { value: "保留的名称" } });
     fireEvent.change(screen.getByRole("textbox", { name: "地点（可选）" }), { target: { value: "上海" } });
-    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2026-09-10" } });
-    fireEvent.change(screen.getByLabelText("结束日期（可选）"), { target: { value: "2026-09-12" } });
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    fireEvent.click(screen.getByRole("button", { name: /活动日期/ }));
+    fireEvent.click(document.querySelector(`[data-day="${month}-10"] button`)!);
+    fireEvent.click(document.querySelector(`[data-day="${month}-12"] button`)!);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "创建活动" })).getByRole("button", { name: "创建活动" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("活动创建失败");
     expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveValue("保留的名称");
     expect(screen.getByRole("textbox", { name: "地点（可选）" })).toHaveValue("上海");
-    expect(screen.getByLabelText("开始日期")).toHaveValue("2026-09-10");
-    expect(screen.getByLabelText("结束日期（可选）")).toHaveValue("2026-09-12");
+    expect(screen.getByRole("button", { name: /活动日期/ })).toHaveTextContent(`${month}-10`);
+    expect(screen.getByRole("button", { name: /活动日期/ })).toHaveTextContent(`${month}-12`);
   });
 
   it("Escape 关闭 Overlay 并将焦点还给打开按钮", async () => {
@@ -1489,7 +1602,7 @@ describe("活动管理 Overlay", () => {
 
     expect(screen.getByRole("dialog", { name: "转让所有权" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "返回活动管理" })).toBeInTheDocument();
-    expect(screen.getByText("转让后，新成员将成为活动所有者，你会变为普通成员。")).toBeInTheDocument();
+    expect(screen.getByText("对方将成为所有者，你将成为普通成员。")).toBeInTheDocument();
     const candidates = screen.getByRole("radiogroup", { name: "新所有者" });
     expect(within(candidates).getByRole("radio", { name: /Bob/ })).toBeInTheDocument();
     expect(within(candidates).queryByRole("radio", { name: /临时成员/ })).not.toBeInTheDocument();

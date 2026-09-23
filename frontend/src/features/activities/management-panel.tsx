@@ -513,7 +513,7 @@ export function MorePage({
       </section> : view === "transfer" ? <section ref={transferPanelRef} className="management-subview" aria-labelledby="activity-transfer-heading" tabIndex={-1}>
         <div className="management-subview__intro">
           <h3 id="activity-transfer-heading">选择新的活动所有者</h3>
-          <p>转让后，新成员将成为活动所有者，你会变为普通成员。</p>
+          <p>对方将成为所有者，你将成为普通成员。</p>
         </div>
         {members.isPending ? <LoadingState label="正在读取可转让成员…" /> : null}
         {members.error ? <ErrorNotice error={members.error} /> : null}

@@ -1,5 +1,6 @@
-import { Link as LinkIcon, LogOut, Trash2, UserPlus, UserRoundCheck } from "lucide-react";
-import { useState } from "react";
+import { Link as LinkIcon, LogOut, Plus, Trash2, UserPlus, UserRoundCheck, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { DropdownMenu } from "radix-ui";
 import { Button, ConfirmDialog, ErrorNotice, Field, Input, LoadingState } from "../../components/ui";
 import { MemberAvatar } from "../../components/member-avatar";
 import { Overlay } from "../../components/overlay";
@@ -22,15 +23,27 @@ import { useWorkspace } from "./workspace-context";
 /** 成员列表与邀请子视图共用面板入口，保留原有切换时的挂载与草稿重置语义。 */
 export function MembersOverlay({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<"list" | "invite">("list");
+  const menuScrimDismissedAt = useRef(0);
   return (
     <Overlay
       open
       className="members-overlay"
       title={view === "list" ? "成员" : "邀请成员"}
+      focusKey={view}
       onBack={view === "invite" ? { label: "返回成员", onClick: () => setView("list") } : undefined}
+      onBeforeClose={() => {
+        // 菜单位于 Portal；遮罩的同一次点击只应收起菜单，不能穿透关闭 Sheet。
+        if (Date.now() - menuScrimDismissedAt.current < 1000) {
+          menuScrimDismissedAt.current = 0;
+          return false;
+        }
+        return true;
+      }}
       onClose={onClose}
     >
-      <MembersPage key={view} view={view} onInvite={() => setView("invite")} />
+      <MembersPage key={view} view={view} onInvite={() => setView("invite")} onMenuPointerDownOutside={(target) => {
+        if (target instanceof Element && target.closest(".form-overlay__scrim")) menuScrimDismissedAt.current = Date.now();
+      }} />
     </Overlay>
   );
 }
@@ -73,7 +86,7 @@ export function MemberInvitationPanel({
   return (
     <div className="member-invite-panel">
       <div className="segmented" role="group" aria-label="邀请方式">
-        <button type="button" aria-pressed={mode === "link"} disabled={submitting} onClick={() => selectMode("link")}>链接邀请</button>
+        <button type="button" data-overlay-initial-focus aria-pressed={mode === "link"} disabled={submitting} onClick={() => selectMode("link")}>链接邀请</button>
         <button type="button" aria-pressed={mode === "direct"} disabled={submitting} onClick={() => selectMode("direct")}>定向邀请</button>
       </div>
 
@@ -133,7 +146,7 @@ function activeInvitations(invitations: readonly Invitation[], now: number): Inv
   );
 }
 
-export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invite"; onInvite?: () => void }) {
+export function MembersPage({ view = "list", onInvite, onMenuPointerDownOutside }: { view?: "list" | "invite"; onInvite?: () => void; onMenuPointerDownOutside?: (target: EventTarget | null) => void }) {
   const { session, activity, members: cachedMembers, offline } = useWorkspace();
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const memberData = members.data ?? cachedMembers;
@@ -150,6 +163,11 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
   const removeGuest = useRemoveGuestMutation(session.userId, activity.activityId);
   const revokeInvitation = useRevokeInvitationMutation(session.userId, activity.activityId);
   const [guestName, setGuestName] = useState("");
+  const [guestExpanded, setGuestExpanded] = useState(false);
+  const [guestError, setGuestError] = useState<unknown>();
+  const guestInputRef = useRef<HTMLInputElement>(null);
+  const inviteButtonRef = useRef<HTMLButtonElement>(null);
+  const focusGuestOnMenuClose = useRef(false);
   const [bindingMemberId, setBindingMemberId] = useState<string>();
   const [bindingUsername, setBindingUsername] = useState("");
   const [bindingToken, setBindingToken] = useState<string>();
@@ -209,6 +227,18 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
     setRemovalMemberId(undefined);
   }
 
+  async function submitGuest() {
+    setGuestError(undefined);
+    try {
+      await createGuest.mutateAsync(guestName);
+      setGuestName("");
+      setGuestExpanded(false);
+      inviteButtonRef.current?.focus({ preventScroll: true });
+    } catch (reason) {
+      setGuestError(reason);
+    }
+  }
+
   if (members.isPending && !memberData) return <LoadingState label="正在读取成员…" />;
   if (members.error && !memberData) return <ErrorNotice error={members.error} />;
   if (view === "invite" && canManage) {
@@ -220,50 +250,36 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
   return (
     <div className="member-center">
       {offline ? <div className="notice" role="status">当前离线，成员列表使用最近一次同步的缓存；邀请、绑定和审批需要联网。</div> : null}
-      {canManage ? <div className="member-actions">
-        <Button onClick={onInvite}><UserPlus aria-hidden="true" size={18} /> 邀请成员</Button>
-        <form onSubmit={(event) => { event.preventDefault(); void createGuest.mutateAsync(guestName).then(() => setGuestName("")); }}><Input aria-label="临时成员名称" value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="临时成员名称" required /><Button variant="secondary" type="submit" busy={createGuest.isPending}>添加</Button></form>
-      </div> : null}
-      {createGuest.error ? <ErrorNotice error={createGuest.error} /> : null}
-      {isOwner && joinRequests.isPending ? <LoadingState label="正在读取待审批申请…" /> : null}
-      {isOwner && joinRequests.error ? <ErrorNotice error={joinRequests.error} /> : null}
-      {isOwner && joinRequests.data?.length ? (
-        <section className="member-section" aria-labelledby="join-requests-heading">
-          <h2 id="join-requests-heading">待审批 · {joinRequests.data.length}人</h2>
-          <div className="join-request-list">
-            {joinRequests.data.map((request) => (
-              <div className="join-request-row" key={request.requestId}>
-                <span>
-                  <strong>{request.applicantDisplayName}</strong>
-                  <small>申请加入活动</small>
-                </span>
-                <div className="join-request-actions">
-                  <Button
-                    variant="secondary"
-                    busy={decideJoinRequest.isPending}
-                    aria-label={`拒绝${request.applicantDisplayName}`}
-                    onClick={() => void decide(request.requestId, "REJECT")}
-                  >拒绝</Button>
-                  <Button
-                    busy={decideJoinRequest.isPending}
-                    disabled={activity.status !== "ACTIVE"}
-                    aria-label={`批准${request.applicantDisplayName}`}
-                    onClick={() => void decide(request.requestId, "APPROVE")}
-                  >批准</Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {decisionError ? <ErrorNotice error={decisionError} /> : null}
       <section className="member-section">
-        {(() => {
-          const activeMemberCount = memberData?.filter((member) => member.status === "ACTIVE").length ?? 0;
-          const removedMemberCount = memberData?.filter((member) => member.status === "LEFT").length ?? 0;
-          return <h2>活动成员 · {activeMemberCount}人{removedMemberCount ? ` · 已移除 ${removedMemberCount}人` : ""}</h2>;
-        })()}
+        <div className="member-section__header">
+          {(() => {
+            const activeMemberCount = memberData?.filter((member) => member.status === "ACTIVE").length ?? 0;
+            const removedMemberCount = memberData?.filter((member) => member.status === "LEFT").length ?? 0;
+            return <h2>活动成员 · {activeMemberCount}人{removedMemberCount ? ` · 已移除 ${removedMemberCount}人` : ""}</h2>;
+          })()}
+          {canManage ? <DropdownMenu.Root modal={false}>
+            <DropdownMenu.Trigger asChild><button ref={inviteButtonRef} className="button button--secondary" type="button"><UserPlus aria-hidden="true" size={18} />邀请</button></DropdownMenu.Trigger>
+            <DropdownMenu.Portal><DropdownMenu.Content className="member-invite-menu" align="end" sideOffset={6} collisionPadding={12} onEscapeKeyDown={(event) => event.stopPropagation()} onPointerDownOutside={(event) => onMenuPointerDownOutside?.(event.target)} onCloseAutoFocus={(event) => {
+              if (focusGuestOnMenuClose.current) {
+                event.preventDefault();
+                focusGuestOnMenuClose.current = false;
+                guestInputRef.current?.focus({ preventScroll: true });
+              }
+            }}>
+              <DropdownMenu.Item onSelect={onInvite}><UserPlus aria-hidden="true" size={17} />邀请成员</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => { setGuestError(undefined); setGuestExpanded(true); focusGuestOnMenuClose.current = true; }}><Plus aria-hidden="true" size={17} />添加临时成员</DropdownMenu.Item>
+            </DropdownMenu.Content></DropdownMenu.Portal>
+          </DropdownMenu.Root> : null}
+        </div>
         <div className="member-list">
+          {guestExpanded && canManage ? <form className="member-entry member-entry--draft" onSubmit={(event) => { event.preventDefault(); void submitGuest(); }}>
+            <div className="member-row">
+              <MemberAvatar memberId="draft-guest" userId={null} displayName="临时成员" decorative />
+              <Input ref={guestInputRef} aria-label="临时成员名称" value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="临时成员名称" required maxLength={40} />
+              <div className="member-row__actions"><Button type="submit" busy={createGuest.isPending}>确认</Button><button className="icon-button" type="button" aria-label="取消添加临时成员" title="取消添加临时成员" disabled={createGuest.isPending} onClick={() => { setGuestExpanded(false); setGuestName(""); setGuestError(undefined); inviteButtonRef.current?.focus({ preventScroll: true }); }}><X aria-hidden="true" size={18} /></button></div>
+            </div>
+            {guestError ? <ErrorNotice error={guestError} /> : null}
+          </form> : null}
           {memberData?.map((member) => {
             const canBind = canManage && member.status === "ACTIVE" && member.userId == null;
             const isSelf = member.memberId === activity.currentMemberId;
@@ -277,15 +293,16 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
                 <div className="member-row">
                   <MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} />
                   <span>
-                    <strong>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong>
-                    <small>{removed ? `${member.userId ? "正式成员" : "临时成员"} · 已移除` : member.userId ? "正式成员" : "临时成员"}</small>
+                    <strong title={member.displayName}>{member.displayName}{member.memberId === activity.currentMemberId ? "（我）" : ""}</strong>
                   </span>
                   <div className="member-row__actions">
-                    <span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : "成员"}</span>
+                    <span className="tag">{member.role === "OWNER" ? "所有者" : member.role === "ADMIN" ? "管理员" : member.userId ? "成员" : "临时成员"}</span>
                     {removed ? <span className="tag tag--muted">已移除</span> : null}
                     {canBind ? (
                       <Button
                         variant="ghost"
+                        aria-label="绑定账号"
+                        title="绑定账号"
                         aria-expanded={editorOpen}
                         onClick={() => {
                           setBindingMemberId(editorOpen ? undefined : member.memberId);
@@ -294,7 +311,7 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
                           setBindingError(undefined);
                         }}
                       >
-                        <UserRoundCheck aria-hidden="true" size={17} />绑定账号
+                        <UserRoundCheck aria-hidden="true" size={17} /><span>绑定账号</span>
                       </Button>
                     ) : null}
                     {canRemove ? (
@@ -341,6 +358,28 @@ export function MembersPage({ view = "list", onInvite }: { view?: "list" | "invi
           })}
         </div>
       </section>
+      {isOwner && joinRequests.isPending ? <span className="member-loading-status" role="status">正在读取待审批申请…</span> : null}
+      {isOwner && joinRequests.error ? <ErrorNotice error={joinRequests.error} /> : null}
+      {isOwner && joinRequests.data?.length ? (
+        <section className="member-section" aria-labelledby="join-requests-heading">
+          <h2 id="join-requests-heading">待审批 · {joinRequests.data.length}人</h2>
+          <div className="join-request-list">
+            {joinRequests.data.map((request) => (
+              <div className="join-request-row" key={request.requestId}>
+                <span>
+                  <strong>{request.applicantDisplayName}</strong>
+                  <small>申请加入活动</small>
+                </span>
+                <div className="join-request-actions">
+                  <Button variant="secondary" busy={decideJoinRequest.isPending} aria-label={`拒绝${request.applicantDisplayName}`} onClick={() => void decide(request.requestId, "REJECT")}>拒绝</Button>
+                  <Button busy={decideJoinRequest.isPending} disabled={activity.status !== "ACTIVE"} aria-label={`批准${request.applicantDisplayName}`} onClick={() => void decide(request.requestId, "APPROVE")}>批准</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {decisionError ? <ErrorNotice error={decisionError} /> : null}
       {visibleInvitations.length ? <section className="member-section"><h2>有效邀请</h2><div className="compact-list">{visibleInvitations.map((invite) => {
         const guestName = memberData?.find((member) => member.memberId === invite.guestMemberId)?.displayName ?? "临时成员";
         const label = invite.purpose === "GUEST_BINDING"

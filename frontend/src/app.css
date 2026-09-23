@@ -649,8 +649,14 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .settlement-balance-list .balance-row > span:last-child { display: flex; align-items: baseline; gap: 5px; color: var(--muted-foreground); }
 
 .member-center, .activity-more { display: grid; gap: 24px; }
-.member-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.member-actions > form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.member-section__header { display: flex; min-width: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.member-section__header h2 { min-width: 0; margin-bottom: 0; overflow-wrap: anywhere; }
+.member-section__header > .button { flex: 0 0 auto; margin-left: auto; }
+.member-invite-menu { z-index: 90; min-width: 176px; border: 1px solid var(--border); border-radius: 8px; padding: 4px; color: var(--foreground); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.member-invite-menu [role="menuitem"] { display: flex; min-height: 44px; align-items: center; gap: 10px; border-radius: 6px; padding: 0 10px; font-size: 14px; cursor: pointer; outline: none; }
+.member-invite-menu [role="menuitem"]:focus, .member-invite-menu [role="menuitem"][data-highlighted] { background: var(--surface-muted); }
+.member-invite-menu [role="menuitem"] > svg { color: var(--primary); }
+.member-loading-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .member-invite-panel { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; width: 100%; gap: 20px; }
 .member-invite-panel > *, .invite-mode-panel > * { min-width: 0; }
 .member-invite-panel .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -662,7 +668,16 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .member-list, .settings-list { border-top: 1px solid var(--border); }
 .member-entry { border-bottom: 1px solid var(--border); }
 .member-entry:last-child { border-bottom: 0; }
-.member-entry .member-row { border-bottom: 0; }
+.member-entry .member-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 8px; border-bottom: 0; }
+.member-entry .member-row > span:not(.avatar):not(.tag) { min-width: 0; overflow: hidden; white-space: nowrap; }
+.member-entry .member-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-entry .member-row__actions { max-width: none; flex-wrap: nowrap; gap: 4px; white-space: nowrap; }
+.member-entry .member-row__actions .tag { white-space: nowrap; }
+.member-entry .member-row__actions > .button--ghost { width: 44px; min-width: 44px; padding-inline: 0; }
+.member-entry .member-row__actions > .button--ghost > span { display: none; }
+.member-entry--draft .member-row { padding-block: 8px; }
+.member-entry--draft .member-row > .input { min-width: 0; }
+.member-entry--draft > .notice { margin-bottom: 8px; }
 .member-row__actions { display: flex; min-width: 0; max-width: 100%; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .member-row__actions > .button { min-height: 44px; white-space: nowrap; }
 .guest-binding-form { display: grid; gap: 12px; border-top: 1px solid var(--border); padding: 14px 0 18px 52px; }
@@ -710,6 +725,10 @@ button.settings-row:hover { background: var(--surface-muted); }
 .management-date-trigger:hover { background: var(--surface-muted); }
 .management-date-trigger:focus-visible { outline: 2px solid var(--ring); }
 .management-date-trigger:disabled { opacity: .48; cursor: not-allowed; }
+.activity-create-date-trigger { display: flex; width: 100%; min-width: 0; min-height: 44px; align-items: center; justify-content: space-between; gap: 8px; color: var(--foreground); text-align: left; cursor: pointer; }
+.activity-create-date-trigger > span { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; }
+.activity-create-date-trigger > span > svg, .activity-create-date-trigger > svg { flex: 0 0 auto; color: var(--muted-foreground); }
+.activity-create-date-trigger:disabled { opacity: .48; cursor: not-allowed; }
 .management-field--dates .management-field__readonly { grid-column: 2; }
 .management-date-popover { z-index: 100; width: min(340px, calc(100vw - 24px)); max-height: min(680px, calc(100dvh - 24px)); overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 14px; color: var(--foreground); background: var(--surface); box-shadow: 0 12px 36px rgb(0 0 0 / .18); }
 .management-date-popover__heading { font-size: 15px; font-weight: 650; }
@@ -1091,7 +1110,6 @@ body:has(.activity-add-fab) .update-prompt { bottom: calc(var(--safe-area-bottom
   .activity-list-item { grid-template-columns: 64px minmax(0, 1fr) auto; padding-inline: 8px; }
   .activity-list-item > img { width: 64px; height: 52px; }
   .activity-skeleton-block--cover { width: 64px; height: 52px; }
-  .member-actions { grid-template-columns: 1fr; }
   /* 操作区允许横向排列和换行，避免纵向按钮超出成员行后覆盖下一位成员。 */
   .member-row__actions { align-items: center; justify-content: flex-end; flex-direction: row; flex-wrap: wrap; row-gap: 4px; }
   .guest-binding-form { padding-left: 0; }
@@ -1514,6 +1532,11 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
   .form-overlay { align-items: end; padding: 0 var(--safe-area-right) 0 var(--safe-area-left); }
   .form-overlay__sheet { width: 100%; max-height: var(--mobile-sheet-max, 92%); border-width: 1px 0 0; border-radius: 16px 16px 0 0; padding-bottom: var(--safe-area-bottom); }
   .members-overlay .form-overlay__sheet { border-top-width: 0; }
+  .members-overlay .member-section__header .button { position: relative; min-height: 36px; border-radius: 10px; padding: 0 12px; }
+  .members-overlay .member-section__header .button::before, .member-entry--draft .member-row__actions > .button::before { position: absolute; inset: -4px; content: ""; }
+  .member-entry--draft .member-row { min-height: 56px; padding-block: 6px; }
+  .member-entry--draft .member-row > .input { min-height: 36px; border-radius: 10px; padding: 6px 9px; font-size: 16px; }
+  .member-entry--draft .member-row__actions > .button { position: relative; min-height: 36px; border-radius: 10px; padding: 0 10px; font-size: 13px; }
   .form-overlay__sheet[data-mobile-sheet-detents="true"] { height: var(--mobile-sheet-height); transition: height 240ms cubic-bezier(.22, 1, .36, 1); }
   .quick-expense-overlay--entry .form-overlay__sheet { width: 100%; border-radius: 16px 16px 0 0; }
   .quick-expense-overlay--entry .form-overlay__header { min-height: 56px; padding-top: 6px; }
@@ -1719,6 +1742,7 @@ html.dark.pwa-standalone .update-prompt {
   .deleted-activities-overlay .deleted-activity-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .deleted-activities-overlay .deleted-activity-row > .button { width: auto; min-width: 80px; padding-inline: 12px; }
   .activity-management-overlay .form-overlay__sheet { max-height: 92%; padding-bottom: var(--safe-area-bottom); }
+  .activity-management-overlay--transfer .form-overlay__header-main:has(.icon-button) { margin-left: -8px; }
   .activity-management-overlay--cover .form-overlay__body { scroll-padding-bottom: calc(84px + var(--safe-area-bottom)); }
   .management-field { grid-template-columns: 124px minmax(0, 1fr) 18px; gap: 8px; padding-inline: 0; }
   .management-field__control, .management-choice-trigger, .management-date-trigger { gap: 8px; }
@@ -1726,6 +1750,8 @@ html.dark.pwa-standalone .update-prompt {
   .management-action-row { padding-inline: 0; }
   .management-cover-action-dock { position: sticky; bottom: 0; z-index: 2; display: grid; grid-template-columns: minmax(96px, .8fr) minmax(0, 1.2fr); gap: 10px; margin-top: auto; padding: 8px 0 10px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); background: color-mix(in srgb, var(--surface) 88%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
   .management-cover-action-dock > .button { width: 100%; min-width: 0; min-height: 50px; border-radius: 14px; padding-inline: 14px; font-size: 15px; font-weight: 700; }
+  .activity-management-overlay--transfer .management-expansion__actions { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 10px; }
+  .activity-management-overlay--transfer .management-expansion__actions > .button { width: 100%; min-width: 0; min-height: 50px; border-radius: 14px; padding-inline: 14px; font-size: 15px; font-weight: 700; white-space: nowrap; }
 }
 
 /* 活动层级统一使用同一条右下角主操作锚点，列表页和流水页切换时保持空间连续。 */

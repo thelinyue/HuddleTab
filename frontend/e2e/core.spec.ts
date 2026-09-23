@@ -29,8 +29,10 @@ async function assertProjectViewport(first: Page, second: Page, testInfo: TestIn
 async function addGuest(page: Page, displayName: string): Promise<void> {
   await page.getByRole("link", { name: /成员 \d+/ }).click();
   const dialog = page.getByRole("dialog", { name: "成员" });
+  await dialog.getByRole("button", { name: "邀请" }).click();
+  await page.getByRole("menuitem", { name: "添加临时成员" }).click();
   await dialog.getByLabel("临时成员名称").fill(displayName);
-  await dialog.getByRole("button", { name: "添加" }).click();
+  await dialog.getByRole("button", { name: "确认" }).click();
   await expect(dialog.getByText(displayName, { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "关闭成员" }).click();
 }
