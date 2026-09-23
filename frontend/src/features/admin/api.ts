@@ -87,7 +87,16 @@ export function useUpdateAdminUserStatusMutation(userId: string) {
         body: { disabled },
         headers: await mutationHeaders(),
       })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.adminUsers(userId) }),
+    onSuccess: async (_result, variables) => {
+      if (variables.userId === userId && variables.disabled && typeof window !== "undefined") {
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+        return;
+      }
+      // 仅在服务端确认后更新列表，面板和分类计数同时变化；取消旧读取，避免旧状态覆盖结果。
+      await queryClient.cancelQueries({ queryKey: queryKeys.adminUsers(userId) });
+      queryClient.setQueryData<AdminUser[]>(queryKeys.adminUsers(userId), (users) => users?.map((user) => user.id === variables.userId ? { ...user, disabled: variables.disabled } : user));
+      return queryClient.invalidateQueries({ queryKey: queryKeys.adminUsers(userId) });
+    },
   });
 }
 
@@ -100,7 +109,15 @@ export function useUpdateAdminRoleMutation(userId: string) {
         body: { granted },
         headers: await mutationHeaders(),
       })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.adminUsers(userId) }),
+    onSuccess: async (_result, variables) => {
+      if (variables.userId === userId && !variables.granted && typeof window !== "undefined") {
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+        return;
+      }
+      await queryClient.cancelQueries({ queryKey: queryKeys.adminUsers(userId) });
+      queryClient.setQueryData<AdminUser[]>(queryKeys.adminUsers(userId), (users) => users?.map((user) => user.id === variables.userId ? { ...user, isSystemAdmin: variables.granted } : user));
+      return queryClient.invalidateQueries({ queryKey: queryKeys.adminUsers(userId) });
+    },
   });
 }
 
@@ -116,6 +133,7 @@ export function useResetAdminPasswordMutation(actorUserId: string) {
     onSuccess: (_result, variables) => {
       if (variables.userId === actorUserId && typeof window !== "undefined") {
         window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+        return;
       }
       return queryClient.invalidateQueries({ queryKey: queryKeys.adminUsers(actorUserId) });
     },

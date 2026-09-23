@@ -80,13 +80,16 @@ test("系统管理员入口、账号管理和注册策略保持 v0.0.2 交互密
     await expect(row).toBeVisible();
 
     // 重置目标账号后，旧 Session 必须失效；随后可用新密码重新登录。
-    await row.getByRole("button", { name: "重置密码" }).click();
+    await row.click();
+    await page.getByRole("dialog", { name: "管理用户" }).getByRole("button", { name: "重置密码" }).click();
     const reset = page.getByRole("dialog", { name: "重置密码" });
     const replacement = `${crypto.randomUUID()}Bb2!`;
     await reset.getByLabel("新密码", { exact: true }).fill(replacement);
     await reset.getByLabel("确认新密码", { exact: true }).fill(replacement);
     await reset.getByRole("button", { name: "确认重置" }).click();
     await expect(reset).toBeHidden();
+    await page.getByRole("button", { name: "关闭管理用户" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
     await newUser.page.goto("/activities");
     await expect(newUser.page).toHaveURL(/\/login$/);
     await newUser.page.getByLabel("用户名").fill(newUser.username);
@@ -102,11 +105,14 @@ test("系统管理员入口、账号管理和注册策略保持 v0.0.2 交互密
     await expect(newUser.page.getByRole("heading", { name: "活动", exact: true })).toBeVisible();
 
     // 只有一个管理员时，禁用自己必须被事务不变量拒绝，页面保留用户列表。
-    const adminRow = page.locator(".admin-user-row").filter({ hasText: admin.username });
+    const adminRow = page.getByRole("button", { name: new RegExp(`管理用户 .* @${admin.username}（我）`) });
     await expect(adminRow).toBeVisible();
-    await adminRow.getByRole("button", { name: "禁用" }).click();
+    await adminRow.click();
+    await page.getByRole("button", { name: "禁用账号", exact: true }).click();
+    await page.getByRole("button", { name: "确认禁用账号" }).click();
     await expect(page.getByRole("alert")).toContainText("至少保留一个");
-    await expect(adminRow).toContainText("正常");
+    await page.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(page.getByRole("dialog").getByText("正常", { exact: true })).toBeVisible();
 
     await openRegistrationPolicy(page, "仅允许邀请注册");
     const rejectedContext = await browser.newContext(testInfo.project.use as BrowserContextOptions);

@@ -1,24 +1,18 @@
-import { ArrowLeft, Bot, ChevronRight, Database, HardDrive, KeyRound, Plus, Settings2, ShieldCheck, Trash2, UsersRound } from "lucide-react";
+import { ArrowLeft, Bot, ChevronRight, Database, HardDrive, Plus, Settings2, ShieldCheck, Trash2, UsersRound } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiRequestError, errorMessage } from "../../api/error";
+import { ApiRequestError } from "../../api/error";
+import { AdminUsersContent } from "./users";
 import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
-import { MemberAvatar } from "../../components/member-avatar";
 import { ProductBottomNavigation } from "../../components/product-bottom-navigation";
 import { Button, ErrorNotice, Input, LoadingState } from "../../components/ui";
-import { Overlay } from "../../components/overlay";
 import { useOnlineStatus } from "../activities/offline-workspace";
 import { useSessionQuery } from "../auth/api";
 import {
-  type AdminUser,
   useAdminStorageQuery,
-  useAdminUsersQuery,
   useAiSettingsQuery,
   useRegistrationPolicyQuery,
-  useResetAdminPasswordMutation,
   useSystemInformationQuery,
-  useUpdateAdminRoleMutation,
-  useUpdateAdminUserStatusMutation,
   useUpdateRegistrationPolicyMutation,
   useUpdateAiSettingsMutation,
   type AiSettingsInput,
@@ -66,84 +60,7 @@ export function AdminHomePage() {
 }
 
 export function AdminUsersPage() {
-  const session = useSessionQuery();
-  const online = useOnlineStatus();
-  const userId = session.data?.userId ?? "";
-  const users = useAdminUsersQuery(userId, online);
-  const status = useUpdateAdminUserStatusMutation(userId);
-  const role = useUpdateAdminRoleMutation(userId);
-  const reset = useResetAdminPasswordMutation(userId);
-  const [selected, setSelected] = useState<AdminUser | null>(null);
-  const [error, setError] = useState<unknown>();
-
-  async function run(action: () => Promise<unknown>) {
-    setError(undefined);
-    try { await action(); } catch (reason) { setError(reason); }
-  }
-
-  if (!online) {
-    return <AdminFrame title="用户管理"><div className="notice" role="status">当前离线，系统管理需要联网后使用。</div></AdminFrame>;
-  }
-  if (users.isPending) return <AdminFrame title="用户管理"><LoadingState label="正在读取用户…" /></AdminFrame>;
-  if (users.error) return <AdminFrame title="用户管理"><ErrorNotice error={users.error} /></AdminFrame>;
-
-  return (
-    <AdminFrame title="用户管理">
-      {error ? <ErrorNotice error={error} /> : null}
-      <p className="form-hint">系统管理员只能管理平台账号，不会因此获得任何活动账目权限。</p>
-      <ul className="admin-user-list">
-        {users.data.map((user) => (
-          <li className="admin-user-row" key={user.id}>
-            <div className="admin-user-row__identity">
-              <MemberAvatar memberId={user.id} userId={user.id} displayName={user.displayName} avatarPreset={user.avatarPreset} avatarImageId={user.avatarImageId} />
-              <span><strong>{user.displayName}</strong><small>@{user.username} · {user.disabled ? "已禁用" : "正常"}{user.isSystemAdmin ? " · 系统管理员" : ""}</small></span>
-            </div>
-            <div className="admin-user-row__actions">
-              <Button variant="ghost" disabled={status.isPending || role.isPending || reset.isPending} onClick={() => void run(() => status.mutateAsync({ userId: user.id, disabled: !user.disabled }))}>{user.disabled ? "启用" : "禁用"}</Button>
-              <Button variant="ghost" disabled={status.isPending || role.isPending || reset.isPending} onClick={() => void run(() => role.mutateAsync({ userId: user.id, granted: !user.isSystemAdmin }))}>{user.isSystemAdmin ? "撤销管理员" : "设为管理员"}</Button>
-              <Button variant="secondary" disabled={status.isPending || role.isPending || reset.isPending} onClick={() => { setError(undefined); setSelected(user); }}>重置密码</Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <ResetPasswordOverlay user={selected} onClose={() => setSelected(null)} mutation={reset} />
-    </AdminFrame>
-  );
-}
-
-function ResetPasswordOverlay({ user, onClose, mutation }: { user: AdminUser | null; onClose: () => void; mutation: ReturnType<typeof useResetAdminPasswordMutation> }) {
-  const [password, setPassword] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [error, setError] = useState<string>();
-  if (!user) return null;
-  const target = user;
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (password !== confirmation) { setError("新密码与确认密码不一致。"); return; }
-    setError(undefined);
-    try {
-      await mutation.mutateAsync({ userId: target.id, newPassword: password });
-      setPassword(""); setConfirmation(""); onClose();
-    } catch (reason) { setError(errorMessage(reason)); }
-  }
-  return (
-    <Overlay open title="重置密码" onBack={{ label: "返回用户管理", onClick: onClose }} onClose={onClose} focusKey={target.id}>
-      <form className="form-stack" onSubmit={(event) => void submit(event)}>
-        <p className="form-hint">将撤销该用户的全部登录 Session。密码不会显示给其他人。</p>
-        <div className="field">
-          <label className="field__label" htmlFor="admin-reset-password">新密码</label>
-          <Input id="admin-reset-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required autoFocus />
-          <span className="field__hint">8–128 个字符，可以使用密码管理器生成和粘贴。</span>
-        </div>
-        <div className="field">
-          <label className="field__label" htmlFor="admin-reset-password-confirm">确认新密码</label>
-          <Input id="admin-reset-password-confirm" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required />
-        </div>
-        {error ? <ErrorNotice error={new Error(error)} /> : null}
-        <Button type="submit" busy={mutation.isPending}><KeyRound aria-hidden="true" size={18} />确认重置</Button>
-      </form>
-    </Overlay>
-  );
+  return <AdminFrame title="用户管理"><AdminUsersContent /></AdminFrame>;
 }
 
 type AiModelDraft = { name: string; supportsImage: boolean };
