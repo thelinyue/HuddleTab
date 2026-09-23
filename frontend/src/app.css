@@ -1,4 +1,5 @@
 @import "./features/accounting/accounting-sharing.css";
+@import "react-day-picker/style.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -686,10 +687,10 @@ button.settings-row:hover { background: var(--surface-muted); }
 .delete-confirmation { display: grid; gap: 16px; }
 .management-list { overflow: hidden; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .management-field { display: grid; min-width: 0; min-height: 64px; grid-template-columns: 132px minmax(0, 1fr) 18px; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 10px 4px; }
-.management-field__heading { display: flex; min-width: 0; align-items: flex-start; gap: 10px; color: var(--primary); }
-.management-field__heading > span { display: grid; min-width: 0; gap: 2px; }
-.management-field__heading strong { color: var(--foreground); font-size: 14px; font-weight: 650; line-height: 1.35; }
-.management-field__heading small { color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
+.management-field__heading { display: flex; min-width: 0; align-items: center; gap: 10px; color: var(--primary); }
+.management-field__heading > span { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.management-field__heading strong { flex: 0 0 auto; color: var(--foreground); font-size: 14px; font-weight: 650; line-height: 1.35; white-space: nowrap; }
+.management-field__heading small { min-width: 0; overflow: hidden; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .management-field__control { grid-column: 2 / -1; display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) 18px; align-items: center; gap: 12px; }
 .management-field__choice { grid-column: 2 / -1; min-width: 0; }
 .management-field__control > .input { width: min(100%, 228px); min-width: 0; justify-self: end; border-color: transparent; padding-right: 6px; background: transparent; text-align: right; }
@@ -703,8 +704,29 @@ button.settings-row:hover { background: var(--surface-muted); }
 .management-choice-trigger > span:not(.management-field__status) { min-width: 0; overflow-wrap: anywhere; padding-right: 6px; }
 .management-field__chevron { color: var(--muted-foreground); transition: transform 160ms ease; }
 .management-field__chevron--open { transform: rotate(180deg); }
-.management-date-input { cursor: pointer; }
-.management-date-input::-webkit-calendar-picker-indicator { width: 0; margin: 0; padding: 0; opacity: 0; }
+.management-date-trigger { grid-column: 2 / -1; display: grid; width: 100%; min-width: 0; min-height: 44px; grid-template-columns: minmax(0, 1fr) 18px; align-items: center; gap: 12px; border: 1px solid transparent; border-radius: 8px; padding: 6px 0 6px 4px; color: var(--muted-foreground); background: transparent; text-align: right; cursor: pointer; }
+.management-date-value { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; column-gap: 2px; font-size: 14px; line-height: 1.4; }
+.management-date-value > span { white-space: nowrap; }
+.management-date-trigger:hover { background: var(--surface-muted); }
+.management-date-trigger:focus-visible { outline: 2px solid var(--ring); }
+.management-date-trigger:disabled { opacity: .48; cursor: not-allowed; }
+.management-field--dates .management-field__readonly { grid-column: 2; }
+.management-date-popover { z-index: 100; width: min(340px, calc(100vw - 24px)); max-height: min(680px, calc(100dvh - 24px)); overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 14px; color: var(--foreground); background: var(--surface); box-shadow: 0 12px 36px rgb(0 0 0 / .18); }
+.management-date-popover__heading { font-size: 15px; font-weight: 650; }
+.management-date-popover__heading:focus { outline: none; }
+.management-date-popover__range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.management-date-popover__range > span { display: grid; gap: 3px; min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 8px; color: var(--muted-foreground); font-size: 12px; }
+.management-date-popover__range strong { color: var(--foreground); font-size: 13px; }
+.management-date-popover .rdp-root { --rdp-accent-color: var(--primary); --rdp-accent-background-color: var(--surface-muted); --rdp-day-height: 38px; --rdp-day-width: 38px; --rdp-day_button-height: 36px; --rdp-day_button-width: 36px; margin: 12px auto; font-size: 13px; }
+.management-date-popover .rdp-root, .management-date-popover .rdp-months, .management-date-popover .rdp-month, .management-date-popover .rdp-month_grid { width: 100%; }
+.management-date-popover .rdp-months { max-width: none; }
+.management-date-popover .rdp-month_grid { table-layout: fixed; }
+.management-date-popover .rdp-day { width: auto; }
+.management-date-popover .rdp-day_button { margin-inline: auto; border-radius: 6px; }
+.management-date-popover__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.management-date-popover__actions > .button { min-height: 36px; padding-inline: 9px; font-size: 12px; }
+.management-date-popover__actions > .button:first-child { margin-right: auto; }
+.management-date-popover .notice { margin-top: 10px; }
 .management-choice-list { grid-column: 2 / -1; display: grid; min-width: 0; margin: 0 0 4px; border-top: 1px solid var(--border); }
 .management-choice-list button { display: grid; min-width: 0; min-height: 52px; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--border); padding: 6px 8px; color: var(--foreground); background: transparent; text-align: left; touch-action: manipulation; }
 .management-choice-list button:hover, .management-choice-list button[aria-checked="true"] { background: var(--surface-muted); }
@@ -721,9 +743,9 @@ button.settings-row:hover { background: var(--surface-muted); }
 .management-action-row:disabled, .management-choice-trigger:disabled, .management-choice-list button:disabled, .management-member-list button:disabled { cursor: not-allowed; opacity: .48; }
 .management-action-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .management-action-row > svg:first-child { width: 17px; height: 17px; color: var(--primary); }
-.management-action-row > span { display: grid; min-width: 0; gap: 2px; }
-.management-action-row strong { font-size: 14px; font-weight: 650; line-height: 1.35; }
-.management-action-row small { color: var(--muted-foreground); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.management-action-row > span:not(.management-action-row__status) { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.management-action-row strong { flex: 0 0 auto; font-size: 14px; font-weight: 650; line-height: 1.35; white-space: nowrap; }
+.management-action-row small { min-width: 0; overflow: hidden; color: var(--muted-foreground); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .management-action-row__status { width: 20px; height: 20px; place-items: center; color: var(--muted-foreground); }
 .management-action-row--danger > svg:first-child, .management-action-row--danger strong { color: var(--danger); }
 .management-expansion__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
@@ -1698,8 +1720,8 @@ html.dark.pwa-standalone .update-prompt {
   .deleted-activities-overlay .deleted-activity-row > .button { width: auto; min-width: 80px; padding-inline: 12px; }
   .activity-management-overlay .form-overlay__sheet { max-height: 92%; padding-bottom: var(--safe-area-bottom); }
   .activity-management-overlay--cover .form-overlay__body { scroll-padding-bottom: calc(84px + var(--safe-area-bottom)); }
-  .management-field { grid-template-columns: 104px minmax(0, 1fr) 18px; gap: 8px; padding-inline: 0; }
-  .management-field__control, .management-choice-trigger { gap: 8px; }
+  .management-field { grid-template-columns: 124px minmax(0, 1fr) 18px; gap: 8px; padding-inline: 0; }
+  .management-field__control, .management-choice-trigger, .management-date-trigger { gap: 8px; }
   .management-field__control > .input { width: min(100%, 208px); }
   .management-action-row { padding-inline: 0; }
   .management-cover-action-dock { position: sticky; bottom: 0; z-index: 2; display: grid; grid-template-columns: minmax(96px, .8fr) minmax(0, 1.2fr); gap: 10px; margin-top: auto; padding: 8px 0 10px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); background: color-mix(in srgb, var(--surface) 88%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }

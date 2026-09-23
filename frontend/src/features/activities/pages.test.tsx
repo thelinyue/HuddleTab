@@ -225,6 +225,7 @@ afterEach(() => {
   activityApiState.activity.canDelete = true;
   activityApiState.activity.coverImageId = null;
   activityApiState.activity.coverPreset = 12;
+  activityApiState.activity.endDate = null;
   activityApiState.activity.fieldPermissions = { baseCurrency: false, cover: true, endDate: true, inviteMode: true, location: true, name: true, startDate: true };
   activityApiState.activity.hasAccountingRecords = true;
   activityApiState.activity.location = "杭州";
@@ -998,7 +999,7 @@ describe("活动管理 Overlay", () => {
 
     const dialog = screen.getByRole("dialog", { name: "活动管理" });
     expect(within(dialog).getAllByRole("list")).toHaveLength(1);
-    expect(within(dialog).getAllByRole("listitem")).toHaveLength(13);
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(12);
     expect(dialog.querySelectorAll(".activity-more > section > h2")).toHaveLength(0);
     for (const heading of ["活动信息", "协作与数据", "活动状态", "成员与权限", "危险操作"]) {
       expect(within(dialog).queryByText(heading)).not.toBeInTheDocument();
@@ -1006,8 +1007,11 @@ describe("活动管理 Overlay", () => {
     expect(within(dialog).getByText("当前状态")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "导出 CSV" })).toBeInTheDocument();
     expect([...dialog.querySelectorAll(".management-field__heading strong, .management-action-row strong")].map((node) => node.textContent)).toEqual([
-      "封面", "活动名称", "地点", "开始日期", "结束日期", "主币种", "加入方式", "导出 CSV", "活动记录", "当前状态", "结束活动", "转让所有权", "删除活动",
+      "封面", "活动名称", "地点", "活动日期", "主币种", "加入方式", "导出 CSV", "活动记录", "当前状态", "结束活动", "转让所有权", "删除活动",
     ]);
+    for (const title of ["结束活动", "转让所有权", "删除活动"]) {
+      expect(within(dialog).getByRole("button", { name: title }).querySelector("small")).toBeNull();
+    }
   });
 
   it("封面编辑使用独立操作栏，未修改时禁用保存并在保存后恢复入口焦点", async () => {
@@ -1196,7 +1200,7 @@ describe("活动管理 Overlay", () => {
 
     const trigger = screen.getByRole("button", { name: /^活动记录/ });
     expect(trigger).toBeDisabled();
-    expect(trigger).toHaveTextContent("联网后查看成员与活动的变更历史");
+    expect(trigger).toHaveTextContent("联网后查看记录");
     expect(activityApiState.auditQueryCalls).toEqual([]);
   });
 
@@ -1223,9 +1227,8 @@ describe("活动管理 Overlay", () => {
 
     expect(screen.getByRole("textbox", { name: "活动名称" })).toHaveValue("测试活动");
     expect(screen.getByRole("textbox", { name: "地点" })).toHaveValue("杭州");
-    expect(screen.getByLabelText("开始日期")).toHaveValue("2026-09-01");
-    expect(screen.getByLabelText("结束日期")).toHaveValue("");
-    expect(screen.getByText(/已有账务记录/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "活动日期 2026-09-01 起" })).toBeInTheDocument();
+    expect(screen.getByText("账务锁定")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /CNY 人民币/ })).not.toBeInTheDocument();
     expect(screen.queryByText("字段权限")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑活动资料" })).not.toBeInTheDocument();
@@ -1244,6 +1247,7 @@ describe("活动管理 Overlay", () => {
 
     expect(screen.queryByRole("textbox", { name: "活动名称" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "地点" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^活动日期/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "结束活动" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "删除活动" })).not.toBeInTheDocument();
   });
@@ -1264,7 +1268,7 @@ describe("活动管理 Overlay", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
 
     expect(screen.queryByRole("button", { name: /CNY 人民币/ })).not.toBeInTheDocument();
-    expect(screen.getByText("已有账务记录，不可修改")).toBeInTheDocument();
+    expect(screen.getByText("账务锁定")).toBeInTheDocument();
   });
 
   it("文本字段失焦后只提交对应字段，失败时携带版本并保留草稿和错误", async () => {
@@ -1354,18 +1358,73 @@ describe("活动管理 Overlay", () => {
     expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it("日期选择后直接保存并展示 generated warning，管理页保持原地", async () => {
+  it("只选择开始日期即可保存并展示 generated warning，管理页保持原地", async () => {
     activityApiState.update.mutateAsync.mockResolvedValue({
       data: activityApiState.activity,
       warnings: ["EXPENSE_BEFORE_ACTIVITY_START"],
     });
     renderWorkspace("/activities/activity-1?panel=manage");
-    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2026-09-02" } });
+    fireEvent.click(screen.getByRole("button", { name: "活动日期 2026-09-01 起" }));
+    expect(document.querySelector(".management-date-popover .rdp-root")).toBeInTheDocument();
+    fireEvent.click(document.querySelector('[data-day="2026-09-02"] button')!);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(await screen.findByText("活动开始日期晚于已有账单的发生时间，请检查日期或历史账单。"))
       .toBeInTheDocument();
-    expect(screen.getByLabelText("开始日期")).toHaveValue("2026-09-02");
+    expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ startDate: "2026-09-02", version: "7" });
+    expect(screen.getByRole("button", { name: "活动日期 2026-09-02 起" })).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+  });
+
+  it("日期范围一次提交，取消和清除结束日期只在保存后生效", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: "活动日期 2026-09-01 起" }));
+    fireEvent.click(document.querySelector('[data-day="2026-09-03"] button')!);
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "活动日期 2026-09-01 起" }));
+    fireEvent.click(document.querySelector('[data-day="2026-09-03"] button')!);
+    fireEvent.click(document.querySelector('[data-day="2026-09-05"] button')!);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ startDate: "2026-09-03", endDate: "2026-09-05", version: "7" }));
+    expect(screen.getByRole("button", { name: "活动日期 2026-09-03–09-05" })).toBeInTheDocument();
+  });
+
+  it("日期保存失败时保留月历与所选日期", async () => {
+    activityApiState.update.mutateAsync.mockRejectedValue(new Error("日期保存失败"));
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: "活动日期 2026-09-01 起" }));
+    fireEvent.click(document.querySelector('[data-day="2026-09-02"] button')!);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("日期保存失败");
+    expect(screen.getByText("2026-09-02")).toBeInTheDocument();
+  });
+
+  it("Escape 只关闭日期选择器，保持管理 Sheet 打开", () => {
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: "活动日期 2026-09-01 起" }));
+    fireEvent.keyDown(screen.getByText("选择活动日期"), { key: "Escape" });
+    expect(screen.queryByText("选择活动日期")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+  });
+
+  it("可清除结束日期，且只提交结束日期变更", async () => {
+    activityApiState.activity.endDate = "2026-09-05";
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: "活动日期 2026-09-01–09-05" }));
+    fireEvent.click(screen.getByRole("button", { name: "清除结束日期" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ endDate: null, version: "7" }));
+  });
+
+  it("开始日期无编辑权时仍可单独选择结束日期", async () => {
+    activityApiState.activity.fieldPermissions.startDate = false;
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: "活动日期 2026-09-01 起" }));
+    fireEvent.click(document.querySelector('[data-day="2026-09-05"] button')!);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ endDate: "2026-09-05", version: "7" }));
   });
 
   it("关闭单层管理 Sheet 后仍将焦点还给页头触发器", async () => {

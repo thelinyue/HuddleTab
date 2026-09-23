@@ -19,6 +19,9 @@ import {
   UsersRound,
 } from "lucide-react";
 import { type ChangeEvent, type RefObject, type ReactNode, useEffect, useRef, useState } from "react";
+import { Popover } from "radix-ui";
+import { DayPicker } from "react-day-picker";
+import { zhCN } from "react-day-picker/locale";
 import { useNavigate } from "react-router-dom";
 import { Button, ConfirmDialog, ErrorNotice, Input, LoadingState } from "../../components/ui";
 import { MemberAvatar } from "../../components/member-avatar";
@@ -49,10 +52,9 @@ const lifecycleLabels: Record<string, string> = {
 };
 
 const lifecycleDescriptions: Record<string, string> = {
-  END: "结束后将停止新增账单、成员和邀请，可重新开启。",
-  REOPEN: "重新开启后，活动成员可以继续记录账单。",
-  ARCHIVE: "归档后活动完全只读，可在历史活动中查看。",
-  UNARCHIVE: "取消归档后恢复活动的可用状态。",
+  REOPEN: "恢复记账",
+  ARCHIVE: "归档后只读",
+  UNARCHIVE: "恢复使用",
 };
 
 const currencyOptions = [
@@ -80,6 +82,24 @@ type ExpandedChoice = "baseCurrency" | "inviteMode" | null;
 
 type ManagementConfirmation = { kind: "lifecycle"; action: string } | { kind: "delete" } | null;
 
+function dateFromIso(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function isoFromDate(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function activityDateLabel(start: string, end: string): string {
+  if (!end) return `${start} 起`;
+  return start.slice(0, 4) === end.slice(0, 4) ? `${start}–${end.slice(5)}` : `${start}–${end}`;
+}
+
+function ActivityDateValue({ start, end }: { start: string; end: string }) {
+  return <span className="management-date-value"><span>{start}</span><span>{end ? `–${start.slice(0, 4) === end.slice(0, 4) ? end.slice(5) : end}` : "起"}</span></span>;
+}
+
 /** 封面子视图只在点击保存时提交草稿，避免选择缩略图时提前改变活动资料。 */
 type CoverDraft =
   | { kind: "preset"; preset: ActivityCoverPreset }
@@ -88,7 +108,7 @@ type CoverDraft =
 
 /**
  * 活动管理根视图保持可扫描的设置列表；资料仍然直接编辑，复杂操作切换到同一 Sheet 的子视图。
- * 每次资料更新只提交一个字段和 version，避免覆盖其他成员的并发修改。
+ * 普通资料每次只提交一个字段；日期选择器在确认时一次提交实际变化的日期和 version。
  */
 export function MorePage({
   onClose,
@@ -143,6 +163,13 @@ export function MorePage({
   const [deleteError, setDeleteError] = useState<unknown>();
   const [coverDraft, setCoverDraft] = useState<CoverDraft>(null);
   const [coverError, setCoverError] = useState<unknown>();
+  const [dateOpen, setDateOpen] = useState(false);
+  const [dateStart, setDateStart] = useState(activity.startDate);
+  const [dateEnd, setDateEnd] = useState(activity.endDate ?? "");
+  const [dateStep, setDateStep] = useState<"start" | "end">("start");
+  const [dateMonth, setDateMonth] = useState(() => dateFromIso(activity.startDate));
+  const [dateError, setDateError] = useState<unknown>();
+  const datePickerHeadingRef = useRef<HTMLDivElement | null>(null);
   const transferPanelRef = useRef<HTMLElement | null>(null);
   const members = useMembersQuery(session.userId, activity.activityId, view === "transfer");
 
@@ -152,7 +179,7 @@ export function MorePage({
     && (field !== "baseCurrency" || !activity.hasAccountingRecords);
   const editingBusy = savingField !== null || update.isPending;
   const actionBusy = editingBusy || lifecycle.isPending || pendingLifecycleAction !== null || transfer.isPending || remove.isPending || deleting || exporting || updateCover.isPending || uploadCover.isPending;
-  const hasError = Object.values(fieldErrors).some(Boolean)
+  const hasError = Boolean(dateError) || Object.values(fieldErrors).some(Boolean)
     || Boolean(lifecycleActionError || transferError || transfer.error || exportError || deleteError || remove.error || coverError);
 
   useEffect(() => {
@@ -235,7 +262,6 @@ export function MorePage({
   function currentFieldValue(field: ActivityField): string {
     if (field === "cover") return String(activity.coverPreset ?? "");
     if (field === "location") return activity.location ?? "";
-    if (field === "endDate") return activity.endDate ?? "";
     return String(activity[field]);
   }
 
@@ -252,8 +278,6 @@ export function MorePage({
     if (field === "name") input.name = value;
     if (field === "location") input.location = value || null;
     if (field === "baseCurrency") input.baseCurrency = value;
-    if (field === "startDate") input.startDate = value;
-    if (field === "endDate") input.endDate = value || null;
     if (field === "inviteMode") input.inviteMode = value;
 
     setSavingField(field);
@@ -298,6 +322,59 @@ export function MorePage({
       setLifecycleActionError(new Error(`${lifecycleLabels[action] ?? "活动操作"}失败${detail}`));
     } finally {
       setPendingLifecycleAction(null);
+    }
+  }
+
+  function openDatePicker(open: boolean) {
+    if (!open && editingBusy) return;
+    if (open) {
+      setDateStart(activity.startDate);
+      setDateEnd(activity.endDate ?? "");
+      setDateStep(canEdit("startDate") ? "start" : "end");
+      setDateMonth(dateFromIso(activity.startDate));
+      setDateError(undefined);
+    } else {
+      setDateError(undefined);
+    }
+    setDateOpen(open);
+  }
+
+  function selectDate(day: Date) {
+    const value = isoFromDate(day);
+    setDateError(undefined);
+    if (dateStep === "start") {
+      setDateStart(value);
+      if (canEdit("endDate")) {
+        setDateEnd("");
+        setDateStep("end");
+      }
+    } else {
+      setDateEnd(value);
+      if (canEdit("startDate")) setDateStep("start");
+    }
+  }
+
+  async function saveDates() {
+    const input: UpdateActivityInput = { version };
+    if (dateStart !== activity.startDate && canEdit("startDate")) input.startDate = dateStart;
+    if (dateEnd !== (activity.endDate ?? "") && canEdit("endDate")) input.endDate = dateEnd || null;
+    if (!input.startDate && input.endDate === undefined) {
+      setDateOpen(false);
+      return;
+    }
+    setSavingField("startDate");
+    setDateError(undefined);
+    try {
+      const result = await update.mutateAsync(input);
+      setVersion(result.data.version);
+      setDraft((current) => ({ ...current, startDate: dateStart, endDate: dateEnd }));
+      setWarnings(result.warnings);
+      setLastSavedField("startDate");
+      setDateOpen(false);
+    } catch (reason) {
+      setDateError(reason);
+    } finally {
+      setSavingField(null);
     }
   }
 
@@ -446,7 +523,7 @@ export function MorePage({
         <div className="management-expansion__actions"><Button variant="secondary" type="button" disabled={actionBusy} onClick={() => onViewChange?.("root")}>取消</Button><Button type="button" busy={transfer.isPending} disabled={!memberId || actionBusy} onClick={() => void confirmTransfer()}>确认转让</Button></div>
       </section> : view === "audit" ? <section className="management-subview management-subview--audit" aria-label="活动记录"><ActivityAuditPanel userId={session.userId} activityId={activity.activityId} offline={offline} /></section> : <section aria-label="活动设置">
           <div className="management-list" role="list">
-            {!offline && activity.currentMemberRole === "OWNER" ? <div className="management-action-item" role="listitem"><button ref={coverTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy || !activity.fieldPermissions.cover} onClick={() => onViewChange?.("cover")}><Pencil aria-hidden="true" size={19} /><span><strong>封面</strong><small>选择默认主题或上传自定义图片</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div> : null}
+            {!offline && activity.currentMemberRole === "OWNER" ? <div className="management-action-item" role="listitem"><button ref={coverTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy || !activity.fieldPermissions.cover} onClick={() => onViewChange?.("cover")}><Pencil aria-hidden="true" size={19} /><span><strong>封面</strong><small>选择或上传封面</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div> : null}
             <div className="management-field" role="listitem">
               <div className="management-field__heading"><Pencil aria-hidden="true" size={17} /><span><strong>活动名称</strong></span></div>
               {canEdit("name") ? <div className="management-field__control"><Input aria-label="活动名称" value={draft.name} disabled={editingBusy} required maxLength={120} onChange={(event) => setDraftValue("name", event.target.value)} onBlur={(event) => void saveField("name", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("name")}</div> : <span className="management-field__readonly">{activity.name}</span>}
@@ -457,18 +534,23 @@ export function MorePage({
               {canEdit("location") ? <div className="management-field__control"><Input aria-label="地点" value={draft.location} disabled={editingBusy} maxLength={120} onChange={(event) => setDraftValue("location", event.target.value)} onBlur={(event) => void saveField("location", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />{fieldStatus("location")}</div> : <span className="management-field__readonly">{activity.location || "未填写"}</span>}
               {fieldError("location")}
             </div>
-            <div className="management-field" role="listitem">
-              <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>开始日期</strong></span></div>
-              {canEdit("startDate") ? <div className="management-field__control"><Input className="management-date-input" aria-label="开始日期" type="date" value={draft.startDate} disabled={editingBusy} required onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* 不支持 showPicker 时仍保留原生日期编辑。 */ } }} onChange={(event) => void saveField("startDate", event.target.value)} />{fieldStatus("startDate", <CalendarDays aria-hidden="true" size={16} />)}</div> : <span className="management-field__readonly">{activity.startDate}</span>}
-              {fieldError("startDate")}
+            <div className="management-field management-field--dates" role="listitem">
+              <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>活动日期</strong></span></div>
+              {canEdit("startDate") || canEdit("endDate") ? <Popover.Root open={dateOpen} onOpenChange={openDatePicker} modal>
+                <Popover.Trigger asChild><button className="management-date-trigger" type="button" aria-label={`活动日期 ${activityDateLabel(draft.startDate, draft.endDate)}`} disabled={actionBusy}><ActivityDateValue start={draft.startDate} end={draft.endDate} />{fieldStatus("startDate", <ChevronDown aria-hidden="true" size={16} />)}</button></Popover.Trigger>
+                <Popover.Portal><Popover.Content className="management-date-popover" side="bottom" align="end" sideOffset={8} collisionPadding={12} onOpenAutoFocus={(event) => { event.preventDefault(); datePickerHeadingRef.current?.focus({ preventScroll: true }); }} onKeyDownCapture={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!editingBusy) openDatePicker(false); } }}>
+                  <div ref={datePickerHeadingRef} className="management-date-popover__heading" tabIndex={-1}>选择活动日期</div>
+                  <div className="management-date-popover__range" aria-live="polite">
+                    <span>开始日期 <strong>{dateStart}</strong></span><span>结束日期 <strong>{dateEnd || "未设置"}</strong></span>
+                  </div>
+                  <DayPicker mode="range" locale={zhCN} month={dateMonth} onMonthChange={setDateMonth} selected={{ from: dateFromIso(dateStart), to: dateEnd ? dateFromIso(dateEnd) : undefined }} onDayClick={selectDate} disabled={editingBusy || (dateStep === "end" ? { before: dateFromIso(dateStart) } : !canEdit("endDate") && dateEnd ? { after: dateFromIso(dateEnd) } : undefined)} />
+                  <div className="management-date-popover__actions"><Button variant="ghost" type="button" disabled={!canEdit("endDate") || !dateEnd || editingBusy} onClick={() => { setDateEnd(""); setDateError(undefined); }}>清除结束日期</Button><Button variant="secondary" type="button" disabled={editingBusy} onClick={() => openDatePicker(false)}>取消</Button><Button type="button" busy={editingBusy} disabled={!dateStart || (Boolean(dateEnd) && dateEnd < dateStart)} onClick={() => void saveDates()}>保存</Button></div>
+                  {dateError ? <ErrorNotice error={dateError} /> : null}
+                </Popover.Content></Popover.Portal>
+              </Popover.Root> : <><span className="management-field__readonly"><ActivityDateValue start={activity.startDate} end={activity.endDate ?? ""} /></span><span className="management-field__status" aria-hidden="true" /></>}
             </div>
             <div className="management-field" role="listitem">
-              <div className="management-field__heading"><CalendarDays aria-hidden="true" size={17} /><span><strong>结束日期</strong><small>可选</small></span></div>
-              {canEdit("endDate") ? <div className="management-field__control"><Input className="management-date-input" aria-label="结束日期" type="date" min={activity.startDate} value={draft.endDate} disabled={editingBusy} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* 不支持 showPicker 时仍保留原生日期编辑。 */ } }} onChange={(event) => void saveField("endDate", event.target.value)} />{fieldStatus("endDate", <CalendarDays aria-hidden="true" size={16} />)}</div> : <span className="management-field__readonly">{activity.endDate || "未填写"}</span>}
-              {fieldError("endDate")}
-            </div>
-            <div className="management-field" role="listitem">
-              <div className="management-field__heading"><CircleDollarSign aria-hidden="true" size={17} /><span><strong>主币种</strong>{activity.hasAccountingRecords ? <small>已有账务记录，不可修改</small> : !activity.fieldPermissions.baseCurrency ? <small>当前账号无修改权限</small> : null}</span></div>
+              <div className="management-field__heading"><CircleDollarSign aria-hidden="true" size={17} /><span><strong>主币种</strong>{activity.hasAccountingRecords ? <small>账务锁定</small> : !activity.fieldPermissions.baseCurrency ? <small>无编辑权</small> : null}</span></div>
               {canEdit("baseCurrency") ? <div className="management-field__choice"><button className="management-choice-trigger" type="button" aria-expanded={expandedChoice === "baseCurrency"} aria-controls="activity-currency-options" disabled={editingBusy} onClick={() => setExpandedChoice((current) => current === "baseCurrency" ? null : "baseCurrency")}><span>{draft.baseCurrency} {currencyLabel}</span>{fieldStatus("baseCurrency", <ChevronDown aria-hidden="true" className={expandedChoice === "baseCurrency" ? "management-field__chevron management-field__chevron--open" : "management-field__chevron"} size={18} />)}</button></div> : <><span className="management-field__readonly">{activity.baseCurrency}</span><span className="management-field__status" aria-hidden="true" /></>}
               {expandedChoice === "baseCurrency" && canEdit("baseCurrency") ? <div className="management-choice-list" id="activity-currency-options" role="radiogroup" aria-label="主币种选项">{currencyOptions.map(([code, label]) => <button key={code} type="button" role="radio" aria-checked={draft.baseCurrency === code} disabled={editingBusy} onClick={() => void saveField("baseCurrency", code)}><span><strong>{code}</strong><small>{label}</small></span>{draft.baseCurrency === code ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
               {fieldError("baseCurrency")}
@@ -479,8 +561,8 @@ export function MorePage({
               {expandedChoice === "inviteMode" && canEdit("inviteMode") ? <div className="management-choice-list" id="activity-invite-mode-options" role="radiogroup" aria-label="加入方式选项">{inviteModeOptions.map(([value, label, description]) => <button key={value} type="button" role="radio" aria-checked={draft.inviteMode === value} disabled={editingBusy} onClick={() => void saveField("inviteMode", value)}><span><strong>{label}</strong><small>{description}</small></span>{draft.inviteMode === value ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
               {fieldError("inviteMode")}
             </div>
-            <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--command" type="button" aria-label="导出 CSV" disabled={actionBusy} aria-busy={exporting} aria-describedby="activity-export-description" onClick={() => void exportCsv()}><Download aria-hidden="true" size={19} /><span><strong>导出 CSV</strong><small id="activity-export-description">下载活动账务明细</small></span><span className="management-action-row__status" role="status">{exporting ? <LoaderCircle aria-label="正在准备 CSV" className="spinner" size={17} /> : null}</span></button></div>
-            <div className="management-action-item" role="listitem"><button ref={auditTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={offline || actionBusy} onClick={() => onViewChange?.("audit")}><History aria-hidden="true" size={19} /><span><strong>活动记录</strong><small>{offline ? "联网后查看成员与活动的变更历史" : "查看成员与活动的变更历史"}</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div>
+            <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--command" type="button" aria-label="导出 CSV" disabled={actionBusy} aria-busy={exporting} aria-describedby="activity-export-description" onClick={() => void exportCsv()}><Download aria-hidden="true" size={19} /><span><strong>导出 CSV</strong><small id="activity-export-description">下载账务明细</small></span><span className="management-action-row__status" role="status">{exporting ? <LoaderCircle aria-label="正在准备 CSV" className="spinner" size={17} /> : null}</span></button></div>
+            <div className="management-action-item" role="listitem"><button ref={auditTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={offline || actionBusy} onClick={() => onViewChange?.("audit")}><History aria-hidden="true" size={19} /><span><strong>活动记录</strong><small>{offline ? "联网后查看记录" : "查看变更记录"}</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div>
             <div className="management-field management-field--readonly" role="listitem">
               <div className="management-field__heading"><UsersRound aria-hidden="true" size={17} /><span><strong>当前状态</strong></span></div>
               <span className="management-field__readonly">{activityStatus(activity.status)}</span>
@@ -490,10 +572,10 @@ export function MorePage({
               const label = lifecycleLabels[action];
               if (!label) return [];
               const icon = action === "END" ? <CircleStop aria-hidden="true" size={19} /> : action === "REOPEN" ? <RotateCcw aria-hidden="true" size={19} /> : action === "ARCHIVE" ? <Archive aria-hidden="true" size={19} /> : <ArchiveRestore aria-hidden="true" size={19} />;
-              return [<div className="management-action-item" role="listitem" key={action}><button className="management-action-row management-action-row--command" type="button" disabled={actionBusy} aria-busy={pendingLifecycleAction === action} onClick={() => requestLifecycle(action)}>{icon}<span><strong>{label}</strong><small>{lifecycleDescriptions[action]}</small></span><span className="management-action-row__status" role="status">{pendingLifecycleAction === action ? <LoaderCircle aria-label={`正在${label}`} className="spinner" size={17} /> : null}</span></button></div>];
+              return [<div className="management-action-item" role="listitem" key={action}><button className="management-action-row management-action-row--command" type="button" disabled={actionBusy} aria-busy={pendingLifecycleAction === action} onClick={() => requestLifecycle(action)}>{icon}<span><strong>{label}</strong>{action === "END" ? null : <small>{lifecycleDescriptions[action]}</small>}</span><span className="management-action-row__status" role="status">{pendingLifecycleAction === action ? <LoaderCircle aria-label={`正在${label}`} className="spinner" size={17} /> : null}</span></button></div>];
             }) : null}
-            {!offline && activity.currentMemberRole === "OWNER" ? <div className="management-action-item" role="listitem"><button ref={transferTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy} onClick={openTransfer}><UserRoundCheck aria-hidden="true" size={19} /><span><strong>转让所有权</strong><small>选择新的活动所有者</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div> : null}
-            {!offline && activity.canDelete ? <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--command management-action-row--danger" type="button" disabled={actionBusy} onClick={() => { setConfirmation({ kind: "delete" }); setDeleteError(undefined); }}><Trash2 aria-hidden="true" size={19} /><span><strong>删除活动</strong><small>活动将离开当前列表，可在恢复期限内找回</small></span><span className="management-action-row__status" role="status">{deleting ? <LoaderCircle aria-label="正在删除活动" className="spinner" size={17} /> : null}</span></button></div> : null}
+            {!offline && activity.currentMemberRole === "OWNER" ? <div className="management-action-item" role="listitem"><button ref={transferTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={actionBusy} onClick={openTransfer}><UserRoundCheck aria-hidden="true" size={19} /><span><strong>转让所有权</strong></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div> : null}
+            {!offline && activity.canDelete ? <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--command management-action-row--danger" type="button" disabled={actionBusy} onClick={() => { setConfirmation({ kind: "delete" }); setDeleteError(undefined); }}><Trash2 aria-hidden="true" size={19} /><span><strong>删除活动</strong></span><span className="management-action-row__status" role="status">{deleting ? <LoaderCircle aria-label="正在删除活动" className="spinner" size={17} /> : null}</span></button></div> : null}
           </div>
           {exporting ? <div className="notice" role="status">正在准备 CSV…</div> : null}
           {operationNotice ? <div className="notice" role="status">{operationNotice}</div> : null}
