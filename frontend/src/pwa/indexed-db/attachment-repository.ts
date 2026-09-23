@@ -28,55 +28,22 @@ function byCreationOrder(
 async function toStoredAttachment(
   record: PendingAttachment,
 ): Promise<StoredPendingAttachment> {
-  const source = record.blob as unknown;
-  const inferredLastModified = record.lastModified ?? readLastModified(source);
-  let blob: ArrayBuffer;
-  if (isBlob(source)) {
-    blob = await source.arrayBuffer();
-  } else if (isArrayBuffer(source)) {
-    blob = source;
-  } else {
+  if (!isBlob(record.blob)) {
     throw new Error(CORRUPTED_ATTACHMENT_ERROR.message);
   }
   return {
     ...record,
-    ...(inferredLastModified === undefined
-      ? {}
-      : { lastModified: inferredLastModified }),
-    blob,
+    blob: await record.blob.arrayBuffer(),
   };
 }
 
-function readLastModified(value: unknown) {
-  if (!isBlob(value) || !("lastModified" in value)) return undefined;
-  const lastModified = (value as Blob & { lastModified?: unknown }).lastModified;
-  return typeof lastModified === "number" && Number.isFinite(lastModified)
-    ? lastModified
-    : undefined;
-}
-
-function restoreBlob(record: StoredPendingAttachment) {
-  const source = record.blob as unknown;
-  if (isBlob(source)) {
-    return { blob: source, lastModified: readLastModified(source) };
-  }
-  if (isArrayBuffer(source)) {
-    return {
-      blob: new Blob([source], { type: record.mimeType }),
-      lastModified: undefined,
-    };
-  }
-  throw new Error(CORRUPTED_ATTACHMENT_ERROR.message);
-}
-
-/** 读取时兼容旧版 File/Blob 与当前 ArrayBuffer；不做全库批量重写。 */
 function fromStoredAttachment(record: StoredPendingAttachment): PendingAttachment {
-  const restored = restoreBlob(record);
-  const lastModified = record.lastModified ?? restored.lastModified;
+  if (!isArrayBuffer(record.blob)) {
+    throw new Error(CORRUPTED_ATTACHMENT_ERROR.message);
+  }
   return {
     ...record,
-    ...(lastModified === undefined ? {} : { lastModified }),
-    blob: restored.blob,
+    blob: new Blob([record.blob], { type: record.mimeType }),
   };
 }
 

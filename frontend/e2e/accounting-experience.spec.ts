@@ -20,6 +20,7 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
     else if (endpoint === 'demo') data = activity;
     else if (endpoint === 'members') data = members;
     else if (endpoint === 'expenses') data = expenses;
+    else if (expenses.some(item => item.expense.expenseId === endpoint)) data = expenses.find(item => item.expense.expenseId === endpoint);
     else if (endpoint === 'ledger') data = { balances };
     else if (endpoint === 'recommendations') data = recommendations;
     else if (endpoint === 'settlements') data = records;
@@ -512,4 +513,96 @@ test('活动页头：加载骨架与完成后的占位一致', async ({ page }) 
   const after = await headerGeometry(page);
   expect(after.height).toBe(before.height);
   expect(after.documentTop).toBe(before.documentTop);
+});
+
+/** 统计验收只扩展本地接口夹具，消费与付款使用同一份主币种事实。 */
+async function installStatisticsFixture(page: Page) {
+  const controls = await installFixture(page);
+  const template = controls.expenses[0]!;
+  const items = [
+    ['e1', '湖边晚餐', 'FOOD', '2026-09-05T10:00:00Z', '48000'],
+    ['e2', '西湖游船', 'ENTERTAINMENT', '2026-09-06T08:00:00Z', '22000'],
+    ['e3', '往返高铁', 'TRANSPORT', '2026-09-05T03:00:00Z', '62000'],
+    ['e4', '两晚住宿', 'LODGING', '2026-09-07T08:00:00Z', '128000'],
+    ['e5', '早餐', 'FOOD', '2026-09-08T01:00:00Z', '8000'],
+    ['e6', '咖啡', 'FOOD', '2026-09-08T06:00:00Z', '6000'],
+  ].map(([id, title, category, occurredAt, amount], index) => ({
+    ...template, attachments: [],
+    expense: { ...template.expense, expenseId: id!, title: title!, category: category!, occurredAt: occurredAt!, baseAmountMinor: amount!, originalAmountMinor: amount! },
+    payments: [{ memberId: `m${index % 4}`, baseAmountMinor: amount!, originalAmountMinor: amount! }],
+    shares: controls.members.map(member => ({ memberId: member.memberId, baseAmountMinor: String(BigInt(amount!) / 4n), originalAmountMinor: String(BigInt(amount!) / 4n) })),
+  }));
+  controls.expenses.splice(0, controls.expenses.length, ...items);
+  return controls;
+}
+
+test('活动统计增强：日期、视图和详情返回保留统计上下文', async ({ page }, info) => {
+  await installStatisticsFixture(page);
+  await page.goto('/activities/demo?tab=settlement');
+  await page.getByRole('button', { name: '更多操作' }).click();
+  await page.getByRole('link', { name: '活动统计', exact: true }).click();
+  await expect(page.getByLabel('活动消费总览')).toContainText('6 笔');
+  await page.screenshot({ path: info.outputPath('statistics-overview.png'), fullPage: true, scale: 'css' });
+  await page.getByRole('button', { name: '选择统计日期范围' }).click();
+  await page.getByRole('button', { name: /2026年9月6日/ }).click();
+  await page.getByRole('button', { name: /2026年9月8日/ }).click();
+  await page.getByRole('button', { name: '应用', exact: true }).click();
+  await expect(page.getByLabel('活动消费总览')).toContainText('4 笔');
+  for (const name of ['笔数', '条形', '累计消费', '按总支出', '明细']) await page.getByRole('button', { name, exact: true }).click();
+  await expect(page.getByRole('img', { name: /累计消费折线图/ })).toBeVisible();
+  const selectedUrl = page.url();
+  await page.getByRole('link', { name: /两晚住宿/ }).click();
+  await expect(page.getByRole('heading', { name: '账单详情', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '返回活动统计' }).click();
+  await expect(page).toHaveURL(selectedUrl);
+  await expect(page.getByRole('button', { name: '笔数', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '明细', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '选择统计日期范围' }).click();
+  await page.getByRole('button', { name: /2026年9月5日/ }).click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page).toHaveURL(selectedUrl);
+  await page.getByRole('button', { name: '选择统计日期范围' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '选择统计日期范围' })).toBeFocused();
+  await page.getByRole('button', { name: '重置', exact: true }).click();
+  await expect(page.getByLabel('活动消费总览')).toContainText('6 笔');
+  await page.getByRole('button', { name: '返回结算' }).click();
+  await expect(page).toHaveURL('/activities/demo?tab=settlement');
+});
+
+test('活动统计增强：长日期、大金额、长名称及深色窄屏不溢出', async ({ page }, info) => {
+  const controls = await installStatisticsFixture(page);
+  controls.members[0]!.displayName = '名字比较长的同行成员用于验证手机端布局';
+  controls.expenses[0]!.expense.title = '跨城市多人出游往返交通与住宿组合账单用于验证长用途展示';
+  controls.expenses[0]!.expense.baseAmountMinor = '9007199254740993';
+  controls.expenses[0]!.payments[0]!.baseAmountMinor = '9007199254740993';
+  controls.expenses[0]!.shares[0]!.baseAmountMinor = '9007199254740993';
+  controls.expenses[5]!.expense.occurredAt = '2026-12-05T06:00:00Z';
+  await page.goto('/activities/demo/statistics');
+  await expect(page.getByLabel('每日消费柱状图')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.getByRole('button', { name: '累计消费', exact: true }).click();
+  await expect(page.getByRole('img', { name: /累计消费折线图/ })).toBeVisible();
+  expect(await page.locator('.activity-statistics-bars-scroll').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.getByText('查看每日明细', { exact: true }).click();
+  await expect(page.getByRole('table')).toContainText('2026-12-05');
+  await page.getByRole('button', { name: '选择统计日期范围' }).click();
+  const picker = page.locator('.statistics-date-popover');
+  await expect(picker).toBeVisible();
+  const box = await picker.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  await page.keyboard.press('Escape');
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  await page.getByRole('button', { name: '条形', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(await page.locator('.statistics-category-value .money').evaluateAll(elements => elements.every(el => {
+    const box = el.getBoundingClientRect();
+    const section = el.closest('section')!.getBoundingClientRect();
+    return box.right <= section.right && box.left >= section.left && el.scrollWidth <= el.clientWidth + 1;
+  }))).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath('statistics-dark-stress.png'), fullPage: true, scale: 'css' });
 });

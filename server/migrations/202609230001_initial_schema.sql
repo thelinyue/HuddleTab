@@ -1,4 +1,4 @@
--- 全新安装直接创建当前完整结构，不承接旧版本数据升级。
+-- v0.0.30 结构的新安装起点；现有 v0.0.30 数据库使用原迁移记录继续升级。
 -- SQLx 负责事务、迁移记录和重复启动校验；循环外键在两张表创建后建立。
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -9,7 +9,7 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     disabled_at TIMESTAMPTZ,
-    avatar_preset SMALLINT NOT NULL DEFAULT 2 CHECK (avatar_preset BETWEEN 1 AND 6),
+    avatar_preset SMALLINT NOT NULL DEFAULT 2 CHECK (avatar_preset BETWEEN 1 AND 11),
     CONSTRAINT users_username_format CHECK (username ~ '^[a-z0-9._-]{3,32}$'),
     CONSTRAINT users_display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 80)
 );
@@ -61,6 +61,8 @@ CREATE TABLE activities (
     purge_after TIMESTAMPTZ,
     invite_mode TEXT NOT NULL DEFAULT 'DIRECT_JOIN'
         CHECK (invite_mode IN ('DIRECT_JOIN', 'REQUIRE_APPROVAL')),
+    cover_preset SMALLINT DEFAULT 12
+        CHECK (cover_preset IS NULL OR cover_preset BETWEEN 1 AND 12),
     CONSTRAINT activities_location_length
         CHECK (location IS NULL OR char_length(location) <= 120),
     CONSTRAINT activities_date_range
@@ -311,6 +313,7 @@ CREATE TABLE notifications (
         CHECK (jsonb_typeof(payload) = 'object'),
     read_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
+    push_enqueued_at TIMESTAMPTZ,
     CONSTRAINT notifications_kind_target CHECK (
         (type IN (
             'JOIN_APPROVAL_REQUESTED',
@@ -331,6 +334,10 @@ CREATE TABLE notifications (
 
 CREATE INDEX notifications_recipient_created_idx
 ON notifications (recipient_user_id, created_at DESC, id);
+
+CREATE INDEX notifications_push_pending_idx
+ON notifications (created_at, id)
+WHERE push_enqueued_at IS NULL;
 
 CREATE TABLE expense_attachments (
     id UUID PRIMARY KEY,
@@ -377,9 +384,149 @@ CREATE TABLE system_settings (
     version BIGINT NOT NULL DEFAULT 1 CHECK (version >= 1),
     updated_at TIMESTAMPTZ NOT NULL,
     -- 该字段只是最近修改管理员的审计指针；不建立外键，避免测试/运维按用户级联清理时误删系统单例。
-    updated_by_user_id UUID
+    updated_by_user_id UUID,
+    ai_expense_draft_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    ai_provider_base_url TEXT,
+    ai_provider_models JSONB NOT NULL DEFAULT '[]'::jsonb
+        CHECK (jsonb_typeof(ai_provider_models) = 'array'),
+    ai_provider_default_model TEXT,
+    ai_provider_json_mode BOOLEAN NOT NULL DEFAULT TRUE,
+    ai_provider_timeout_seconds INTEGER NOT NULL DEFAULT 30
+        CHECK (ai_provider_timeout_seconds BETWEEN 1 AND 120),
+    ai_provider_api_key_envelope BYTEA,
+    ai_image_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    ai_provider_max_image_bytes INTEGER NOT NULL DEFAULT 10485760
+        CHECK (ai_provider_max_image_bytes BETWEEN 1 AND 10485760)
 );
 
 INSERT INTO system_settings (id, registration_policy, version, updated_at)
 VALUES ('singleton', 'INVITE_ONLY', 1, CURRENT_TIMESTAMP);
+
+-- SettlementAllocation 只记录真实 Settlement 到具体 Expense 的明确归属。
+-- payer/payee/currency/status 从 settlements 继承，避免形成第二套账本。
+CREATE TABLE settlement_allocations (
+    activity_id UUID NOT NULL,
+    settlement_id UUID NOT NULL,
+    expense_id UUID NOT NULL,
+    amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (settlement_id, expense_id),
+    FOREIGN KEY (activity_id, settlement_id)
+        REFERENCES settlements(activity_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (activity_id, expense_id)
+        REFERENCES expenses(activity_id, id) ON DELETE RESTRICT
+);
+
+CREATE INDEX settlement_allocations_expense_idx
+    ON settlement_allocations (expense_id, settlement_id);
+
+-- 系统管理员审计只保存变更字段名和秘密动作，禁止存储配置值或密文内容。
+CREATE TABLE system_admin_audit_logs (
+    id UUID PRIMARY KEY,
+    actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    event_type TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_key TEXT NOT NULL,
+    changed_fields TEXT[] NOT NULL DEFAULT '{}',
+    secret_action TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT system_admin_audit_logs_secret_action CHECK (
+        secret_action IS NULL OR secret_action IN ('SET', 'REPLACED', 'CLEARED')
+    ),
+    CONSTRAINT system_admin_audit_logs_has_change CHECK (
+        cardinality(changed_fields) > 0 OR secret_action IS NOT NULL
+    )
+);
+
+CREATE INDEX system_admin_audit_logs_created_idx
+ON system_admin_audit_logs (created_at DESC, id);
+
+CREATE TABLE notification_push_preferences (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    membership_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    expense_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    settlement_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    activity_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE push_subscriptions (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE CHECK (char_length(endpoint) BETWEEN 1 AND 4096),
+    p256dh TEXT NOT NULL CHECK (char_length(p256dh) BETWEEN 1 AND 256),
+    auth TEXT NOT NULL CHECK (char_length(auth) BETWEEN 1 AND 256),
+    expiration_time BIGINT,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX push_subscriptions_user_idx
+ON push_subscriptions (user_id, updated_at DESC, id);
+
+CREATE TABLE notification_push_deliveries (
+    id UUID PRIMARY KEY,
+    notification_id UUID NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+    subscription_id UUID NOT NULL REFERENCES push_subscriptions(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING', 'RETRY', 'DELIVERED', 'FAILED', 'CANCELLED')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    next_attempt_at TIMESTAMPTZ NOT NULL,
+    delivered_at TIMESTAMPTZ,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (notification_id, subscription_id)
+);
+
+CREATE INDEX notification_push_deliveries_pending_idx
+ON notification_push_deliveries (next_attempt_at, id)
+WHERE status IN ('PENDING', 'RETRY');
+
+-- MCP 个人访问令牌只保存摘要；原始令牌只在创建响应中出现一次。
+CREATE TABLE mcp_access_tokens (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
+    token_prefix TEXT NOT NULL CHECK (char_length(token_prefix) BETWEEN 8 AND 32),
+    token_hash BYTEA NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+    scope TEXT NOT NULL CHECK (scope IN ('READ', 'EXPENSES_CREATE')),
+    expires_at TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX mcp_access_tokens_user_idx
+ON mcp_access_tokens (user_id, created_at DESC);
+
+CREATE INDEX mcp_access_tokens_active_hash_idx
+ON mcp_access_tokens (token_hash)
+WHERE revoked_at IS NULL;
+
+-- 活动封面与用户头像的可回收私有图片元数据。
+CREATE TABLE activity_cover_images (
+    activity_id UUID PRIMARY KEY REFERENCES activities(id) ON DELETE CASCADE,
+    image_id UUID NOT NULL UNIQUE,
+    storage_key TEXT NOT NULL UNIQUE,
+    width INTEGER NOT NULL CHECK (width = 1200),
+    height INTEGER NOT NULL CHECK (height = 900),
+    byte_size BIGINT NOT NULL CHECK (byte_size > 0),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE user_avatar_images (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    image_id UUID NOT NULL UNIQUE,
+    storage_key TEXT NOT NULL UNIQUE,
+    width INTEGER NOT NULL CHECK (width = 512),
+    height INTEGER NOT NULL CHECK (height = 512),
+    byte_size BIGINT NOT NULL CHECK (byte_size > 0),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX activity_cover_images_storage_key_idx ON activity_cover_images(storage_key);
+CREATE INDEX user_avatar_images_storage_key_idx ON user_avatar_images(storage_key);
 

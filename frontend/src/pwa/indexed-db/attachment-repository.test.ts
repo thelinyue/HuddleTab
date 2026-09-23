@@ -108,42 +108,25 @@ it("只丢弃指定 mutation 下被拒绝的本地 Blob", async () => {
     .toEqual(["other"]);
 });
 
-it("兼容旧版 File 记录并保留文件元数据与内容", async () => {
-  const lastModified = 1_700_000_000_000;
+it("旧 File/Blob 记录标记为无法恢复，不继续上传", async () => {
   await putRawAttachment({
     ...attachment("legacy-file"),
-    fileName: "legacy-file.png",
-    mimeType: "image/png",
     blob: new File(["legacy-file-bytes"], "legacy-file.png", {
       type: "image/png",
-      lastModified,
     }),
   });
-
-  const [record] = await new AttachmentRepository("user-1")
-    .listByMutation("mutation-1");
-  expect(record.fileName).toBe("legacy-file.png");
-  expect(record.mimeType).toBe("image/png");
-  expect(record.lastModified).toBe(lastModified);
-  expect(record.blob.size).toBe("legacy-file-bytes".length);
-  expect(await record.blob.text()).toBe("legacy-file-bytes");
-});
-
-it("兼容旧版 Blob 记录并恢复为可上传内容", async () => {
   await putRawAttachment({
     ...attachment("legacy-blob"),
-    fileName: "legacy-blob.webp",
-    mimeType: "image/webp",
     blob: new Blob(["legacy-blob-bytes"], { type: "image/webp" }),
   });
 
-  const [record] = await new AttachmentRepository("user-1")
+  const records = await new AttachmentRepository("user-1")
     .listByMutation("mutation-1");
-  expect(record.fileName).toBe("legacy-blob.webp");
-  expect(record.mimeType).toBe("image/webp");
-  expect(record.lastModified).toBeUndefined();
-  expect(record.blob.size).toBe("legacy-blob-bytes".length);
-  expect(await record.blob.text()).toBe("legacy-blob-bytes");
+  expect(records).toHaveLength(2);
+  expect(records.every(({ status, blob, lastError }) =>
+    status === "REJECTED" && blob.size === 0 &&
+    lastError?.code === "LOCAL_ATTACHMENT_CORRUPTED"
+  )).toBe(true);
 });
 
 it("读取当前 ArrayBuffer 记录并恢复字节长度与 MIME", async () => {
@@ -168,7 +151,10 @@ it("单条损坏附件标记为 REJECTED 且不阻塞同一队列的其他记录
     ...attachment("broken", { status: "PENDING" }),
     blob: { invalid: true },
   });
-  await putRawAttachment(attachment("healthy"));
+  await putRawAttachment({
+    ...attachment("healthy"),
+    blob: new TextEncoder().encode("healthy").buffer,
+  });
 
   const records = await new AttachmentRepository("user-1")
     .listByMutation("mutation-1");

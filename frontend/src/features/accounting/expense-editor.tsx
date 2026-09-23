@@ -1,6 +1,6 @@
 import { ArrowLeft, Check, ChevronRight, ImagePlus, Info, Minus, Plus, Trash2 } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
 import { MemberAvatar } from "../../components/member-avatar";
@@ -1036,6 +1036,7 @@ function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { a
 
 export function ExpenseDetailPage() {
   const { expenseId = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
   const expense = useExpenseQuery(session.userId, activity.activityId, expenseId, !offline);
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
@@ -1047,7 +1048,8 @@ export function ExpenseDetailPage() {
   if ((!offline && expense.isPending) || members.isPending && memberData.length === 0) return <LoadingState label="正在读取账单…" />;
   if ((!offline && expense.error && !snapshot) || members.error && memberData.length === 0) return <ErrorNotice error={expense.error ?? members.error} />;
   if (!aggregate) return null;
-  if (activity.status !== "ACTIVE" || offline) {
+  // 统计中的账单下钻只查看既有事实，保持分析与编辑两条入口的语义独立。
+  if (activity.status !== "ACTIVE" || offline || searchParams.get("view") === "readonly") {
     return <ReadonlyExpenseDetail aggregate={aggregate} memberData={memberData} activity={activity} offline={offline} />;
   }
   return (

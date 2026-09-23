@@ -266,17 +266,17 @@ function WorkspaceHeader({ children, busy = false, withCover = false, memberStac
 function StandaloneDetailFrame({ activityId, children, pending = false, readOnly = false, title = "账单详情" }: { activityId: string; children: ReactNode; pending?: boolean; readOnly?: boolean; title?: string }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const state = location.state as { activityStatisticsFromFeed?: boolean; activityStatisticsFromWorkspace?: boolean; activityStatisticsFromTab?: ActivityTab; expenseDetailFromFeed?: boolean } | null;
+  const state = location.state as { activityStatisticsFromFeed?: boolean; activityStatisticsFromWorkspace?: boolean; activityStatisticsFromTab?: ActivityTab; expenseDetailFromFeed?: boolean; expenseDetailFromStatistics?: boolean } | null;
   const statisticsReturnTab = state?.activityStatisticsFromTab === "settlement" ? "settlement" : "feed";
-  const fromWorkspace = Boolean(state?.expenseDetailFromFeed || state?.activityStatisticsFromFeed || state?.activityStatisticsFromWorkspace);
+  const fromWorkspace = Boolean(state?.expenseDetailFromFeed || state?.expenseDetailFromStatistics || state?.activityStatisticsFromFeed || state?.activityStatisticsFromWorkspace);
   const backTab = title === "活动统计" ? statisticsReturnTab : "feed";
-  const backLabel = backTab === "settlement" ? "结算" : "流水";
+  const backLabel = state?.expenseDetailFromStatistics ? "活动统计" : backTab === "settlement" ? "结算" : "流水";
   const goBack = () => {
     if (fromWorkspace) navigate(-1);
     else navigate(tabUrl(activityId, backTab));
   };
   return <section className="standalone-detail-shell">
-    <header className="standalone-detail-header">
+    <header className={`standalone-detail-header${state?.expenseDetailFromStatistics ? " standalone-detail-header--statistics-back" : ""}`}>
       <button className="standalone-detail-header__back" type="button" aria-label={`返回${backLabel}`} onClick={goBack}><ArrowLeft aria-hidden="true" size={18} /><span>{backLabel}</span></button>
       <h1>{title}</h1>
       {readOnly ? <span className="standalone-detail-header__status">只读</span> : pending ? <span className="standalone-detail-header__status standalone-detail-header__status--placeholder" aria-hidden="true" /> : <span aria-hidden="true" />}
@@ -324,7 +324,7 @@ export function ActivityWorkspace() {
   const tab = searchParams.get("tab") === "settlement" ? "settlement" : "feed";
   const panel = searchParams.get("panel");
   const closePanel = () => navigate(tabUrl(activityId, tab), { replace: true });
-  const standaloneReadOnly = Boolean(isExpenseDetailRoute && (activityData.status !== "ACTIVE" || !online));
+  const standaloneReadOnly = Boolean(isExpenseDetailRoute && (activityData.status !== "ACTIVE" || !online || searchParams.get("view") === "readonly"));
   const standalone = standaloneReadOnly || isStatisticsRoute;
 
   return (

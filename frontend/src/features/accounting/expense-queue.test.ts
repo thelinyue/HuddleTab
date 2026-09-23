@@ -375,49 +375,6 @@ it("两个附件按本地创建顺序串行上传", async () => {
   ]);
 });
 
-it("旧版 PendingExpenseMutation 与 File 附件仍可恢复并上传", async () => {
-  const mutation = pendingMutationFixture("legacy-queue");
-  await putRawRecord("pending_mutations", { ...mutation, userId: "user-1" });
-  await putRawRecord("pending_attachments", {
-    id: "legacy-queue-attachment",
-    userId: "user-1",
-    activityId: mutation.activityId,
-    mutationId: mutation.id,
-    clientAttachmentId: "legacy-client-attachment",
-    fileName: "legacy.png",
-    mimeType: "image/png",
-    blob: new File(["legacy-bytes"], "legacy.png", {
-      type: "image/png",
-      lastModified: 1_700_000_000_000,
-    }),
-    status: "PENDING",
-    attemptCount: 0,
-    nextAttemptAt: 10,
-    createdAt: 10,
-    updatedAt: 10,
-  });
-
-  const sendAttachment = vi.fn().mockResolvedValue({ id: "server-legacy" });
-  const queue = new ExpenseQueue("user-1", {
-    send: vi.fn().mockResolvedValue({ expenseId: "expense-legacy" }),
-    sendAttachment,
-    now: () => 100,
-  });
-  await queue.flush();
-
-  expect(sendAttachment).toHaveBeenCalledTimes(1);
-  const sent = sendAttachment.mock.calls[0][2];
-  expect(sent.fileName).toBe("legacy.png");
-  expect(sent.lastModified).toBe(1_700_000_000_000);
-  expect(await sent.blob.text()).toBe("legacy-bytes");
-  expect(await new MutationRepository("user-1").get(mutation.id))
-    .toMatchObject({ status: "SYNCED", serverExpenseId: "expense-legacy" });
-  expect(await new AttachmentRepository("user-1")
-    .listByMutation(mutation.id)).toMatchObject([
-      { status: "SYNCED", serverAttachmentId: "server-legacy" },
-    ]);
-});
-
 it("损坏附件标记失败后不阻塞其他 mutation 的附件同步", async () => {
   const first = pendingMutationFixture("broken-queue", {
     status: "SYNCED",
@@ -454,7 +411,7 @@ it("损坏附件标记失败后不阻塞其他 mutation 的附件同步", async 
     clientAttachmentId: "healthy-client",
     fileName: "healthy.png",
     mimeType: "image/png",
-    blob: new Blob(["healthy-bytes"], { type: "image/png" }),
+    blob: new TextEncoder().encode("healthy-bytes").buffer,
   });
 
   const sendAttachment = vi.fn().mockResolvedValue({ id: "server-healthy" });

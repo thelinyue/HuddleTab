@@ -43,7 +43,7 @@ export type PendingAttachment = {
   clientAttachmentId: string;
   fileName: string;
   mimeType: string;
-  /** 原始 File 的时间元数据；旧版 Blob 没有该字段时保持 undefined。 */
+  /** 上传时沿用原始文件的时间元数据。 */
   lastModified?: number;
   blob: Blob;
   status: MutationStatus;

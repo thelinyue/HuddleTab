@@ -121,7 +121,7 @@ docker compose up -d
 docker compose ps
 ```
 
-本次安装起点仅支持全新安装，不支持从此前版本原地升级或导入旧数据。请使用新的 PostgreSQL 和应用数据目录，重新初始化管理员；不要将新镜像指向旧数据目录。同域名重新安装还需清理浏览器站点数据与旧 PWA 缓存，未同步草稿不会迁移。旧部署及备份应单独保留，恢复时使用匹配的旧版本。具体操作见 [全新安装与旧部署保留](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
+下一版支持全新安装和从 `v0.0.30` 原地升级，不支持直接从更早版本升级。原地升级应保留 PostgreSQL、应用数据和密钥，并先同步旧格式的未完成离线附件；全新安装须使用空数据库和独立应用目录。具体操作见 [安装与升级](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
 
 前端热更新要求 Rust API 已运行在 `127.0.0.1:5660`：
 
