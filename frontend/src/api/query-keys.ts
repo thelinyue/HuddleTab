@@ -1,5 +1,6 @@
 export const queryKeys = {
   session: ["session"] as const,
+  registrationPolicy: ["registration-policy"] as const,
   activitiesCurrent: (userId: string) =>
     ["users", userId, "activities", "current"] as const,
   activitiesDeleted: (userId: string) =>

@@ -130,7 +130,10 @@ export function useUpdateRegistrationPolicyMutation(userId: string) {
         body: { policy, version },
         headers: await mutationHeaders(),
       })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.adminRegistrationPolicy(userId) }),
+    onSuccess: ({ policy }) => {
+      queryClient.setQueryData(queryKeys.registrationPolicy, policy);
+      return queryClient.invalidateQueries({ queryKey: queryKeys.adminRegistrationPolicy(userId) });
+    },
   });
 }
 

@@ -283,21 +283,176 @@ test('结算记录失败只影响本区域，可重试且不误报空记录', as
 });
 
 
-/** 实测导航边缘和正文文档坐标，防止收起造成锚定抖动或只透明但仍挡住内容。 */
+/** 实测页头裁剪边缘和正文文档坐标，防止收起造成锚定抖动或仍挡住内容。 */
 async function headerGeometry(page: Page) {
   return page.evaluate(() => {
     const header = document.querySelector<HTMLElement>('.workspace-header')!;
     const actions = header.querySelector<HTMLElement>('.workspace-header__actions')!;
     const metadata = header.querySelector<HTMLElement>('.workspace-header__metadata')!;
     const nav = header.querySelector<HTMLElement>('.workspace-nav')!;
+    const member = header.querySelector<HTMLElement>('.workspace-header__members-stack');
     const content = document.querySelector<HTMLElement>('.workspace-content')!;
     const height = header.getBoundingClientRect().height;
-    // 移动端胶囊的底部留白属于收起后的紧凑页头高度，和工作台的测量逻辑保持一致。
-    const navMarginBottom = Number.parseFloat(getComputedStyle(nav).marginBottom) || 0;
-    const compactHeight = (Number.parseFloat(getComputedStyle(header).paddingTop) || 0) + actions.getBoundingClientRect().height + nav.getBoundingClientRect().height + navMarginBottom;
-    return { height, compactHeight, navMarginBottom, collapseDistance: Math.max(0, height - compactHeight), navBottom: nav.getBoundingClientRect().bottom, opacity: Number(getComputedStyle(metadata).opacity), documentTop: content.getBoundingClientRect().top + scrollY, scroll: scrollY, documentHeight: document.documentElement.scrollHeight };
+    // 封面收起后只留下标题操作行，导航和成员入口停在裁剪区域外。
+    const paddingTop = Number.parseFloat(getComputedStyle(header).paddingTop) || 0;
+    const compactHeight = paddingTop + actions.getBoundingClientRect().height;
+    const clipped = Number.parseFloat(header.style.clipPath.split(/\s+/)[2] ?? '0');
+    return { height, compactHeight, collapseDistance: Math.max(0, height - compactHeight), visibleBottom: height - clipped, navTop: nav.getBoundingClientRect().top, navBottom: nav.getBoundingClientRect().bottom, memberTop: member?.getBoundingClientRect().top ?? null, opacity: Number(getComputedStyle(metadata).opacity), documentTop: content.getBoundingClientRect().top + scrollY, scroll: scrollY, documentHeight: document.documentElement.scrollHeight };
   });
 }
+
+test('流水筛选：草稿、多选、条件标签与搜索在窄屏完整可用', async ({ page }, info) => {
+  const control = await installFixture(page);
+  control.members[3].status = 'LEFT';
+  await page.goto('/activities/demo');
+  await expect(page.getByRole('heading', { name: '全部流水' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '搜索用途或备注' })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('feed-default.png') });
+  const filter = page.getByRole('button', { name: /^筛选/ });
+  await filter.click();
+  let dialog = page.getByRole('dialog', { name: '筛选流水' });
+  await expect(dialog).toBeVisible();
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');
+  await dialog.getByRole('button', { name: '交通', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(filter).toBeFocused();
+  await expect(page.locator('.expense-row')).toHaveCount(1);
+  await filter.click();
+  dialog = page.getByRole('dialog', { name: '筛选流水' });
+  await expect(dialog.getByRole('button', { name: '交通', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await dialog.getByRole('button', { name: '餐饮', exact: true }).click();
+  await dialog.getByLabel('开始日期').fill('2026-09-05');
+  await expect(dialog.getByRole('button', { name: '应用筛选' })).toBeDisabled();
+  await dialog.getByLabel('结束日期').fill('2026-09-05');
+  await dialog.locator('summary').filter({ hasText: '付款人' }).click();
+  await dialog.getByRole('textbox', { name: '搜索付款人' }).fill('小林');
+  await dialog.getByRole('group', { name: '付款人', exact: true }).getByRole('checkbox', { name: '小林' }).click();
+  await dialog.locator('summary').filter({ hasText: '付款人' }).click();
+  await dialog.locator('summary').filter({ hasText: '参与人' }).click();
+  await dialog.getByRole('textbox', { name: '搜索参与人' }).fill('小王');
+  await dialog.getByRole('checkbox', { name: /小王.*已退出/ }).click();
+  await dialog.locator('summary').filter({ hasText: '参与人' }).click();
+  await dialog.locator('.feed-filter-scroll').evaluate(element => { element.scrollTop = 0; });
+  const apply = dialog.getByRole('button', { name: '应用筛选' });
+  await expect(apply).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('feed-filter-dialog.png') });
+  await apply.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(filter).toHaveText('筛选4');
+  await expect(page.getByText('找到 1 笔流水', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('消费摘要')).toContainText('¥480.00');
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  const search = page.getByRole('textbox', { name: '搜索用途或备注' });
+  await expect(search).toBeFocused();
+  await search.fill('  晚餐  ');
+  await search.press('Enter');
+  await expect(page.locator('.expense-row')).toHaveCount(1);
+  await page.screenshot({ path: info.outputPath('feed-filter-results.png'), fullPage: true });
+  await page.getByRole('button', { name: '移除付款人：小林' }).click();
+  await expect(filter).toHaveText('筛选3');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(search).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '移除餐饮' })).toBeVisible();
+  await page.getByRole('button', { name: '清除全部', exact: true }).click();
+  await expect(filter).toHaveText('筛选');
+});
+
+test('流水筛选：编辑和结算往返保留，退出活动及刷新重置', async ({ page }) => {
+  await installFixture(page);
+  await page.goto('/activities/demo');
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await page.getByRole('textbox', { name: '搜索用途或备注' }).fill('晚餐');
+  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  await page.getByRole('button', { name: '餐饮', exact: true }).click();
+  await page.getByRole('button', { name: '应用筛选' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('.expense-row').click();
+  await expect(page.getByRole('dialog', { name: '修改账单' })).toBeVisible();
+  await page.getByRole('button', { name: '关闭修改账单' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: '搜索用途或备注' })).toHaveValue('晚餐');
+  await page.getByRole('navigation', { name: '活动导航' }).getByRole('link', { name: '结算' }).click();
+  await expect(page.getByRole('region', { name: '我的结算' })).toBeVisible();
+  await page.getByRole('navigation', { name: '活动导航' }).getByRole('link', { name: '流水' }).click();
+  await expect(page.getByRole('textbox', { name: '搜索用途或备注' })).toHaveValue('晚餐');
+  await expect(page.getByRole('button', { name: '移除餐饮' })).toBeVisible();
+  await page.getByRole('link', { name: '返回活动列表' }).click();
+  await expect(page).toHaveURL('/activities');
+  await expect(page.getByRole('heading', { name: '活动', exact: true })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('button', { name: '搜索', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: '筛选', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await page.getByRole('textbox', { name: '搜索用途或备注' }).fill('晚餐');
+  await page.reload();
+  await expect(page.getByRole('button', { name: '搜索', exact: true })).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('流水筛选：只读详情与离线快照往返保留条件', async ({ page }) => {
+  const control = await installFixture(page);
+  control.activity.status = 'ENDED';
+  await page.goto('/activities/demo');
+  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  await page.getByRole('button', { name: '餐饮', exact: true }).click();
+  await page.getByRole('button', { name: '应用筛选' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('.expense-row').click();
+  await expect(page.getByRole('heading', { name: '账单详情' })).toBeVisible();
+  await page.getByRole('button', { name: '返回流水' }).click();
+  await expect(page.getByRole('button', { name: '移除餐饮' })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(page.getByText(/当前离线，以下流水/)).toBeVisible();
+  await expect(page.getByText('找到 1 笔流水', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await page.getByRole('textbox', { name: '搜索用途或备注' }).fill('不存在');
+  await expect(page.getByRole('heading', { name: '没有符合条件的流水' })).toBeVisible();
+  await page.getByRole('button', { name: '清除全部条件' }).click();
+  await expect(page.locator('.expense-row')).toHaveCount(1);
+});
+
+test('流水筛选：小视口键盘区域保留操作栏，遮罩及下滑取消草稿', async ({ page }, info) => {
+  test.skip(info.project.name === 'chromium-desktop', '移动端面板验收');
+  await installFixture(page, 12);
+  await page.goto('/activities/demo');
+  const filter = page.getByRole('button', { name: /^筛选/ });
+  await filter.click();
+  let dialog = page.getByRole('dialog', { name: '筛选流水' });
+  await dialog.getByRole('button', { name: '交通', exact: true }).click();
+  await page.locator('.feed-filter-overlay .form-overlay__scrim').click({ position: { x: 12, y: 8 } });
+  await expect(dialog).toHaveCount(0);
+  await filter.click();
+  dialog = page.getByRole('dialog', { name: '筛选流水' });
+  await expect(dialog.getByRole('button', { name: '交通', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await dialog.locator('summary').filter({ hasText: '付款人' }).click();
+  // 浏览器自动化不弹出系统软键盘，模拟其 visualViewport 缩小事件检查布局。
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 360 });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  const memberSearch = dialog.getByRole('textbox', { name: '搜索付款人' });
+  await memberSearch.fill('小林');
+  await expect(memberSearch).toBeFocused();
+  await expect.poll(async () => {
+    const bounds = await dialog.getByRole('button', { name: '应用筛选' }).boundingBox();
+    return bounds !== null && bounds.y >= 0 && bounds.y + bounds.height <= 361;
+  }).toBe(true);
+  const inputBox = await memberSearch.boundingBox();
+  const footerBox = await dialog.locator('.feed-filter-footer').boundingBox();
+  expect(inputBox!.y + inputBox!.height).toBeLessThanOrEqual(footerBox!.y + 1);
+  await page.screenshot({ path: info.outputPath('feed-filter-keyboard.png') });
+  await page.evaluate(() => { Reflect.deleteProperty(window.visualViewport!, 'height'); window.visualViewport!.dispatchEvent(new Event('resize')); });
+  await memberSearch.blur();
+  const header = dialog.locator('.form-overlay__header');
+  const box = (await header.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 220, { steps: 8 });
+  await page.mouse.up();
+  await expect(dialog).toHaveCount(0);
+  await expect(filter).toHaveText('筛选');
+});
 
 async function scrollHeader(page: Page, y: number) {
   await page.evaluate(async value => { window.scrollTo(0, value); await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); }, y);
@@ -349,27 +504,35 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
     expect(current.documentTop).toBe(expanded.documentTop);
     const progress = Math.min(y / Math.max(1, expanded.collapseDistance), 1);
     expect(current.opacity).toBeCloseTo(1 - progress, 2);
-    expect(current.navBottom).toBeCloseTo(expanded.navBottom - progress * expanded.collapseDistance, 0);
+    expect(current.visibleBottom).toBeCloseTo(expanded.height - progress * expanded.collapseDistance, 0);
+    expect(current.navBottom).toBeCloseTo(expanded.navBottom, 0);
   }
   await scrollHeader(page, Math.ceil(expanded.collapseDistance));
   await page.screenshot({ path: info.outputPath('header-collapsed.png') });
   const collapsed = await headerGeometry(page);
-  expect(collapsed.navBottom).toBeCloseTo(expanded.compactHeight - expanded.navMarginBottom, 0);
+  expect(collapsed.visibleBottom).toBeCloseTo(expanded.compactHeight, 0);
+  expect(collapsed.memberTop).toBeGreaterThan(collapsed.visibleBottom);
+  expect(collapsed.navTop).toBeGreaterThan(collapsed.visibleBottom);
+  await expect(page.locator('.workspace-header__members-stack')).toBeHidden();
+  await expect(page.getByRole('navigation', { name: '活动导航', includeHidden: true })).toBeHidden();
   // 裁剪外的旧占位不能继续覆盖正文或拦截点击。
   expect(await page.evaluate((probeY) => document.elementFromPoint(innerWidth / 2, probeY)?.closest('.workspace-header') === null, Math.ceil(collapsed.compactHeight + 10))).toBe(true);
+  await scrollHeader(page, 0);
   await page.getByRole('link', { name: '成员 4', exact: true }).click();
   const members = page.getByRole('dialog');
   await expect(members).toBeVisible();
   await members.locator('.form-overlay__body').evaluate(element => { element.scrollTop = 120; element.dispatchEvent(new Event('scroll')); });
-  expect((await headerGeometry(page)).navBottom).toBe(collapsed.navBottom);
+  expect((await headerGeometry(page)).visibleBottom).toBe(expanded.height);
   await members.getByRole('button', { name: /^关闭/ }).click();
   await expect(members).toHaveCount(0);
-  expect((await headerGeometry(page)).navBottom).toBe(collapsed.navBottom);
+  expect((await headerGeometry(page)).visibleBottom).toBe(expanded.height);
+  await scrollHeader(page, Math.ceil(expanded.collapseDistance));
   await page.getByRole('button', { name: '更多操作' }).click();
   await page.getByRole('navigation', { name: '活动操作' }).getByRole('link', { name: /活动管理/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: /^关闭/ }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await scrollHeader(page, 0);
   await page.getByRole('navigation', { name: '活动导航' }).getByRole('link', { name: '结算', exact: true }).click();
   await expect(page.getByRole('heading', { name: '实际结算记录' })).toBeVisible();
   const settlement = await headerGeometry(page);
@@ -377,12 +540,23 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
   await page.goBack();
   await expect(page.locator('.expense-row')).toHaveCount(25);
   await scrollHeader(page, 0);
-  expect((await headerGeometry(page)).navBottom).toBe(expanded.navBottom);
+  expect((await headerGeometry(page)).visibleBottom).toBe(expanded.height);
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(async () => (await headerGeometry(page)).opacity).toBe(0);
   await scrollHeader(page, -20);
   expect((await headerGeometry(page)).opacity).toBe(1);
-  console.log(`${info.project.name}: 页头展开 ${expanded.height}px，收起 ${collapsed.navBottom}px`);
+  if (info.project.name === 'chromium-mobile') {
+    await page.setViewportSize({ width: 424, height: 844 });
+    const wideMobile = await headerGeometry(page);
+    await scrollHeader(page, Math.ceil(wideMobile.collapseDistance));
+    const compactWideMobile = await headerGeometry(page);
+    expect(compactWideMobile.visibleBottom).toBeCloseTo(compactWideMobile.compactHeight, 0);
+    await expect(page.locator('.workspace-header__members-stack')).toBeHidden();
+    await expect(page.getByRole('navigation', { name: '活动导航', includeHidden: true })).toBeHidden();
+    await page.screenshot({ path: info.outputPath('header-collapsed-424.png') });
+    await scrollHeader(page, 0);
+  }
+  console.log(`${info.project.name}: 页头展开 ${expanded.height}px，收起 ${collapsed.visibleBottom}px`);
   await page.getByRole('link', { name: '返回活动列表' }).click();
   await expect(page).toHaveURL(/\/activities$/);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f6f8f7');

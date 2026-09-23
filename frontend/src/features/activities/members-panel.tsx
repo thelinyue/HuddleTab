@@ -53,20 +53,11 @@ export function MemberInvitationPanel({
 }: {
   onCreate: (intent: InvitationIntent) => Promise<CreatedInvitation>;
 }) {
-  const [mode, setMode] = useState<"link" | "direct">("link");
-  const [targetDisplayName, setTargetDisplayName] = useState("");
   const [createdToken, setCreatedToken] = useState<string>();
   const [copyMessage, setCopyMessage] = useState("");
   const inviteUrl = createdToken ? `${window.location.origin}/join/${encodeURIComponent(createdToken)}` : undefined;
   const [error, setError] = useState<unknown>();
   const [submitting, setSubmitting] = useState(false);
-
-  const selectMode = (nextMode: "link" | "direct") => {
-    setMode(nextMode);
-    setCreatedToken(undefined);
-    setCopyMessage("");
-    setError(undefined);
-  };
 
   const create = async (intent: InvitationIntent) => {
     setSubmitting(true);
@@ -85,31 +76,10 @@ export function MemberInvitationPanel({
 
   return (
     <div className="member-invite-panel">
-      <div className="segmented" role="group" aria-label="邀请方式">
-        <button type="button" data-overlay-initial-focus aria-pressed={mode === "link"} disabled={submitting} onClick={() => selectMode("link")}>链接邀请</button>
-        <button type="button" aria-pressed={mode === "direct"} disabled={submitting} onClick={() => selectMode("direct")}>定向邀请</button>
-      </div>
-
-      {mode === "link" ? (
-        <section className="invite-mode-panel" aria-label="链接邀请">
-          <p>生成可分享的邀请链接，对方登录或注册后即可加入活动。</p>
-          <Button busy={submitting} onClick={() => void create({ mode: "link" })}><LinkIcon aria-hidden="true" size={18} />生成链接邀请</Button>
-        </section>
-      ) : (
-        <form className="invite-mode-panel" onSubmit={(event) => { event.preventDefault(); void create({ mode: "direct", targetDisplayName }); }}>
-          <Field label="目标昵称" hint="对方可使用此邀请注册账号并自行设置用户名。">
-            <Input
-              value={targetDisplayName}
-              onChange={(event) => setTargetDisplayName(event.target.value)}
-              autoComplete="name"
-              maxLength={64}
-              required
-              autoFocus
-            />
-          </Field>
-          <Button type="submit" busy={submitting}><UserPlus aria-hidden="true" size={18} />创建定向邀请</Button>
-        </form>
-      )}
+      <section className="invite-mode-panel" aria-label="链接邀请">
+        <p>生成可分享的邀请链接，对方登录或注册后即可加入活动。</p>
+        <Button busy={submitting} data-overlay-initial-focus onClick={() => void create({ mode: "link" })}><LinkIcon aria-hidden="true" size={18} />生成链接邀请</Button>
+      </section>
 
       {createdToken ? (
         <div className="issued-invite" role="status" aria-live="polite">

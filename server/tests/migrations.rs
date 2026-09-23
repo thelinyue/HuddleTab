@@ -66,6 +66,17 @@ async fn database_snapshot(pool: &PgPool) -> String {
     .expect("应读取数据库快照")
 }
 
+async fn business_snapshot(pool: &PgPool) -> String {
+    sqlx::query_scalar(
+        "SELECT json_build_object(\
+         'settings', (SELECT json_agg(s) FROM system_settings s), \
+         'users', (SELECT json_agg(u) FROM users u))::text",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("应读取业务数据快照")
+}
+
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn fresh_database_migrates_and_replay_is_idempotent() {
@@ -94,7 +105,7 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .fetch_all(&replayed_pool)
         .await
         .expect("应可读取 SQLx 迁移记录");
-    assert_eq!(versions, [202_609_230_001]);
+    assert_eq!(versions, [202_609_230_001, 202_609_230_002]);
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -145,13 +156,94 @@ async fn v030_history_preserves_business_data_without_applying_baseline() {
     .await
     .expect("应插入业务数据");
     install_v030_history(&pool).await;
-    let before = database_snapshot(&pool).await;
+    let before = business_snapshot(&pool).await;
     pool.close().await;
 
     let upgraded = connect_and_migrate(&database_url)
         .await
         .expect("完整 v0.0.30 迁移记录应可继续启动");
-    assert_eq!(database_snapshot(&upgraded).await, before);
+    assert_eq!(business_snapshot(&upgraded).await, before);
+    let versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&upgraded)
+            .await
+            .expect("应读取升级记录");
+    assert_eq!(versions.last(), Some(&202_609_230_002));
+    upgraded.close().await;
+    drop_schema(admin, &schema).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn v030_upgrade_invalidates_only_ordinary_direct_invites_and_pending_requests() {
+    let (admin, schema, database_url) = isolated_schema().await;
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("应初始化隔离测试结构");
+    let owner_id = Uuid::new_v4();
+    let applicant_id = Uuid::new_v4();
+    let activity_id = Uuid::new_v4();
+    let owner_member_id = Uuid::new_v4();
+    let guest_member_id = Uuid::new_v4();
+    let direct_id = Uuid::new_v4();
+    let binding_id = Uuid::new_v4();
+    let link_id = Uuid::new_v4();
+    let request_id = Uuid::new_v4();
+    let owner_notice_id = Uuid::new_v4();
+    let mut tx = pool.begin().await.expect("应开启旧数据事务");
+    sqlx::query("INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) VALUES ($1, 'owner', 'test', '所有者', NOW(), NOW()), ($2, 'applicant', 'test', '申请人', NOW(), NOW())")
+        .bind(owner_id).bind(applicant_id).execute(&mut *tx).await.expect("应插入用户");
+    sqlx::query("INSERT INTO activities (id, name, base_currency, start_date, owner_member_id, created_by_user_id, created_at, updated_at, invite_mode) VALUES ($1, '旧活动', 'CNY', CURRENT_DATE, $2, $3, NOW(), NOW(), 'REQUIRE_APPROVAL')")
+        .bind(activity_id).bind(owner_member_id).bind(owner_id).execute(&mut *tx).await.expect("应插入活动");
+    sqlx::query("INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) VALUES ($1, $2, $3, '所有者', 'OWNER', NOW()), ($4, $2, NULL, '临时成员', 'MEMBER', NOW())")
+        .bind(owner_member_id).bind(activity_id).bind(owner_id).bind(guest_member_id)
+        .execute(&mut *tx).await.expect("应插入成员");
+    sqlx::query("INSERT INTO activity_invites (id, activity_id, created_by_member_id, token_hash, kind, target_display_name, expires_at, max_uses, created_at, guest_member_id) VALUES
+        ($1, $4, $5, decode(repeat('11', 32), 'hex'), 'DIRECT', 'applicant', NOW() + interval '1 day', 1, NOW(), NULL),
+        ($2, $4, $5, decode(repeat('22', 32), 'hex'), 'DIRECT', 'applicant', NOW() + interval '1 day', 1, NOW(), $6),
+        ($3, $4, $5, decode(repeat('33', 32), 'hex'), 'LINK', NULL, NOW() + interval '1 day', NULL, NOW(), NULL)")
+        .bind(direct_id).bind(binding_id).bind(link_id).bind(activity_id).bind(owner_member_id).bind(guest_member_id)
+        .execute(&mut *tx).await.expect("应插入三类旧邀请");
+    sqlx::query("INSERT INTO activity_join_requests (id, activity_id, invitation_id, applicant_user_id, created_at) VALUES ($1, $2, $3, $4, NOW())")
+        .bind(request_id).bind(activity_id).bind(direct_id).bind(applicant_id)
+        .execute(&mut *tx).await.expect("应插入待审批申请");
+    sqlx::query("INSERT INTO notifications (id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at) VALUES ($1, $2, 'JOIN_APPROVAL_REQUESTED', 'ACTIVITY', $3, $3, jsonb_build_object('requestId', $4::text), NOW())")
+        .bind(owner_notice_id).bind(owner_id).bind(activity_id).bind(request_id)
+        .execute(&mut *tx).await.expect("应插入所有者待审批通知");
+    tx.commit().await.expect("应提交旧数据");
+    install_v030_history(&pool).await;
+    pool.close().await;
+
+    let upgraded = connect_and_migrate(&database_url)
+        .await
+        .expect("应升级 v0.0.30 旧邀请");
+    let invites: Vec<(Uuid, bool, i64)> = sqlx::query_as(
+        "SELECT id, revoked_at IS NOT NULL, version FROM activity_invites ORDER BY id",
+    )
+    .fetch_all(&upgraded)
+    .await
+    .expect("应读取邀请状态");
+    assert_eq!(invites.len(), 3);
+    assert!(invites.iter().any(|row| *row == (direct_id, true, 2)));
+    assert!(invites.iter().any(|row| *row == (binding_id, false, 1)));
+    assert!(invites.iter().any(|row| *row == (link_id, false, 1)));
+    let request: (String, bool, bool) = sqlx::query_as("SELECT status, decided_at IS NOT NULL, decided_by_member_id IS NULL FROM activity_join_requests WHERE id = $1")
+        .bind(request_id).fetch_one(&upgraded).await.expect("应读取申请状态");
+    assert_eq!(request, ("INVALIDATED".to_owned(), true, true));
+    let owner_notice: (bool, String) = sqlx::query_as(
+        "SELECT read_at IS NOT NULL, payload->>'status' FROM notifications WHERE id = $1",
+    )
+    .bind(owner_notice_id)
+    .fetch_one(&upgraded)
+    .await
+    .expect("应读取所有者通知");
+    assert_eq!(owner_notice, (true, "INVALIDATED".to_owned()));
+    let applicant_notice_count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND type = 'JOIN_APPROVAL_RESOLVED' AND payload->>'status' = 'INVALIDATED'")
+        .bind(applicant_id).fetch_one(&upgraded).await.expect("应读取申请人通知");
+    assert_eq!(applicant_notice_count, 1);
+    let audit: (i64, i64) = sqlx::query_as("SELECT revision, (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1 AND action = 'LEGACY_DIRECT_INVITATIONS_INVALIDATED') FROM activities WHERE id = $1")
+        .bind(activity_id).fetch_one(&upgraded).await.expect("应读取迁移审计");
+    assert_eq!(audit, (2, 1));
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
@@ -164,13 +256,20 @@ async fn real_v030_database_upgrades_without_rewriting_data() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("应连接 v0.0.30 测试库");
-    let before = database_snapshot(&pool).await;
+    let before = business_snapshot(&pool).await;
     pool.close().await;
 
     let upgraded = connect_and_migrate(&database_url)
         .await
         .expect("v0.0.30 原始结构应可原地升级");
-    assert_eq!(database_snapshot(&upgraded).await, before);
+    assert_eq!(business_snapshot(&upgraded).await, before);
+    let applied: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM _sqlx_migrations WHERE version = 202609230002)",
+    )
+    .fetch_one(&upgraded)
+    .await
+    .expect("应读取升级记录");
+    assert!(applied);
     upgraded.close().await;
 }
 

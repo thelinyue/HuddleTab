@@ -125,8 +125,12 @@ pub struct NewRegistration {
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum RegistrationRepositoryError {
+    #[error("当前系统仅允许受邀用户注册")]
+    InviteRequired,
     #[error("邀请无效或已失效")]
     InvalidInvitation,
+    #[error("绑定邀请与用户名不匹配")]
+    InvitationTargetMismatch,
     #[error("用户名已存在")]
     UsernameTaken,
     #[error("注册数据写入失败")]
@@ -202,8 +206,12 @@ pub struct RegisterOutput {
 pub enum RegisterError {
     #[error("注册信息无效")]
     InvalidInput,
+    #[error("当前系统仅允许受邀用户注册")]
+    InviteRequired,
     #[error("邀请无效或已失效")]
     InvalidInvitation,
+    #[error("绑定邀请与用户名不匹配")]
+    InvitationTargetMismatch,
     #[error("用户名已存在")]
     UsernameTaken,
     #[error("注册服务暂时不可用")]
@@ -348,7 +356,11 @@ pub async fn register(
         })
         .await
         .map_err(|error| match error {
+            RegistrationRepositoryError::InviteRequired => RegisterError::InviteRequired,
             RegistrationRepositoryError::InvalidInvitation => RegisterError::InvalidInvitation,
+            RegistrationRepositoryError::InvitationTargetMismatch => {
+                RegisterError::InvitationTargetMismatch
+            }
             RegistrationRepositoryError::UsernameTaken => RegisterError::UsernameTaken,
             RegistrationRepositoryError::Unavailable => RegisterError::Unavailable,
         })?;

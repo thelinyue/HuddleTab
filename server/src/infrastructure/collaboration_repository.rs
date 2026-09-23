@@ -367,6 +367,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             .execute(&mut *transaction)
             .await
             .map_err(log_repository_error)?;
+            invalidate_pending_requests(&mut transaction, invitation_id, now).await?;
             revise_and_audit(
                 &mut transaction,
                 AuditEntry {
@@ -733,20 +734,20 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         now: OffsetDateTime,
     ) -> Result<JoinRequestView, CollaborationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        let activity = sqlx::query_as::<_, LockedActivityRow>(
+            "SELECT status, deleted_at, revision FROM activities WHERE id = $1 FOR UPDATE",
+        )
+        .bind(activity_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .ok_or(CollaborationRepositoryError::NotFound)?;
         let request = sqlx::query_as::<_, LockedJoinRequestRow>(
             "SELECT invitation_id, applicant_user_id, status
              FROM activity_join_requests
              WHERE id = $1 AND activity_id = $2 FOR UPDATE",
         )
         .bind(request_id)
-        .bind(activity_id)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(log_repository_error)?
-        .ok_or(CollaborationRepositoryError::NotFound)?;
-        let activity = sqlx::query_as::<_, LockedActivityRow>(
-            "SELECT status, deleted_at, revision FROM activities WHERE id = $1 FOR UPDATE",
-        )
         .bind(activity_id)
         .fetch_optional(&mut *transaction)
         .await
@@ -843,6 +844,53 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(view)
     }
+}
+
+/// 撤销邀请时同步关闭待审批申请，避免所有者随后批准一个已失效的口令。
+async fn invalidate_pending_requests(
+    transaction: &mut Transaction<'_, Postgres>,
+    invitation_id: Uuid,
+    now: OffsetDateTime,
+) -> Result<(), CollaborationRepositoryError> {
+    let requests = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "UPDATE activity_join_requests SET status = 'INVALIDATED', decided_at = $1 \
+         WHERE invitation_id = $2 AND status = 'PENDING' \
+         RETURNING id, applicant_user_id, activity_id",
+    )
+    .bind(now)
+    .bind(invitation_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    for (request_id, applicant_user_id, activity_id) in requests {
+        sqlx::query(
+            "UPDATE notifications SET read_at = COALESCE(read_at, $1), \
+             payload = payload || jsonb_build_object('status', 'INVALIDATED') \
+             WHERE activity_id = $2 AND type = 'JOIN_APPROVAL_REQUESTED' \
+               AND payload->>'requestId' = $3::text",
+        )
+        .bind(now)
+        .bind(activity_id)
+        .bind(request_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(log_repository_error)?;
+        sqlx::query(
+            "INSERT INTO notifications (id, recipient_user_id, type, target_type, target_id, \
+             activity_id, payload, created_at) VALUES \
+             ($1, $2, 'JOIN_APPROVAL_RESOLVED', 'ACTIVITY', $3, $3, \
+              jsonb_build_object('requestId', $4::text, 'status', 'INVALIDATED'), $5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(applicant_user_id)
+        .bind(activity_id)
+        .bind(request_id)
+        .bind(now)
+        .execute(&mut **transaction)
+        .await
+        .map_err(log_repository_error)?;
+    }
+    Ok(())
 }
 
 #[derive(sqlx::FromRow)]

@@ -3835,6 +3835,35 @@
         }
       }
     },
+    "/api/auth/registration-policy": {
+      "get": {
+        "tags": [],
+        "summary": "匿名页只读取是否开放注册，不暴露管理员设置版本。",
+        "operationId": "public_registration_policy",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRegistrationPolicyEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/session": {
       "get": {
         "tags": [],
@@ -8060,6 +8089,28 @@
           "EXPENSE",
           "SETTLEMENT"
         ]
+      },
+      "PublicRegistrationPolicyData": {
+        "type": "object",
+        "required": [
+          "policy"
+        ],
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/RegistrationPolicyValue"
+          }
+        }
+      },
+      "PublicRegistrationPolicyEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublicRegistrationPolicyData"
+          }
+        }
       },
       "PushPreferencesData": {
         "type": "object",

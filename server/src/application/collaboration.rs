@@ -433,26 +433,7 @@ pub async fn create_invitation(
     clock: &dyn Clock,
     input: CreateInvitationInput,
 ) -> Result<CreatedInvitation, CollaborationError> {
-    let kind = match input.kind.as_str() {
-        "LINK" => InvitationKind::Link,
-        "DIRECT" => InvitationKind::Direct,
-        _ => return Err(CollaborationError::InvalidInput),
-    };
-    let target_display_name = match (kind, input.target_display_name) {
-        (InvitationKind::Link, None) => None,
-        (InvitationKind::Direct, Some(name)) => {
-            let name = name.trim();
-            if name.is_empty() {
-                return Err(CollaborationError::InvalidInput);
-            }
-            Some(name.to_owned())
-        }
-        _ => return Err(CollaborationError::InvalidInput),
-    };
-    if input
-        .max_uses
-        .is_some_and(|value| !(1..=1000).contains(&value))
-    {
+    if input.kind != "LINK" || input.target_display_name.is_some() || input.max_uses.is_some() {
         return Err(CollaborationError::InvalidInput);
     }
     let now = clock.now();
@@ -466,11 +447,11 @@ pub async fn create_invitation(
             activity_id: input.activity_id,
             actor_user_id: input.actor_user_id,
             token_hash: token.hash,
-            kind,
-            target_display_name,
+            kind: InvitationKind::Link,
+            target_display_name: None,
             guest_member_id: None,
             expires_at,
-            max_uses: input.max_uses,
+            max_uses: None,
             now,
         })
         .await

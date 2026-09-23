@@ -207,6 +207,107 @@ async fn register_invited_actor(
     register_named_invited_actor(app, secret, invitation_token, "bob", "Bob").await
 }
 
+fn registration_request(
+    secret: &AppSecret,
+    username: &str,
+    invitation_token: Option<&str>,
+) -> Request<Body> {
+    let pre_auth = SessionToken::generate();
+    let csrf = CsrfToken::mint(secret, CsrfContext::PreAuth(pre_auth.expose_for_cookie()));
+    let mut body = serde_json::json!({
+        "username": username,
+        "password": "correct horse battery staple",
+        "displayName": "测试用户"
+    });
+    if let Some(token) = invitation_token {
+        body["invitationToken"] = token.into();
+    }
+    Request::builder()
+        .method("POST")
+        .uri("/api/auth/register")
+        .header(CONTENT_TYPE, "application/json")
+        .header(
+            COOKIE,
+            format!("huddletab_pre_auth={}", pre_auth.expose_for_cookie()),
+        )
+        .header(ORIGIN, "http://localhost:5660")
+        .header("sec-fetch-site", "same-origin")
+        .header("x-csrf-token", csrf.expose_for_header())
+        .body(Body::from(body.to_string()))
+        .expect("注册请求应可构造")
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn public_policy_and_registration_distinguish_missing_and_invalid_invites() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    sqlx::query("UPDATE system_settings SET registration_policy = 'INVITE_ONLY'")
+        .execute(&pool)
+        .await
+        .expect("应设置仅邀请注册");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            secret.clone(),
+            "http://localhost:5660".to_owned(),
+        ),
+    );
+
+    let (status, policy) = json_response(
+        &app,
+        Request::builder()
+            .uri("/api/auth/registration-policy")
+            .body(Body::empty())
+            .expect("策略请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(policy["data"]["policy"], "INVITE_ONLY");
+    let (status, missing) =
+        json_response(&app, registration_request(&secret, "no-invite", None)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(missing["error"]["code"], "REGISTRATION_INVITE_REQUIRED");
+
+    sqlx::query("UPDATE system_settings SET registration_policy = 'OPEN'")
+        .execute(&pool)
+        .await
+        .expect("应开放注册");
+    let (status, policy) = json_response(
+        &app,
+        Request::builder()
+            .uri("/api/auth/registration-policy")
+            .body(Body::empty())
+            .expect("策略请求应可构造"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(policy["data"]["policy"], "OPEN");
+    let (status, invalid) = json_response(
+        &app,
+        registration_request(&secret, "bad-invite", Some("invalid-token")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(invalid["error"]["code"], "INVALID_INVITATION");
+    let (status, registered) =
+        json_response(&app, registration_request(&secret, "open-user", None)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(registered["data"]["username"], "open-user");
+    sqlx::query("UPDATE system_settings SET registration_policy = 'INVITE_ONLY'")
+        .execute(&pool)
+        .await
+        .expect("应恢复默认注册策略供其他集成测试使用");
+}
+
 async fn register_named_invited_actor(
     app: &axum::Router,
     secret: &AppSecret,
@@ -308,6 +409,195 @@ async fn create_link_invitation(
         .as_str()
         .expect("创建邀请应返回一次明文 token")
         .to_owned()
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn ordinary_invites_accept_only_unlimited_links() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+
+    for body in [
+        r#"{"kind":"DIRECT","targetDisplayName":"bob","maxUses":1}"#,
+        r#"{"kind":"LINK","targetDisplayName":null,"maxUses":1}"#,
+    ] {
+        let (status, _) = json_response(
+            &app,
+            authenticated_request(
+                &owner,
+                "POST",
+                format!("/api/activities/{activity_id}/invitations"),
+                body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    create_link_invitation(&app, &owner, activity_id).await;
+    let max_uses: Option<i32> =
+        sqlx::query_scalar("SELECT max_uses FROM activity_invites WHERE activity_id = $1")
+            .bind(activity_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应找到不限次数链接");
+    assert_eq!(max_uses, None);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn revoking_link_invalidates_pending_requests_and_notifies_applicant() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+    let invitation_id: Uuid =
+        sqlx::query_scalar("SELECT invitation_id FROM activity_join_requests WHERE id = $1")
+            .bind(request_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取邀请 ID");
+
+    let (status, _) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/invitations/{invitation_id}"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, request) = json_response(
+        &app,
+        authenticated_request(
+            &applicant,
+            "GET",
+            format!("/api/join-requests/{request_id}"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(request["data"]["status"], "INVALIDATED");
+    let (status, queue) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "GET",
+            format!("/api/activities/{activity_id}/join-requests"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(queue["data"].as_array().map(Vec::len), Some(0));
+    let notices: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND type = 'JOIN_APPROVAL_RESOLVED' AND payload->>'status' = 'INVALIDATED'),
+                (SELECT count(*) FROM notifications WHERE recipient_user_id = $2 AND type = 'JOIN_APPROVAL_REQUESTED' AND read_at IS NULL)"
+    ).bind(applicant.user_id).bind(owner.user_id).fetch_one(&pool).await.expect("应读取通知状态");
+    assert_eq!(notices, (1, 0));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn concurrent_revoke_and_approval_finish_without_deadlock() {
+    let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
+    let pool = connect_and_migrate(&database_url)
+        .await
+        .expect("测试数据库应可迁移");
+    sqlx::query("TRUNCATE users CASCADE")
+        .execute(&pool)
+        .await
+        .expect("应清空测试数据");
+    let secret = AppSecret::from_bytes([17; 32]);
+    let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+    let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+    let (activity_id, _) = seed_activity(&pool, &owner).await;
+    sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+        .bind(activity_id)
+        .execute(&pool)
+        .await
+        .expect("应开启加入审批");
+    let app = router_with_state(
+        None,
+        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+    );
+    let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
+    let invitation_id: Uuid =
+        sqlx::query_scalar("SELECT invitation_id FROM activity_join_requests WHERE id = $1")
+            .bind(request_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取邀请 ID");
+
+    let concurrent = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            json_response(
+                &app,
+                authenticated_request(
+                    &owner,
+                    "DELETE",
+                    format!("/api/activities/{activity_id}/invitations/{invitation_id}"),
+                    "",
+                ),
+            ),
+            json_response(
+                &app,
+                authenticated_request(
+                    &owner,
+                    "POST",
+                    format!("/api/activities/{activity_id}/join-requests/{request_id}"),
+                    r#"{"decision":"APPROVE"}"#,
+                ),
+            ),
+        )
+    })
+    .await
+    .expect("撤销和审批不应互相等待至超时");
+    assert_eq!(concurrent.0.0, StatusCode::OK);
+    assert!(matches!(
+        concurrent.1.0,
+        StatusCode::OK | StatusCode::CONFLICT
+    ));
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM activity_join_requests WHERE id = $1")
+            .bind(request_id)
+            .fetch_one(&pool)
+            .await
+            .expect("应读取最终申请状态");
+    assert!(matches!(status.as_str(), "APPROVED" | "INVALIDATED"));
 }
 
 async fn assert_pending_join_side_effects(
@@ -651,6 +941,16 @@ async fn guest_binding_preserves_identity_bypasses_approval_and_replays_once() {
     );
     assert_eq!(preview["data"]["guestDisplayName"], "原临时昵称");
 
+    let (wrong_status, wrong_registration) = json_response(
+        &app,
+        registration_request(&secret, "wrong-user", Some(&token)),
+    )
+    .await;
+    assert_eq!(wrong_status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        wrong_registration["error"]["code"],
+        "INVITATION_TARGET_MISMATCH"
+    );
     let target = register_named_invited_actor(&app, &secret, &token, "bob", "Bob").await;
     for expected_status in ["BOUND", "ALREADY_BOUND"] {
         let (status, bound) = json_response(
@@ -1525,7 +1825,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
             &owner,
             "POST",
             format!("/api/activities/{activity_id}/invitations"),
-            r#"{"kind":"DIRECT","targetDisplayName":"bob","maxUses":1}"#,
+            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
         ),
     )
     .await;
@@ -1775,11 +2075,8 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
             .expect("注册请求应可构造"),
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(
-        registration["error"]["code"],
-        "REGISTRATION_INVITE_REQUIRED"
-    );
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(registration["error"]["code"], "INVALID_INVITATION");
 
     let (status, joined) = json_response(
         &app,

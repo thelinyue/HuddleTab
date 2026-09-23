@@ -35,13 +35,12 @@ impl RegistrationRepository for PostgresRegistrationRepository {
                 "缺少 system_settings 单例".to_owned(),
             ))
         })?;
-        if policy == "INVITE_ONLY" {
-            let invitation_hash = registration
-                .invitation_hash
-                .as_ref()
-                .ok_or(RegistrationRepositoryError::InvalidInvitation)?;
-            let invitation_valid = sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT i.id FROM activity_invites i \
+        if policy == "INVITE_ONLY" && registration.invitation_hash.is_none() {
+            return Err(RegistrationRepositoryError::InviteRequired);
+        }
+        if let Some(invitation_hash) = registration.invitation_hash.as_ref() {
+            let invitation = sqlx::query_as::<_, (Option<String>, Option<uuid::Uuid>)>(
+                "SELECT i.target_display_name, i.guest_member_id FROM activity_invites i \
                  JOIN activities a ON a.id = i.activity_id \
                  WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
                    AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE' \
@@ -53,8 +52,12 @@ impl RegistrationRepository for PostgresRegistrationRepository {
             .fetch_optional(&mut *transaction)
             .await
             .map_err(log_repository_error)?;
-            if invitation_valid.is_none() {
-                return Err(RegistrationRepositoryError::InvalidInvitation);
+            let (target_username, guest_member_id) =
+                invitation.ok_or(RegistrationRepositoryError::InvalidInvitation)?;
+            if guest_member_id.is_some()
+                && target_username.as_deref() != Some(&registration.username)
+            {
+                return Err(RegistrationRepositoryError::InvitationTargetMismatch);
             }
         }
         sqlx::query(

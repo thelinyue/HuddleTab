@@ -1,10 +1,10 @@
 import { ApiRequestError } from "../../api/error";
-import { Filter, Image as ImageIcon, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
+import { Image as ImageIcon, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Overlay } from "../../components/overlay";
-import { Button, ConfirmDialog, EmptyState, ErrorNotice, Field, Input, Money, Select, StateIllustration } from "../../components/ui";
+import { Button, ConfirmDialog, EmptyState, ErrorNotice, Money, StateIllustration } from "../../components/ui";
 import { formatMoney } from "../../domain-preview/money";
 import { useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
@@ -20,19 +20,11 @@ import { AiExpenseEntry, type AiExpenseEditorInitialValues } from "./ai-expense-
 import { retryableLazy } from "../../components/retryable-lazy";
 import { categories, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
 import { AccountingSkeleton } from "./skeleton";
+import { FeedFilterControls } from "./feed-filter-controls";
+import { useFeedFilters } from "./feed-filter-context";
+import { emptyFeedFilters, feedCalendarDate, feedFilterCount, matchesFeedExpense } from "./feed-filters";
 const UnifiedExpenseEditor = retryableLazy(() => import("./expense-editor").then(m => ({ default: m.UnifiedExpenseEditor })));
 const ExpenseEditOverlay = retryableLazy(() => import("./expense-editor").then(m => ({ default: m.ExpenseEditOverlay })));
-function calendarDate(value: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    timeZone,
-  }).formatToParts(new Date(value));
-  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
-  return `${read("year")}-${read("month")}-${read("day")}`;
-}
-
 /** 接口顺序不是页面契约；流水在展示边界按发生时间倒序并稳定合并同一公历日。 */
 export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZone: string) {
   const sorted = [...expenses].sort((left, right) =>
@@ -40,7 +32,7 @@ export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZ
   );
   const groups = new Map<string, ExpenseAggregate[]>();
   for (const expense of sorted) {
-    const date = calendarDate(expense.expense.occurredAt, timeZone);
+    const date = feedCalendarDate(expense.expense.occurredAt, timeZone);
     groups.set(date, [...(groups.get(date) ?? []), expense]);
   }
   return [...groups].map(([date, groupedExpenses]) => ({ date, expenses: groupedExpenses }));
@@ -74,9 +66,7 @@ export function ExpenseFeedPage() {
   const [initialDraft, setInitialDraft] = useState<AiExpenseEditorInitialValues>();
   const [quickView, setQuickView] = useState<QuickExpenseView>("entry");
   const [rejectedView, setRejectedView] = useState<QuickExpenseView>("entry");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("");
+  const { state: { query, filters }, setState: setFeedState } = useFeedFilters();
   const [rejectedDraft, setRejectedDraft] = useState<PendingExpenseDraft>();
   const [discardTarget, setDiscardTarget] = useState<{ mutationId: string; activityId: string }>();
 
@@ -105,17 +95,16 @@ export function ExpenseFeedPage() {
 
   const allExpenses = expenses.data ?? snapshot?.snapshot.expenses ?? [];
   const memberData = members.data ?? cachedMembers ?? [];
-  const filteredExpenses = allExpenses.filter(({ expense }) =>
-    (!query.trim() || `${expense.title} ${expense.note ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
-    (!category || expense.category === category),
-  );
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const filteredExpenses = allExpenses.filter(item => matchesFeedExpense(item, filters, query, timeZone));
   const localRecords = pendingExpenses.data ?? [];
-  const filteredPending = localRecords.filter(({ status, payload }) =>
-    status !== "SYNCED" &&
-    (!query.trim() || `${payload.title} ${payload.note ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
-    (!category || payload.category === category),
-  );
-  const groups = groupExpensesByDate(filteredExpenses, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  // 服务端数据可能先于队列状态刷新：已出现的账单不能同时留在待同步分组。
+  const serverIds = new Set(allExpenses.map(item => item.expense.expenseId));
+  const serverMutationIds = new Set(allExpenses.map(item => item.expense.clientMutationId));
+  const pendingRecords = localRecords.filter(record => record.status !== "SYNCED" && !serverIds.has(record.serverExpenseId ?? "") && !serverMutationIds.has(record.payload.clientMutationId));
+  const filteredPending = pendingRecords.filter(({ payload }) => matchesFeedExpense(payload, filters, query, timeZone));
+  const filtering = Boolean(query.trim() || feedFilterCount(filters));
+  const groups = groupExpensesByDate(filteredExpenses, timeZone);
   const total = allExpenses.reduce((sum, item) => sum + BigInt(item.expense.baseAmountMinor), 0n);
   const activeMemberCount = memberData.filter((member) => member.status === "ACTIVE").length;
   const average = activeMemberCount ? (total + BigInt(activeMemberCount) / 2n) / BigInt(activeMemberCount) : 0n;
@@ -167,12 +156,7 @@ export function ExpenseFeedPage() {
       </section>
 
       <section className="expense-feed-section" aria-labelledby="expense-feed-heading">
-        <header className="expense-feed-section__header">
-          <h2 id="expense-feed-heading">全部流水</h2>
-          <div className="expense-feed-section__actions">
-            <Button variant="ghost" onClick={() => setFilterOpen(true)}><Filter aria-hidden="true" size={16} /> 筛选{query || category ? " · 已启用" : ""}</Button>
-          </div>
-        </header>
+        <FeedFilterControls members={memberData} count={filteredExpenses.length} pendingCount={filteredPending.length} />
         {pendingExpenses.error ? <ErrorNotice error={pendingExpenses.error} /> : null}
         {filteredPending.length ? (
           <section className="expense-date-group" aria-labelledby="pending-expenses-heading">
@@ -245,7 +229,7 @@ export function ExpenseFeedPage() {
               })}
             </div>
           </section>
-        )) : <EmptyState icon={<ReceiptText size={28} />} visual={allExpenses.length ? undefined : <StateIllustration src="/illustrations/expense-feed-empty.webp" />} title={allExpenses.length ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length ? "调整筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} />}
+        )) : !filteredPending.length ? <EmptyState icon={<ReceiptText size={28} />} visual={allExpenses.length || pendingRecords.length || filtering ? undefined : <StateIllustration src="/illustrations/expense-feed-empty.webp" />} title={allExpenses.length || pendingRecords.length || filtering ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length || pendingRecords.length || filtering ? "调整搜索或筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} action={filtering ? <Button variant="secondary" onClick={() => setFeedState(current => ({ ...current, query: "", filters: emptyFeedFilters() }))}>清除全部条件</Button> : undefined} /> : null}
       </section>
 
       {expenseWritable ? <div className="expense-entry-fabs">
@@ -273,9 +257,6 @@ export function ExpenseFeedPage() {
       </Overlay> : null}
       {rejectedDraft ? <Overlay open={true} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : { label: quickExpenseBackLabel(rejectedView, "修改被拒账单"), onClick: () => setRejectedView(parentQuickExpenseView(rejectedView)) }} focusKey={rejectedView} initialFocus="mobile-dialog" mobileSheet={quickExpenseMobileSheet(rejectedView)} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className={quickExpenseOverlayClass(rejectedView)}><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></Overlay> : null}
       {editExpenseId ? <ExpenseEditOverlay expenseId={editExpenseId} onClose={closeEditExpense} /> : null}
-      <Overlay open={filterOpen} title="筛选流水" onClose={() => setFilterOpen(false)}>
-        <div className="form-stack"><Field label="搜索"><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题或备注" autoFocus /></Field><Field label="分类"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">全部分类</option>{categories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</Select></Field><Button onClick={() => setFilterOpen(false)}>应用筛选</Button></div>
-      </Overlay>
       <ConfirmDialog open={Boolean(discardTarget)} title="丢弃本地记录" message="丢弃后无法恢复这条本地离线消费，也不会影响服务器上的账单。确定继续吗？" confirmLabel="确认丢弃" busy={discardPending.isPending} onConfirm={() => void confirmDiscard()} onCancel={() => setDiscardTarget(undefined)} />
     </div>
   );

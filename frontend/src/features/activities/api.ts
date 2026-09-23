@@ -19,22 +19,13 @@ export type Invitation = components["schemas"]["InvitationData"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationData"];
 export type GuestRemoval = components["schemas"]["GuestRemovalData"];
 export type CreateInvitationInput = components["schemas"]["CreateInvitationRequest"];
-export type InvitationIntent =
-  | { mode: "link" }
-  | { mode: "direct"; targetDisplayName: string };
+export type InvitationIntent = { mode: "link" };
 export type JoinRequest = components["schemas"]["JoinRequestData"];
 export type JoinDecision = "APPROVE" | "REJECT";
 
 /** 将界面邀请意图集中映射为 OpenAPI 请求，避免组件散落协议常量和使用次数规则。 */
-export function invitationRequest(intent: InvitationIntent): CreateInvitationInput {
-  if (intent.mode === "link") {
-    return { kind: "LINK", maxUses: null, targetDisplayName: null };
-  }
-  return {
-    kind: "DIRECT",
-    maxUses: 1,
-    targetDisplayName: intent.targetDisplayName,
-  };
+export function invitationRequest(_intent: InvitationIntent): CreateInvitationInput {
+  return { kind: "LINK", maxUses: null, targetDisplayName: null };
 }
 
 async function listActivities(view: "current" | "deleted"): Promise<Activity[]> {

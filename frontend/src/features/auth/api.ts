@@ -7,6 +7,7 @@ import { queryKeys } from "../../api/query-keys";
 import { attachPushForLogin, detachPushForLogout } from "../push/api";
 
 export type Session = components["schemas"]["SessionData"];
+export type RegistrationPolicy = components["schemas"]["PublicRegistrationPolicyData"]["policy"];
 export type LoginInput = components["schemas"]["LoginRequest"];
 export type RegisterInput = components["schemas"]["RegisterRequest"];
 export type ChangePasswordInput = components["schemas"]["ChangePasswordRequest"];
@@ -104,6 +105,10 @@ async function changePassword(input: ChangePasswordInput): Promise<ChangePasswor
   return data;
 }
 
+async function loadRegistrationPolicy(): Promise<RegistrationPolicy> {
+  return unwrap(await apiClient.GET("/api/auth/registration-policy")).data.policy;
+}
+
 async function updateAvatarPreset(avatarPreset: number): Promise<number> {
   const result = unwrap(await apiClient.PATCH("/api/me/avatar", {
     body: { avatarPreset },
@@ -138,7 +143,7 @@ async function previewInvitation(token: string): Promise<InvitationPreview> {
   return unwrap(result).data;
 }
 
-async function joinInvitation(token: string) {
+export async function joinInvitation(token: string): Promise<JoinInvitationResult> {
   const result = await apiClient.POST("/api/invitations/{token}/join", {
     params: { path: { token } },
     headers: await mutationHeaders(),
@@ -185,6 +190,16 @@ export function useLogoutMutation() {
   return useMutation({
     mutationFn: logout,
     onSuccess: () => queryClient.clear(),
+  });
+}
+
+export function useRegistrationPolicyQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.registrationPolicy,
+    queryFn: loadRegistrationPolicy,
+    enabled,
+    retry: false,
+    refetchOnMount: "always",
   });
 }
 

@@ -272,6 +272,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn invitation_target_mismatch(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "INVITATION_TARGET_MISMATCH",
+            "请使用邀请者指定的用户名注册此绑定邀请。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn system_admin_required(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::FORBIDDEN,

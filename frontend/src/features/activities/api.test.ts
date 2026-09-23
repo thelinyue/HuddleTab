@@ -64,13 +64,6 @@ describe("invitationRequest", () => {
     expect(invitationRequest({ mode: "link" })).toEqual({ kind: "LINK", maxUses: null, targetDisplayName: null });
   });
 
-  it("将定向邀请映射为指定用户名的一次性 DIRECT 请求", () => {
-    expect(invitationRequest({ mode: "direct", targetDisplayName: "invitee" })).toEqual({
-      kind: "DIRECT",
-      maxUses: 1,
-      targetDisplayName: "invitee",
-    });
-  });
 });
 
 describe("Guest Binding invitation adapter", () => {

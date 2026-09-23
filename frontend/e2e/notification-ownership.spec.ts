@@ -47,13 +47,12 @@ async function registerAndJoin(browser: Browser, testInfo: TestInfo, token: stri
     response = await submitRegistration();
   }
   if (response.status() >= 400) throw new Error(`注册请求失败（HTTP ${response.status()}）。`);
-  await expect(page.getByRole("button", { name: "加入活动" })).toBeVisible();
-  await page.getByRole("button", { name: "加入活动" }).click();
   return { context, page, displayName };
 }
 
 async function changeInviteModeToApproval(page: Page): Promise<void> {
-  await page.getByRole("link", { name: "活动管理" }).click();
+  await page.getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("navigation", { name: "活动操作" }).getByRole("link", { name: "活动管理" }).click();
   const management = page.getByRole("dialog", { name: "活动管理" });
   await management.getByRole("button", { name: "直接加入" }).click();
   await management.getByRole("radiogroup", { name: "加入方式选项" }).getByRole("radio", { name: /需要审批/ }).click();
@@ -84,8 +83,8 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
   const activityId = await createActivity(page, activityName);
   await expect(page.getByRole("navigation", { name: "活动导航" }).getByRole("link")).toHaveText(["流水", "结算"]);
 
-  const directToken = await issueLinkInvitation(page);
-  const member = await registerAndJoin(browser, testInfo, directToken, "member");
+  const linkToken = await issueLinkInvitation(page);
+  const member = await registerAndJoin(browser, testInfo, linkToken, "member");
   try {
     await expect(member.page.getByRole("heading", { name: activityName })).toBeVisible();
     await page.goto("/notifications");

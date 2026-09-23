@@ -696,6 +696,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/registration-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 匿名页只读取是否开放注册，不暴露管理员设置版本。 */
+        get: operations["public_registration_policy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/session": {
         parameters: {
             query?: never;
@@ -1722,6 +1739,12 @@ export interface components {
         };
         /** @enum {string} */
         NotificationTargetTypeData: "ACTIVITY" | "EXPENSE" | "SETTLEMENT";
+        PublicRegistrationPolicyData: {
+            policy: components["schemas"]["RegistrationPolicyValue"];
+        };
+        PublicRegistrationPolicyEnvelope: {
+            data: components["schemas"]["PublicRegistrationPolicyData"];
+        };
         PushPreferencesData: {
             activity: boolean;
             expense: boolean;
@@ -4845,6 +4868,33 @@ export interface operations {
                 headers: {
                     /** @description 等待秒数 */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    public_registration_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicRegistrationPolicyEnvelope"];
+                };
+            };
+            500: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

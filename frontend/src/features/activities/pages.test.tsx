@@ -376,7 +376,7 @@ describe("活动管理导出", () => {
 });
 
 describe("MemberInvitationPanel", () => {
-  it("复制完整链接并反馈失败，切换方式清除结果", async () => {
+  it("复制完整链接并反馈失败", async () => {
     const token = "a".repeat(96);
     const writeText = vi.fn().mockResolvedValue(undefined);
     const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
@@ -392,49 +392,41 @@ describe("MemberInvitationPanel", () => {
       writeText.mockRejectedValue(new Error("denied"));
       fireEvent.click(copy);
       expect(await screen.findByText("复制失败，请长按或选择上方链接手动复制。")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "定向邀请" }));
-      expect(screen.queryByRole("link", { name: "邀请链接，可左右滑动查看完整地址" })).not.toBeInTheDocument();
-      expect(screen.queryByText(/复制失败/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "定向邀请" })).not.toBeInTheDocument();
     } finally {
       if (original) Object.defineProperty(navigator, "clipboard", original);
       else Reflect.deleteProperty(navigator, "clipboard");
     }
   });
 
-  it("按昵称创建一次性定向邀请并仅显示邀请链接", async () => {
+  it("只创建通用链接邀请", async () => {
     const onCreate = vi.fn().mockResolvedValue({
       activityId: "activity-1",
       expiresAt: "2026-09-08T00:00:00Z",
       invitationId: "invite-1",
-      kind: "DIRECT",
-      maxUses: 1,
+      kind: "LINK",
+      maxUses: null,
       revision: "2",
-      targetUsername: "invitee",
       token: "secret-token",
       useCount: 0,
       version: "1",
     });
     render(<MemberInvitationPanel onCreate={onCreate} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "定向邀请" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /目标昵称/ }), { target: { value: "invitee" } });
-    fireEvent.click(screen.getByRole("button", { name: "创建定向邀请" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成链接邀请" }));
 
     expect(await screen.findByRole("link", { name: "邀请链接，可左右滑动查看完整地址" })).toHaveAttribute("href", `${window.location.origin}/join/secret-token`);
     expect(screen.queryByText("secret-token")).not.toBeInTheDocument();
-    expect(onCreate).toHaveBeenCalledWith({ mode: "direct", targetDisplayName: "invitee" });
+    expect(onCreate).toHaveBeenCalledWith({ mode: "link" });
   });
 
-  it("创建失败时保留定向用户名并显示错误", async () => {
-    const onCreate = vi.fn().mockRejectedValue(new Error("定向邀请创建失败"));
+  it("创建链接失败时显示错误", async () => {
+    const onCreate = vi.fn().mockRejectedValue(new Error("链接邀请创建失败"));
     render(<MemberInvitationPanel onCreate={onCreate} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "定向邀请" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /目标昵称/ }), { target: { value: "invitee" } });
-    fireEvent.click(screen.getByRole("button", { name: "创建定向邀请" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成链接邀请" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("定向邀请创建失败");
-    expect(screen.getByRole("textbox", { name: /目标昵称/ })).toHaveValue("invitee");
+    expect(await screen.findByRole("alert")).toHaveTextContent("链接邀请创建失败");
   });
 });
 
@@ -449,8 +441,7 @@ describe("成员 Overlay", () => {
     await user.click(within(dialog).getByRole("button", { name: "邀请" }));
     await user.click(screen.getByRole("menuitem", { name: "邀请成员" }));
     expect(screen.getByRole("heading", { name: "邀请成员" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "链接邀请" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "链接邀请" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "生成链接邀请" })).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "返回成员" }));
     expect(screen.getByRole("heading", { name: "成员" })).toBeInTheDocument();

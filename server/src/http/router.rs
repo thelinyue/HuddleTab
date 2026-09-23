@@ -146,6 +146,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             axum::routing::post(auth::register).fallback(api_method_not_allowed),
         )
         .route(
+            "/auth/registration-policy",
+            get(auth::public_registration_policy).fallback(api_method_not_allowed),
+        )
+        .route(
             "/auth/session",
             get(auth::session).fallback(api_method_not_allowed),
         )

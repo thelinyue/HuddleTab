@@ -1262,7 +1262,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .activity-actions-popover__item:active { transform: scale(.985); transition: transform 90ms ease-out; }
 .activity-actions-popover__item > span { min-width: 0; font-size: 15px; font-weight: 650; line-height: 1.35; white-space: nowrap; }
 @keyframes activity-actions-popover-in { from { opacity: 0; transform: translateY(-3px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.workspace-header--cover > .workspace-header__members-stack { position: absolute; z-index: 3; bottom: calc(52px + var(--workspace-header-member-offset, 0px)); left: 50%; display: inline-flex; width: calc(100% - 32px); max-width: calc(100vw - var(--safe-area-left) - var(--safe-area-right) - 32px); min-width: 44px; min-height: 44px; align-items: center; justify-content: center; overflow: hidden; border: 0; border-radius: 999px; padding: 3px 6px; color: #fff; background: transparent; text-shadow: 0 1px 3px rgb(0 0 0 / 42%); touch-action: manipulation; transform: translateX(-50%); transition: background-color 160ms ease, bottom 100ms ease-out; }
+.workspace-header--cover > .workspace-header__members-stack { position: absolute; z-index: 3; bottom: 52px; left: 50%; display: inline-flex; width: calc(100% - 32px); max-width: calc(100vw - var(--safe-area-left) - var(--safe-area-right) - 32px); min-width: 44px; min-height: 44px; align-items: center; justify-content: center; overflow: hidden; border: 0; border-radius: 999px; padding: 3px 6px; color: #fff; background: transparent; text-shadow: 0 1px 3px rgb(0 0 0 / 42%); touch-action: manipulation; transform: translateX(-50%); transition: background-color 160ms ease; }
 .workspace-header__members-stack:hover { background: rgb(255 255 255 / 12%); }
 .workspace-header__members-stack:active { transform: translateX(-50%) scale(.97); }
 .workspace-header__members-stack-list { display: flex; align-items: center; }
@@ -1272,8 +1272,8 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .workspace-header__members-stack:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .workspace-header--cover .workspace-header__identity h1 { text-shadow: 0 1px 3px rgb(0 0 0 / 28%); }
 @media (max-width: 639px) {
-  /* 移动端把页头导航收成悬浮胶囊；底部间距会由 WorkspaceHeader 一并纳入收起距离。 */
-  .workspace-header--cover > .workspace-header__members-stack { bottom: calc(72px + var(--workspace-header-member-offset, 0px)); width: min(calc(100% - 32px), 280px); }
+  /* 移动端展开时把页头导航显示为悬浮胶囊，收起时随封面裁剪。 */
+  .workspace-header--cover > .workspace-header__members-stack { bottom: 72px; width: min(calc(100% - 32px), 280px); }
   .workspace-header--cover .workspace-nav { align-self: center; width: min(100%, 280px); margin: auto auto 12px; border: 1px solid rgb(255 255 255 / 20%); border-radius: 999px; padding: 4px; background: rgb(7 18 15 / 42%); box-shadow: 0 6px 18px rgb(0 0 0 / 14%), inset 0 1px 0 rgb(255 255 255 / 14%); -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%); }
   .workspace-header--cover .workspace-nav::after { display: none; }
   .workspace-header--cover .workspace-nav a { min-height: 44px; border: 0; border-radius: 999px; transition: transform 100ms ease-out, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }

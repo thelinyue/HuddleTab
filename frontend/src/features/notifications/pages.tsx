@@ -27,7 +27,7 @@ const groupLabels: Record<Group, string> = { UNREAD: "未读", TODAY: "今天", 
 function notificationTitle(notification: Notification): string {
   switch (notification.kind) {
     case "JOIN_APPROVAL_REQUESTED": return `${notification.payload.displayName ?? "新成员"} 申请加入活动`;
-    case "JOIN_APPROVAL_RESOLVED": return notification.payload.status === "APPROVED" ? "加入申请已批准" : "加入申请未通过";
+    case "JOIN_APPROVAL_RESOLVED": return notification.payload.status === "APPROVED" ? "加入申请已批准" : notification.payload.status === "INVALIDATED" ? "邀请已作废" : "加入申请未通过";
     case "MEMBER_JOINED": return `${notification.payload.displayName ?? "新成员"} 已加入活动`;
     case "PARTICIPATING_EXPENSE_CHANGED": return "参与的账单已修改";
     case "PARTICIPATING_EXPENSE_DELETED": return "参与的账单已删除";
@@ -39,7 +39,7 @@ function notificationTitle(notification: Notification): string {
 
 function notificationSummary(notification: Notification): string | undefined {
   if (notification.kind === "JOIN_APPROVAL_REQUESTED") return "等待你处理加入申请";
-  if (notification.kind === "JOIN_APPROVAL_RESOLVED") return notification.payload.status === "APPROVED" ? "你现在可以进入活动" : "申请已由管理员处理";
+  if (notification.kind === "JOIN_APPROVAL_RESOLVED") return notification.payload.status === "APPROVED" ? "你现在可以进入活动" : notification.payload.status === "INVALIDATED" ? "请向活动所有者索取新的邀请链接" : "申请已由管理员处理";
   if (notification.kind === "MEMBER_JOINED") return "成员已加入活动";
   if (notification.kind === "PARTICIPATING_EXPENSE_CHANGED") return "消费记录发生变更";
   if (notification.kind === "PARTICIPATING_EXPENSE_DELETED") return "该消费已不再计入活动账务";

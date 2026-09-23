@@ -12,6 +12,7 @@ import { type ActivityMember, useActivityQuery, useMembersQuery } from "./api";
 import { useSessionQuery } from "../auth/api";
 import { useActivitySnapshotQuery, useOnlineStatus } from "./offline-workspace";
 import { WorkspaceContext } from "./workspace-context";
+import { FeedFilterProvider } from "../accounting/feed-filter-context";
 import { activityStatus, activityPeriodLabel } from "./presentation";
 import { MembersOverlay } from "./members-panel";
 import { ActivityManagementOverlay } from "./management-panel";
@@ -197,8 +198,9 @@ function ActivityActionsMenu({ activityId, tab }: { activityId: string; tab: Act
 }
 
 /**
- * 页头保留展开时的文档占位，只裁剪表面、移动导航，避免改变高度触发滚动锚定。
- * 封面会把额外海报高度和元信息一起收起，直接跟随实际收起距离的滚动进度；窗口监听不捕获 Sheet 内部滚动，
+ * 页头保留展开时的文档占位，只裁剪表面，避免改变高度触发滚动锚定。
+ * 封面收起后只留下标题操作行；头像和导航随封面被裁剪，完全收起时退出键盘导航。
+ * 收起距离跟随实际布局测量；窗口监听不捕获 Sheet 内部滚动，
  * DOM 更新按帧合并，不让整个工作台随每个滚动事件重新渲染。
  */
 function WorkspaceHeader({ children, busy = false, withCover = false, memberStackReady = false }: { children: ReactNode; busy?: boolean; withCover?: boolean; memberStackReady?: boolean }) {
@@ -222,9 +224,7 @@ function WorkspaceHeader({ children, busy = false, withCover = false, memberStac
       }
       const headerHeight = header.getBoundingClientRect().height;
       const paddingTop = Number.parseFloat(window.getComputedStyle(header).paddingTop) || 0;
-      // 悬浮胶囊的底部间距属于收起后的紧凑页头高度，避免裁剪时跳动或露出正文背景。
-      const navMarginBottom = Number.parseFloat(window.getComputedStyle(nav).marginBottom) || 0;
-      const compactHeight = paddingTop + actions.getBoundingClientRect().height + nav.getBoundingClientRect().height + navMarginBottom;
+      const compactHeight = paddingTop + actions.getBoundingClientRect().height;
       collapseDistance = Math.max(0, headerHeight - compactHeight);
     };
     const update = () => {
@@ -233,11 +233,14 @@ function WorkspaceHeader({ children, busy = false, withCover = false, memberStac
       const progress = reducedMotion.matches ? Number(window.scrollY >= threshold) : Math.min(1, Math.max(0, window.scrollY / threshold));
       const offset = progress * collapseDistance;
       header.style.clipPath = `inset(0 0 ${offset}px 0)`;
-      nav.style.transform = `translateY(${-offset}px)`;
-      // 用实际 bottom 位移跟随胶囊，保持头像链接的命中框和视觉位置一致，避免点击前被浏览器滚回原布局位置。
-      if (memberStack) memberStack.style.setProperty("--workspace-header-member-offset", `${offset}px`);
+      nav.style.transform = withCover ? "none" : `translateY(${-offset}px)`;
+      if (withCover) {
+        nav.style.visibility = progress >= 1 ? "hidden" : "visible";
+        if (memberStack) memberStack.style.visibility = progress >= 1 ? "hidden" : "visible";
+      }
       metadata.style.opacity = String(1 - progress);
-      metadata.style.transform = reducedMotion.matches ? "none" : `translateY(${-8 * progress}px)`;
+      if (withCover) metadata.style.visibility = progress >= 1 ? "hidden" : "visible";
+      metadata.style.transform = withCover || reducedMotion.matches ? "none" : `translateY(${-8 * progress}px)`;
     };
     const schedule = () => { if (!frame) frame = window.requestAnimationFrame(update); };
     const resize = new ResizeObserver(() => { measure(); schedule(); });
@@ -328,6 +331,7 @@ export function ActivityWorkspace() {
   const standalone = standaloneReadOnly || isStatisticsRoute;
 
   return (
+      <FeedFilterProvider key={`${session.data.userId}:${activityId}`}>
       <WorkspaceContext.Provider value={{ session: session.data, activity: activityData, members: membersData, offline: !online, snapshot: snapshot.data }}>
       {standalone ? <StandaloneDetailFrame activityId={activityId} title={standaloneTitle} readOnly={standaloneReadOnly}><Outlet /></StandaloneDetailFrame> : <section className="workspace">
         <WorkspaceHeader withCover memberStackReady={membersData.length > 0}>
@@ -351,5 +355,6 @@ export function ActivityWorkspace() {
       {panel === "members" ? <MembersOverlay onClose={closePanel} /> : null}
       {panel === "manage" ? <ActivityManagementOverlay onClose={closePanel} /> : null}
     </WorkspaceContext.Provider>
+    </FeedFilterProvider>
   );
 }

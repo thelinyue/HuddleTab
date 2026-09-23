@@ -5,6 +5,7 @@ pub enum JoinRequestStatus {
     Pending,
     Approved,
     Rejected,
+    Invalidated,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +35,7 @@ impl JoinRequestStatus {
             Self::Pending => "PENDING",
             Self::Approved => "APPROVED",
             Self::Rejected => "REJECTED",
+            Self::Invalidated => "INVALIDATED",
         }
     }
 
@@ -50,7 +52,9 @@ impl JoinRequestStatus {
         match self {
             Self::Pending => Ok(DecisionEffect::Apply(target)),
             current if current == target => Ok(DecisionEffect::Replay),
-            Self::Approved | Self::Rejected => Err(JoinRequestTransitionError::Closed),
+            Self::Approved | Self::Rejected | Self::Invalidated => {
+                Err(JoinRequestTransitionError::Closed)
+            }
         }
     }
 
@@ -64,6 +68,7 @@ impl JoinRequestStatus {
             "PENDING" => Ok(Self::Pending),
             "APPROVED" => Ok(Self::Approved),
             "REJECTED" => Ok(Self::Rejected),
+            "INVALIDATED" => Ok(Self::Invalidated),
             _ => Err(JoinRequestTransitionError::InvalidValue),
         }
     }

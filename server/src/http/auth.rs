@@ -189,6 +189,46 @@ pub struct RegisterData {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct PublicRegistrationPolicyEnvelope {
+    pub data: PublicRegistrationPolicyData,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct PublicRegistrationPolicyData {
+    #[schema(value_type = super::admin::RegistrationPolicyValue)]
+    pub policy: String,
+}
+
+/// 匿名页只读取是否开放注册，不暴露管理员设置版本。
+#[utoipa::path(
+    get,
+    path = "/api/auth/registration-policy",
+    responses((status = 200, body = PublicRegistrationPolicyEnvelope), (status = 500, body = super::error::ErrorEnvelope))
+)]
+pub(crate) async fn public_registration_policy(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+) -> Result<(HeaderMap, Json<PublicRegistrationPolicyEnvelope>), ApiError> {
+    let policy = sqlx::query_scalar::<_, String>(
+        "SELECT registration_policy FROM system_settings WHERE id = 'singleton'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "读取注册策略失败");
+        ApiError::internal(request_id)
+    })?;
+    let mut headers = HeaderMap::new();
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(PublicRegistrationPolicyEnvelope {
+            data: PublicRegistrationPolicyData { policy },
+        }),
+    ))
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct SessionEnvelope {
     pub data: SessionData,
 }
@@ -464,8 +504,10 @@ pub(crate) async fn register(
     .await
     .map_err(|error| match error {
         RegisterError::InvalidInput => ApiError::invalid_collaboration_input(request_id.clone()),
-        RegisterError::InvalidInvitation => {
-            ApiError::registration_invite_required(request_id.clone())
+        RegisterError::InviteRequired => ApiError::registration_invite_required(request_id.clone()),
+        RegisterError::InvalidInvitation => ApiError::invalid_invitation(request_id.clone()),
+        RegisterError::InvitationTargetMismatch => {
+            ApiError::invitation_target_mismatch(request_id.clone())
         }
         RegisterError::UsernameTaken => ApiError::username_taken(request_id.clone()),
         RegisterError::Unavailable => ApiError::internal(request_id.clone()),

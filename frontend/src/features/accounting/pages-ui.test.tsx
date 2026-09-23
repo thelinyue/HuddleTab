@@ -107,7 +107,7 @@ const rateMutation = vi.hoisted(() => ({
   }),
 }));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
-const workspaceState = vi.hoisted(() => ({ offline: false }));
+const workspaceState = vi.hoisted(() => ({ offline: false, snapshotOnly: false }));
 const aiCapability = vi.hoisted(() => ({ textDraftAvailable: false }));
 const aiCapabilityQuery = vi.hoisted(() => vi.fn());
 const aiTextDraftMutation = vi.hoisted(() => vi.fn());
@@ -129,6 +129,7 @@ vi.mock("../activities/workspace-context", () => ({
   useWorkspace: () => ({
     activity,
     offline: workspaceState.offline,
+    snapshot: workspaceState.snapshotOnly ? { snapshot: { expenses: [expense] } } : undefined,
     session: { displayName: "测试用户", userId: "user-1", username: "tester" },
   }),
 }));
@@ -150,7 +151,7 @@ vi.mock("./api", () => ({
   useExchangeRateSuggestionMutation: () => rateMutation,
   useAiCapabilityQuery: (...args: unknown[]) => { aiCapabilityQuery(...args); return { data: aiCapability, isPending: false, error: null }; },
   createAiTextDraft: (...args: unknown[]) => aiTextDraftMutation(...args),
-  useExpensesQuery: () => ({ data: accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
+  useExpensesQuery: () => ({ data: workspaceState.snapshotOnly ? undefined : accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
   useLedgerQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : { balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }] }, isPending: accountingQueryState.ledgerPending }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
   useSettlementsQuery: () => ({ data: accountingQueryState.emptySettlements ? [] : [settlement], isPending: false }),
@@ -169,10 +170,11 @@ vi.mock("./expense-queue-sync", () => ({
 
 import { ExpenseDetailPage, NewExpensePage, UnifiedExpenseEditor } from "./expense-editor";
 import { ExpenseFeedPage } from "./feed-page";
+import { FeedFilterProvider } from "./feed-filter-context";
 import { SettlementsPage } from "./settlement-page";
 
 function renderPage(node: ReactNode, initialEntries?: string[]) {
-  return render(<MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>);
+  return render(<MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>, { wrapper: FeedFilterProvider });
 }
 
 function openNoteView(container: HTMLElement = document.body) {
@@ -192,6 +194,7 @@ afterEach(() => {
   activity.status = "ACTIVE";
   pendingMutations.records = [];
   workspaceState.offline = false;
+  workspaceState.snapshotOnly = false;
   aiCapability.textDraftAvailable = false;
   aiCapabilityQuery.mockClear();
   aiTextDraftMutation.mockReset();
@@ -269,12 +272,14 @@ describe("Expense 参考汇率", () => {
 describe("人均消费说明", () => {
   const message = "人均消费仅为统计平均值，不代表任何成员实际应承担金额。";
 
-  it("流水标题栏只保留右侧筛选入口", () => {
+  it("流水标题栏提供搜索和筛选入口，搜索默认收起", () => {
     renderPage(<ExpenseFeedPage />);
 
     expect(screen.queryByRole("link", { name: /活动统计/ })).not.toBeInTheDocument();
     const filter = screen.getByRole("button", { name: /^筛选$/ });
     expect(filter.parentElement).toHaveClass("expense-feed-section__actions");
+    expect(screen.getByRole("button", { name: "搜索" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("textbox", { name: "搜索用途或备注" })).not.toBeInTheDocument();
   });
 
   it("点击后显示完整说明，Escape 关闭并恢复触发器焦点", async () => {
@@ -1279,6 +1284,124 @@ describe("Expense pending 流水隔离", () => {
   });
 });
 
+describe("流水搜索与筛选", () => {
+  async function closeFilters() {
+    fireEvent.click(screen.getByRole("button", { name: "关闭筛选流水" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "筛选流水" })).not.toBeInTheDocument());
+  }
+
+  it("中文组词不提前筛选，完成后反馈结果，清除全部恢复列表与输入", () => {
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    const input = screen.getByRole("textbox", { name: "搜索用途或备注" });
+    expect(input).toHaveFocus();
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "bu" } });
+    expect(screen.getByRole("link", { name: /午餐/ })).toBeInTheDocument();
+    fireEvent.compositionEnd(input, { data: "不存在", target: { value: "不存在" } });
+    expect(screen.queryByRole("link", { name: /午餐/ })).not.toBeInTheDocument();
+    expect(screen.getByText("找到 0 笔流水")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清除全部条件" }));
+    expect(input).toHaveValue("");
+    expect(screen.getByRole("link", { name: /午餐/ })).toBeInTheDocument();
+  });
+
+  it("弹层修改和重置只影响草稿，关闭不应用，重新打开恢复已应用条件", async () => {
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
+    fireEvent.click(screen.getByRole("button", { name: "交通" }));
+    expect(screen.getByRole("link", { name: /午餐/ })).toBeInTheDocument();
+    await closeFilters();
+    expect(screen.getByRole("button", { name: "筛选" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
+    expect(screen.getByRole("button", { name: "交通" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "餐饮" }));
+    fireEvent.click(screen.getByRole("button", { name: "应用筛选" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "移除餐饮" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^筛选/ }));
+    fireEvent.click(screen.getByRole("button", { name: "重置" }));
+    await closeFilters();
+    expect(screen.getByRole("button", { name: "移除餐饮" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^筛选/ }));
+    fireEvent.click(screen.getByRole("button", { name: "重置" }));
+    fireEvent.click(screen.getByRole("button", { name: "应用筛选" }));
+    expect(screen.queryByRole("button", { name: "移除餐饮" })).not.toBeInTheDocument();
+  });
+
+  it("分类和成员组合匹配，搜索取消仅清空搜索，顶部摘要保持活动总额", async () => {
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
+    fireEvent.click(screen.getByRole("button", { name: "餐饮" }));
+    fireEvent.click(screen.getByRole("button", { name: "交通" }));
+    fireEvent.click(screen.getByText("付款人", { exact: true }));
+    fireEvent.click(within(screen.getByRole("group", { name: "付款人" })).getByRole("checkbox", { name: "乙" }));
+    fireEvent.click(screen.getByText("参与人", { exact: true }));
+    fireEvent.click(within(screen.getByRole("group", { name: "参与人" })).getByRole("checkbox", { name: "乙" }));
+    fireEvent.click(screen.getByRole("button", { name: "应用筛选" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^筛选/ })).toHaveTextContent("筛选3");
+    expect(screen.getByText("找到 0 笔流水")).toBeInTheDocument();
+    expect(screen.getByLabelText("消费摘要")).toHaveTextContent("¥10.00");
+    fireEvent.click(screen.getByRole("button", { name: "移除付款人：乙" }));
+    expect(screen.getByText("找到 1 笔流水")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索用途或备注" }), { target: { value: "找不到" } });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.getByRole("button", { name: "搜索" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "移除参与人：乙" })).toBeInTheDocument();
+    expect(screen.getByText("找到 1 笔流水")).toBeInTheDocument();
+  });
+
+  it("日期不完整或倒序时说明原因，清空日期恢复可应用", () => {
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
+    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2026-09-02" } });
+    expect(screen.getByRole("button", { name: "应用筛选" })).toBeDisabled();
+    expect(screen.getByText("请选择完整的开始和结束日期。")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-09-01" } });
+    expect(screen.getByText("结束日期不能早于开始日期。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清空日期" }));
+    expect(screen.getByRole("button", { name: "应用筛选" })).toBeEnabled();
+  });
+
+  it("离线待同步记录单独计数，唯一匹配为本地记录时不显示空态", () => {
+    workspaceState.offline = true;
+    accountingQueryState.emptyExpenses = true;
+    pendingMutations.records = [{ id: "local", status: "PENDING", attachments: [], payload: {
+      ...expense.expense, clientMutationId: "local", payments: [{ memberId: "member-2", amountMinor: "1000" }], split: { mode: "EXACT", entries: [{ memberId: "member-1", value: "1000" }] },
+    } }];
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索用途或备注" }), { target: { value: "午餐" } });
+    expect(screen.getByText("找到 0 笔流水 · 本地待同步 1 笔")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "还没有流水" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "没有符合条件的流水" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("消费摘要")).toHaveTextContent("¥0.00");
+  });
+
+  it("没有在线查询缓存时，离线快照也使用同一套筛选条件", () => {
+    workspaceState.offline = true;
+    workspaceState.snapshotOnly = true;
+    renderPage(<ExpenseFeedPage />);
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索用途或备注" }), { target: { value: "团队" } });
+    expect(screen.getByText("找到 1 笔流水")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索用途或备注" }), { target: { value: "不存在" } });
+    expect(screen.getByText("找到 0 笔流水")).toBeInTheDocument();
+    expect(screen.getByLabelText("消费摘要")).toHaveTextContent("¥10.00");
+  });
+
+  it("服务端已返回但队列尚未更新的同一账单不会重复出现", () => {
+    pendingMutations.records = [{ id: "local", status: "SYNCING", attachments: [], payload: {
+      ...expense.expense, payments: [{ memberId: "member-1", amountMinor: "1000" }], split: { mode: "EQUAL", members: ["member-1"] },
+    } }];
+    renderPage(<ExpenseFeedPage />);
+    expect(screen.getAllByText("午餐", { exact: true })).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: "待同步" })).not.toBeInTheDocument();
+  });
+});
+
 describe("账务空状态插画", () => {
   it("首次流水为空时显示插画", () => {
     accountingQueryState.emptyExpenses = true;
@@ -1290,8 +1413,8 @@ describe("账务空状态插画", () => {
 
   it("筛选无结果时不显示首次流水插画", () => {
     const { container } = renderPage(<ExpenseFeedPage />);
-    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
-    fireEvent.change(screen.getByLabelText("搜索"), { target: { value: "不存在的流水" } });
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    fireEvent.change(screen.getByLabelText("搜索用途或备注"), { target: { value: "不存在的流水" } });
 
     expect(screen.getByRole("heading", { name: "没有符合条件的流水" })).toBeInTheDocument();
     expect(container.querySelector('img[src="/illustrations/expense-feed-empty.webp"]')).not.toBeInTheDocument();
