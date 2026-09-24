@@ -137,7 +137,7 @@ export function visibleActivityMemberCount(memberCount: number, availableWidth: 
 }
 
 /**
- * 活动页把成员入口收敛为导航附近的头像堆叠，保留整组头像作为一个可点击入口。
+ * 成员入口与活动信息共用一行，按实际可用宽度显示头像和 +N，整组仍是一个可点击入口。
  * 头像只负责视觉识别，链接的 aria-label 和 title 继续明确告知成员数量；鼠标按下不抢焦点，
  * 避免浏览器把收起状态下经过位移的链接滚回它的原始布局位置，键盘仍可正常聚焦和激活。
  */
@@ -312,7 +312,11 @@ export function ActivityWorkspace() {
 
   const standaloneTitle = isStatisticsRoute ? "活动统计" : "账单详情";
   if (session.isPending || (online ? activity.isPending && !snapshot.data : snapshot.isPending)) return isExpenseDetailRoute || isStatisticsRoute ? <StandaloneDetailFrame activityId={activityId} title={standaloneTitle} pending><AccountingSkeleton kind="feed" /></StandaloneDetailFrame> : <section className="workspace">
-    <WorkspaceHeader busy withCover><div className="workspace-header__actions"><Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft size={20} /></Link><div className="workspace-header__identity accounting-skeleton"><i style={{ width: "100%", maxWidth: 160, height: 28 }} /></div></div><div className="workspace-header__metadata accounting-skeleton"><i style={{ width: 140, height: 18 }} /></div><nav className="workspace-nav" aria-label="活动导航"><Link to={tabUrl(activityId ?? "", "feed")} className={searchParams.get("tab") !== "settlement" ? "active" : ""}>流水</Link><Link to={tabUrl(activityId ?? "", "settlement")} className={searchParams.get("tab") === "settlement" ? "active" : ""}>结算</Link></nav></WorkspaceHeader>
+    <WorkspaceHeader busy withCover>
+      <div className="workspace-header__actions"><Link className="back-link" to="/activities" aria-label="返回活动列表"><ArrowLeft size={20} /></Link><div className="workspace-header__identity accounting-skeleton"><i style={{ width: "100%", maxWidth: 160, height: 28 }} /></div></div>
+      <div className="workspace-header__info"><div className="workspace-header__metadata accounting-skeleton"><i style={{ width: 140, height: 18 }} /></div></div>
+      <nav className="workspace-nav" aria-label="活动导航"><Link to={tabUrl(activityId ?? "", "feed")} className={searchParams.get("tab") !== "settlement" ? "active" : ""}>流水</Link><Link to={tabUrl(activityId ?? "", "settlement")} className={searchParams.get("tab") === "settlement" ? "active" : ""}>结算</Link></nav>
+    </WorkspaceHeader>
     <main className="workspace-content"><AccountingSkeleton kind={searchParams.get("tab") === "settlement" ? "settlement" : "feed"} /></main>
   </section>;
   const definitiveError = [activity.error, snapshot.error].find(isDefinitiveActivityError);
@@ -341,10 +345,12 @@ export function ActivityWorkspace() {
             <div className="workspace-header__identity"><h1 title={activityData.name}>{activityData.name}</h1></div>
             <ActivityActionsMenu activityId={activityId} tab={tab} />
           </div>
-          <div className="workspace-header__metadata">
-            <p>{activityPeriodLabel(activityData) ? `${activityPeriodLabel(activityData)} · ` : null}{activityStatus(activityData.status)}</p>
+          <div className="workspace-header__info">
+            <div className="workspace-header__metadata">
+              <p>{activityPeriodLabel(activityData) ? `${activityPeriodLabel(activityData)} · ` : null}{activityStatus(activityData.status)}</p>
+            </div>
+            {membersData.length ? <ActivityMemberStack activityId={activityId} tab={tab} members={membersData} /> : null}
           </div>
-          {membersData.length ? <ActivityMemberStack activityId={activityId} tab={tab} members={membersData} /> : null}
           <nav className="workspace-nav" aria-label="活动导航">
             <Link className={tab === "feed" ? "active" : ""} aria-current={tab === "feed" ? "page" : undefined} to={tabUrl(activityId, "feed")}>流水</Link>
             <Link className={tab === "settlement" ? "active" : ""} aria-current={tab === "settlement" ? "page" : undefined} to={tabUrl(activityId, "settlement")}>结算</Link>

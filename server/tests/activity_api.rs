@@ -1,3 +1,6 @@
+#[path = "support/permanent_activity.rs"]
+mod permanent_activity;
+
 #[path = "support/http.rs"]
 mod http_support;
 
@@ -151,7 +154,7 @@ async fn create_activity_atomically_creates_its_owner_member() {
         serde_json::json!(["END"])
     );
     assert_eq!(json["data"]["canDelete"], true);
-    assert_eq!(json["data"]["canRestore"], false);
+    assert!(json["data"].get("canRestore").is_none());
 
     let stored = sqlx::query_as::<
         _,
@@ -614,9 +617,9 @@ async fn ownership_transfer_rejects_self_guest_left_and_cross_activity_members()
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-// 生命周期、删除与恢复共享同一活动版本链，单场景才能验证状态和乐观锁连续性。
+// 同一活动验证生命周期版本链，再验证永久删除不能恢复。
 #[allow(clippy::too_many_lines)]
-async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
+async fn lifecycle_then_permanent_deletion_preserves_version_checks() {
     let (pool, app, session, csrf, _) = seed_authenticated_actor().await;
     let created = create_activity(app.clone(), &session, &csrf).await;
     let activity_id = created["activityId"].as_str().expect("应返回 activityId");
@@ -664,57 +667,9 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(body["error"]["code"], "INVALID_ACTIVITY_TRANSITION");
 
-    let (status, deleted) = json_response(
-        app.clone(),
-        authenticated_request(
-            &session,
-            &csrf,
-            "DELETE",
-            &format!("/api/activities/{activity_id}"),
-            r#"{"version":"3"}"#,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(deleted["data"]["status"], "ARCHIVED");
-    assert_eq!(deleted["data"]["version"], "4");
-    assert_eq!(deleted["data"]["revision"], "4");
-    assert!(deleted["data"]["deletedAt"].is_string());
-    assert!(deleted["data"]["purgeAfter"].is_string());
-
-    let (_, current) = json_response(
-        app.clone(),
-        authenticated_request(&session, &csrf, "GET", "/api/activities", ""),
-    )
-    .await;
-    assert_eq!(current["data"], serde_json::json!([]));
-    let (_, recycle) = json_response(
-        app.clone(),
-        authenticated_request(&session, &csrf, "GET", "/api/activities?view=deleted", ""),
-    )
-    .await;
-    assert_eq!(recycle["data"].as_array().expect("应返回列表").len(), 1);
-
-    let (status, restored) = json_response(
-        app.clone(),
-        authenticated_request(
-            &session,
-            &csrf,
-            "POST",
-            &format!("/api/activities/{activity_id}/restore"),
-            r#"{"version":"4"}"#,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(restored["data"]["status"], "ARCHIVED");
-    assert_eq!(restored["data"]["version"], "5");
-    assert_eq!(restored["data"]["revision"], "5");
-    assert!(restored["data"]["deletedAt"].is_null());
-
     for (action, version, expected_status, expected_version) in [
-        ("UNARCHIVE", "5", "ENDED", "6"),
-        ("REOPEN", "6", "ACTIVE", "7"),
+        ("UNARCHIVE", "3", "ENDED", "4"),
+        ("REOPEN", "4", "ACTIVE", "5"),
     ] {
         let (status, body) = json_response(
             app.clone(),
@@ -746,8 +701,6 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
             "ACTIVITY_CREATED",
             "ACTIVITY_ENDED",
             "ACTIVITY_ARCHIVED",
-            "ACTIVITY_DELETED",
-            "ACTIVITY_RESTORED",
             "ACTIVITY_UNARCHIVED",
             "ACTIVITY_REOPENED",
         ]
@@ -761,7 +714,7 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
     .fetch_all(&pool)
     .await
     .expect("应读取生命周期通知");
-    assert_eq!(notifications.len(), 6);
+    assert_eq!(notifications.len(), 4);
     assert!(
         notifications
             .iter()
@@ -769,38 +722,72 @@ async fn lifecycle_delete_and_restore_follow_the_frozen_state_machine() {
     );
     assert_eq!(notifications[0].1["status"], "ENDED");
     assert_eq!(notifications[1].1["status"], "ARCHIVED");
-    assert_eq!(notifications[2].1["status"], "DELETED");
-    assert_eq!(notifications[3].1["status"], "RESTORED");
-}
-
-#[tokio::test]
-#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-async fn expired_restore_returns_the_stable_restore_window_error() {
-    let (pool, app, session, csrf, _) = seed_authenticated_actor().await;
-    let created = create_activity(app.clone(), &session, &csrf).await;
-    let activity_id = created["activityId"].as_str().expect("应返回 activityId");
-    sqlx::query(
-        "UPDATE activities SET deleted_at = now() - interval '31 days', \
-         purge_after = now() - interval '1 day' WHERE id = $1",
-    )
-    .bind(Uuid::parse_str(activity_id).expect("activityId 应为 UUID"))
-    .execute(&pool)
-    .await
-    .expect("应写入过期删除状态");
-
-    let (status, body) = json_response(
-        app,
+    let (status, _) = json_response(
+        app.clone(),
         authenticated_request(
             &session,
             &csrf,
-            "POST",
-            &format!("/api/activities/{activity_id}/restore"),
-            r#"{"version":"1"}"#,
+            "DELETE",
+            &format!("/api/activities/{activity_id}"),
+            r#"{"version":"4"}"#,
         ),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(body["error"]["code"], "RESTORE_WINDOW_EXPIRED");
+    let (status, _) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "DELETE",
+            &format!("/api/activities/{activity_id}"),
+            r#"{"version":"5"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    for table in [
+        "activities",
+        "activity_members",
+        "activity_audit_logs",
+        "notifications",
+    ] {
+        let column = if table == "activities" {
+            "id"
+        } else {
+            "activity_id"
+        };
+        let count: i64 =
+            sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE {column} = $1"))
+                .bind(activity_uuid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0, "{table} 应物理清除");
+    }
+    let (status, _) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "DELETE",
+            &format!("/api/activities/{activity_id}"),
+            r#"{"version":"5"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = app
+        .oneshot(authenticated_request(
+            &session,
+            &csrf,
+            "GET",
+            "/api/activities?view=deleted",
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -1028,4 +1015,166 @@ async fn historical_void_settlement_locks_base_currency() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(body["error"]["code"], "BASE_CURRENCY_LOCKED");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 同一组关联数据依次验证事务回滚和成功提交，避免拆分后遗漏两者的一致性。
+#[allow(clippy::too_many_lines)]
+async fn permanent_delete_removes_all_dependencies_files_and_rolls_back_on_failure() {
+    let (pool, _, session, csrf, user) = seed_authenticated_actor().await;
+    let uploads = tempfile::tempdir().unwrap();
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            AppSecret::from_bytes([9; 32]),
+            "http://localhost:5660".to_owned(),
+        )
+        .with_uploads_dir(uploads.path().to_owned()),
+    );
+    let created = create_activity(app.clone(), &session, &csrf).await;
+    let kept = create_activity(app.clone(), &session, &csrf).await;
+    let activity = Uuid::parse_str(created["activityId"].as_str().unwrap()).unwrap();
+    let owner = Uuid::parse_str(created["ownerMemberId"].as_str().unwrap()).unwrap();
+    let keys = permanent_activity::seed_related(&pool, activity, user, owner).await;
+    let store = huddletab_server::infrastructure::attachment_store::LocalAttachmentStore::new(
+        uploads.path(),
+    )
+    .unwrap();
+    for key in &keys {
+        store.write(key, b"test").await.unwrap();
+    }
+    // 在最后一步制造数据库失败，验证前面已执行的子表删除也全部回滚。
+    sqlx::raw_sql("CREATE FUNCTION reject_activity_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$; CREATE TRIGGER test_activity_delete BEFORE DELETE ON activities FOR EACH ROW EXECUTE FUNCTION reject_activity_delete();").execute(&pool).await.unwrap();
+    let (status, _) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "DELETE",
+            &format!("/api/activities/{activity}"),
+            r#"{"version":"1"}"#,
+        ),
+    )
+    .await;
+    sqlx::raw_sql(
+        "DROP TRIGGER test_activity_delete ON activities; DROP FUNCTION reject_activity_delete();",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM settlement_allocations WHERE activity_id = $1")
+            .bind(activity)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    for key in &keys {
+        assert_eq!(store.read(key).await.unwrap(), b"test");
+    }
+    let (status, _) = json_response(
+        app.clone(),
+        authenticated_request(
+            &session,
+            &csrf,
+            "DELETE",
+            &format!("/api/activities/{activity}"),
+            r#"{"version":"1"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    for table in [
+        "expenses",
+        "expense_payments",
+        "expense_shares",
+        "settlements",
+        "settlement_allocations",
+        "activity_members",
+        "activity_invites",
+        "activity_join_requests",
+        "activity_audit_logs",
+        "notifications",
+        "activity_cover_images",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM {table} WHERE activity_id = $1"
+        ))
+        .bind(activity)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0, "{table} 应删除");
+    }
+    for table in ["expense_attachments", "notification_push_deliveries"] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+    for key in &keys {
+        assert!(!uploads.path().join(key).exists());
+    }
+    let (status, _) = json_response(
+        app,
+        authenticated_request(
+            &session,
+            &csrf,
+            "GET",
+            &format!("/api/activities/{}", kept["activityId"].as_str().unwrap()),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE id = $1")
+        .bind(user)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn permanent_delete_succeeds_when_file_cleanup_fails() {
+    let (pool, _, session, csrf, user) = seed_authenticated_actor().await;
+    let uploads = tempfile::tempdir().unwrap();
+    let app = router_with_state(
+        None,
+        AppState::new(
+            pool.clone(),
+            AppSecret::from_bytes([9; 32]),
+            "http://localhost:5660".to_owned(),
+        )
+        .with_uploads_dir(uploads.path().to_owned()),
+    );
+    let created = create_activity(app.clone(), &session, &csrf).await;
+    let activity = Uuid::parse_str(created["activityId"].as_str().unwrap()).unwrap();
+    let owner = Uuid::parse_str(created["ownerMemberId"].as_str().unwrap()).unwrap();
+    let keys = permanent_activity::seed_related(&pool, activity, user, owner).await;
+    // 同路径目录不能按普通图片文件删除，模拟文件系统故障。
+    std::fs::create_dir_all(uploads.path().join(&keys[0])).unwrap();
+    let (status, _) = json_response(
+        app,
+        authenticated_request(
+            &session,
+            &csrf,
+            "DELETE",
+            &format!("/api/activities/{activity}"),
+            r#"{"version":"1"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM activities WHERE id = $1")
+        .bind(activity)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
 }

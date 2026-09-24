@@ -532,16 +532,6 @@ impl ApiError {
     }
 
     #[must_use]
-    pub fn restore_window_expired(request_id: RequestId) -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            "RESTORE_WINDOW_EXPIRED",
-            "活动已超过 30 天恢复期限。",
-            request_id,
-        )
-    }
-
-    #[must_use]
     pub fn mutation_conflict(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

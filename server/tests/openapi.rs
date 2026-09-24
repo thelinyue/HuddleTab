@@ -733,7 +733,6 @@ fn document_contains_phase1_auth_and_activity_routes() {
         ("/api/activities/{activity_id}", "put"),
         ("/api/activities/{activity_id}", "delete"),
         ("/api/activities/{activity_id}/lifecycle", "post"),
-        ("/api/activities/{activity_id}/restore", "post"),
     ] {
         assert!(
             value["paths"][path][method].is_object(),
@@ -769,10 +768,7 @@ fn document_contains_phase1_auth_and_activity_routes() {
         .expect("GET /api/activities 应发布 view 查询参数");
     assert_eq!(view_parameter["in"], "query");
     assert_eq!(view_parameter["required"], false);
-    assert_eq!(
-        view_parameter["schema"]["enum"],
-        json!(["current", "deleted"])
-    );
+    assert_eq!(view_parameter["schema"]["enum"], json!(["current"]));
 
     for (path, method, request_schema, response_schema) in [
         (
@@ -785,18 +781,6 @@ fn document_contains_phase1_auth_and_activity_routes() {
             "/api/activities/{activity_id}/lifecycle",
             "post",
             "ActivityLifecycleRequest",
-            "ActivityEnvelope",
-        ),
-        (
-            "/api/activities/{activity_id}",
-            "delete",
-            "ActivityVersionRequest",
-            "ActivityEnvelope",
-        ),
-        (
-            "/api/activities/{activity_id}/restore",
-            "post",
-            "ActivityVersionRequest",
             "ActivityEnvelope",
         ),
     ] {
@@ -813,6 +797,10 @@ fn document_contains_phase1_auth_and_activity_routes() {
         );
     }
 
+    assert!(value["paths"]["/api/activities/{activity_id}/restore"].is_null());
+    assert!(
+        value["paths"]["/api/activities/{activity_id}"]["delete"]["responses"]["204"].is_object()
+    );
     let activity_properties = value["components"]["schemas"]["ActivityData"]["properties"]
         .as_object()
         .expect("ActivityData 应发布 properties");
@@ -820,13 +808,10 @@ fn document_contains_phase1_auth_and_activity_routes() {
         "location",
         "startDate",
         "endDate",
-        "deletedAt",
-        "purgeAfter",
         "hasAccountingRecords",
         "fieldPermissions",
         "allowedLifecycleActions",
         "canDelete",
-        "canRestore",
     ] {
         assert!(
             activity_properties.contains_key(field),

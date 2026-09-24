@@ -73,7 +73,7 @@ impl SettlementRepository for PostgresSettlementRepository {
         sqlx::query_as::<_, (String, Uuid, String)>(
             "SELECT a.base_currency, m.id, m.role FROM activities a \
              JOIN activity_members m ON m.activity_id = a.id \
-             WHERE a.id = $1 AND a.status IN ('ACTIVE', 'ENDED') AND a.deleted_at IS NULL \
+             WHERE a.id = $1 AND a.status IN ('ACTIVE', 'ENDED') \
              AND m.user_id = $2 AND m.status = 'ACTIVE'",
         )
         .bind(activity_id)
@@ -432,7 +432,7 @@ async fn lock_context(
     sqlx::query_as::<_, (String, Uuid, String)>(
         "SELECT a.base_currency, m.id, m.role FROM activities a \
          JOIN activity_members m ON m.activity_id = a.id \
-         WHERE a.id = $1 AND a.status IN ('ACTIVE', 'ENDED') AND a.deleted_at IS NULL \
+         WHERE a.id = $1 AND a.status IN ('ACTIVE', 'ENDED') \
          AND m.user_id = $2 AND m.status = 'ACTIVE' \
          FOR UPDATE OF a",
     )
@@ -453,7 +453,7 @@ async fn authorize_read(
 ) -> Result<(), SettlementRepositoryError> {
     let allowed = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM activities a JOIN activity_members m ON m.activity_id = a.id \
-         WHERE a.id = $1 AND a.deleted_at IS NULL AND m.user_id = $2 AND m.status = 'ACTIVE')",
+         WHERE a.id = $1 AND m.user_id = $2 AND m.status = 'ACTIVE')",
     )
     .bind(activity_id)
     .bind(actor_user_id)
@@ -528,7 +528,7 @@ pub(crate) async fn load(
          s.payer_member_id, s.receiver_member_id, s.currency, s.amount_minor, s.status, \
          s.version, a.revision, s.created_at, s.updated_at, s.voided_at \
          FROM settlements s JOIN activities a ON a.id = s.activity_id \
-         WHERE s.id = $1 AND a.deleted_at IS NULL",
+         WHERE s.id = $1",
     )
     .bind(settlement_id)
     .fetch_optional(&mut *connection)

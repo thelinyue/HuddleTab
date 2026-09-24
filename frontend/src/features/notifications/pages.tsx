@@ -54,7 +54,6 @@ function notificationSummary(notification: Notification): string | undefined {
 
 /** 深链只由服务端枚举和受控 ID 组合，不读取 payload 中可能出现的 URL。 */
 export function notificationDestination(notification: Notification): string | undefined {
-  if (notification.activityDeleted) return undefined;
   const activity = `/activities/${encodeURIComponent(notification.activityId)}`;
   switch (notification.kind) {
     case "JOIN_APPROVAL_REQUESTED": return `${activity}?panel=members`;
@@ -339,7 +338,6 @@ function NotificationRow({
       <span className="notification-row__content">
         <strong>{title}</strong>
         {summary ? <span>{summary}</span> : null}
-        {notification.activityDeleted ? <span className="notification-row__status">活动已删除，无法打开</span> : null}
         <small>{new Date(notification.createdAt).toLocaleString("zh-CN", { timeZone })}</small>
       </span>
     </>
@@ -350,7 +348,6 @@ function NotificationRow({
       className="notification-row"
       data-testid={`notification-${notification.notificationId}`}
       data-kind={notification.kind}
-      data-activity-deleted={notification.activityDeleted}
       data-actionable={actionable ? "true" : "false"}
       data-unread={notification.readAt === null}
       data-swipe-open={isOpen ? "true" : "false"}
@@ -395,7 +392,6 @@ function NotificationRow({
 
 function pendingApproval(notification: Notification, resolvedRequestIds: ReadonlySet<string>): boolean {
   return notification.kind === "JOIN_APPROVAL_REQUESTED"
-    && !notification.activityDeleted
     && Boolean(notification.payload.requestId)
     && !resolvedRequestIds.has(notification.payload.requestId ?? "");
 }

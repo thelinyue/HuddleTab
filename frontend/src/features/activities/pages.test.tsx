@@ -13,12 +13,10 @@ const activityApiState = vi.hoisted(() => ({
     allowedLifecycleActions: ["END"],
     baseCurrency: "CNY",
     canDelete: true,
-    canRestore: false,
     coverImageId: null as string | null,
     coverPreset: 12,
     currentMemberId: "member-owner",
     currentMemberRole: "OWNER",
-    deletedAt: null as string | null,
     endDate: null as string | null,
     fieldPermissions: { baseCurrency: false, cover: true, endDate: true, inviteMode: true, location: true, name: true, startDate: true },
     hasAccountingRecords: true,
@@ -26,7 +24,6 @@ const activityApiState = vi.hoisted(() => ({
     inviteMode: "DIRECT_JOIN",
     name: "测试活动",
     ownerMemberId: "member-owner",
-    purgeAfter: null as string | null,
     revision: "1",
     startDate: "2026-09-01",
     status: "ACTIVE",
@@ -52,10 +49,6 @@ const activityApiState = vi.hoisted(() => ({
   notificationDelete: { error: null as unknown, isPending: false, mutateAsync: vi.fn(), variables: undefined as string | undefined },
   notificationDecide: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   ledgers: [] as Array<{ data?: { balances: Array<{ memberId: string; netMinor: string }> }; isError: boolean; isPending: boolean }>,
-  deletedActivities: [] as Array<Record<string, unknown>>,
-  deletedQueryEnabled: [] as boolean[],
-  deletedQueryError: null as unknown,
-  deletedQueryPending: false,
   snapshotData: undefined as unknown,
   snapshotError: null as unknown,
   create: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
@@ -64,7 +57,6 @@ const activityApiState = vi.hoisted(() => ({
   lifecycle: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   remove: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   removeGuest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
-  restore: { error: null as unknown, isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() },
   transfer: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   invitationQueryEnabled: [] as boolean[],
   members: [
@@ -148,14 +140,6 @@ vi.mock("./api", async (importOriginal) => {
   return {
     ...original,
     useActivitiesQuery: () => ({ data: activityApiState.activities, error: activityApiState.activitiesError, isPending: activityApiState.activitiesPending }),
-    useDeletedActivitiesQuery: (_userId: string, enabled = true) => {
-      activityApiState.deletedQueryEnabled.push(enabled);
-      return {
-        data: activityApiState.deletedActivities,
-        error: activityApiState.deletedQueryError,
-        isPending: activityApiState.deletedQueryPending,
-      };
-    },
     useActivityQuery: () => ({ data: activityApiState.activity, error: activityApiState.activityError, isPending: false }),
     useActivityAuditQuery: (userId: string, activityId: string, enabled = true) => {
       activityApiState.auditQueryCalls.push([userId, activityId, enabled]);
@@ -170,7 +154,6 @@ vi.mock("./api", async (importOriginal) => {
     useActivityLifecycleMutation: () => activityApiState.lifecycle,
     useDeleteActivityMutation: () => activityApiState.remove,
     useRemoveGuestMutation: () => activityApiState.removeGuest,
-    useRestoreActivityMutation: () => activityApiState.restore,
     useTransferOwnershipMutation: () => activityApiState.transfer,
     useMembersQuery: () => ({ data: activityApiState.members, isPending: false }),
     useInvitationsQuery: (_userId: string, _activityId: string, enabled: boolean) => {
@@ -254,17 +237,13 @@ afterEach(() => {
   activityApiState.auditQuery.fetchNextPage.mockReset();
   activityApiState.auditQueryCalls.length = 0;
   activityApiState.online = true;
-  activityApiState.deletedActivities = [];
-  activityApiState.deletedQueryEnabled.length = 0;
-  activityApiState.deletedQueryError = null;
-  activityApiState.deletedQueryPending = false;
   activityApiState.snapshotData = undefined;
   activityApiState.snapshotError = null;
   activityApiState.exportCsv.mockReset();
   activityApiState.invalidateCover.mockReset();
   activityApiState.exportCsv.mockResolvedValue(new Blob(["csv"], { type: "text/csv" }));
   activityApiState.pwaStandalone = false;
-  for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.removeGuest, activityApiState.restore, activityApiState.transfer]) {
+  for (const mutation of [activityApiState.create, activityApiState.update, activityApiState.lifecycle, activityApiState.remove, activityApiState.removeGuest, activityApiState.transfer]) {
     mutation.error = null;
     mutation.isPending = false;
     mutation.mutateAsync.mockReset();
@@ -272,7 +251,6 @@ afterEach(() => {
   }
   activityApiState.removeGuest.mutateAsync.mockResolvedValue({ data: { memberId: "guest-1", result: "DELETED", revision: "2" } });
   activityApiState.update.mutateAsync.mockResolvedValue({ data: activityApiState.activity, warnings: [] });
-  activityApiState.restore.mutate.mockReset();
   activityApiState.invitationQueryEnabled.length = 0;
   activityApiState.members.length = 2;
   activityApiState.members[1] = {
@@ -829,19 +807,13 @@ describe("活动列表空状态", () => {
   it("把恢复入口放在标题文字右侧，通知留在页头并把新建入口移到浮动按钮", () => {
     const { container } = renderActivitiesPage();
     const heading = screen.getByRole("heading", { name: "活动" });
-    const deletedButton = screen.getByRole("button", { name: "已删除活动" });
     const notificationButton = screen.getByRole("link", { name: "通知" });
     const actionButton = screen.getByRole("button", { name: "新建或加入活动" });
 
     expect(heading.parentElement).toHaveClass("home-header__title");
-    expect(heading.nextElementSibling).toBe(deletedButton);
     expect(container.querySelector(".home-header__actions")).toContainElement(notificationButton);
     expect(actionButton).toHaveClass("activity-add-fab");
     expect(actionButton.closest(".home-header")).toBeNull();
-    expect(deletedButton).toHaveAttribute("title", "已删除活动");
-    expect(deletedButton.querySelector(".lucide-trash-2")).toBeInTheDocument();
-    expect(deletedButton.querySelector(".lucide-rotate-ccw")).not.toBeInTheDocument();
-    expect(container.querySelector(".deleted-activities-entry")).not.toBeInTheDocument();
   });
 
   it("页头通知入口提供未读数量文案并直接跳转通知页", () => {
@@ -1007,12 +979,11 @@ describe("创建活动 Overlay", () => {
     expect(within(dialog).getByRole("button", { name: "点击更换活动封面" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("无效 panel 按普通首页处理且不启用已删除活动查询", () => {
+  it("无效 panel 按普通首页处理", () => {
     renderActivitiesPage("/activities?panel=unknown", true);
 
     expect(screen.getByRole("heading", { name: /^活动$/ })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(activityApiState.deletedQueryEnabled).toEqual([false]);
   });
 
   it("提交完整 generated 请求，空白地点归一化为 null，并使用本地公历当天", async () => {
@@ -1614,15 +1585,15 @@ describe("活动管理 Overlay", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
     fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
     expect(activityApiState.remove.mutateAsync).not.toHaveBeenCalled();
-    const confirmation = screen.getByRole("alertdialog", { name: "确认删除活动" });
-    expect(confirmation).toHaveTextContent("删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。");
+    const confirmation = screen.getByRole("alertdialog", { name: "永久删除“测试活动”？" });
+    expect(confirmation).toHaveTextContent("对所有成员生效，删除后无法恢复。");
     expect(within(confirmation).getByRole("button", { name: "取消" })).toHaveFocus();
 
     fireEvent.click(within(confirmation).getByRole("button", { name: "取消" }));
-    expect(screen.queryByRole("alertdialog", { name: "确认删除活动" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog", { name: "永久删除“测试活动”？" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除活动" }));
+    fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
 
     await waitFor(() => expect(activityApiState.remove.mutateAsync).toHaveBeenCalledWith("7"));
     expect(await screen.findByText("活动列表页")).toBeInTheDocument();
@@ -1633,10 +1604,10 @@ describe("活动管理 Overlay", () => {
     const trigger = screen.getByRole("button", { name: /^删除活动/ });
     trigger.focus();
     fireEvent.click(trigger);
-    expect(screen.getByRole("alertdialog", { name: "确认删除活动" })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "永久删除“测试活动”？" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "确认删除活动" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "永久删除“测试活动”？" })).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
     expect(activityApiState.remove.mutateAsync).not.toHaveBeenCalled();
   });
@@ -1646,13 +1617,13 @@ describe("活动管理 Overlay", () => {
     activityApiState.remove.mutateAsync.mockImplementation(() => new Promise<void>((resolve) => { resolveDelete = resolve; }));
     renderWorkspace("/activities/activity-1?panel=manage");
     fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除活动" }));
+    fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
 
-    const confirmation = screen.getByRole("alertdialog", { name: "确认删除活动" });
+    const confirmation = screen.getByRole("alertdialog", { name: "永久删除“测试活动”？" });
     expect(within(confirmation).getByRole("button", { name: "取消" })).toBeDisabled();
-    expect(within(confirmation).getByRole("button", { name: "确认删除活动" })).toBeDisabled();
+    expect(within(confirmation).getByRole("button", { name: "永久删除" })).toBeDisabled();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.getByRole("alertdialog", { name: "确认删除活动" })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "永久删除“测试活动”？" })).toBeInTheDocument();
     expect(activityApiState.remove.mutateAsync).toHaveBeenCalledOnce();
     resolveDelete();
     await waitFor(() => expect(screen.getByText("活动列表页")).toBeInTheDocument());
@@ -1667,7 +1638,7 @@ describe("活动管理 Overlay", () => {
     await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ location: "苏州", version: "7" }));
 
     fireEvent.click(screen.getByRole("button", { name: /^删除活动/ }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除活动" }));
+    fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
     await waitFor(() => expect(activityApiState.remove.mutateAsync).toHaveBeenCalledWith("8"));
   });
 
@@ -1799,60 +1770,130 @@ describe("活动工作台访问边界", () => {
   });
 });
 
-describe("已删除活动", () => {
-  it("没有可恢复活动时在 Overlay 内显示紧凑插画", () => {
-    const { container } = renderActivitiesPage("/activities?panel=deleted", true);
-
-    const illustration = container.querySelector('img[src="/illustrations/deleted-activities-empty.webp"]');
-    expect(illustration).toHaveClass("state-illustration--compact");
-    expect(illustration).toHaveAttribute("aria-hidden", "true");
-    expect(screen.getByRole("heading", { name: "没有可恢复的活动" })).toBeInTheDocument();
-  });
-
-  it("通过查询参数打开时只显示一个标题，并保留紧凑的右侧恢复操作", () => {
-    activityApiState.deletedActivities = [
-      { ...activityApiState.activity, activityId: "deleted-mobile", canDelete: false, canRestore: true, deletedAt: "2026-08-20T08:00:00Z", name: "移动端已删除活动", purgeAfter: "2999-09-20T08:00:00Z", status: "ENDED", version: "9" },
+describe("活动状态筛选", () => {
+  function seedStatuses() {
+    activityApiState.activities = [
+      { ...activityApiState.activity, activityId: "ended", name: "结束的聚餐", status: "ENDED" },
+      { ...activityApiState.activity, activityId: "active", name: "进行中的旅行", status: "ACTIVE" },
+      { ...activityApiState.activity, activityId: "archived", name: "归档的旅行", status: "ARCHIVED" },
     ];
-    renderActivitiesPage("/activities?panel=deleted", true);
+    activityApiState.ledgers = [100, -200, 300].map((amount) => ({
+      isPending: false, isError: false,
+      data: { balances: [{ memberId: activityApiState.activity.currentMemberId, netMinor: String(amount) }] },
+    }));
+  }
 
-    expect(activityApiState.deletedQueryEnabled.at(-1)).toBe(true);
-    expect(screen.getAllByRole("heading", { name: "已删除活动" })).toHaveLength(1);
-    expect(screen.getByRole("region", { name: "可恢复的活动" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "恢复移动端已删除活动" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent("/activities?panel=deleted");
+  it("默认全部直接显示三个状态；切换仅过滤列表，金额仍匹配原活动", () => {
+    seedStatuses();
+    const { container } = renderActivitiesPage("/activities?keep=yes", true);
+    const filters = screen.getByRole("group", { name: "活动状态筛选" });
+    expect(within(filters).getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
+    expect([...container.querySelectorAll(".activity-list-item__content strong")].map((node) => node.textContent)).toEqual(["结束的聚餐", "进行中的旅行", "归档的旅行"]);
+    const summary = container.querySelector(".home-summary")!.textContent;
+    fireEvent.click(within(filters).getByRole("button", { name: "已归档" }));
+    expect(screen.queryByText("进行中的旅行")).not.toBeInTheDocument();
+    expect(container.querySelector(".activity-list-item__balance")).toHaveTextContent("3.00");
+    expect(container.querySelector(".home-summary")!.textContent).toBe(summary);
+    expect(screen.getByTestId("location")).toHaveTextContent("keep=yes&status=archived");
+    fireEvent.click(within(filters).getByRole("button", { name: "进行中" }));
+    expect(container.querySelector(".activity-list-item__balance")).toHaveTextContent("应付");
+    expect(container.querySelector(".activity-list-item__balance")).toHaveTextContent("2.00");
+    fireEvent.click(within(filters).getByRole("button", { name: "已结束" }));
+    expect(screen.getByText("结束的聚餐")).toBeInTheDocument();
+    expect(container.querySelector(".activity-list-item__balance")).toHaveTextContent("1.00");
   });
 
-  it("仅打开独立 Overlay 后查询，并显示期限、过滤过期缓存及按版本恢复", async () => {
-    activityApiState.deletedActivities = [
-      { ...activityApiState.activity, activityId: "deleted-valid", canDelete: false, canRestore: true, deletedAt: "2026-08-20T08:00:00Z", name: "可恢复活动", purgeAfter: "2999-09-20T08:00:00Z", status: "ENDED", version: "9" },
-      { ...activityApiState.activity, activityId: "deleted-expired", canDelete: false, canRestore: true, deletedAt: "2020-08-20T08:00:00Z", name: "过期缓存活动", purgeAfter: "2020-09-20T08:00:00Z", status: "ENDED", version: "3" },
-    ];
-    renderActivitiesPage();
-
-    expect(activityApiState.deletedQueryEnabled).toEqual([false]);
-    expect(screen.queryByText("可恢复活动")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "已删除活动" }));
-
-    expect(activityApiState.deletedQueryEnabled.at(-1)).toBe(true);
-    expect(screen.getByRole("dialog", { name: "已删除活动" })).toBeInTheDocument();
-    expect(screen.getByText("可恢复活动")).toBeInTheDocument();
-    expect(screen.getByText(/删除于/)).toBeInTheDocument();
-    expect(screen.getByText(/可恢复至/)).toBeInTheDocument();
-    expect(screen.queryByText("过期缓存活动")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "恢复可恢复活动" }));
-    expect(activityApiState.restore.mutate).toHaveBeenCalledWith("9");
+  it.each(["active", "ended", "archived"])("URL 恢复 %s 筛选", (status) => {
+    seedStatuses();
+    const { container } = renderActivitiesPage(`/activities?status=${status}`);
+    expect(container.querySelectorAll(".activity-list-item")).toHaveLength(1);
   });
 
-  it("deleted 查询错误只在 Overlay 内显示，不阻塞 current 活动页面", () => {
+  it("空筛选可返回全部，旧回收站链接不再打开面板", () => {
     activityApiState.activities = [activityApiState.activity];
-    activityApiState.deletedQueryError = new Error("已删除活动读取失败");
-    renderActivitiesPage();
-
-    expect(screen.getByRole("heading", { name: "活动" })).toBeInTheDocument();
+    renderActivitiesPage("/activities?status=archived&panel=deleted", true);
+    expect(screen.getByText("暂无已归档的活动")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "已删除活动" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看全部" }));
     expect(screen.getByText("测试活动")).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).not.toHaveTextContent("status=");
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "已删除活动" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("已删除活动读取失败");
+  it("未知筛选值按全部展示", () => {
+    seedStatuses();
+    const { container } = renderActivitiesPage("/activities?status=unknown");
+    expect(container.querySelectorAll(".activity-list-item")).toHaveLength(3);
+  });
+});
+
+describe("首页币种与状态联动", () => {
+  function seedCurrencies() {
+    activityApiState.activities = [
+      { ...activityApiState.activity, activityId: "cny-active", name: "人民币旅行" },
+      { ...activityApiState.activity, activityId: "usd-active", name: "美元旅行", baseCurrency: "USD" },
+      { ...activityApiState.activity, activityId: "usd-archived", name: "美元历史", baseCurrency: "USD", status: "ARCHIVED" },
+    ];
+    activityApiState.ledgers = [-12800, 8000, 3200].map((amount) => ({
+      isPending: false, isError: false,
+      data: { balances: [{ memberId: activityApiState.activity.currentMemberId, netMinor: String(amount) }] },
+    }));
+  }
+
+  it("切换币种后仅显示对应活动；状态筛选不改变该币种汇总", () => {
+    seedCurrencies();
+    renderActivitiesPage("/activities?status=active&keep=yes", true);
+    expect(screen.getByText("人民币旅行")).toBeVisible();
+    expect(screen.queryByText("美元旅行")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上一个币种" })).toBeDisabled();
+    expect(screen.getByRole("status", { name: "第 1 个币种，共 2 个" })).toHaveTextContent("1/2");
+    fireEvent.click(screen.getByRole("button", { name: "下一个币种" }));
+    expect(screen.getByRole("status", { name: "第 2 个币种，共 2 个" })).toHaveTextContent("2/2");
+    expect(screen.getByRole("button", { name: "下一个币种" })).toBeDisabled();
+    expect(screen.getByText("美元旅行")).toBeVisible();
+    expect(screen.queryByText("人民币旅行")).not.toBeInTheDocument();
+    expect(screen.queryByText("美元历史")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("status=active&keep=yes&currency=USD");
+    const summary = screen.getByLabelText("USD 跨活动账务摘要");
+    expect(summary).toHaveTextContent("US$112.00");
+    fireEvent.click(screen.getByRole("button", { name: "已归档" }));
+    expect(screen.getByText("美元历史")).toBeVisible();
+    expect(document.querySelector(".activity-list-item__balance")).toHaveTextContent("32.00");
+    expect(summary).toHaveTextContent("US$112.00");
+    fireEvent.click(screen.getByRole("button", { name: "上一个币种" }));
+    expect(screen.getByRole("status", { name: "第 1 个币种，共 2 个" })).toHaveTextContent("1/2");
+    expect(screen.getByText("暂无已归档的活动")).toBeVisible();
+  });
+
+  it("刷新恢复币种和状态，空结果查看全部只清除状态", () => {
+    seedCurrencies();
+    renderActivitiesPage("/activities?currency=USD&status=ended", true);
+    expect(screen.getByLabelText("USD 跨活动账务摘要")).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByText("暂无已结束的活动")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "查看全部" }));
+    expect(screen.getByText("美元旅行")).toBeVisible();
+    expect(screen.getByText("美元历史")).toBeVisible();
+    expect(screen.queryByText("人民币旅行")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("currency=USD");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("status=");
+  });
+
+  it("键盘切换与无效币种回退，单币种隐藏切换提示", () => {
+    seedCurrencies();
+    const { unmount } = renderActivitiesPage("/activities?currency=missing");
+    expect(screen.getByLabelText("CNY 跨活动账务摘要")).toHaveAttribute("aria-hidden", "false");
+    const track = screen.getByLabelText("左右滑动切换币种，也可使用左右方向键");
+    fireEvent.keyDown(track, { key: "ArrowRight" });
+    expect(screen.getByText("美元旅行")).toBeVisible();
+    fireEvent.keyDown(track, { key: "Home" });
+    expect(screen.getByText("人民币旅行")).toBeVisible();
+    unmount();
+    activityApiState.activities = [activityApiState.activity];
+    renderActivitiesPage("/activities?currency=USD");
+    expect(screen.getByText("测试活动")).toBeVisible();
+    expect(document.querySelector(".activity-currency-summary button")).toBeNull();
+    expect(document.querySelector(".activity-currency-summary__position")).toBeNull();
+    expect(document.querySelector(".activity-currency-summary__track")).not.toHaveAttribute("tabindex");
+    expect(screen.queryByText("CNY")).not.toBeInTheDocument();
   });
 });

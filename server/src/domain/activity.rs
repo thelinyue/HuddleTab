@@ -253,24 +253,17 @@ pub struct ActivityCapabilities {
     pub fields: ActivityFieldPermissions,
     pub lifecycle_actions: Vec<ActivityAction>,
     pub can_delete: bool,
-    pub can_restore: bool,
 }
 
 impl ActivityCapabilities {
     /// 根据服务端已验证的角色、生命周期和账务事实生成 UI 能力；实际写入仍会重复授权。
     #[must_use]
-    pub fn for_actor(
-        is_owner: bool,
-        status: ActivityStatus,
-        has_accounting_records: bool,
-        is_deleted: bool,
-    ) -> Self {
-        if !is_owner || is_deleted {
+    pub fn for_actor(is_owner: bool, status: ActivityStatus, has_accounting_records: bool) -> Self {
+        if !is_owner {
             return Self {
                 fields: ActivityFieldPermissions::default(),
                 lifecycle_actions: Vec::new(),
                 can_delete: false,
-                can_restore: is_owner && is_deleted,
             };
         }
 
@@ -295,7 +288,6 @@ impl ActivityCapabilities {
             fields,
             lifecycle_actions,
             can_delete: true,
-            can_restore: false,
         }
     }
 }

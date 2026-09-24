@@ -65,7 +65,7 @@ impl SharingRepository for PostgresSharingRepository {
             "SELECT a.name, a.base_currency, to_char(a.start_date, 'YYYY-MM-DD'), \
              to_char(a.end_date, 'YYYY-MM-DD'), a.revision, m.id FROM activities a \
              JOIN activity_members m ON m.activity_id = a.id \
-             WHERE a.id = $1 AND a.deleted_at IS NULL AND m.user_id = $2 AND m.status = 'ACTIVE'",
+             WHERE a.id = $1 AND m.user_id = $2 AND m.status = 'ACTIVE'",
         )
         .bind(activity_id)
         .bind(actor_user_id)

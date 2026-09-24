@@ -45,6 +45,11 @@ pub(super) async fn json_response(
         .await
         .expect("应读取响应")
         .to_bytes();
-    let json = serde_json::from_slice(&body).expect("响应应为 JSON");
+    let json = if status == StatusCode::NO_CONTENT {
+        assert!(body.is_empty());
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).expect("响应应为 JSON")
+    };
     (status, json)
 }

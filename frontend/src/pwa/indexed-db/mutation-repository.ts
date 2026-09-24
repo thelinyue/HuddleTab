@@ -21,10 +21,15 @@ export class MutationRepository {
 
   async put(input: MutationInput) {
     const record: PendingExpenseMutation = { ...input, userId: this.userId };
-    await withUserDatabase(this.userId, (database) =>
-      database.put("pending_mutations", record),
-    );
-    return record;
+    return withUserDatabase(this.userId, async (database) => {
+      const transaction = database.transaction("pending_mutations", "readwrite");
+      const current = await transaction.store.get(record.id);
+      // 删除与同步响应可能交错；在同一事务内保护不可同步标记，避免旧响应重新激活草稿。
+      const saved = current?.lastError?.code === "ACTIVITY_UNAVAILABLE" ? current : record;
+      await transaction.store.put(saved);
+      await transaction.done;
+      return saved;
+    });
   }
 
   /** Expense 与标准化附件字节必须同事务落库，避免离线时只留下半条业务队列。 */
@@ -82,6 +87,7 @@ export class MutationRepository {
     if (!current || current.status !== "REJECTED") {
       throw new Error("只有被服务器拒绝的本地账单可以修改。");
     }
+    if (current.lastError?.code === "ACTIVITY_UNAVAILABLE") throw new Error(current.lastError.message);
     return withUserDatabase(this.userId, async (database) => {
       const transaction = database.transaction(
         ["pending_mutations", "pending_attachments"],
@@ -94,6 +100,7 @@ export class MutationRepository {
         await transaction.done.catch(() => undefined);
         throw new Error("只有被服务器拒绝的本地账单可以修改。");
       }
+      if (existing.lastError?.code === "ACTIVITY_UNAVAILABLE") throw new Error(existing.lastError.message);
       const oldAttachments = await attachmentStore.index("by-mutation").getAll(id);
       for (const attachment of oldAttachments) {
         await attachmentStore.delete(attachment.id);

@@ -92,7 +92,7 @@ impl AttachmentRepository for PostgresAttachmentRepository {
              JOIN activity_members member ON member.activity_id = activity.id
              WHERE activity.id = $1 AND expense.id = $2 AND attachment.id = $3
                AND member.user_id = $4 AND member.status IN ('ACTIVE', 'LEFT')
-               AND activity.deleted_at IS NULL AND expense.deleted_at IS NULL",
+               AND expense.deleted_at IS NULL",
         )
         .bind(activity_id)
         .bind(expense_id)
@@ -269,7 +269,7 @@ async fn authorize_upload(
             SELECT 1 FROM activities activity
             JOIN activity_members member ON member.activity_id = activity.id
             WHERE activity.id = $1 AND activity.status = 'ACTIVE'
-              AND activity.deleted_at IS NULL AND member.user_id = $2
+              AND member.user_id = $2
               AND member.status = 'ACTIVE'
          )",
     )
@@ -306,7 +306,7 @@ async fn lock_activity(
         "SELECT member.id FROM activities activity
          JOIN activity_members member ON member.activity_id = activity.id
          WHERE activity.id = $1 AND activity.status = 'ACTIVE'
-           AND activity.deleted_at IS NULL AND member.user_id = $2
+           AND member.user_id = $2
            AND member.status = 'ACTIVE' FOR UPDATE OF activity",
     )
     .bind(activity_id)

@@ -3,6 +3,7 @@ import { apiClient } from "../../api/client";
 import { mutationHeaders } from "../../api/csrf";
 import { ApiRequestError, unwrap } from "../../api/error";
 import type { components } from "../../api/generated/openapi";
+import { SnapshotRepository } from "../../pwa/indexed-db/snapshot-repository";
 import { queryKeys } from "../../api/query-keys";
 
 export type Activity = components["schemas"]["ActivityData"];
@@ -28,7 +29,7 @@ export function invitationRequest(_intent: InvitationIntent): CreateInvitationIn
   return { kind: "LINK", maxUses: null, targetDisplayName: null };
 }
 
-async function listActivities(view: "current" | "deleted"): Promise<Activity[]> {
+async function listActivities(view: "current"): Promise<Activity[]> {
   return unwrap(
     await apiClient.GET("/api/activities", { params: { query: { view } } }),
   ).data;
@@ -95,24 +96,15 @@ async function transitionActivity(activityId: string, input: ActivityLifecycleIn
   ).data;
 }
 
-async function deleteActivity(activityId: string, version: string): Promise<Activity> {
-  return unwrap(
-    await apiClient.DELETE("/api/activities/{activity_id}", {
-      params: { path: { activity_id: activityId } },
-      body: { version },
-      headers: await mutationHeaders(),
-    }),
-  ).data;
-}
-
-async function restoreActivity(activityId: string, version: string): Promise<Activity> {
-  return unwrap(
-    await apiClient.POST("/api/activities/{activity_id}/restore", {
-      params: { path: { activity_id: activityId } },
-      body: { version },
-      headers: await mutationHeaders(),
-    }),
-  ).data;
+async function deleteActivity(activityId: string, version: string): Promise<void> {
+  const result = await apiClient.DELETE("/api/activities/{activity_id}", {
+    params: { path: { activity_id: activityId } },
+    body: { version },
+    headers: await mutationHeaders(),
+  });
+  // 重试可能发生在删除已提交而响应丢失之后；不存在同样表示无需再留在活动页。
+  if (result.response.status === 204 || result.response.status === 404) return;
+  throw new ApiRequestError(result.response.status, result.error);
 }
 
 async function transferOwnership(
@@ -250,14 +242,6 @@ export function useActivitiesQuery(userId: string) {
   });
 }
 
-export function useDeletedActivitiesQuery(userId: string, enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.activitiesDeleted(userId),
-    queryFn: () => listActivities("deleted"),
-    enabled: enabled && userId.length > 0,
-  });
-}
-
 export function useActivityQuery(userId: string, activityId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.activityDetail(userId, activityId),
@@ -312,7 +296,7 @@ export function useCreateActivityMutation(userId: string) {
 }
 
 export function useUpdateActivityCoverMutation(userId: string, activityId: string) {
-  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  const invalidate = useActivityManagementInvalidation(userId, activityId);
   return useMutation({
     mutationFn: (input: UpdateCoverPresetInput) => updateCoverPreset(activityId, input),
     onSuccess: invalidate,
@@ -320,7 +304,7 @@ export function useUpdateActivityCoverMutation(userId: string, activityId: strin
 }
 
 export function useUploadActivityCoverMutation(userId: string, activityId: string) {
-  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  const invalidate = useActivityManagementInvalidation(userId, activityId);
   return useMutation({
     mutationFn: ({ version, file }: { version: string; file: File }) => uploadActivityCover(activityId, version, file),
     onSuccess: invalidate,
@@ -334,27 +318,22 @@ export function useInvalidateActivityCoverQueries(userId: string) {
 }
 
 /** 删除域操作同时改变已删除列表和通知深链状态；普通资料和状态更新不触发这两类查询。 */
-function useActivityManagementInvalidation(userId: string, activityId: string, includeDeleted: boolean) {
+function useActivityManagementInvalidation(userId: string, activityId: string) {
   const queryClient = useQueryClient();
-  return () => invalidateActivityManagementQueries(queryClient, userId, activityId, includeDeleted);
+  return () => invalidateActivityManagementQueries(queryClient, userId, activityId);
 }
 
-function invalidateActivityManagementQueries(queryClient: ReturnType<typeof useQueryClient>, userId: string, activityId: string, includeDeleted = false) {
+function invalidateActivityManagementQueries(queryClient: ReturnType<typeof useQueryClient>, userId: string, activityId: string) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
-    ...(includeDeleted
-      ? [
-          queryClient.invalidateQueries({ queryKey: queryKeys.activitiesDeleted(userId) }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
-        ]
-      : []),
+
   ]);
 }
 
 export function useUpdateActivityMutation(userId: string, activityId: string) {
-  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  const invalidate = useActivityManagementInvalidation(userId, activityId);
   return useMutation({
     mutationFn: (input: UpdateActivityInput) => updateActivity(activityId, input),
     onSuccess: invalidate,
@@ -365,7 +344,7 @@ export function useUpdateActivityMutation(userId: string, activityId: string) {
 }
 
 export function useActivityLifecycleMutation(userId: string, activityId: string) {
-  const invalidate = useActivityManagementInvalidation(userId, activityId, false);
+  const invalidate = useActivityManagementInvalidation(userId, activityId);
   return useMutation({
     mutationFn: (input: ActivityLifecycleInput) => transitionActivity(activityId, input),
     onSuccess: invalidate,
@@ -373,18 +352,24 @@ export function useActivityLifecycleMutation(userId: string, activityId: string)
 }
 
 export function useDeleteActivityMutation(userId: string, activityId: string) {
-  const invalidate = useActivityManagementInvalidation(userId, activityId, true);
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (version: string) => deleteActivity(activityId, version),
-    onSuccess: invalidate,
-  });
-}
-
-export function useRestoreActivityMutation(userId: string, activityId: string) {
-  const invalidate = useActivityManagementInvalidation(userId, activityId, true);
-  return useMutation({
-    mutationFn: (version: string) => restoreActivity(activityId, version),
-    onSuccess: invalidate,
+    onSuccess: async () => {
+      const related = { predicate: (query: { queryKey: readonly unknown[] }) =>
+        query.queryKey[0] === "users" && query.queryKey[1] === userId &&
+        query.queryKey[2] === "activities" && query.queryKey.includes(activityId) };
+      await queryClient.cancelQueries(related);
+      queryClient.removeQueries(related);
+      // 服务器删除成功后，本地存储异常不能把已完成的删除报成失败。
+      await new SnapshotRepository(userId).forgetUnavailable(activityId).catch((error: unknown) => {
+        console.error("活动已永久删除，但此设备缓存清理失败，请重新联网刷新。", error);
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
+      ]);
+    },
   });
 }
 

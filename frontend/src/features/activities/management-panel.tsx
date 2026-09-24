@@ -458,12 +458,12 @@ export function MorePage({
   const currencyLabel = currencyOptions.find(([code]) => code === draft.baseCurrency)?.[1] ?? draft.baseCurrency;
   const confirmationAction = confirmation?.kind === "lifecycle" ? confirmation.action : null;
   const confirmationTitle = confirmation?.kind === "delete"
-    ? "确认删除活动"
+    ? `永久删除“${activity.name}”？`
     : confirmationAction === "END"
       ? "确认结束活动"
       : "确认归档活动";
   const confirmationMessage = confirmation?.kind === "delete"
-    ? "删除后活动会离开当前列表，并在服务端给出的恢复期限内允许恢复。确定继续吗？"
+    ? "此操作将删除该活动及其账单、结算记录、成员关系、邀请、附件和封面，对所有成员生效，删除后无法恢复。"
     : confirmationAction === "END"
       ? "活动结束后将禁止新增或修改账单、成员和邀请，但仍可查看活动并处理实际结算。确定继续吗？"
       : "归档后活动将进入只读状态，需要取消归档后才能继续处理。确定继续吗？";
@@ -587,7 +587,7 @@ export function MorePage({
         title={confirmationTitle}
         message={confirmationMessage}
         error={confirmation?.kind === "delete" && (deleteError ?? remove.error) ? <ErrorNotice error={deleteError ?? remove.error} /> : confirmation?.kind === "lifecycle" && lifecycleActionError ? <ErrorNotice error={lifecycleActionError} /> : undefined}
-        confirmLabel={confirmation?.kind === "delete" ? "确认删除活动" : confirmationAction ? `确认${lifecycleLabels[confirmationAction]}` : "确认"}
+        confirmLabel={confirmation?.kind === "delete" ? "永久删除" : confirmationAction ? `确认${lifecycleLabels[confirmationAction]}` : "确认"}
         busy={confirmation?.kind === "delete" ? deleting || remove.isPending : pendingLifecycleAction !== null || lifecycle.isPending}
         onConfirm={() => confirmation?.kind === "delete" ? void confirmDelete() : confirmationAction ? void transition(confirmationAction) : undefined}
         onCancel={() => { if (actionBusy) return; setConfirmation(null); setDeleteError(undefined); }}

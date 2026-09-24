@@ -1,3 +1,4 @@
+import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type PropsWithChildren } from "react";
@@ -18,17 +19,14 @@ const activity = {
   allowedLifecycleActions: ["END"],
   baseCurrency: "CNY",
   canDelete: true,
-  canRestore: false,
   currentMemberId: "member-owner",
   currentMemberRole: "OWNER",
-  deletedAt: null,
   endDate: null,
   fieldPermissions: { baseCurrency: true, endDate: true, location: true, name: true, startDate: true },
   hasAccountingRecords: false,
   location: "杭州",
   name: "测试活动",
   ownerMemberId: "member-owner",
-  purgeAfter: null,
   revision: "1",
   startDate: "2026-09-01",
   status: "ACTIVE",
@@ -113,59 +111,26 @@ describe("Guest Binding invitation adapter", () => {
 });
 
 describe("Activity 查询 adapter", () => {
-  it("current、deleted 列表和详情使用互不混淆的查询 key 与精确请求", async () => {
-    client.GET
-      .mockResolvedValueOnce(successful([activity]))
-      .mockResolvedValueOnce(successful([activity]))
-      .mockResolvedValueOnce(successful());
+  it("当前列表和详情使用独立查询 key", async () => {
+    client.GET.mockResolvedValueOnce(successful([activity])).mockResolvedValueOnce(successful());
     const { wrapper } = setupQueryClient();
-    const useDeletedActivitiesQuery = exportedHook("useDeletedActivitiesQuery") as (userId: string) => ReturnType<typeof activityApi.useActivitiesQuery>;
-
     const current = renderHook(() => activityApi.useActivitiesQuery("user-1"), { wrapper });
-    const deleted = renderHook(() => useDeletedActivitiesQuery("user-1"), { wrapper });
     const detail = renderHook(() => activityApi.useActivityQuery("user-1", "activity-1"), { wrapper });
-
     await waitFor(() => {
       expect(current.result.current.isSuccess).toBe(true);
-      expect(deleted.result.current.isSuccess).toBe(true);
       expect(detail.result.current.isSuccess).toBe(true);
     });
-    expect(Reflect.get(queryKeys, "activitiesCurrent")("user-1")).not.toEqual(Reflect.get(queryKeys, "activitiesDeleted")("user-1"));
-    expect(Reflect.get(queryKeys, "activityDetail")("user-1", "activity-1")).not.toEqual(Reflect.get(queryKeys, "activitiesCurrent")("user-1"));
+    expect(queryKeys.activityDetail("user-1", "activity-1")).not.toEqual(queryKeys.activitiesCurrent("user-1"));
     expect(client.GET).toHaveBeenNthCalledWith(1, "/api/activities", { params: { query: { view: "current" } } });
-    expect(client.GET).toHaveBeenNthCalledWith(2, "/api/activities", { params: { query: { view: "deleted" } } });
-    expect(client.GET).toHaveBeenNthCalledWith(3, "/api/activities/{activity_id}", {
-      params: { path: { activity_id: "activity-1" } },
-    });
-  });
-
-  it("deleted 查询仅在 Overlay 打开后启用", async () => {
-    client.GET.mockResolvedValue(successful([activity]));
-    const { wrapper } = setupQueryClient();
-    const deleted = renderHook(
-      ({ enabled }) => activityApi.useDeletedActivitiesQuery("user-1", enabled),
-      { initialProps: { enabled: false }, wrapper },
-    );
-
-    await act(async () => undefined);
-    expect(client.GET).not.toHaveBeenCalled();
-
-    deleted.rerender({ enabled: true });
-    await waitFor(() => expect(deleted.result.current.isSuccess).toBe(true));
-    expect(client.GET).toHaveBeenCalledTimes(1);
-    expect(client.GET).toHaveBeenCalledWith("/api/activities", {
-      params: { query: { view: "deleted" } },
-    });
+    expect(client.GET).toHaveBeenNthCalledWith(2, "/api/activities/{activity_id}", { params: { path: { activity_id: "activity-1" } } });
   });
 });
 
 describe("Activity mutation adapter", () => {
   it.each([
-    { hookName: "useUpdateActivityMutation", clientMethod: "PUT", mutateInput: { name: "新名称", location: null, version: "7" }, path: "/api/activities/{activity_id}", expectedBody: { name: "新名称", location: null, version: "7" }, invalidatesDeleted: false },
-    { hookName: "useActivityLifecycleMutation", clientMethod: "POST", mutateInput: { action: "END", version: "7" }, path: "/api/activities/{activity_id}/lifecycle", expectedBody: { action: "END", version: "7" }, invalidatesDeleted: false },
-    { hookName: "useDeleteActivityMutation", clientMethod: "DELETE", mutateInput: "7", path: "/api/activities/{activity_id}", expectedBody: { version: "7" }, invalidatesDeleted: true },
-    { hookName: "useRestoreActivityMutation", clientMethod: "POST", mutateInput: "7", path: "/api/activities/{activity_id}/restore", expectedBody: { version: "7" }, invalidatesDeleted: true },
-  ])("$hookName 发送 generated 请求并精确失效受影响查询", async ({ hookName, clientMethod, mutateInput, path, expectedBody, invalidatesDeleted }) => {
+    { hookName: "useUpdateActivityMutation", clientMethod: "PUT", mutateInput: { name: "新名称", location: null, version: "7" }, path: "/api/activities/{activity_id}", expectedBody: { name: "新名称", location: null, version: "7" } },
+    { hookName: "useActivityLifecycleMutation", clientMethod: "POST", mutateInput: { action: "END", version: "7" }, path: "/api/activities/{activity_id}/lifecycle", expectedBody: { action: "END", version: "7" } },
+  ])("$hookName 发送 generated 请求并精确失效受影响查询", async ({ hookName, clientMethod, mutateInput, path, expectedBody }) => {
     const response = hookName === "useUpdateActivityMutation"
       ? { data: { data: activity, warnings: [] }, response: new Response(null, { status: 200 }) }
       : successful();
@@ -188,12 +153,7 @@ describe("Activity mutation adapter", () => {
       { queryKey: Reflect.get(queryKeys, "activityDetail")("user-1", "activity-1") },
       { queryKey: Reflect.get(queryKeys, "activitySnapshot")("user-1", "activity-1") },
       { queryKey: Reflect.get(queryKeys, "activitiesCurrent")("user-1") },
-      ...(invalidatesDeleted
-        ? [
-            { queryKey: Reflect.get(queryKeys, "activitiesDeleted")("user-1") },
-            { queryKey: Reflect.get(queryKeys, "notifications")("user-1") },
-          ]
-        : []),
+
     ];
     expect(invalidate.mock.calls.map(([options]) => options)).toEqual(expectedInvalidations);
   });
@@ -389,5 +349,23 @@ describe("Ownership adapter", () => {
       queryKeys.activitySnapshot("user-1", "activity-1"),
       queryKeys.notifications("user-1"),
     ]);
+  });
+});
+
+describe("永久删除 adapter", () => {
+  it.each([204, 404])("%s 删除完成后清除活动缓存并刷新首页", async (status) => {
+    client.DELETE.mockResolvedValue({ response: new Response(null, { status }) });
+    const { queryClient, wrapper } = setupQueryClient();
+    queryClient.setQueryData(queryKeys.activityDetail("delete-user", "activity-1"), activity);
+    queryClient.setQueryData(queryKeys.ledger("delete-user", "activity-1"), { balances: [] });
+    queryClient.setQueryData(queryKeys.activityDetail("delete-user", "other"), { name: "保留" });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => activityApi.useDeleteActivityMutation("delete-user", "activity-1"), { wrapper });
+    await act(async () => { await result.current.mutateAsync("7"); });
+    expect(queryClient.getQueryData(queryKeys.activityDetail("delete-user", "activity-1"))).toBeUndefined();
+    expect(queryClient.getQueryData(queryKeys.ledger("delete-user", "activity-1"))).toBeUndefined();
+    expect(queryClient.getQueryData(queryKeys.activityDetail("delete-user", "other"))).toEqual({ name: "保留" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.activitiesCurrent("delete-user") });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.notifications("delete-user") });
   });
 });

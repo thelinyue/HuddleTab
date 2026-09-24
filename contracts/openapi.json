@@ -17,14 +17,13 @@
           {
             "name": "view",
             "in": "query",
-            "description": "活动视图：current 或 deleted",
+            "description": "活动视图：current",
             "required": false,
             "schema": {
               "type": "string",
               "description": "活动列表支持的视图筛选值。",
               "enum": [
-                "current",
-                "deleted"
+                "current"
               ]
             }
           }
@@ -259,15 +258,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "活动已进入恢复窗口",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActivityEnvelope"
-                }
-              }
-            }
+          "204": {
+            "description": "活动已永久删除"
           },
           "409": {
             "description": "活动版本或状态冲突",
@@ -2494,55 +2486,6 @@
           },
           "403": {
             "description": "无读取权限",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/activities/{activity_id}/restore": {
-      "post": {
-        "tags": [],
-        "operationId": "restoreActivity",
-        "parameters": [
-          {
-            "name": "activity_id",
-            "in": "path",
-            "description": "活动 UUID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ActivityVersionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "活动已恢复",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActivityEnvelope"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "活动版本冲突或恢复窗口已过期",
             "content": {
               "application/json": {
                 "schema": {
@@ -5334,8 +5277,7 @@
           "hasAccountingRecords",
           "fieldPermissions",
           "allowedLifecycleActions",
-          "canDelete",
-          "canRestore"
+          "canDelete"
         ],
         "properties": {
           "activityId": {
@@ -5351,9 +5293,6 @@
             "type": "string"
           },
           "canDelete": {
-            "type": "boolean"
-          },
-          "canRestore": {
             "type": "boolean"
           },
           "coverImageId": {
@@ -5374,12 +5313,6 @@
           },
           "currentMemberRole": {
             "type": "string"
-          },
-          "deletedAt": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "endDate": {
             "type": [
@@ -5407,12 +5340,6 @@
           },
           "ownerMemberId": {
             "type": "string"
-          },
-          "purgeAfter": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "revision": {
             "type": "string"
@@ -7970,15 +7897,10 @@
           "targetType",
           "targetId",
           "activityId",
-          "activityDeleted",
           "payload",
           "createdAt"
         ],
         "properties": {
-          "activityDeleted": {
-            "type": "boolean",
-            "description": "当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。"
-          },
           "activityId": {
             "type": "string"
           },
@@ -7993,6 +7915,7 @@
           },
           "payload": {
             "type": "object",
+            "description": "当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。",
             "additionalProperties": {
               "type": "string"
             },

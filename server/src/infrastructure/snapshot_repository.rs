@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
-use time::{Date, OffsetDateTime};
+use time::Date;
 use uuid::Uuid;
 
 use crate::{
@@ -34,8 +34,6 @@ struct ActivityRow {
     revision: i64,
     current_member_id: Uuid,
     current_member_role: String,
-    deleted_at: Option<OffsetDateTime>,
-    purge_after: Option<OffsetDateTime>,
     has_accounting_records: bool,
     earliest_expense_date: Option<Date>,
     invite_mode: String,
@@ -71,15 +69,13 @@ impl SnapshotRepository for PostgresSnapshotRepository {
         let row = sqlx::query_as::<_, ActivityRow>(
             "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
              a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
-             a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
               OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
               WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
              LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
              JOIN activity_members member ON member.activity_id = a.id \
-             WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' \
-             AND a.deleted_at IS NULL",
+             WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE'",
         )
         .bind(activity_id)
         .bind(actor_user_id)
@@ -239,8 +235,6 @@ fn activity_from_row(row: ActivityRow) -> ActivityView {
         revision: row.revision,
         current_member_id: row.current_member_id,
         current_member_role: row.current_member_role,
-        deleted_at: row.deleted_at,
-        purge_after: row.purge_after,
         has_accounting_records: row.has_accounting_records,
         earliest_expense_date: row.earliest_expense_date,
         cover_preset: row.cover_preset,

@@ -494,8 +494,16 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
   await expect(page.locator('.expense-row')).toHaveCount(25);
   const expanded = await headerGeometry(page);
   await page.screenshot({ path: info.outputPath('header-expanded.png') });
-  expect(expanded.height).toBeGreaterThanOrEqual(240);
-  expect(expanded.height).toBeLessThanOrEqual(280);
+  expect(expanded.height).toBeGreaterThanOrEqual(160);
+  expect(expanded.height).toBeLessThanOrEqual(170);
+  expect(await page.locator('.workspace-header__info').evaluate(element => {
+    const info = element.getBoundingClientRect();
+    const metadata = element.querySelector('.workspace-header__metadata')!.getBoundingClientRect();
+    const text = element.querySelector('.workspace-header__metadata p')!.getBoundingClientRect();
+    const title = document.querySelector('.workspace-header__identity h1')!.getBoundingClientRect();
+    const members = element.querySelector('.workspace-header__members-stack')!.getBoundingClientRect();
+    return members.width <= info.width * .4 + 1 && metadata.right <= members.left && Math.abs(text.left - title.left) <= 1 && text.top >= title.bottom && text.bottom <= members.bottom;
+  })).toBe(true);
   for (const y of [8, 16, 24, 32, Math.ceil(expanded.collapseDistance), 64, 32, 16, 0, 120, 0]) {
     await scrollHeader(page, y);
     const current = await headerGeometry(page);
@@ -511,10 +519,15 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
   await page.screenshot({ path: info.outputPath('header-collapsed.png') });
   const collapsed = await headerGeometry(page);
   expect(collapsed.visibleBottom).toBeCloseTo(expanded.compactHeight, 0);
-  expect(collapsed.memberTop).toBeGreaterThan(collapsed.visibleBottom);
+  expect(collapsed.memberTop).toBeGreaterThanOrEqual(collapsed.visibleBottom);
   expect(collapsed.navTop).toBeGreaterThan(collapsed.visibleBottom);
   await expect(page.locator('.workspace-header__members-stack')).toBeHidden();
   await expect(page.getByRole('navigation', { name: '活动导航', includeHidden: true })).toBeHidden();
+  // 收起后的成员和导航链接必须退出键盘导航，不能把焦点带到裁剪区域。
+  expect(await page.evaluate(() => {
+    const links = document.querySelectorAll<HTMLAnchorElement>('.workspace-header__members-stack, .workspace-nav a');
+    return Array.from(links).every(link => { link.focus(); return document.activeElement !== link; });
+  })).toBe(true);
   // 裁剪外的旧占位不能继续覆盖正文或拦截点击。
   expect(await page.evaluate((probeY) => document.elementFromPoint(innerWidth / 2, probeY)?.closest('.workspace-header') === null, Math.ceil(collapsed.compactHeight + 10))).toBe(true);
   await scrollHeader(page, 0);
@@ -556,7 +569,7 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
     await page.screenshot({ path: info.outputPath('header-collapsed-424.png') });
     await scrollHeader(page, 0);
   }
-  console.log(`${info.project.name}: 页头展开 ${expanded.height}px，收起 ${collapsed.visibleBottom}px`);
+  console.log(`${info.project.name}: 页头展开 ${expanded.height}px，正文起点 ${expanded.documentTop}px，收起 ${collapsed.visibleBottom}px`);
   await page.getByRole('link', { name: '返回活动列表' }).click();
   await expect(page).toHaveURL(/\/activities$/);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f6f8f7');
@@ -566,6 +579,7 @@ test('活动页头：连续收起、回到顶部展开和入口保持稳定', as
 test('活动页头：长名称、大人数、深色安全区和放大字体无溢出', async ({ page }, info) => {
   const control = await installFixture(page, 120);
   control.activity.name = '这是一个需要省略显示的很长很长的周末杭州旅行活动名称';
+  Object.assign(control.activity, { endDate: null, location: '杭州西湖风景名胜区湖畔集合点' });
   await page.goto('/activities/demo');
   await expect(page.locator('.workspace-header h1')).toHaveText(control.activity.name);
   expect(await page.evaluate(() => {
@@ -575,7 +589,7 @@ test('活动页头：长名称、大人数、深色安全区和放大字体无�
     return { header, pageBackground, themeColor };
   })).toMatchObject({ header: 'rgb(36, 52, 47)', pageBackground: 'rgb(246, 248, 247)', themeColor: '#24342f' });
   await page.evaluate(() => { document.documentElement.classList.add('dark', 'pwa-standalone'); document.documentElement.style.setProperty('--safe-area-top', '47px'); });
-  const buttons = page.locator('.workspace-header__actions > a');
+  const buttons = page.locator('.workspace-header__actions > a, .workspace-header__actions > button');
   for (const button of await buttons.all()) {
     const box = (await button.boundingBox())!;
     expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); expect(box.y).toBeGreaterThanOrEqual(47);
@@ -588,14 +602,28 @@ test('活动页头：长名称、大人数、深色安全区和放大字体无�
   expect(visibleMemberCount).toBeLessThan(120);
   await expect(memberLink.locator('.workspace-header__members-stack-overflow')).toHaveText(`+${120 - visibleMemberCount}`);
   const navigation = (await page.locator('.workspace-nav').boundingBox())!;
-  expect(Math.abs((member.x + member.width / 2) - (navigation.x + navigation.width / 2))).toBeLessThanOrEqual(1);
+  const information = (await page.locator('.workspace-header__info').boundingBox())!;
+  const metadata = (await page.locator('.workspace-header__metadata').boundingBox())!;
+  expect(member.width).toBeLessThanOrEqual(information.width * .4 + 1);
+  expect(member.x + member.width).toBeCloseTo(information.x + information.width, 0);
+  expect(metadata.x + metadata.width).toBeLessThanOrEqual(member.x);
   expect(member.y).toBeGreaterThanOrEqual(47);
   expect(member.y + member.height).toBeLessThanOrEqual(navigation.y + 1);
   const back = (await page.getByRole('link', { name: '返回活动列表' }).boundingBox())!;
   expect(title.x).toBeGreaterThanOrEqual(back.x + back.width);
   await page.screenshot({ path: info.outputPath('header-dark-safe-area.png') });
+  const normalText = await headerGeometry(page);
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await headerGeometry(page)).height).toBeGreaterThan(normalText.height);
+  await expect(page.locator('.workspace-header__metadata')).toContainText('进行中');
+  expect(await page.locator('.workspace-header__metadata p').evaluate(element => {
+    const text = element.getBoundingClientRect();
+    const nav = document.querySelector('.workspace-nav')!.getBoundingClientRect();
+    const range = document.createRange(); range.selectNodeContents(element);
+    const content = range.getBoundingClientRect();
+    return content.bottom <= text.bottom + 1 && text.bottom <= nav.top && element.scrollWidth <= element.clientWidth + 1;
+  })).toBe(true);
   await page.screenshot({ path: info.outputPath('header-large-text.png') });
 });
 
@@ -687,6 +715,11 @@ test('活动页头：加载骨架与完成后的占位一致', async ({ page }) 
   const after = await headerGeometry(page);
   expect(after.height).toBe(before.height);
   expect(after.documentTop).toBe(before.documentTop);
+  control.members.splice(0);
+  await page.reload();
+  await expect(page.locator('.workspace-header h1')).toHaveText(control.activity.name);
+  await expect(page.locator('.workspace-header__members-stack')).toHaveCount(0);
+  expect((await headerGeometry(page)).height).toBe(after.height);
 });
 
 /** 统计验收只扩展本地接口夹具，消费与付款使用同一份主币种事实。 */

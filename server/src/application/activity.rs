@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use thiserror::Error;
-use time::{Date, Duration, OffsetDateTime};
+use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
@@ -71,8 +71,6 @@ pub struct ActivityView {
     pub revision: i64,
     pub current_member_id: Uuid,
     pub current_member_role: String,
-    pub deleted_at: Option<OffsetDateTime>,
-    pub purge_after: Option<OffsetDateTime>,
     pub has_accounting_records: bool,
     pub earliest_expense_date: Option<Date>,
     pub cover_preset: Option<i16>,
@@ -149,8 +147,6 @@ pub enum ActivityRepositoryError {
     BaseCurrencyLocked,
     #[error("当前活动状态不能执行此转换")]
     InvalidTransition,
-    #[error("活动已超过恢复期限")]
-    RestoreExpired,
     #[error("活动记录分页游标无效")]
     InvalidAuditCursor,
     #[error("活动数据访问失败")]
@@ -167,12 +163,6 @@ pub trait ActivityRepository: Send + Sync {
     async fn list_for_user(
         &self,
         user_id: Uuid,
-    ) -> Result<Vec<ActivityView>, ActivityRepositoryError>;
-
-    async fn list_deleted_for_owner(
-        &self,
-        user_id: Uuid,
-        now: OffsetDateTime,
     ) -> Result<Vec<ActivityView>, ActivityRepositoryError>;
 
     async fn get_for_user(
@@ -207,12 +197,7 @@ pub trait ActivityRepository: Send + Sync {
     async fn delete(
         &self,
         deletion: ActivityDeletion,
-    ) -> Result<ActivityView, ActivityRepositoryError>;
-
-    async fn restore(
-        &self,
-        restoration: ActivityRestoration,
-    ) -> Result<ActivityView, ActivityRepositoryError>;
+    ) -> Result<Vec<String>, ActivityRepositoryError>;
 
     async fn transfer_ownership(
         &self,
@@ -267,16 +252,6 @@ pub struct ActivityDeletion {
     pub activity_id: Uuid,
     pub actor_user_id: Uuid,
     pub expected_version: i64,
-    pub deleted_at: OffsetDateTime,
-    pub purge_after: OffsetDateTime,
-}
-
-#[derive(Clone, Debug)]
-pub struct ActivityRestoration {
-    pub activity_id: Uuid,
-    pub actor_user_id: Uuid,
-    pub expected_version: i64,
-    pub now: OffsetDateTime,
 }
 
 #[derive(Clone, Debug)]
@@ -357,8 +332,6 @@ pub enum UpdateActivityError {
     BaseCurrencyLocked,
     #[error("当前活动状态不能执行此转换")]
     InvalidTransition,
-    #[error("活动已超过恢复期限")]
-    RestoreExpired,
     #[error("更新活动失败")]
     Unavailable,
 }
@@ -414,22 +387,6 @@ pub async fn list_activities(
 ) -> Result<Vec<ActivityView>, ReadActivityError> {
     repository
         .list_for_user(user_id)
-        .await
-        .map_err(map_read_error)
-}
-
-/// 列出 Owner 在恢复窗口内可恢复的活动。
-///
-/// # Errors
-///
-/// 数据访问失败时返回 [`ReadActivityError`]。
-pub async fn list_deleted_activities(
-    repository: &dyn ActivityRepository,
-    clock: &dyn Clock,
-    user_id: Uuid,
-) -> Result<Vec<ActivityView>, ReadActivityError> {
-    repository
-        .list_deleted_for_owner(user_id, clock.now())
         .await
         .map_err(map_read_error)
 }
@@ -588,45 +545,20 @@ pub async fn transition_activity(
         .map_err(map_update_error)
 }
 
-/// 将活动放入 30 天恢复窗口，保留原生命周期状态。
+/// 永久删除活动；返回已解除引用的图片路径，由 HTTP 层在提交后立即回收文件。
 ///
 /// # Errors
 ///
 /// 版本、权限、资源状态或存储失败时返回稳定业务错误。
 pub async fn delete_activity(
     repository: &dyn ActivityRepository,
-    clock: &dyn Clock,
     input: ActivityVersionInput,
-) -> Result<ActivityView, UpdateActivityError> {
-    let deleted_at = clock.now();
+) -> Result<Vec<String>, UpdateActivityError> {
     repository
         .delete(ActivityDeletion {
             activity_id: input.activity_id,
             actor_user_id: input.actor_user_id,
             expected_version: parse_version(&input.version)?,
-            deleted_at,
-            purge_after: deleted_at + Duration::days(30),
-        })
-        .await
-        .map_err(map_update_error)
-}
-
-/// 在恢复窗口内清除删除标记；原 status 不变，因此恢复到删除前生命周期。
-///
-/// # Errors
-///
-/// 版本、Owner 权限、恢复期限或存储失败时返回稳定业务错误。
-pub async fn restore_activity(
-    repository: &dyn ActivityRepository,
-    clock: &dyn Clock,
-    input: ActivityVersionInput,
-) -> Result<ActivityView, UpdateActivityError> {
-    repository
-        .restore(ActivityRestoration {
-            activity_id: input.activity_id,
-            actor_user_id: input.actor_user_id,
-            expected_version: parse_version(&input.version)?,
-            now: clock.now(),
         })
         .await
         .map_err(map_update_error)
@@ -665,7 +597,6 @@ fn map_read_error(error: ActivityRepositoryError) -> ReadActivityError {
         | ActivityRepositoryError::FieldLocked
         | ActivityRepositoryError::BaseCurrencyLocked
         | ActivityRepositoryError::InvalidTransition
-        | ActivityRepositoryError::RestoreExpired
         | ActivityRepositoryError::InvalidAuditCursor => ReadActivityError::NotFound,
     }
 }
@@ -679,8 +610,7 @@ fn map_audit_read_error(error: ActivityRepositoryError) -> ReadActivityAuditErro
         | ActivityRepositoryError::VersionConflict
         | ActivityRepositoryError::FieldLocked
         | ActivityRepositoryError::BaseCurrencyLocked
-        | ActivityRepositoryError::InvalidTransition
-        | ActivityRepositoryError::RestoreExpired => ReadActivityAuditError::NotFound,
+        | ActivityRepositoryError::InvalidTransition => ReadActivityAuditError::NotFound,
     }
 }
 
@@ -702,7 +632,6 @@ fn map_update_error(error: ActivityRepositoryError) -> UpdateActivityError {
         ActivityRepositoryError::FieldLocked => UpdateActivityError::FieldLocked,
         ActivityRepositoryError::BaseCurrencyLocked => UpdateActivityError::BaseCurrencyLocked,
         ActivityRepositoryError::InvalidTransition => UpdateActivityError::InvalidTransition,
-        ActivityRepositoryError::RestoreExpired => UpdateActivityError::RestoreExpired,
         ActivityRepositoryError::InvalidAuditCursor => UpdateActivityError::InvalidInput,
         ActivityRepositoryError::Unavailable => UpdateActivityError::Unavailable,
     }

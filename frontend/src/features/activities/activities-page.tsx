@@ -1,4 +1,4 @@
-import { ArrowRight, Bell, CalendarDays, ChevronDown, ChevronRight, Link as LinkIcon, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowRight, Bell, CalendarDays, ChevronDown, ChevronRight, Link as LinkIcon, Plus } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import { DayPicker } from "react-day-picker";
@@ -11,7 +11,6 @@ import {
   ErrorNotice,
   Field,
   Input,
-  LoadingState,
   Money,
   Select,
   StateIllustration,
@@ -25,14 +24,13 @@ import {
   useCreateActivityMutation,
   useInvalidateActivityCoverQueries,
   uploadActivityCover,
-  useDeletedActivitiesQuery,
-  useRestoreActivityMutation,
 } from "./api";
 import { ACTIVITY_COVER_GROUPS, ACTIVITY_COVER_LABELS, ActivityCover, activityCoverPresetPath, type ActivityCoverPreset } from "../../components/activity-cover";
 import { useSessionQuery } from "../auth/api";
 import { useNotificationsQuery } from "../notifications/api";
 import { activityStatus, activityPeriodLabel } from "./presentation";
 import { PushPromptCard } from "../push/components";
+import { ActivityCurrencySummary, type ActivitySummary } from "./activity-currency-summary";
 
 function localCalendarToday(): string {
   const now = new Date();
@@ -48,11 +46,11 @@ function isoFromDate(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
-/** 首页四种面板状态统一由 URL 驱动，便于系统返回和刷新后恢复可预测的入口层级。 */
-type ActivityPanel = "actions" | "create" | "join" | "deleted";
+/** 首页面板状态统一由 URL 驱动，便于系统返回和刷新后恢复可预测的入口层级。 */
+type ActivityPanel = "actions" | "create" | "join";
 
 function activityPanelFromSearch(value: string | null): ActivityPanel | null {
-  return value === "actions" || value === "create" || value === "join" || value === "deleted" ? value : null;
+  return value === "actions" || value === "create" || value === "join" ? value : null;
 }
 
 function activityPanelDepth(state: unknown): number | null {
@@ -64,12 +62,6 @@ function activityPanelDepth(state: unknown): number | null {
 type ActivityLedgerResult = ReturnType<typeof useActivityLedgersQuery>[number];
 
 type LedgerReadiness = "pending" | "error" | "ready";
-
-type ActivitySummary = {
-  payable: bigint;
-  receivable: bigint;
-  readiness: LedgerReadiness;
-};
 
 function ledgerReadiness(ledger: ActivityLedgerResult | undefined): LedgerReadiness {
   if (!ledger || ledger.isPending) return "pending";
@@ -105,7 +97,6 @@ function summarizeLedgers(activities: readonly Activity[], ledgers: ReturnType<t
 function ActivityListSkeleton() {
   return (
     <div className="activity-list-skeleton" aria-hidden="true">
-      <span className="activity-skeleton-block activity-list-skeleton__heading" />
       <ul className="activity-list activity-list-skeleton__list">
         {[0, 1].map((index) => (
           <li className="activity-list-item activity-list-item--skeleton" key={index}>
@@ -127,6 +118,7 @@ function ActivityListSkeleton() {
 
 function ActivitySummarySkeleton() {
   return (
+    <section className="activity-currency-summary" aria-hidden="true">
     <dl className="home-summary home-summary--skeleton" aria-hidden="true">
       {[0, 1].map((index) => (
         <div key={index}>
@@ -135,14 +127,14 @@ function ActivitySummarySkeleton() {
         </div>
       ))}
     </dl>
+    </section>
   );
 }
 
 function ActivityGroup({ title, activities, allActivities, ledgers }: { title: string; activities: readonly Activity[]; allActivities: readonly Activity[]; ledgers: ReturnType<typeof useActivityLedgersQuery> }) {
   if (!activities.length) return null;
   return (
-    <section className="activity-group" aria-labelledby={`${title}-heading`}>
-      <h2 id={`${title}-heading`}>{title}</h2>
+    <section className="activity-group" aria-label={title}>
       <ul className="activity-list">
         {activities.map((activity) => {
           const ledger = ledgers[allActivities.findIndex((item) => item.activityId === activity.activityId)];
@@ -154,7 +146,7 @@ function ActivityGroup({ title, activities, allActivities, ledgers }: { title: s
           return (
             <li key={activity.activityId}>
               <Link className="activity-list-item" to={`/activities/${activity.activityId}`}>
-                <ActivityCover activityId={activity.activityId} coverPreset={activity.coverPreset} coverImageId={activity.coverImageId} width={72} height={56} alt="" loading="lazy" />
+                <ActivityCover activityId={activity.activityId} coverPreset={activity.coverPreset} coverImageId={activity.coverImageId} width={48} height={48} alt="" loading="lazy" />
                 <span className="activity-list-item__content"><strong>{activity.name}</strong><small className="activity-list-item__period">{[activityPeriodLabel(activity), activityStatus(activity.status)].filter(Boolean).join(" · ")}</small></span>
                 <span className="activity-list-item__balance">
                   {readiness === "pending" ? <span className="activity-balance-skeleton"><i /><i /></span> : null}
@@ -172,37 +164,6 @@ function ActivityGroup({ title, activities, allActivities, ledgers }: { title: s
   );
 }
 
-function activityDateTime(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
-function DeletedActivityRow({ activity, userId }: { activity: Activity; userId: string }) {
-  const restore = useRestoreActivityMutation(userId, activity.activityId);
-  return (
-    <li className="deleted-activity-row">
-      <span>
-        <strong>{activity.name}</strong>
-        <small>删除于 {activityDateTime(activity.deletedAt!)}</small>
-        <small>可恢复至 {activityDateTime(activity.purgeAfter!)}</small>
-      </span>
-      {activity.canRestore ? <Button variant="secondary" busy={restore.isPending} aria-label={`恢复${activity.name}`} onClick={() => restore.mutate(activity.version)}> <RotateCcw aria-hidden="true" size={17} />恢复</Button> : null}
-      {restore.error ? <ErrorNotice error={restore.error} /> : null}
-    </li>
-  );
-}
-
-function DeletedActivities({ activities, userId }: { activities: readonly Activity[]; userId: string }) {
-  // deleted 查询可能来自陈旧缓存；恢复期限已过的条目不得重新出现在操作面板中。
-  const visible = activities.filter((activity) =>
-    Boolean(activity.deletedAt && activity.purgeAfter && Date.parse(activity.purgeAfter) > Date.now()),
-  );
-  return (
-    <section className="activity-group deleted-activities" aria-label="可恢复的活动">
-      {visible.length ? <ul className="deleted-activity-list">{visible.map((activity) => <DeletedActivityRow key={activity.activityId} activity={activity} userId={userId} />)}</ul> : <EmptyState icon={<Trash2 size={24} />} visual={<StateIllustration src="/illustrations/deleted-activities-empty.webp" size="compact" />} title="没有可恢复的活动" description="仍在恢复期内的已删除活动会显示在这里。" />}
-    </section>
-  );
-}
-
 /** 活动列表及其 URL 驱动面板；面板切换和表单草稿仍由列表页面持有。 */
 export function ActivitiesPage() {
   const session = useSessionQuery();
@@ -211,7 +172,6 @@ export function ActivitiesPage() {
   const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const panel = activityPanelFromSearch(searchParams.get("panel"));
-  const deletedActivities = useDeletedActivitiesQuery(session.data?.userId ?? "", panel === "deleted");
   const ledgers = useActivityLedgersQuery(session.data?.userId ?? "", activities.data ?? []);
   const create = useCreateActivityMutation(session.data?.userId ?? "");
   const invalidateCoverQueries = useInvalidateActivityCoverQueries(session.data?.userId ?? "");
@@ -336,9 +296,27 @@ export function ActivitiesPage() {
   const listError = session.error ?? activities.error;
   const items = activities.data ?? [];
   const summaries = summarizeLedgers(items, ledgers);
-  const active = items.filter((item) => item.status === "ACTIVE");
-  const ended = items.filter((item) => item.status === "ENDED");
-  const archived = items.filter((item) => item.status === "ARCHIVED");
+  const selectedCurrency = summaries.find(([currency]) => currency === searchParams.get("currency"))?.[0] ?? summaries[0]?.[0] ?? "";
+  const filters = [
+    { value: "all", label: "全部" },
+    { value: "active", label: "进行中" },
+    { value: "ended", label: "已结束" },
+    { value: "archived", label: "已归档" },
+  ] as const;
+  const selectedFilter = filters.find((filter) => filter.value === searchParams.get("status")) ?? filters[0];
+  const filteredItems = items.filter((item) => item.baseCurrency === selectedCurrency &&
+    (selectedFilter.value === "all" || item.status === selectedFilter.value.toUpperCase()));
+  function selectCurrency(currency: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set("currency", currency);
+    setSearchParams(next, { replace: true, state: routerLocation.state });
+  }
+  function selectFilter(value: string) {
+    const next = new URLSearchParams(searchParams);
+    if (value === "all") next.delete("status");
+    else next.set("status", value);
+    setSearchParams(next, { replace: true, state: routerLocation.state });
+  }
   function openChildPanel(nextPanel: "create" | "join") {
     if (panel === "actions") {
       openPanel(nextPanel);
@@ -365,9 +343,6 @@ export function ActivitiesPage() {
         <header className="home-header">
           <div className="home-header__title">
             <h1>活动</h1>
-            <button className="icon-button" type="button" aria-label="已删除活动" title="已删除活动" onClick={() => openPanel("deleted")}>
-              <Trash2 aria-hidden="true" size={18} />
-            </button>
           </div>
           <div className="home-header__actions">
             <Link className="icon-button activity-notifications-trigger" to="/notifications" aria-label={notificationsUnreadLabel} title="通知">
@@ -377,13 +352,11 @@ export function ActivitiesPage() {
           </div>
         </header>
         <PushPromptCard userId={session.data?.userId ?? ""} />
-        {!listPending && !listError ? summaries.map(([currency, summary]) => (
-          <dl className="home-summary" key={currency} aria-label={`${currency} 跨活动账务摘要`}>
-            <div><dt>待支付</dt><dd>{summary.readiness === "pending" ? <span className="home-summary__skeleton" aria-hidden="true" /> : summary.readiness === "error" ? <small className="home-summary__unavailable">暂不可用</small> : <Money value={formatMoney(currency, summary.payable.toString())} tone="negative" />}</dd></div>
-            <div><dt>待收款</dt><dd>{summary.readiness === "pending" ? <span className="home-summary__skeleton" aria-hidden="true" /> : summary.readiness === "error" ? <small className="home-summary__unavailable">暂不可用</small> : <Money value={formatMoney(currency, summary.receivable.toString())} tone="positive" />}</dd></div>
-          </dl>
-        )) : null}
+        {!listPending && !listError && summaries.length > 0 ? <ActivityCurrencySummary summaries={summaries} currency={selectedCurrency} onSelect={selectCurrency} /> : null}
         {listPending ? <ActivitySummarySkeleton /> : null}
+        <div className="activity-status-filters" role="group" aria-label="活动状态筛选">
+          {filters.map((filter) => <button key={filter.value} type="button" aria-pressed={selectedFilter.value === filter.value} onClick={() => selectFilter(filter.value)}><span>{filter.label}</span></button>)}
+        </div>
         {listPending ? <ActivityListSkeleton /> : null}
         {listError ? <ErrorNotice error={listError} /> : null}
         {!listPending && !listError && !items.length ? <EmptyState
@@ -393,9 +366,11 @@ export function ActivitiesPage() {
           description="创建第一个活动后，就可以开始记录消费。"
           action={<div className="empty-state__actions"><Button className="activity-empty-create" onClick={openCreate}>创建活动</Button><Button className="activity-empty-join" variant="ghost" onClick={openJoin}>加入已有活动</Button></div>}
         /> : null}
-        <ActivityGroup title="进行中的活动" activities={active} allActivities={items} ledgers={ledgers} />
-        <ActivityGroup title="最近结束" activities={ended} allActivities={items} ledgers={ledgers} />
-        {archived.length ? <details className="activity-history"><summary>查看历史活动</summary><ActivityGroup title="已归档" activities={archived} allActivities={items} ledgers={ledgers} /></details> : null}
+        {!listPending && !listError && items.length > 0 ? (
+          filteredItems.length > 0
+            ? <ActivityGroup title={`${selectedFilter.label}活动`} activities={filteredItems} allActivities={items} ledgers={ledgers} />
+            : <EmptyState icon={<CalendarDays size={24} />} title={`暂无${selectedFilter.label}的活动`} description="当前币种下没有符合条件的活动，可切换状态或币种。" action={<Button variant="secondary" onClick={() => selectFilter("all")}>查看全部</Button>} />
+        ) : null}
       </main>
       <ProductBottomNavigation />
       <button className="activity-add-fab" type="button" aria-label="新建或加入活动" title="新建或加入活动" onClick={() => openPanel("actions")}><Plus aria-hidden="true" size={24} /></button>
@@ -439,13 +414,6 @@ export function ActivitiesPage() {
           <Field label="邀请口令" hint="向活动所有者索取邀请口令后粘贴到这里。"><Input value={joinToken} onChange={(event) => setJoinToken(event.target.value)} autoComplete="off" autoFocus required /></Field>
           <Button type="submit">查看邀请 <ArrowRight aria-hidden="true" size={18} /></Button>
         </form> : null}
-      </Overlay>
-      <Overlay open={panel === "deleted"} title="已删除活动" onClose={closePanel} focusKey={panel ?? "closed"} className="activity-home-overlay deleted-activities-overlay">
-        {deletedActivities.isPending ? <LoadingState label="正在读取已删除活动…" /> : null}
-        {deletedActivities.error ? <ErrorNotice error={deletedActivities.error} /> : null}
-        {!deletedActivities.isPending && !deletedActivities.error
-          ? <DeletedActivities activities={deletedActivities.data ?? []} userId={session.data?.userId ?? ""} />
-          : null}
       </Overlay>
     </div>
   );

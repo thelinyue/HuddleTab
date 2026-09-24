@@ -28,7 +28,6 @@ struct NotificationRow {
     target_type: String,
     target_id: Uuid,
     activity_id: Uuid,
-    activity_deleted: bool,
     payload: Value,
     read_at: Option<OffsetDateTime>,
     created_at: OffsetDateTime,
@@ -44,7 +43,6 @@ impl NotificationRepository for PostgresNotificationRepository {
             "SELECT notifications.id, notifications.recipient_user_id,
                     notifications.type AS kind, notifications.target_type,
                     notifications.target_id, notifications.activity_id,
-                    activity.deleted_at IS NOT NULL AS activity_deleted,
                     notifications.payload, notifications.read_at, notifications.created_at
              FROM notifications
              JOIN activities activity ON activity.id = notifications.activity_id
@@ -92,7 +90,6 @@ impl NotificationRepository for PostgresNotificationRepository {
             "SELECT notification.id, notification.recipient_user_id,
                     notification.type AS kind, notification.target_type,
                     notification.target_id, notification.activity_id,
-                    activity.deleted_at IS NOT NULL AS activity_deleted,
                     notification.payload, notification.read_at, notification.created_at
              FROM notifications notification
              JOIN activities activity ON activity.id = notification.activity_id
@@ -184,7 +181,6 @@ fn notification_from_row(row: NotificationRow) -> NotificationView {
         target_type: row.target_type,
         target_id: row.target_id,
         activity_id: row.activity_id,
-        activity_deleted: row.activity_deleted,
         payload: row.payload,
         read_at: row.read_at,
         created_at: row.created_at,

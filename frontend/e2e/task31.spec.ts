@@ -40,8 +40,8 @@ test("Task 31 系统信息沿用紧凑管理页且不扩张普通用户权限", 
   await expect(page.getByRole("heading", { name: "系统管理" })).toBeVisible();
   await page.getByRole("link", { name: "系统信息" }).click();
   await expect(page.getByRole("heading", { name: "系统信息" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "存储使用" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "运行信息" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "存储使用" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "运行信息" })).toBeVisible();
   for (const label of ["数据库", "上传文件", "合计", "应用版本", "PWA 版本", "数据库版本", "数据目录"]) {
     await expect(page.getByText(label, { exact: true })).toBeVisible();
   }

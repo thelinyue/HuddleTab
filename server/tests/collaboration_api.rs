@@ -1,3 +1,6 @@
+#[path = "support/permanent_activity.rs"]
+mod permanent_activity;
+
 use axum::{
     body::Body,
     http::{
@@ -1964,16 +1967,16 @@ async fn ended_and_deleted_activities_reject_collaboration_mutations() {
         AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
     );
 
-    for state_change in [
-        "UPDATE activities SET status = 'ENDED' WHERE id = $1",
-        "UPDATE activities SET status = 'ACTIVE', deleted_at = now(), \
-         purge_after = now() + interval '30 days' WHERE id = $1",
-    ] {
-        sqlx::query(state_change)
-            .bind(activity_id)
-            .execute(&pool)
-            .await
-            .expect("应更新活动状态");
+    for deleted in [false, true] {
+        if deleted {
+            permanent_activity::delete(&pool, activity_id).await;
+        } else {
+            sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+                .bind(activity_id)
+                .execute(&pool)
+                .await
+                .expect("应结束活动");
+        }
         let (guest_status, _) = json_response(
             &app,
             authenticated_request(
@@ -2044,14 +2047,7 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
     }
     let joining_user = register_invited_actor(&app, &secret, &tokens[1]).await;
 
-    sqlx::query(
-        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
-         WHERE id = $1",
-    )
-    .bind(activity_id)
-    .execute(&pool)
-    .await
-    .expect("应软删除活动");
+    permanent_activity::delete(&pool, activity_id).await;
 
     let pre_auth = SessionToken::generate();
     let csrf = CsrfToken::mint(&secret, CsrfContext::PreAuth(pre_auth.expose_for_cookie()));

@@ -102,3 +102,43 @@ it("没有缓存时 require 返回明确中文错误", async () => {
     new SnapshotRepository("user-1").require("missing"),
   ).rejects.toThrow("此活动尚未缓存，无法离线查看。");
 });
+
+it.each(["modified", "not-modified"])("删除后晚到的 %s 快照不能恢复缓存", async (status) => {
+  const repository = new SnapshotRepository("user-1");
+  await repository.replace("activity-1", { etag: "1", snapshot } as never);
+  let respond!: (value: unknown) => void;
+  fetchActivitySnapshotMock.mockReturnValue(new Promise((resolve) => { respond = resolve; }));
+  const refresh = repository.refresh("activity-1");
+  await vi.waitFor(() => expect(fetchActivitySnapshotMock).toHaveBeenCalledTimes(1));
+  await new SnapshotRepository("user-1").forgetUnavailable("activity-1");
+  const rejected = expect(refresh).rejects.toMatchObject({ status: 404 });
+  respond({ status, value: { etag: "1", snapshot } });
+  await rejected;
+  expect(await repository.get("activity-1")).toBeUndefined();
+});
+
+it("404 清除快照并保留被拒绝的草稿与附件，不影响其他活动", async () => {
+  const { ApiRequestError } = await import("../../api/error");
+  const { MutationRepository } = await import("./mutation-repository");
+  const { AttachmentRepository } = await import("./attachment-repository");
+  const { pendingMutationFixture } = await import("./test-fixtures");
+  const repository = new SnapshotRepository("user-1");
+  const mutations = new MutationRepository("user-1");
+  const attachments = new AttachmentRepository("user-1");
+  await repository.replace("activity-1", { etag: "1", snapshot } as never);
+  await repository.replace("other", { etag: "2", snapshot } as never);
+  await mutations.enqueueWithAttachments(pendingMutationFixture("draft"), [{
+    id: "image", clientAttachmentId: "image-client", fileName: "receipt.webp", mimeType: "image/webp", blob: new Blob(["receipt"], { type: "image/webp" }),
+  }]);
+  await mutations.put(pendingMutationFixture("other-draft", { activityId: "other" }));
+  fetchActivitySnapshotMock.mockRejectedValue(new ApiRequestError(404));
+  await expect(repository.refresh("activity-1")).rejects.toMatchObject({ status: 404 });
+  expect(await repository.get("activity-1")).toBeUndefined();
+  expect(await repository.get("other")).toBeDefined();
+  expect(await mutations.get("draft")).toMatchObject({ status: "REJECTED", lastError: { code: "ACTIVITY_UNAVAILABLE" }, payload: { title: "早餐" } });
+  expect(await mutations.get("other-draft")).toMatchObject({ status: "PENDING" });
+  const image = (await attachments.listByMutation("draft"))[0];
+  expect(image).toMatchObject({ status: "REJECTED", fileName: "receipt.webp" });
+  expect(image.blob.size).toBe(7);
+  await expect(mutations.reviseRejected("draft", (await mutations.get("draft"))!.payload, [])).rejects.toThrow("无法同步");
+});

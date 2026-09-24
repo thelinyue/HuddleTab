@@ -1,3 +1,6 @@
+#[path = "support/permanent_activity.rs"]
+mod permanent_activity;
+
 use axum::{
     body::Body,
     http::{
@@ -861,14 +864,7 @@ async fn ended_only_keeps_settlement_mutations_writable() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
-    sqlx::query(
-        "UPDATE activities SET status = 'ENDED', deleted_at = now(), \
-         purge_after = now() + interval '30 days' WHERE id = $1",
-    )
-    .bind(context.activity_id)
-    .execute(&context.pool)
-    .await
-    .expect("应删除活动");
+    permanent_activity::delete(&context.pool, context.activity_id).await;
     let (status, _) = response(
         &context,
         request(
@@ -971,14 +967,7 @@ async fn archived_accounting_reads_reject_the_same_activity_after_soft_delete() 
         assert_eq!(status, StatusCode::OK);
     }
 
-    sqlx::query(
-        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
-         WHERE id = $1",
-    )
-    .bind(context.activity_id)
-    .execute(&context.pool)
-    .await
-    .expect("应软删除活动");
+    permanent_activity::delete(&context.pool, context.activity_id).await;
     for uri in read_uris {
         let (status, _) = response(&context, request(&context, "GET", uri, json!(null))).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
@@ -987,16 +976,9 @@ async fn archived_accounting_reads_reject_the_same_activity_after_soft_delete() 
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-async fn soft_deleted_active_activity_rejects_expense_creation() {
+async fn permanently_deleted_activity_rejects_expense_creation() {
     let context = seed_context().await;
-    sqlx::query(
-        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
-         WHERE id = $1",
-    )
-    .bind(context.activity_id)
-    .execute(&context.pool)
-    .await
-    .expect("应软删除活动");
+    permanent_activity::delete(&context.pool, context.activity_id).await;
 
     let (status, _) = response(
         &context,
@@ -1360,4 +1342,46 @@ async fn concurrent_settlement_updates_with_same_version_apply_once() {
         Some("2" | "3")
     ));
     assert_eq!(activity_side_effects(&context).await, (3, 2));
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn deletion_and_expense_creation_serialize_without_orphans() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let deletion = context.app.clone().oneshot(request(
+        &context,
+        "DELETE",
+        format!("/api/activities/{}", context.activity_id),
+        json!({"version":"1"}),
+    ));
+    let creation = context.app.clone().oneshot(request(
+        &context,
+        "POST",
+        format!("/api/activities/{}/expenses", context.activity_id),
+        expense_payload(&context, Uuid::new_v4(), "并发账单"),
+    ));
+    let (deleted, created) = tokio::join!(deletion, creation);
+    assert_eq!(deleted.unwrap().status(), StatusCode::NO_CONTENT);
+    assert!(matches!(
+        created.unwrap().status(),
+        StatusCode::CREATED | StatusCode::FORBIDDEN
+    ));
+    for table in [
+        "expenses",
+        "expense_payments",
+        "expense_shares",
+        "activity_members",
+        "activity_audit_logs",
+        "notifications",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM {table} WHERE activity_id = $1"
+        ))
+        .bind(context.activity_id)
+        .fetch_one(&context.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0, "{table} 不得残留");
+    }
 }

@@ -1,4 +1,4 @@
-import { BellRing, Check } from "lucide-react";
+import { BellRing, Check, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Overlay } from "../../components/overlay";
@@ -27,6 +27,8 @@ function pushStatus(settings: ReturnType<typeof usePushSettingsQuery>, subscript
   if (settings.isPending) return "正在读取…";
   if (settings.error) return "暂不可用";
   if (!settings.data?.available) return "服务器未启用";
+  if (!canUsePush()) return "环境不支持";
+  if (typeof Notification !== "undefined" && Notification.permission === "denied") return "权限已拒绝";
   return subscription ? "已开启" : "未开启";
 }
 
@@ -83,8 +85,9 @@ export function PushSettingsControl({ userId }: { userId: string }) {
     <>
       <button className="settings-link" type="button" aria-label={`系统推送：${pushStatus(settings, subscription)}`} onClick={() => { setActionError(null); setOpen(true); }}>
         <BellRing aria-hidden="true" size={18} />
-        <span><strong>系统推送</strong><small>在浏览器关闭时也能收到重要通知</small></span>
+        <span><strong>系统推送</strong></span>
         <span className="settings-link__value">{pushStatus(settings, subscription)}</span>
+        <ChevronRight aria-hidden="true" size={18} />
       </button>
       <Overlay open={open} title="系统推送" onClose={() => setOpen(false)} focusKey={open ? "push-settings" : "closed"}>
         <div className="push-settings-panel">

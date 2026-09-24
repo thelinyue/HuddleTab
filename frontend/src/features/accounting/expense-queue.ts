@@ -1,6 +1,7 @@
 import { apiClient } from "../../api/client";
 import { mutationHeaders } from "../../api/csrf";
 import { ApiRequestError, unwrap } from "../../api/error";
+import { SnapshotRepository } from "../../pwa/indexed-db/snapshot-repository";
 import { AttachmentRepository } from "../../pwa/indexed-db/attachment-repository";
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
 import type {
@@ -294,6 +295,8 @@ export class ExpenseQueue {
     let current = record;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (this.options.canSend && !this.options.canSend()) return false;
+      const latest = await this.repository.get(record.id);
+      if (latest?.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
       const syncing = await this.save({
         ...current,
         status: "SYNCING",
@@ -302,10 +305,12 @@ export class ExpenseQueue {
         updatedAt: this.now(),
       });
       try {
+        if (syncing.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
         const result = await (this.options.send ?? sendExpense)(
           syncing.activityId,
           syncing.payload,
         );
+        if ((await this.repository.get(syncing.id))?.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
         await this.save({
           ...syncing,
           status: "SYNCED",
@@ -316,7 +321,15 @@ export class ExpenseQueue {
         });
         return true;
       } catch (error) {
+        if ((await this.repository.get(syncing.id))?.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
         if (!isRetryable(error)) {
+          if (error instanceof ApiRequestError && [403, 404].includes(error.status)) {
+            await new SnapshotRepository(this.userId).refresh(syncing.activityId).catch(() => undefined);
+            if ((await this.repository.get(syncing.id))?.lastError?.code === "ACTIVITY_UNAVAILABLE") {
+              this.dispatch(syncing.activityId, "REJECTED", "EXPENSE");
+              return true;
+            }
+          }
           await this.save({
             ...syncing,
             status: "REJECTED",
@@ -352,6 +365,8 @@ export class ExpenseQueue {
     let current = record;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (this.options.canSend && !this.options.canSend()) return false;
+      const latest = (await this.attachments.listByMutation(record.mutationId)).find((item) => item.id === record.id);
+      if (latest?.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
       const syncing = await this.saveAttachment({
         ...current,
         status: "SYNCING",
@@ -360,9 +375,11 @@ export class ExpenseQueue {
         updatedAt: this.now(),
       });
       try {
+        if (syncing.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
         const result = await (
           this.options.sendAttachment ?? uploadExpenseAttachment
         )(mutation.activityId, mutation.serverExpenseId!, syncing);
+        if ((await this.attachments.listByMutation(syncing.mutationId)).find((item) => item.id === syncing.id)?.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
         await this.saveAttachment({
           ...syncing,
           status: "SYNCED",
@@ -373,7 +390,15 @@ export class ExpenseQueue {
         });
         return true;
       } catch (error) {
+        if ((await this.attachments.listByMutation(syncing.mutationId)).find((item) => item.id === syncing.id)?.lastError?.code === "ACTIVITY_UNAVAILABLE") return true;
         if (!isRetryable(error)) {
+          if (error instanceof ApiRequestError && [403, 404].includes(error.status)) {
+            await new SnapshotRepository(this.userId).refresh(syncing.activityId).catch(() => undefined);
+            if ((await this.attachments.listByMutation(syncing.mutationId)).find((item) => item.id === syncing.id)?.lastError?.code === "ACTIVITY_UNAVAILABLE") {
+              this.dispatch(syncing.activityId, "REJECTED", "ATTACHMENT");
+              return true;
+            }
+          }
           await this.saveAttachment({
             ...syncing,
             status: "REJECTED",

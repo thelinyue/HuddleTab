@@ -24,7 +24,7 @@ test("启动管理员可登录，网页改名校验密码并保留身份", async
   await page.getByLabel("当前密码").blur();
   await page.screenshot({ path: `artifacts/username-settings-${testInfo.project.name}.png`, fullPage: true });
   await page.getByRole("link", { name: "返回我的" }).click();
-  await expect(page.locator(".profile-identity-button")).toContainText(renamed);
+  await expect(page.locator(".profile-identity")).toContainText(renamed);
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
   await page.getByLabel("用户名", { exact: true }).fill(original);
   await page.getByLabel("密码", { exact: true }).fill(password);

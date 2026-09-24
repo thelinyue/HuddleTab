@@ -8,8 +8,8 @@ use crate::{
     application::activity::{
         ActivityAuditChange, ActivityAuditEntry, ActivityAuditExpense, ActivityAuditPage,
         ActivityDeletion, ActivityMemberView, ActivityMutationResult, ActivityOwnershipTransfer,
-        ActivityRepository, ActivityRepositoryError, ActivityRestoration, ActivityTransition,
-        ActivityUpdate, ActivityView, CreatedActivity, NewActivity,
+        ActivityRepository, ActivityRepositoryError, ActivityTransition, ActivityUpdate,
+        ActivityView, CreatedActivity, NewActivity,
     },
     domain::activity::{ActivityCapabilities, ActivityPeriod, ActivityStatus},
 };
@@ -30,8 +30,6 @@ struct ActivityRow {
     revision: i64,
     current_member_id: Uuid,
     current_member_role: String,
-    deleted_at: Option<OffsetDateTime>,
-    purge_after: Option<OffsetDateTime>,
     has_accounting_records: bool,
     earliest_expense_date: Option<Date>,
     invite_mode: String,
@@ -215,7 +213,7 @@ impl PostgresActivityRepository {
              JOIN activities activity ON activity.id = cover.activity_id
              JOIN activity_members member ON member.activity_id = activity.id
              WHERE cover.activity_id = $1 AND cover.image_id = $2 AND member.user_id = $3
-               AND member.status = 'ACTIVE' AND activity.deleted_at IS NULL",
+               AND member.status = 'ACTIVE'",
         )
         .bind(activity_id)
         .bind(image_id)
@@ -259,7 +257,7 @@ fn authorize_cover_change(
     if activity.version != expected_version {
         return Err(ActivityRepositoryError::VersionConflict);
     }
-    if activity.status != "ACTIVE" || activity.deleted_at.is_some() {
+    if activity.status != "ACTIVE" {
         return Err(ActivityRepositoryError::FieldLocked);
     }
     Ok(())
@@ -367,44 +365,16 @@ impl ActivityRepository for PostgresActivityRepository {
         let rows = sqlx::query_as::<_, ActivityRow>(
             "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
              a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
-             a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
               OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
               WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
              LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
              JOIN activity_members member ON member.activity_id = a.id \
-             WHERE member.user_id = $1 AND member.status = 'ACTIVE' AND a.deleted_at IS NULL \
+             WHERE member.user_id = $1 AND member.status = 'ACTIVE' \
              ORDER BY a.updated_at DESC, a.id",
         )
         .bind(user_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(log_read_error)?;
-        Ok(rows.into_iter().map(activity_from_row).collect())
-    }
-
-    async fn list_deleted_for_owner(
-        &self,
-        user_id: Uuid,
-        now: OffsetDateTime,
-    ) -> Result<Vec<ActivityView>, ActivityRepositoryError> {
-        let rows = sqlx::query_as::<_, ActivityRow>(
-            "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
-             a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
-             a.deleted_at, a.purge_after, \
-             (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
-              OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
-             (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
-              WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
-             LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
-             JOIN activity_members member ON member.activity_id = a.id \
-             WHERE member.user_id = $1 AND member.status = 'ACTIVE' AND member.role = 'OWNER' \
-             AND a.deleted_at IS NOT NULL AND a.purge_after > $2 \
-             ORDER BY a.deleted_at DESC, a.id",
-        )
-        .bind(user_id)
-        .bind(now)
         .fetch_all(&self.pool)
         .await
         .map_err(log_read_error)?;
@@ -419,15 +389,13 @@ impl ActivityRepository for PostgresActivityRepository {
         let row = sqlx::query_as::<_, ActivityRow>(
             "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
              a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
-             a.deleted_at, a.purge_after, \
              (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
               OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
              (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
               WHERE e.activity_id = a.id) AS earliest_expense_date, a.invite_mode FROM activities a \
              LEFT JOIN activity_cover_images cover ON cover.activity_id = a.id \
              JOIN activity_members member ON member.activity_id = a.id \
-             WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE' \
-             AND a.deleted_at IS NULL",
+             WHERE a.id = $1 AND member.user_id = $2 AND member.status = 'ACTIVE'",
         )
         .bind(activity_id)
         .bind(user_id)
@@ -447,7 +415,7 @@ impl ActivityRepository for PostgresActivityRepository {
             "SELECT EXISTS(SELECT 1 FROM activity_members member \
              JOIN activities activity ON activity.id = member.activity_id \
              WHERE member.activity_id = $1 AND member.user_id = $2 \
-             AND member.status = 'ACTIVE' AND activity.deleted_at IS NULL)",
+             AND member.status = 'ACTIVE')",
         )
         .bind(activity_id)
         .bind(user_id)
@@ -522,7 +490,7 @@ impl ActivityRepository for PostgresActivityRepository {
             "SELECT EXISTS(
                  SELECT 1 FROM activities activity
                  JOIN activity_members viewer ON viewer.activity_id = activity.id
-                 WHERE activity.id = $1 AND activity.deleted_at IS NULL
+                 WHERE activity.id = $1
                    AND viewer.user_id = $2 AND viewer.status = 'ACTIVE'
              )",
         )
@@ -568,7 +536,7 @@ impl ActivityRepository for PostgresActivityRepository {
                ON actor_user.id = COALESCE(log.actor_user_id, actor_member.user_id)
              LEFT JOIN user_avatar_images actor_avatar
                ON actor_avatar.user_id = actor_user.id
-             WHERE log.activity_id = $1 AND activity.deleted_at IS NULL
+             WHERE log.activity_id = $1
                AND ($2::timestamptz IS NULL
                     OR log.created_at < $2
                     OR (log.created_at = $2 AND log.id > $3))
@@ -615,12 +583,8 @@ impl ActivityRepository for PostgresActivityRepository {
 
         let status = ActivityStatus::parse(&current.status)
             .map_err(|_| ActivityRepositoryError::Unavailable)?;
-        let capabilities = ActivityCapabilities::for_actor(
-            true,
-            status,
-            current.has_accounting_records,
-            current.deleted_at.is_some(),
-        );
+        let capabilities =
+            ActivityCapabilities::for_actor(true, status, current.has_accounting_records);
         let next_name = update.name.unwrap_or_else(|| current.name.clone());
         let next_location = update.location.unwrap_or_else(|| current.location.clone());
         let next_currency = update
@@ -741,9 +705,6 @@ impl ActivityRepository for PostgresActivityRepository {
         )
         .await?;
         authorize_owner_version(&current, transition.expected_version)?;
-        if current.deleted_at.is_some() {
-            return Err(ActivityRepositoryError::InvalidTransition);
-        }
         let status = ActivityStatus::parse(&current.status)
             .map_err(|_| ActivityRepositoryError::Unavailable)?;
         let next = status
@@ -783,108 +744,45 @@ impl ActivityRepository for PostgresActivityRepository {
         Ok(current)
     }
 
+    /// 所有活动写操作共用活动行锁。先删引用成员/账单的子表，再删活动，
+    /// 保留 RESTRICT 约束且整个过程同事务；只有提交成功才允许删除磁盘图片。
     async fn delete(
         &self,
         deletion: ActivityDeletion,
-    ) -> Result<ActivityView, ActivityRepositoryError> {
+    ) -> Result<Vec<String>, ActivityRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let mut current = lock_activity(
+        let current = lock_activity(
             &mut transaction,
             deletion.activity_id,
             deletion.actor_user_id,
         )
         .await?;
         authorize_owner_version(&current, deletion.expected_version)?;
-        if current.deleted_at.is_some() {
-            return Err(ActivityRepositoryError::InvalidTransition);
-        }
-        let revision = sqlx::query_scalar::<_, i64>(
-            "UPDATE activities SET deleted_at = $1, purge_after = $2, version = version + 1, \
-             revision = revision + 1, updated_at = $1 WHERE id = $3 RETURNING revision",
+        let storage_keys = sqlx::query_scalar::<_, String>(
+            "SELECT attachment.storage_key FROM expense_attachments attachment
+             JOIN expenses expense ON expense.id = attachment.expense_id WHERE expense.activity_id = $1
+             UNION ALL SELECT storage_key FROM activity_cover_images WHERE activity_id = $1",
         )
-        .bind(deletion.deleted_at)
-        .bind(deletion.purge_after)
         .bind(deletion.activity_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(log_repository_error)?;
-        insert_activity_audit(
-            &mut transaction,
-            &current,
-            deletion.actor_user_id,
-            "ACTIVITY_DELETED",
-            revision,
-            deletion.deleted_at,
-        )
-        .await?;
-        notify_activity_members(
-            &mut transaction,
-            &current,
-            deletion.actor_user_id,
-            "DELETED",
-            deletion.deleted_at,
-        )
-        .await?;
-        current.deleted_at = Some(deletion.deleted_at);
-        current.purge_after = Some(deletion.purge_after);
-        current.version += 1;
-        current.revision = revision;
-        transaction.commit().await.map_err(log_repository_error)?;
-        Ok(current)
-    }
-
-    async fn restore(
-        &self,
-        restoration: ActivityRestoration,
-    ) -> Result<ActivityView, ActivityRepositoryError> {
-        let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let mut current = lock_activity(
-            &mut transaction,
-            restoration.activity_id,
-            restoration.actor_user_id,
-        )
-        .await?;
-        authorize_owner_version(&current, restoration.expected_version)?;
-        if current.deleted_at.is_none()
-            || current
-                .purge_after
-                .is_none_or(|purge_after| restoration.now >= purge_after)
-        {
-            return Err(ActivityRepositoryError::RestoreExpired);
+        .fetch_all(&mut *transaction).await.map_err(log_repository_error)?;
+        for statement in [
+            "DELETE FROM settlement_allocations WHERE activity_id = $1",
+            "DELETE FROM settlements WHERE activity_id = $1",
+            "DELETE FROM expenses WHERE activity_id = $1",
+            "DELETE FROM activity_join_requests WHERE activity_id = $1",
+            "DELETE FROM activity_invites WHERE activity_id = $1",
+            "DELETE FROM activity_audit_logs WHERE activity_id = $1",
+            "DELETE FROM activities WHERE id = $1",
+        ] {
+            sqlx::query(statement)
+                .bind(deletion.activity_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(log_repository_error)?;
         }
-        let revision = sqlx::query_scalar::<_, i64>(
-            "UPDATE activities SET deleted_at = NULL, purge_after = NULL, \
-             version = version + 1, revision = revision + 1, updated_at = $1 \
-             WHERE id = $2 RETURNING revision",
-        )
-        .bind(restoration.now)
-        .bind(restoration.activity_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(log_repository_error)?;
-        insert_activity_audit(
-            &mut transaction,
-            &current,
-            restoration.actor_user_id,
-            "ACTIVITY_RESTORED",
-            revision,
-            restoration.now,
-        )
-        .await?;
-        notify_activity_members(
-            &mut transaction,
-            &current,
-            restoration.actor_user_id,
-            "RESTORED",
-            restoration.now,
-        )
-        .await?;
-        current.deleted_at = None;
-        current.purge_after = None;
-        current.version += 1;
-        current.revision = revision;
         transaction.commit().await.map_err(log_repository_error)?;
-        Ok(current)
+        tracing::info!(activity_id = %deletion.activity_id, actor_user_id = %deletion.actor_user_id, "活动及关联数据已永久删除，无法恢复");
+        Ok(storage_keys)
     }
 
     async fn transfer_ownership(
@@ -904,9 +802,6 @@ impl ActivityRepository for PostgresActivityRepository {
         }
         if current.current_member_role != "OWNER" {
             return Err(ActivityRepositoryError::Forbidden);
-        }
-        if current.deleted_at.is_some() {
-            return Err(ActivityRepositoryError::InvalidTransition);
         }
         if transfer.new_owner_member_id == current.owner_member_id {
             return Err(ActivityRepositoryError::FieldLocked);
@@ -1073,7 +968,6 @@ async fn lock_activity(
     let row = sqlx::query_as::<_, ActivityRow>(
         "SELECT a.id AS activity_id, a.owner_member_id, a.name, a.location, a.base_currency, a.start_date, \
          a.end_date, a.cover_preset, cover.image_id AS cover_image_id, a.status, a.version, a.revision, member.id AS current_member_id, member.role AS current_member_role, \
-         a.deleted_at, a.purge_after, \
          (EXISTS(SELECT 1 FROM expenses e WHERE e.activity_id = a.id) \
           OR EXISTS(SELECT 1 FROM settlements s WHERE s.activity_id = a.id)) AS has_accounting_records, \
          (SELECT min((e.occurred_at AT TIME ZONE 'UTC')::date) FROM expenses e \
@@ -1261,8 +1155,6 @@ fn activity_from_row(row: ActivityRow) -> ActivityView {
         revision: row.revision,
         current_member_id: row.current_member_id,
         current_member_role: row.current_member_role,
-        deleted_at: row.deleted_at,
-        purge_after: row.purge_after,
         has_accounting_records: row.has_accounting_records,
         earliest_expense_date: row.earliest_expense_date,
         cover_preset: row.cover_preset,

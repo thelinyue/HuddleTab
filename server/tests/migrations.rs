@@ -1,3 +1,6 @@
+#[path = "support/permanent_activity.rs"]
+mod permanent_activity;
+
 use huddletab_server::infrastructure::database::connect_and_migrate;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -34,6 +37,18 @@ async fn drop_schema(admin: PgPool, schema: &str) {
         .await
         .expect("应清理本测试创建的 schema");
     admin.close().await;
+}
+
+// 使用保留的旧结构建库，确保升级实际执行字段移除，而非仅在新结构伪造历史。
+async fn old_schema(url: &str) -> Result<PgPool, sqlx::Error> {
+    let pool = PgPool::connect(url).await?;
+    sqlx::raw_sql(include_str!(
+        "../migrations/202609230001_initial_schema.sql"
+    ))
+    .execute(&pool)
+    .await?;
+    sqlx::raw_sql("CREATE TABLE _sqlx_migrations (version BIGINT PRIMARY KEY, description TEXT NOT NULL, installed_on TIMESTAMPTZ NOT NULL DEFAULT now(), success BOOLEAN NOT NULL, checksum BYTEA NOT NULL, execution_time BIGINT NOT NULL)").execute(&pool).await?;
+    Ok(pool)
 }
 
 // 只替换 SQLx 历史以测试启动路径；真正的 v0.0.30 建库需在发布验收中用旧镜像验证。
@@ -105,7 +120,10 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .fetch_all(&replayed_pool)
         .await
         .expect("应可读取 SQLx 迁移记录");
-    assert_eq!(versions, [202_609_230_001, 202_609_230_002]);
+    assert_eq!(
+        versions,
+        [202_609_230_001, 202_609_230_002, 202_609_230_003]
+    );
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
     )
@@ -143,7 +161,7 @@ async fn missing_baseline_record_is_rejected_without_changes() {
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn v030_history_preserves_business_data_without_applying_baseline() {
     let (admin, schema, database_url) = isolated_schema().await;
-    let pool = connect_and_migrate(&database_url)
+    let pool = old_schema(&database_url)
         .await
         .expect("应初始化隔离测试结构");
     let user_id = Uuid::new_v4();
@@ -168,7 +186,7 @@ async fn v030_history_preserves_business_data_without_applying_baseline() {
             .fetch_all(&upgraded)
             .await
             .expect("应读取升级记录");
-    assert_eq!(versions.last(), Some(&202_609_230_002));
+    assert_eq!(versions.last(), Some(&202_609_230_003));
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
@@ -177,7 +195,7 @@ async fn v030_history_preserves_business_data_without_applying_baseline() {
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn v030_upgrade_invalidates_only_ordinary_direct_invites_and_pending_requests() {
     let (admin, schema, database_url) = isolated_schema().await;
-    let pool = connect_and_migrate(&database_url)
+    let pool = old_schema(&database_url)
         .await
         .expect("应初始化隔离测试结构");
     let owner_id = Uuid::new_v4();
@@ -224,9 +242,9 @@ async fn v030_upgrade_invalidates_only_ordinary_direct_invites_and_pending_reque
     .await
     .expect("应读取邀请状态");
     assert_eq!(invites.len(), 3);
-    assert!(invites.iter().any(|row| *row == (direct_id, true, 2)));
-    assert!(invites.iter().any(|row| *row == (binding_id, false, 1)));
-    assert!(invites.iter().any(|row| *row == (link_id, false, 1)));
+    assert!(invites.contains(&(direct_id, true, 2)));
+    assert!(invites.contains(&(binding_id, false, 1)));
+    assert!(invites.contains(&(link_id, false, 1)));
     let request: (String, bool, bool) = sqlx::query_as("SELECT status, decided_at IS NOT NULL, decided_by_member_id IS NULL FROM activity_join_requests WHERE id = $1")
         .bind(request_id).fetch_one(&upgraded).await.expect("应读取申请状态");
     assert_eq!(request, ("INVALIDATED".to_owned(), true, true));
@@ -309,4 +327,52 @@ async fn incomplete_or_unknown_history_is_rejected_without_changes() {
         pool.close().await;
         drop_schema(admin, &schema).await;
     }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn upgrade_purges_deleted_activities_and_preserves_live_ones() {
+    let (admin, schema, url) = isolated_schema().await;
+    let pool = old_schema(&url).await.unwrap();
+    let user = Uuid::new_v4();
+    let deleted = Uuid::new_v4();
+    let owner = Uuid::new_v4();
+    let kept = Uuid::new_v4();
+    let kept_owner = Uuid::new_v4();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at) VALUES ($1, 'migration-owner', 'test', '迁移用户', NOW(), NOW())").bind(user).execute(&mut *tx).await.unwrap();
+    for (activity, member) in [(deleted, owner), (kept, kept_owner)] {
+        sqlx::query("INSERT INTO activities (id, name, base_currency, start_date, owner_member_id, created_by_user_id, created_at, updated_at) VALUES ($1, '迁移活动', 'JPY', CURRENT_DATE, $2, $3, NOW(), NOW())").bind(activity).bind(member).bind(user).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) VALUES ($1, $2, $3, '所有者', 'OWNER', NOW())").bind(member).bind(activity).bind(user).execute(&mut *tx).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+    permanent_activity::seed_related(&pool, deleted, user, owner).await;
+    sqlx::query("UPDATE activities SET deleted_at = NOW(), purge_after = NOW() + interval '30 days' WHERE id = $1").bind(deleted).execute(&pool).await.unwrap();
+    install_v030_history(&pool).await;
+    pool.close().await;
+    let upgraded = connect_and_migrate(&url).await.unwrap();
+    let activities: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM activities")
+        .fetch_all(&upgraded)
+        .await
+        .unwrap();
+    assert_eq!(activities, vec![kept]);
+    let columns: i64 = sqlx::query_scalar("SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'activities' AND column_name IN ('deleted_at', 'purge_after')").fetch_one(&upgraded).await.unwrap();
+    assert_eq!(columns, 0);
+    for table in [
+        "expenses",
+        "settlements",
+        "activity_invites",
+        "notifications",
+        "expense_attachments",
+        "notification_push_deliveries",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+            .fetch_one(&upgraded)
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "{table} 不得残留");
+    }
+    upgraded.close().await;
+    connect_and_migrate(&url).await.unwrap().close().await;
+    drop_schema(admin, &schema).await;
 }

@@ -125,29 +125,6 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
       await applicant.page.goto("/notifications");
       await expect(applicant.page.getByText("加入申请已批准")).toBeVisible();
 
-      await page.goto(`/activities/${activityId}?panel=manage`);
-      const deleteManagement = page.getByRole("dialog", { name: "活动管理" });
-      await deleteManagement.getByRole("button", { name: /^删除活动/ }).click();
-      await deleteManagement.getByRole("button", { name: "确认删除活动", exact: true }).click();
-      await expect(page).toHaveURL(/\/activities$/);
-
-      await applicant.page.goto("/notifications");
-      const deletedNotification = applicant.page.locator(".notification-row").filter({ hasText: "加入申请已批准" });
-      await expect(deletedNotification).toBeVisible();
-      await expect(deletedNotification.locator("a")).toHaveCount(0);
-      await expect(deletedNotification).toContainText("活动已删除，无法打开");
-      await expect(deletedNotification).toHaveAttribute("data-unread", "true");
-      await expect(deletedNotification.locator(".notification-row__swipe-action--read")).toHaveCount(1);
-
-      await page.getByRole("button", { name: "已删除活动" }).click();
-      const deletedActivities = page.getByRole("dialog", { name: "已删除活动" });
-      await deletedActivities.getByRole("button", { name: `恢复${activityName}` }).click();
-      await expect(deletedActivities.getByText(activityName)).toBeHidden();
-
-      await applicant.page.reload();
-      const restoredNotification = applicant.page.locator(".notification-row").filter({ hasText: "加入申请已批准" });
-      await expect(restoredNotification.locator("a")).toHaveAttribute("href", `/activities/${activityId}`);
-
       await applicant.page.goto("/notifications");
       await applicant.page.getByRole("button", { name: "全部已读" }).click();
       await expect(applicant.page.getByRole("button", { name: "全部已读" })).toBeHidden();
@@ -196,6 +173,16 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
       await assertNoHorizontalOverflow(page);
       await assertNoHorizontalOverflow(member.page);
       await saveChromiumSuccessScreenshot(member.page, testInfo);
+      await member.page.goto(`/activities/${activityId}?panel=manage`);
+      await member.page.getByRole("dialog", { name: "活动管理" }).getByRole("button", { name: /^删除活动/ }).click();
+      const deletion = member.page.getByRole("alertdialog");
+      await expect(deletion).toContainText("删除后无法恢复");
+      await deletion.getByRole("button", { name: "永久删除", exact: true }).click();
+      await expect(member.page).toHaveURL(/\/activities$/);
+      await applicant.page.goto("/notifications");
+      await expect(applicant.page.locator(".notification-row").filter({ hasText: "加入申请已批准" })).toHaveCount(0);
+      await expect(member.page.getByRole("button", { name: "已删除活动" })).toHaveCount(0);
+
     } finally {
       await applicant.context.close();
     }

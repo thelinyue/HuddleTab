@@ -1,0 +1,98 @@
+/* 个人中心与管理页共用视觉尺寸，限定作用域以保留活动工作台的既有布局。 */
+:is(.me-page .app-frame, .admin-page) { width: min(100%, 800px); padding-inline: max(16px, var(--safe-area-left)) max(16px, var(--safe-area-right)); }
+:is(.me-page, .admin-page) .settings-list,
+.admin-page .admin-user-list { overflow: hidden; border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 16px; background: var(--surface); }
+:is(.me-page, .admin-page) .settings-link { position: relative; min-height: 56px; gap: 12px; border: 0; padding: 12px 16px; }
+:is(.me-page, .admin-page) .settings-link:not(:last-child)::after { position: absolute; right: 0; bottom: 0; left: 46px; height: 1px; background: var(--border); content: ""; }
+:is(.me-page, .admin-page) .settings-link strong { font-size: 15px; font-weight: 550; }
+:is(.me-page, .admin-page) .settings-link > svg:last-child { width: 16px; height: 16px; color: var(--muted-foreground); }
+:is(.me-page, .admin-page) .settings-link:not(:disabled):active { transform: none; background: var(--surface-muted); }
+.me-page .account-settings { margin: 16px 0; }
+.me-page .settings-link__value { font-size: 13px; }
+.me-page .profile-panel { margin: 16px 0; border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 16px; background: var(--surface); }
+.me-page .profile-identity { min-width: 0; flex: 1; }
+.me-page .profile-identity-button { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 12px; }
+.me-page .profile-identity-button strong { flex: 1; font-size: 18px; font-weight: 650; }
+.me-page .profile-identity-button > span { flex: 0 0 auto; color: var(--primary); font-size: 13px; }
+.me-page .profile-identity > small { display: block; overflow: hidden; color: var(--muted-foreground); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.me-page .account-actions .settings-link { justify-content: center; text-align: center; }
+.me-page .account-actions .settings-link > span { flex: 0 1 auto; }
+.admin-page .me-subpage-header { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+.admin-page .me-subpage-header:has(.admin-header-action) { grid-template-columns: minmax(64px, 1fr) auto minmax(64px, 1fr); }
+.admin-page .me-subpage-header > .icon-button { justify-self: start; }
+.admin-header-action { display: inline-flex; min-height: 44px; align-items: center; justify-self: end; color: var(--primary); font-size: 14px; }
+.admin-page__content { padding-top: 16px; }
+.admin-page .admin-users-toolbar { margin-top: 0; }
+.admin-page .admin-users-search .input { border-radius: 12px; }
+.admin-page .admin-user-list { margin-top: 16px; }
+.admin-page .admin-user-row { height: auto; min-height: 56px; padding: 6px 12px; }
+.admin-page .admin-user-list li:last-child .admin-user-row { border-bottom: 0; }
+.admin-page .admin-settings-card { margin: 0 0 16px; border-color: color-mix(in srgb, var(--border) 55%, transparent); border-radius: 16px; padding: 16px; }
+.admin-page .registration-policy-card { gap: 0; }
+.registration-policy-card .settings-choice { min-height: 56px; gap: 12px; border-bottom: 1px solid var(--border); }
+.registration-policy-card .settings-choice input { width: 18px; height: 18px; accent-color: var(--primary); }
+.registration-policy-card .form-hint { margin-top: 12px; }
+.admin-page .admin-system-metrics { margin: 0; border-top: 0; }
+.admin-page .admin-system-metric { min-height: 56px; flex-direction: row; align-items: center; gap: 12px; padding: 8px 0; }
+.admin-page .admin-system-metric dd { width: auto; text-align: right; }
+.admin-page .admin-system-metric:last-child { border-bottom: 0; }
+.admin-page .admin-system-metric--total { padding-bottom: 16px; }
+.admin-page .admin-system-metric--total dd { color: var(--primary); font-size: 26px; line-height: 1.3; }
+
+/* AI 配置在页面保存前都是草稿，三张卡片与局部模型面板使用同一套反馈控件。 */
+.ai-settings-editor, .ai-settings-form, .ai-settings-fields, .ai-model-panel-fields { display: grid; min-width: 0; gap: 16px; }
+.ai-settings-fields, .ai-model-panel-fields { margin: 0; border: 0; padding: 0; }
+.admin-page .ai-settings-card { min-width: 0; gap: 12px; margin: 0; padding: 12px 16px; }
+.ai-settings-card .input, .ai-model-overlay .input { border-radius: 10px; }
+.ai-settings-card .field { gap: 8px; }
+.ai-setting-row { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
+.ai-setting-switch { display: grid; width: 52px; min-height: 44px; flex: 0 0 52px; place-items: center; border: 0; padding: 0; background: transparent; }
+.ai-setting-switch > span { display: flex; width: 48px; height: 28px; align-items: center; border-radius: 999px; padding: 3px; background: var(--muted-foreground); transition: background-color 160ms ease; }
+.ai-setting-switch i { width: 22px; height: 22px; border-radius: 50%; background: white; box-shadow: var(--shadow-sm); transition: transform 160ms ease; }
+.ai-setting-switch[aria-checked="true"] > span { background: var(--primary); }
+.ai-setting-switch[aria-checked="true"] i { transform: translateX(20px); }
+.ai-setting-switch:not(:disabled):active { transform: none; }
+.ai-setting-switch:disabled, fieldset:disabled .ai-setting-switch { opacity: .5; }
+.settings-text-button { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 8px; padding: 8px 6px; color: var(--primary); background: transparent; font-size: 13px; font-weight: 550; }
+.settings-text-button--danger { color: var(--danger); }
+.settings-text-button:disabled { opacity: .5; }
+.settings-text-button:not(:disabled):active { transform: none; background: var(--surface-muted); }
+.ai-key-row { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.ai-key-row > span { display: grid; min-width: 0; gap: 4px; }
+.ai-key-row strong { font-size: 14px; font-weight: 550; }
+.ai-key-row small { color: var(--muted-foreground); font-size: 12px; }
+.ai-key-row > div { display: flex; flex: 0 0 auto; gap: 4px; }
+.ai-models-heading { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
+.ai-models-heading small { margin-left: 8px; color: var(--muted-foreground); font-size: 12px; }
+.ai-model-list { min-width: 0; border-top: 1px solid var(--border); }
+.ai-model-list__row { display: flex; min-width: 0; min-height: 68px; align-items: center; border-bottom: 1px solid var(--border); }
+.ai-model-list__radio { display: grid; width: 44px; min-height: 48px; flex: 0 0 44px; align-items: center; }
+.ai-model-list__radio input { width: 18px; height: 18px; accent-color: var(--primary); }
+.ai-model-list__edit { display: flex; min-width: 0; min-height: 68px; flex: 1; align-items: center; justify-content: space-between; gap: 8px; border: 0; padding: 8px 0; color: var(--foreground); background: transparent; text-align: left; }
+.ai-model-list__edit > span { display: grid; min-width: 0; gap: 5px; }
+.ai-model-list__edit strong { overflow: hidden; font-size: 15px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.ai-model-list__edit > svg { flex: 0 0 18px; color: var(--muted-foreground); }
+.ai-model-list__edit:not(:disabled):active { transform: none; background: var(--surface-muted); }
+.ai-model-list__badges { display: flex; gap: 6px; }
+.ai-model-list__badges small { border-radius: 5px; padding: 1px 6px; color: var(--muted-foreground); background: var(--surface-muted); font-size: 11px; line-height: 1.5; }
+.ai-model-list__badges .ai-model-list__default { color: var(--primary); background: var(--secondary); }
+.ai-model-list__empty { padding: 16px 0; }
+.ai-number-row { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.ai-number-row > span:last-child { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.ai-number-row .input { width: 80px; text-align: right; }
+.ai-number-row small { color: var(--muted-foreground); font-size: 13px; }
+.ai-save-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-block: -8px -12px; color: var(--muted-foreground); font-size: 13px; }
+.ai-save-button { width: 100%; border-radius: 12px; }
+.ai-model-current { border-radius: 12px; padding: 12px; color: var(--muted-foreground); background: var(--surface-muted); font-size: 13px; line-height: 1.6; }
+.ai-model-delete-name { overflow-wrap: anywhere; }
+.ai-conflict { display: grid; gap: 8px; }
+@media (max-width: 639px) {
+  .admin-page .admin-system-metric--path { flex-direction: column; align-items: stretch; gap: 4px; }
+  .admin-page .admin-system-metric--path dd { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-setting-switch > span, .ai-setting-switch i { transition: none; }
+}
+@media (prefers-contrast: more) {
+  :is(.me-page, .admin-page) .settings-list, .admin-page .admin-user-list, .admin-page .admin-settings-card { border-color: var(--foreground); }
+}

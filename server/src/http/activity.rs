@@ -21,8 +21,8 @@ use crate::{
             ActivityView, CreateActivityError, CreateActivityInput, ReadActivityAuditError,
             ReadActivityError, TransferActivityOwnershipInput, UpdateActivityError,
             UpdateActivityInput, create_activity, delete_activity, get_activity, list_activities,
-            list_activity_audit_logs, list_activity_members, list_deleted_activities,
-            restore_activity, transfer_activity_ownership, transition_activity, update_activity,
+            list_activity_audit_logs, list_activity_members, transfer_activity_ownership,
+            transition_activity, update_activity,
         },
         auth::{CurrentSessionError, current_session},
     },
@@ -94,7 +94,6 @@ pub struct TransferOwnershipRequest {
 #[serde(rename_all = "lowercase")]
 pub enum ActivityListView {
     Current,
-    Deleted,
 }
 
 /// 活动列表视图筛选；未传值时默认读取当前活动。
@@ -207,15 +206,12 @@ pub struct ActivityData {
     pub revision: String,
     pub current_member_id: String,
     pub current_member_role: String,
-    pub deleted_at: Option<String>,
-    pub purge_after: Option<String>,
     pub has_accounting_records: bool,
     pub cover_preset: Option<i16>,
     pub cover_image_id: Option<String>,
     pub field_permissions: ActivityFieldPermissionsData,
     pub allowed_lifecycle_actions: Vec<String>,
     pub can_delete: bool,
-    pub can_restore: bool,
 }
 
 /// HTTP 合同逐字段镜像领域权限，客户端只消费服务端结论，不自行重建权限规则。
@@ -313,8 +309,6 @@ pub(crate) async fn create(
                 revision: activity.revision.to_string(),
                 current_member_id: activity.owner_member_id.to_string(),
                 current_member_role: "OWNER".to_owned(),
-                deleted_at: None,
-                purge_after: None,
                 has_accounting_records: false,
                 cover_preset: activity.cover_preset,
                 cover_image_id: None,
@@ -329,7 +323,6 @@ pub(crate) async fn create(
                 },
                 allowed_lifecycle_actions: vec!["END".to_owned()],
                 can_delete: true,
-                can_restore: false,
             },
         }),
     ))
@@ -339,7 +332,7 @@ pub(crate) async fn create(
     get,
     path = "/api/activities",
     operation_id = "listActivities",
-    params(("view" = inline(Option<ActivityListView>), Query, description = "活动视图：current 或 deleted")),
+    params(("view" = inline(Option<ActivityListView>), Query, description = "活动视图：current")),
     responses(
         (status = 200, description = "当前用户可访问的活动", body = ActivityListEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope)
@@ -355,9 +348,6 @@ pub(crate) async fn list(
     let repository = PostgresActivityRepository::new(state.pool);
     let activities = match query.view.unwrap_or(ActivityListView::Current) {
         ActivityListView::Current => list_activities(&repository, actor.user_id).await,
-        ActivityListView::Deleted => {
-            list_deleted_activities(&repository, &SystemClock, actor.user_id).await
-        }
     }
     .map_err(|error| map_read_error(error, request_id))?;
     Ok(Json(ActivityListEnvelope {
@@ -491,7 +481,7 @@ pub(crate) async fn transition(
     params(("activity_id" = String, Path, description = "活动 UUID")),
     request_body = ActivityVersionRequest,
     responses(
-        (status = 200, description = "活动已进入恢复窗口", body = ActivityEnvelope),
+        (status = 204, description = "活动已永久删除"),
         (status = 409, description = "活动版本或状态冲突", body = super::error::ErrorEnvelope)
     )
 )]
@@ -502,13 +492,12 @@ pub(crate) async fn delete(
     jar: CookieJar,
     headers: HeaderMap,
     Json(request): Json<ActivityVersionRequest>,
-) -> Result<Json<ActivityEnvelope>, ApiError> {
+) -> Result<StatusCode, ApiError> {
     let actor =
         super::collaboration::authenticate_mutation(&state, &jar, &headers, request_id.clone())
             .await?;
-    let activity = delete_activity(
-        &PostgresActivityRepository::new(state.pool),
-        &SystemClock,
+    let storage_keys = delete_activity(
+        &PostgresActivityRepository::new(state.pool.clone()),
         ActivityVersionInput {
             activity_id: parse_activity_id(&activity_id, request_id.clone())?,
             actor_user_id: actor.user_id,
@@ -517,47 +506,18 @@ pub(crate) async fn delete(
     )
     .await
     .map_err(|error| map_update_error(error, request_id))?;
-    Ok(Json(ActivityEnvelope {
-        data: activity_data(activity),
-    }))
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/activities/{activity_id}/restore",
-    operation_id = "restoreActivity",
-    params(("activity_id" = String, Path, description = "活动 UUID")),
-    request_body = ActivityVersionRequest,
-    responses(
-        (status = 200, description = "活动已恢复", body = ActivityEnvelope),
-        (status = 409, description = "活动版本冲突或恢复窗口已过期", body = super::error::ErrorEnvelope)
-    )
-)]
-pub(crate) async fn restore(
-    State(state): State<AppState>,
-    Extension(request_id): Extension<RequestId>,
-    Path(activity_id): Path<String>,
-    jar: CookieJar,
-    headers: HeaderMap,
-    Json(request): Json<ActivityVersionRequest>,
-) -> Result<Json<ActivityEnvelope>, ApiError> {
-    let actor =
-        super::collaboration::authenticate_mutation(&state, &jar, &headers, request_id.clone())
-            .await?;
-    let activity = restore_activity(
-        &PostgresActivityRepository::new(state.pool),
-        &SystemClock,
-        ActivityVersionInput {
-            activity_id: parse_activity_id(&activity_id, request_id.clone())?,
-            actor_user_id: actor.user_id,
-            version: request.version,
-        },
-    )
-    .await
-    .map_err(|error| map_update_error(error, request_id))?;
-    Ok(Json(ActivityEnvelope {
-        data: activity_data(activity),
-    }))
+    // 数据库已提交，文件失败不能伪装成活动删除失败；孤立文件任务负责后续重试。
+    let store = LocalAttachmentStore::new(&state.uploads_dir);
+    for storage_key in storage_keys {
+        let removed = match &store {
+            Ok(store) => store.remove(&storage_key).await.is_ok(),
+            Err(_) => false,
+        };
+        if !removed {
+            tracing::error!(storage_key = %storage_key, "永久删除活动后的图片清理失败，将由孤立文件任务重试");
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -864,9 +824,6 @@ fn map_repository_update_error(
         crate::application::activity::ActivityRepositoryError::InvalidTransition => {
             UpdateActivityError::InvalidTransition
         }
-        crate::application::activity::ActivityRepositoryError::RestoreExpired => {
-            UpdateActivityError::RestoreExpired
-        }
         crate::application::activity::ActivityRepositoryError::InvalidAuditCursor => {
             UpdateActivityError::InvalidInput
         }
@@ -955,7 +912,6 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
         activity.current_member_role == "OWNER",
         status,
         activity.has_accounting_records,
-        activity.deleted_at.is_some(),
     );
     ActivityData {
         activity_id: activity.activity_id.to_string(),
@@ -971,8 +927,6 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
         revision: activity.revision.to_string(),
         current_member_id: activity.current_member_id.to_string(),
         current_member_role: activity.current_member_role,
-        deleted_at: activity.deleted_at.map(format_time),
-        purge_after: activity.purge_after.map(format_time),
         has_accounting_records: activity.has_accounting_records,
         cover_preset: activity.cover_preset,
         cover_image_id: activity.cover_image_id.map(|value| value.to_string()),
@@ -991,7 +945,6 @@ pub(crate) fn activity_data(activity: ActivityView) -> ActivityData {
             .map(|action| action.as_str().to_owned())
             .collect(),
         can_delete: capabilities.can_delete,
-        can_restore: capabilities.can_restore,
     }
 }
 
@@ -1069,7 +1022,6 @@ fn map_update_error(error: UpdateActivityError, request_id: RequestId) -> ApiErr
             ApiError::activity_base_currency_locked(request_id)
         }
         UpdateActivityError::InvalidTransition => ApiError::invalid_activity_transition(request_id),
-        UpdateActivityError::RestoreExpired => ApiError::restore_window_expired(request_id),
         UpdateActivityError::Unavailable => ApiError::internal(request_id),
     }
 }
@@ -1095,45 +1047,4 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Some)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use time::{OffsetDateTime, format_description::well_known::Rfc3339, macros::date};
-
-    #[test]
-    fn activity_timestamps_preserve_rfc3339_and_nulls() {
-        for expected in [
-            None,
-            Some("2026-09-09T06:07:08Z"),
-            Some("2026-09-09T14:07:08.123456789+08:00"),
-        ] {
-            let timestamp = expected.map(|text| OffsetDateTime::parse(text, &Rfc3339).unwrap());
-            let activity = ActivityView {
-                activity_id: uuid::Uuid::nil(),
-                owner_member_id: uuid::Uuid::nil(),
-                name: "测试活动".into(),
-                location: None,
-                base_currency: "CNY".into(),
-                start_date: date!(2026 - 09 - 09),
-                end_date: None,
-                invite_mode: "DIRECT_JOIN".into(),
-                status: "ACTIVE".into(),
-                version: 1,
-                revision: 1,
-                current_member_id: uuid::Uuid::nil(),
-                current_member_role: "OWNER".into(),
-                deleted_at: timestamp,
-                purge_after: timestamp,
-                has_accounting_records: false,
-                earliest_expense_date: None,
-                cover_preset: None,
-                cover_image_id: None,
-            };
-            let json = serde_json::to_value(activity_data(activity)).unwrap();
-            assert_eq!(json["deletedAt"], serde_json::json!(expected));
-            assert_eq!(json["purgeAfter"], serde_json::json!(expected));
-        }
-    }
 }

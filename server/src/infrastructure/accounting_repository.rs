@@ -38,7 +38,7 @@ impl AccountingRepository for PostgresAccountingRepository {
             "SELECT a.base_currency, a.revision, m.id FROM activities a \
              JOIN activity_members m ON m.activity_id = a.id \
              WHERE a.id = $1 AND m.user_id = $2 AND m.status = 'ACTIVE' \
-             AND a.deleted_at IS NULL",
+            ",
         )
         .bind(activity_id)
         .bind(actor_user_id)

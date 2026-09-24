@@ -81,7 +81,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         // 退出和移除都必须锁住活动及操作者成员，确保生命周期与权限判断不会被并发写入绕过。
         let actor_member = sqlx::query_as::<_, (Uuid, String)>(
             "SELECT m.id, m.role FROM activities a JOIN activity_members m ON m.activity_id = a.id
-             WHERE a.id = $1 AND a.status = 'ACTIVE' AND a.deleted_at IS NULL
+             WHERE a.id = $1 AND a.status = 'ACTIVE'
                AND m.user_id = $2 AND m.status = 'ACTIVE' FOR UPDATE OF a, m",
         )
         .bind(activity_id)
@@ -426,7 +426,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                AND (i.max_uses IS NULL OR i.use_count < i.max_uses) \
                AND (i.guest_member_id IS NULL \
                     OR (guest.user_id IS NULL AND guest.status = 'ACTIVE')) \
-               AND a.status = 'ACTIVE' AND a.deleted_at IS NULL",
+               AND a.status = 'ACTIVE'",
         )
         .bind(token_hash.as_slice())
         .bind(now)
@@ -469,7 +469,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2
                AND (i.guest_member_id IS NOT NULL
                     OR i.max_uses IS NULL OR i.use_count < i.max_uses)
-               AND a.status = 'ACTIVE' AND a.deleted_at IS NULL
+               AND a.status = 'ACTIVE'
              FOR UPDATE OF a",
         )
         .bind(input.token_hash.as_slice())
@@ -496,7 +496,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
              WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $3 \
                AND (i.guest_member_id IS NOT NULL \
                     OR i.max_uses IS NULL OR i.use_count < i.max_uses) \
-               AND a.status = 'ACTIVE' AND a.deleted_at IS NULL \
+               AND a.status = 'ACTIVE' \
                AND i.activity_id = $2 \
              FOR UPDATE OF i",
         )
@@ -735,7 +735,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
     ) -> Result<JoinRequestView, CollaborationRepositoryError> {
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
         let activity = sqlx::query_as::<_, LockedActivityRow>(
-            "SELECT status, deleted_at, revision FROM activities WHERE id = $1 FOR UPDATE",
+            "SELECT status, revision FROM activities WHERE id = $1 FOR UPDATE",
         )
         .bind(activity_id)
         .fetch_optional(&mut *transaction)
@@ -753,9 +753,6 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .await
         .map_err(log_repository_error)?
         .ok_or(CollaborationRepositoryError::NotFound)?;
-        if activity.deleted_at.is_some() {
-            return Err(CollaborationRepositoryError::NotFound);
-        }
         let actor_member_id =
             authorize_owner_for_decision(&mut transaction, activity_id, actor_user_id).await?;
         let current_status = JoinRequestStatus::parse(&request.status)
@@ -921,7 +918,6 @@ struct LockedJoinRequestRow {
 #[derive(sqlx::FromRow)]
 struct LockedActivityRow {
     status: String,
-    deleted_at: Option<OffsetDateTime>,
     revision: i64,
 }
 
@@ -974,7 +970,7 @@ async fn authorize_owner(
 ) -> Result<Uuid, CollaborationRepositoryError> {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT m.id FROM activities a JOIN activity_members m ON m.activity_id = a.id \
-         WHERE a.id = $1 AND a.status = 'ACTIVE' AND a.deleted_at IS NULL AND m.user_id = $2 \
+         WHERE a.id = $1 AND a.status = 'ACTIVE' AND m.user_id = $2 \
            AND m.role = 'OWNER' AND m.status = 'ACTIVE' FOR UPDATE OF a",
     )
     .bind(activity_id)
@@ -1012,7 +1008,7 @@ async fn authorize_owner_for_join_requests(
     sqlx::query_scalar::<_, Uuid>(
         "SELECT member.id FROM activities activity
          JOIN activity_members member ON member.id = activity.owner_member_id
-         WHERE activity.id = $1 AND activity.deleted_at IS NULL AND member.user_id = $2
+         WHERE activity.id = $1 AND member.user_id = $2
            AND member.role = 'OWNER' AND member.status = 'ACTIVE' FOR UPDATE OF activity",
     )
     .bind(activity_id)

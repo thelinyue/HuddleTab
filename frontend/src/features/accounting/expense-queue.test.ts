@@ -8,6 +8,7 @@ import { ApiRequestError } from "../../api/error";
 import { databaseName, openHuddleTabDb } from "../../pwa/indexed-db/database";
 import { AttachmentRepository } from "../../pwa/indexed-db/attachment-repository";
 import { MutationRepository } from "../../pwa/indexed-db/mutation-repository";
+import { SnapshotRepository } from "../../pwa/indexed-db/snapshot-repository";
 import {
   expensePayload,
   pendingMutationFixture,
@@ -16,16 +17,60 @@ import { ExpenseQueue } from "./expense-queue";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   await deleteDB(databaseName("user-1"));
+});
+
+it.each(["success", "failure"])("删除后晚到的同步响应 %s 不覆盖不可同步标记", async (outcome) => {
+  const response = deferred<{ expenseId: string }>();
+  const send = vi.fn().mockReturnValue(response.promise);
+  const queue = new ExpenseQueue("user-1", { send, sleep: vi.fn().mockResolvedValue(undefined) });
+  const payload = { ...expensePayload, clientMutationId: "deletion-race" };
+  await queue.enqueue("activity-1", payload);
+  const flushing = queue.flush();
+  await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+  await new SnapshotRepository("user-1").forgetUnavailable("activity-1");
+  if (outcome === "success") response.resolve({ expenseId: "deleted-expense" });
+  else response.reject(new TypeError("Failed to fetch"));
+  await flushing;
+  await queue.flush();
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(await new MutationRepository("user-1").get(payload.clientMutationId)).toMatchObject({
+    status: "REJECTED", payload, lastError: { code: "ACTIVITY_UNAVAILABLE" },
+  });
+});
+
+it.each(["success", "failure"])("删除后晚到的附件响应 %s 保留图片且停止重试", async (outcome) => {
+  const response = deferred<{ id: string }>();
+  const sendAttachment = vi.fn().mockReturnValue(response.promise);
+  const queue = new ExpenseQueue("user-1", {
+    send: vi.fn().mockResolvedValue({ expenseId: "expense-1" }),
+    sendAttachment, sleep: vi.fn().mockResolvedValue(undefined),
+  });
+  await queue.enqueue("activity-1", {
+    ...expensePayload, clientMutationId: "attachment-deletion-race",
+  }, [new File([new Uint8Array([1])], "receipt.png", { type: "image/png" })]);
+  const flushing = queue.flush();
+  await vi.waitFor(() => expect(sendAttachment).toHaveBeenCalledTimes(1));
+  await new SnapshotRepository("user-1").forgetUnavailable("activity-1");
+  if (outcome === "success") response.resolve({ id: "deleted-attachment" });
+  else response.reject(new TypeError("Failed to fetch"));
+  await flushing;
+  await queue.flush();
+  expect(sendAttachment).toHaveBeenCalledTimes(1);
+  const [attachment] = await new AttachmentRepository("user-1").listByMutation("attachment-deletion-race");
+  expect(attachment).toMatchObject({ status: "REJECTED", lastError: { code: "ACTIVITY_UNAVAILABLE" } });
+  expect(attachment.blob.size).toBeGreaterThan(0);
 });
 
 it("按持久化顺序串行同步 Expense Create", async () => {

@@ -423,22 +423,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/activities/{activity_id}/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["restoreActivity"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/activities/{activity_id}/settlements": {
         parameters: {
             query?: never;
@@ -1063,13 +1047,11 @@ export interface components {
             allowedLifecycleActions: string[];
             baseCurrency: string;
             canDelete: boolean;
-            canRestore: boolean;
             coverImageId?: string | null;
             /** Format: int32 */
             coverPreset?: number | null;
             currentMemberId: string;
             currentMemberRole: string;
-            deletedAt?: string | null;
             endDate?: string | null;
             fieldPermissions: components["schemas"]["ActivityFieldPermissionsData"];
             hasAccountingRecords: boolean;
@@ -1077,7 +1059,6 @@ export interface components {
             location?: string | null;
             name: string;
             ownerMemberId: string;
-            purgeAfter?: string | null;
             revision: string;
             startDate: string;
             status: string;
@@ -1709,12 +1690,11 @@ export interface components {
             status: string;
         };
         NotificationData: {
-            /** @description 当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。 */
-            activityDeleted: boolean;
             activityId: string;
             createdAt: string;
             kind: components["schemas"]["NotificationKindData"];
             notificationId: string;
+            /** @description 当前活动已软删除时为 true；前端据此保留历史通知但禁用活动导航。 */
             payload: {
                 [key: string]: string;
             };
@@ -1988,8 +1968,8 @@ export interface operations {
     listActivities: {
         parameters: {
             query?: {
-                /** @description 活动视图：current 或 deleted */
-                view?: "current" | "deleted";
+                /** @description 活动视图：current */
+                view?: "current";
             };
             header?: never;
             path?: never;
@@ -2188,14 +2168,12 @@ export interface operations {
             };
         };
         responses: {
-            /** @description 活动已进入恢复窗口 */
-            200: {
+            /** @description 活动已永久删除 */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["ActivityEnvelope"];
-                };
+                content?: never;
             };
             /** @description 活动版本或状态冲突 */
             409: {
@@ -3822,42 +3800,6 @@ export interface operations {
             };
             /** @description 无读取权限 */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    restoreActivity: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description 活动 UUID */
-                activity_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ActivityVersionRequest"];
-            };
-        };
-        responses: {
-            /** @description 活动已恢复 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActivityEnvelope"];
-                };
-            };
-            /** @description 活动版本冲突或恢复窗口已过期 */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

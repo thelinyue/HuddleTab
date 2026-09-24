@@ -188,7 +188,7 @@ test("通知与我的页覆盖主题、昵称和退出流程", async ({ page }, 
   await expect(page.getByRole("group", { name: "通知筛选" }).getByRole("button")).toHaveText(["全部", "未读", "邀请", "结算", "系统"]);
   await page.goto("/me");
   await expect(page.getByRole("heading", { name: "我的", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "账户与安全", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "账户与安全", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "主题：跟随系统" }).click();
   const themeSheet = page.getByRole("dialog", { name: "主题" });
   const productNavigation = page.getByRole("navigation", { name: "主导航" });
@@ -267,13 +267,9 @@ test("Chromium Mobile 首页入口 Sheet 贴底并按历史层级返回", async 
   await expect(page).toHaveURL(/\/activities$/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "已删除活动", exact: true }).click();
-  const deletedDialog = page.getByRole("dialog", { name: "已删除活动" });
-  await expect(deletedDialog).toBeVisible();
-  await expect.poll(() => deletedDialog.evaluate((element) => Math.round(element.getBoundingClientRect().bottom))).toBe(viewport.height);
-  expect(await deletedDialog.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(viewport.width);
-  await expect(deletedDialog.getByText("当前没有可恢复的活动。", { exact: true })).toBeVisible();
-  await assertNoHorizontalOverflow(page);
-  await deletedDialog.getByRole("button", { name: "关闭已删除活动", exact: true }).click();
+  await expect(page.getByRole("button", { name: "已删除活动", exact: true })).toHaveCount(0);
+  await page.goto("/activities?panel=deleted");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await assertNoHorizontalOverflow(page);
+
 });

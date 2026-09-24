@@ -1,3 +1,6 @@
+#[path = "support/permanent_activity.rs"]
+mod permanent_activity;
+
 use axum::{
     body::Body,
     http::{
@@ -255,60 +258,16 @@ async fn notifications_are_user_scoped_and_order_unread_before_read() {
     assert_eq!(items[2]["notificationId"], read.to_string());
     assert_eq!(items[0]["activityId"], activity_id.to_string());
     assert_eq!(items[0]["payload"]["status"], "APPROVED");
-    assert_eq!(items[0]["activityDeleted"], false);
 
-    sqlx::query(
-        "UPDATE activities SET deleted_at = $2, purge_after = $2 + interval '30 days' WHERE id = $1",
-    )
-    .bind(activity_id)
-    .bind(now)
-    .execute(&pool)
-    .await
-    .expect("应软删除测试活动");
-    let (status, deleted_body) = json_response(
+    permanent_activity::delete(&pool, activity_id).await;
+    let (status, body) = json_response(
         &app,
         request(&alice, "GET", "/api/notifications".to_owned()),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        deleted_body["data"]["items"]
-            .as_array()
-            .expect("应返回通知数组")
-            .iter()
-            .all(|item| item["activityDeleted"] == true)
-    );
-
-    let (status, read_body) = json_response(
-        &app,
-        request(
-            &alice,
-            "POST",
-            format!("/api/notifications/{newer_unread}/read"),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(read_body["data"]["activityDeleted"], true);
-
-    sqlx::query("UPDATE activities SET deleted_at = NULL, purge_after = NULL WHERE id = $1")
-        .bind(activity_id)
-        .execute(&pool)
-        .await
-        .expect("应恢复测试活动");
-    let (status, restored_body) = json_response(
-        &app,
-        request(&alice, "GET", "/api/notifications".to_owned()),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(
-        restored_body["data"]["items"]
-            .as_array()
-            .expect("应返回通知数组")
-            .iter()
-            .all(|item| item["activityDeleted"] == false)
-    );
+    assert_eq!(body["data"]["items"], serde_json::json!([]));
+    assert_eq!(body["data"]["unreadCount"], 0);
 }
 
 #[tokio::test]

@@ -71,7 +71,7 @@ describe("MePage", () => {
   it("从账户与安全区域进入修改密码页", () => {
     renderMePage();
 
-    expect(screen.getByRole("heading", { name: "账户与安全" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "账户与安全" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "修改密码" })).toHaveAttribute("href", "/me/password");
     expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
   });

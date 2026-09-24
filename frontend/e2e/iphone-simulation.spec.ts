@@ -386,7 +386,7 @@ test("iPhone WebKit 的主题、昵称和退出操作适配底部 Sheet", async 
   await login(page);
   await page.goto("/me");
   await expect(page.getByRole("heading", { name: "我的", exact: true })).toBeVisible();
-  await expect(page.locator(".profile-identity-button small")).not.toContainText("@");
+  await expect(page.locator(".profile-identity > small")).not.toContainText("@");
 
   const viewportHeight = await page.evaluate(() => window.innerHeight);
   await page.getByRole("button", { name: "主题：跟随系统" }).click();

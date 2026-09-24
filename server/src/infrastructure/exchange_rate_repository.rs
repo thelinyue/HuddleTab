@@ -21,7 +21,7 @@ impl ExchangeRateActivityAccess for PostgresExchangeRateCache {
     ) -> Result<String, ExchangeRateActivityError> {
         sqlx::query_scalar::<_, String>(
             "SELECT a.base_currency FROM activities a JOIN activity_members m ON m.activity_id = a.id \
-             WHERE a.id = $1 AND a.status = 'ACTIVE' AND a.deleted_at IS NULL \
+             WHERE a.id = $1 AND a.status = 'ACTIVE' \
              AND m.user_id = $2 AND m.status = 'ACTIVE'",
         )
         .bind(activity_id)

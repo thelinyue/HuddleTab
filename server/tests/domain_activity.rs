@@ -89,7 +89,7 @@ fn activity_status_only_allows_the_frozen_transition_matrix() {
 
 #[test]
 fn activity_capabilities_follow_role_lifecycle_and_accounting_facts() {
-    let active = ActivityCapabilities::for_actor(true, ActivityStatus::Active, false, false);
+    let active = ActivityCapabilities::for_actor(true, ActivityStatus::Active, false);
     assert!(active.fields.name);
     assert!(active.fields.location);
     assert!(active.fields.base_currency);
@@ -98,13 +98,12 @@ fn activity_capabilities_follow_role_lifecycle_and_accounting_facts() {
     assert!(active.fields.invite_mode);
     assert_eq!(active.lifecycle_actions, vec![ActivityAction::End]);
     assert!(active.can_delete);
-    assert!(!active.can_restore);
 
     let active_with_accounting =
-        ActivityCapabilities::for_actor(true, ActivityStatus::Active, true, false);
+        ActivityCapabilities::for_actor(true, ActivityStatus::Active, true);
     assert!(!active_with_accounting.fields.base_currency);
 
-    let ended = ActivityCapabilities::for_actor(true, ActivityStatus::Ended, true, false);
+    let ended = ActivityCapabilities::for_actor(true, ActivityStatus::Ended, true);
     assert!(!ended.fields.name);
     assert!(!ended.fields.location);
     assert!(!ended.fields.base_currency);
@@ -116,19 +115,13 @@ fn activity_capabilities_follow_role_lifecycle_and_accounting_facts() {
         vec![ActivityAction::Reopen, ActivityAction::Archive]
     );
 
-    let archived = ActivityCapabilities::for_actor(true, ActivityStatus::Archived, true, false);
+    let archived = ActivityCapabilities::for_actor(true, ActivityStatus::Archived, true);
     assert_eq!(archived.lifecycle_actions, vec![ActivityAction::Unarchive]);
     assert!(!archived.fields.name);
 
-    let member = ActivityCapabilities::for_actor(false, ActivityStatus::Active, false, false);
+    let member = ActivityCapabilities::for_actor(false, ActivityStatus::Active, false);
     assert!(member.lifecycle_actions.is_empty());
     assert!(!member.can_delete);
     assert!(!member.fields.name);
     assert!(!member.fields.invite_mode);
-
-    let deleted = ActivityCapabilities::for_actor(true, ActivityStatus::Ended, true, true);
-    assert!(deleted.lifecycle_actions.is_empty());
-    assert!(!deleted.can_delete);
-    assert!(deleted.can_restore);
-    assert!(!deleted.fields.name);
 }

@@ -14,7 +14,7 @@ use super::{
     activity::{
         __path_create, __path_delete as __path_activity_delete, __path_download_cover,
         __path_get as __path_activity_get, __path_list as __path_activity_list,
-        __path_list_audit_logs, __path_list_members, __path_restore as __path_activity_restore,
+        __path_list_audit_logs, __path_list_members,
         __path_transfer_ownership as __path_activity_transfer_ownership,
         __path_transition as __path_activity_transition, __path_update as __path_activity_update,
         __path_update_cover_preset, __path_upload_cover, ActivityAuditChangeData,
@@ -161,7 +161,6 @@ use super::{
         activity_update,
         activity_delete,
         activity_transition,
-        activity_restore,
         activity_transfer_ownership,
         update_cover_preset,
         upload_cover,

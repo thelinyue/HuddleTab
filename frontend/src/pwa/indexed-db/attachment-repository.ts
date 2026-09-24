@@ -104,10 +104,16 @@ export class AttachmentRepository {
   async put(input: AttachmentInput | PendingAttachment) {
     const record: PendingAttachment = { ...input, userId: this.userId };
     const stored = await toStoredAttachment(record);
-    await withUserDatabase(this.userId, (database) =>
-      database.put("pending_attachments", stored),
-    );
-    return record;
+    const saved = await withUserDatabase(this.userId, async (database) => {
+      const transaction = database.transaction("pending_attachments", "readwrite");
+      const current = await transaction.store.get(record.id);
+      // 与活动删除使用相同对象仓库的写事务，保护草稿图片及不可同步原因。
+      const next = current?.lastError?.code === "ACTIVITY_UNAVAILABLE" ? current : stored;
+      await transaction.store.put(next);
+      await transaction.done;
+      return next;
+    });
+    return fromStoredAttachment(saved);
   }
 
   async listByMutation(mutationId: string) {

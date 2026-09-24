@@ -142,7 +142,7 @@ impl AiExpenseRepository for PostgresAiExpenseRepository {
         let activity = sqlx::query_as::<_, (String, Uuid, String)>(
             "SELECT a.base_currency, actor.id, actor.display_name FROM activities a \
              JOIN activity_members actor ON actor.activity_id = a.id \
-             WHERE a.id = $1 AND a.status = 'ACTIVE' AND a.deleted_at IS NULL \
+             WHERE a.id = $1 AND a.status = 'ACTIVE' \
              AND actor.user_id = $2 AND actor.status = 'ACTIVE'",
         )
         .bind(activity_id)

@@ -3,11 +3,9 @@ import {
   Check,
   KeyRound,
   UserRound,
-  LogOut,
   LoaderCircle,
   Monitor,
   Moon,
-  Pencil,
   ShieldCheck,
   Sun,
   SunMoon,
@@ -127,65 +125,61 @@ export function MePage() {
   ];
 
   return (
-    <div className="top-level-page">
+    <div className="top-level-page me-page">
       <main className="app-frame app-frame--with-nav">
         <header className="home-header"><h1>我的</h1></header>
         <section className="profile-panel">
           <button className="profile-avatar-button" type="button" aria-label="选择头像" onClick={openAvatarPicker}>
             <MemberAvatar memberId={session.data?.userId ?? "current-user"} userId={session.data?.userId} displayName={session.data?.displayName ?? "当前用户"} avatarPreset={currentAvatar} avatarImageId={session.data?.avatarImageId} size="lg" decorative />
           </button>
-          <button className="profile-identity-button" type="button" aria-label="修改昵称" onClick={openNicknameEditor}>
-            <strong>{session.data?.displayName}</strong><small>{session.data?.username}</small><Pencil aria-hidden="true" size={16} />
-          </button>
+          <div className="profile-identity">
+            <button className="profile-identity-button" type="button" aria-label="修改昵称" onClick={openNicknameEditor}>
+              <strong>{session.data?.displayName}</strong><span>编辑</span>
+            </button>
+            <small>{session.data?.username}</small>
+          </div>
         </section>
-        <section className="account-settings" aria-labelledby="account-security-heading">
-          <h2 id="account-security-heading">账户与安全</h2>
+        <section className="account-settings" aria-label="账户与安全">
           <div className="settings-list">
             <Link className="settings-link" to="/me/username" aria-label="修改用户名">
               <UserRound aria-hidden="true" size={18} />
-              <span><strong>修改用户名</strong><small>更新登录使用的用户名</small></span>
+              <span><strong>修改用户名</strong></span>
               <ChevronRight aria-hidden="true" size={18} />
             </Link>
             <Link className="settings-link" to="/me/password" aria-label="修改密码">
               <KeyRound aria-hidden="true" size={18} />
-              <span><strong>修改密码</strong><small>更新当前登录凭证</small></span>
+              <span><strong>修改密码</strong></span>
               <ChevronRight aria-hidden="true" size={18} />
             </Link>
             <Link className="settings-link" to="/me/mcp" aria-label="MCP 连接">
               <KeyRound aria-hidden="true" size={18} />
-              <span><strong>MCP 连接</strong><small>管理 AI 客户端的远程账务访问令牌</small></span>
+              <span><strong>MCP 连接</strong></span>
+              <span className="settings-link__value">AI 客户端</span>
               <ChevronRight aria-hidden="true" size={18} />
             </Link>
           </div>
         </section>
-        <section className="account-settings" aria-labelledby="preferences-heading">
-          <h2 id="preferences-heading">偏好设置</h2>
+        <section className="account-settings" aria-label="偏好与管理">
           <div className="settings-list">
             <button className="settings-link" type="button" aria-label={`主题：${themeLabels[preference]}`} onClick={() => setThemeOpen(true)}>
               <SunMoon aria-hidden="true" size={18} />
-              <span><strong>主题</strong><small>调整应用显示模式</small></span>
+              <span><strong>主题</strong></span>
               <span className="settings-link__value">{themeLabels[preference]}</span>
               <ChevronRight aria-hidden="true" size={18} />
             </button>
             <PushSettingsControl userId={session.data?.userId ?? ""} />
+            {session.data?.isSystemAdmin ? <Link className="settings-link" to="/admin" aria-label="系统管理">
+              <ShieldCheck aria-hidden="true" size={18} />
+              <span><strong>系统管理</strong></span>
+              <ChevronRight aria-hidden="true" size={18} />
+            </Link> : null}
           </div>
         </section>
-        {session.data?.isSystemAdmin ? <section className="account-settings" aria-labelledby="system-management-heading">
-          <h2 id="system-management-heading">管理</h2>
-          <div className="settings-list">
-            <Link className="settings-link" to="/admin" aria-label="系统管理">
-              <ShieldCheck aria-hidden="true" size={18} />
-              <span><strong>系统管理</strong><small>用户、注册策略与 AI 智能录入</small></span>
-              <ChevronRight aria-hidden="true" size={18} />
-            </Link>
-          </div>
-        </section> : null}
-        <section className="account-settings account-actions" aria-labelledby="account-actions-heading">
-          <h2 id="account-actions-heading">账户操作</h2>
+        <section className="account-settings account-actions" aria-label="账户操作">
           <div className="settings-list">
             <button className="settings-link settings-link--danger" type="button" aria-label="退出登录" aria-busy={logout.isPending} disabled={logout.isPending} onClick={() => void signOut()}>
-              {logout.isPending ? <LoaderCircle aria-hidden="true" className="spinner" size={18} /> : <LogOut aria-hidden="true" size={18} />}
-              <span><strong>{logout.isPending ? "正在退出登录" : "退出登录"}</strong><small>结束当前设备上的登录状态</small></span>
+              {logout.isPending ? <LoaderCircle aria-hidden="true" className="spinner" size={18} /> : null}
+              <span><strong>{logout.isPending ? "正在退出登录" : "退出登录"}</strong></span>
             </button>
           </div>
           {logout.error ? <ErrorNotice error={logout.error} /> : null}

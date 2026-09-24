@@ -1,3 +1,6 @@
+#[path = "support/permanent_activity.rs"]
+mod permanent_activity;
+
 use std::{fs, io::Cursor, path::Path};
 
 use huddletab_server::{
@@ -290,15 +293,7 @@ async fn upload_and_download_enforce_membership_lifecycle_and_nested_ids() {
         .unwrap_err(),
         AttachmentError::Forbidden
     );
-    sqlx::query(
-        "UPDATE activities
-         SET status = 'ACTIVE', deleted_at = NOW(), purge_after = NOW() + INTERVAL '30 days'
-         WHERE id = $1",
-    )
-    .bind(context.activity_id)
-    .execute(&context.pool)
-    .await
-    .expect("应软删除活动");
+    permanent_activity::delete(&context.pool, context.activity_id).await;
     assert_eq!(
         upload_attachment(
             &repository,
@@ -521,4 +516,60 @@ fn png_1_by_1() -> Vec<u8> {
         .write_to(&mut bytes, ImageFormat::Png)
         .expect("测试图片应可编码");
     bytes.into_inner()
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn deletion_and_upload_serialize_and_leave_no_referenced_files() {
+    use huddletab_server::application::activity::{ActivityVersionInput, delete_activity};
+    use huddletab_server::infrastructure::activity_repository::PostgresActivityRepository;
+    use huddletab_server::infrastructure::attachment_cleanup::cleanup_orphan_attachments;
+    let context = seed_context().await;
+    let repository = context.repository();
+    let activity_repository = PostgresActivityRepository::new(context.pool.clone());
+    let version: i64 = sqlx::query_scalar("SELECT version FROM activities WHERE id = $1")
+        .bind(context.activity_id)
+        .fetch_one(&context.pool)
+        .await
+        .unwrap();
+    let (deleted, uploaded) = tokio::join!(
+        delete_activity(
+            &activity_repository,
+            ActivityVersionInput {
+                activity_id: context.activity_id,
+                actor_user_id: context.owner_user_id,
+                version: version.to_string()
+            }
+        ),
+        upload_attachment(
+            &repository,
+            context.input(context.owner_user_id, Uuid::new_v4())
+        ),
+    );
+    let keys = deleted.expect("删除应成功");
+    assert!(uploaded.is_ok() || matches!(uploaded, Err(AttachmentError::Forbidden)));
+    let store = LocalAttachmentStore::new(context.uploads.path()).unwrap();
+    for key in keys {
+        store.remove(&key).await.unwrap();
+    }
+    cleanup_orphan_attachments(
+        &context.pool,
+        &store,
+        OffsetDateTime::now_utc() + time::Duration::days(1),
+    )
+    .await
+    .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM expense_attachments")
+        .fetch_one(&context.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    assert!(
+        store
+            .files_older_than(OffsetDateTime::now_utc() + time::Duration::days(1))
+            .await
+            .unwrap()
+            .candidates
+            .is_empty()
+    );
 }

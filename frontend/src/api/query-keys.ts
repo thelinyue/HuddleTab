@@ -3,8 +3,6 @@ export const queryKeys = {
   registrationPolicy: ["registration-policy"] as const,
   activitiesCurrent: (userId: string) =>
     ["users", userId, "activities", "current"] as const,
-  activitiesDeleted: (userId: string) =>
-    ["users", userId, "activities", "deleted"] as const,
   activityDetail: (userId: string, activityId: string) =>
     ["users", userId, "activities", "detail", activityId] as const,
   activityAudit: (userId: string, activityId: string) =>

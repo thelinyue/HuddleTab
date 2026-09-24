@@ -1,3 +1,6 @@
+#[path = "support/permanent_activity.rs"]
+mod permanent_activity;
+
 use async_trait::async_trait;
 use axum::{
     body::Body,
@@ -592,14 +595,7 @@ async fn summary_and_csv_use_one_private_authorized_snapshot() {
         }
     }
 
-    sqlx::query(
-        "UPDATE activities SET deleted_at = now(), purge_after = now() + interval '30 days' \
-         WHERE id = $1",
-    )
-    .bind(context.activity_id)
-    .execute(&context.pool)
-    .await
-    .expect("应软删除活动");
+    permanent_activity::delete(&context.pool, context.activity_id).await;
     for suffix in ["summary", "export.csv"] {
         let (status, _, _) = raw_response(
             &context,
@@ -612,11 +608,7 @@ async fn summary_and_csv_use_one_private_authorized_snapshot() {
         assert_eq!(status, StatusCode::FORBIDDEN, "已删除活动不应读取 {suffix}");
     }
 
-    sqlx::query("UPDATE activities SET deleted_at = NULL, purge_after = NULL WHERE id = $1")
-        .bind(context.activity_id)
-        .execute(&context.pool)
-        .await
-        .expect("应恢复活动以单独验证成员权限");
+    let context = seed_context().await;
 
     sqlx::query("UPDATE activity_members SET status = 'LEFT', left_at = now() WHERE id = $1")
         .bind(context.owner_member_id)

@@ -44,7 +44,7 @@ impl RegistrationRepository for PostgresRegistrationRepository {
                  JOIN activities a ON a.id = i.activity_id \
                  WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > $2 \
                    AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE' \
-                   AND a.deleted_at IS NULL \
+                   \
                    FOR SHARE OF i, a",
             )
             .bind(invitation_hash.as_slice())
