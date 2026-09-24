@@ -43,6 +43,28 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          // 将首屏共享的 React 和动画依赖独立分包，保留业务懒加载及默认体积告警。
+          // React 优先归组，动画包复用同一运行时；依赖递归收集沿用默认行为。
+          groups: [
+            {
+              name: "react-vendor",
+              test: /[\\/]node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+              priority: 20,
+            },
+            {
+              name: "motion-vendor",
+              test: /[\\/]node_modules[\\/](?:motion|motion-dom|motion-utils|framer-motion)[\\/]/,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
