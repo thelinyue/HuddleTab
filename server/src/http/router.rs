@@ -210,6 +210,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             get(admin::users).fallback(api_method_not_allowed),
         )
         .route(
+            "/admin/users/{user_id}",
+            axum::routing::delete(admin::delete_user_account).fallback(api_method_not_allowed),
+        )
+        .route(
             "/admin/users/{user_id}/status",
             axum::routing::patch(admin::update_status).fallback(api_method_not_allowed),
         )

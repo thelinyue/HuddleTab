@@ -78,6 +78,28 @@ export function useAiSettingsQuery(userId: string, enabled = true) {
   });
 }
 
+export function useDeleteAdminUserMutation(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (targetUserId: string) =>
+      unwrap(await apiClient.DELETE("/api/admin/users/{user_id}", {
+        params: { path: { user_id: targetUserId } },
+        headers: await mutationHeaders(),
+      })).data,
+    onSuccess: async (_result, targetUserId) => {
+      if (targetUserId === userId && typeof window !== "undefined") {
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+        return;
+      }
+      // 服务端确认后才移除账号；取消旧请求，防止已删除账号重新出现在列表中。
+      await queryClient.cancelQueries({ queryKey: queryKeys.adminUsers(userId) });
+      queryClient.setQueryData<AdminUser[]>(queryKeys.adminUsers(userId), (users) => users?.filter((user) => user.id !== targetUserId));
+      // 删除已完成，后台刷新不应延迟关闭面板与成功反馈。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminUsers(userId) });
+    },
+  });
+}
+
 export function useUpdateAdminUserStatusMutation(userId: string) {
   const queryClient = useQueryClient();
   return useMutation({

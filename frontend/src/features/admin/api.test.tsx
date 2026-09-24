@@ -4,32 +4,57 @@ import { createElement, type PropsWithChildren } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { queryKeys } from "../../api/query-keys";
 
-const client = vi.hoisted(() => ({ PUT: vi.fn(), PATCH: vi.fn() }));
+const client = vi.hoisted(() => ({ PUT: vi.fn(), PATCH: vi.fn(), DELETE: vi.fn() }));
 vi.mock("../../api/client", () => ({ apiClient: client, AUTH_EXPIRED_EVENT: "auth-expired" }));
 vi.mock("../../api/csrf", () => ({ mutationHeaders: vi.fn().mockResolvedValue({}) }));
 
-import { useResetAdminPasswordMutation, useUpdateAdminRoleMutation, useUpdateAdminUserStatusMutation, useUpdateRegistrationPolicyMutation } from "./api";
+import { useDeleteAdminUserMutation, useResetAdminPasswordMutation, useUpdateAdminRoleMutation, useUpdateAdminUserStatusMutation, useUpdateRegistrationPolicyMutation } from "./api";
 
 afterEach(() => vi.resetAllMocks());
 
-it.each(["disable", "revoke", "password"])("自身账号 %s 成功后立即清理认证且不再刷新管理查询", async (action) => {
+it.each(["disable", "revoke", "password", "delete"])("自身账号 %s 成功后立即清理认证且不再刷新管理查询", async (action) => {
   client.PATCH.mockResolvedValue({ data: { data: { changed: true } }, response: new Response(null, { status: 200 }) });
   client.PUT.mockResolvedValue({ data: { data: { changed: true } }, response: new Response(null, { status: 200 }) });
+  client.DELETE.mockResolvedValue({ data: { data: { changed: true } }, response: new Response(null, { status: 200 }) });
   const queryClient = new QueryClient();
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
   const expired = vi.fn();
   window.addEventListener("auth-expired", expired);
   const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: queryClient }, children);
-  const { result } = renderHook(() => ({ status: useUpdateAdminUserStatusMutation("me"), role: useUpdateAdminRoleMutation("me"), password: useResetAdminPasswordMutation("me") }), { wrapper });
+  const { result } = renderHook(() => ({ status: useUpdateAdminUserStatusMutation("me"), role: useUpdateAdminRoleMutation("me"), password: useResetAdminPasswordMutation("me"), remove: useDeleteAdminUserMutation("me") }), { wrapper });
   try {
     await act(async () => {
       if (action === "disable") await result.current.status.mutateAsync({ userId: "me", disabled: true });
       else if (action === "revoke") await result.current.role.mutateAsync({ userId: "me", granted: false });
+      else if (action === "delete") await result.current.remove.mutateAsync("me");
       else await result.current.password.mutateAsync({ userId: "me", newPassword: "valid-password" });
     });
     expect(expired).toHaveBeenCalledOnce();
     expect(invalidate).not.toHaveBeenCalled();
   } finally { window.removeEventListener("auth-expired", expired); queryClient.clear(); }
+});
+
+it("删除失败保留账号，确认成功后取消旧读取并同步移除列表项", async () => {
+  const queryClient = new QueryClient();
+  const users = [{ id: "target", username: "alice", displayName: "Alice", disabled: false, isSystemAdmin: false }];
+  queryClient.setQueryData(queryKeys.adminUsers("me"), users);
+  const cancel = vi.spyOn(queryClient, "cancelQueries");
+  const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: queryClient }, children);
+  const { result } = renderHook(() => useDeleteAdminUserMutation("me"), { wrapper });
+  client.DELETE.mockRejectedValueOnce(new Error("存在历史记录"));
+  await act(async () => { await expect(result.current.mutateAsync("target")).rejects.toThrow("存在历史记录"); });
+  expect(queryClient.getQueryData(queryKeys.adminUsers("me"))).toEqual(users);
+  expect(cancel).not.toHaveBeenCalled();
+  client.DELETE.mockResolvedValueOnce({ data: { data: { userId: "target", changed: true } }, response: new Response(null, { status: 200 }) });
+  // 列表刷新停留在网络等待时，删除仍须及时完成，让面板关闭并显示成功反馈。
+  invalidate.mockImplementationOnce(() => new Promise<void>(() => {}));
+  await act(async () => { await result.current.mutateAsync("target"); });
+  expect(client.DELETE).toHaveBeenLastCalledWith("/api/admin/users/{user_id}", expect.objectContaining({ params: { path: { user_id: "target" } } }));
+  expect(cancel).toHaveBeenCalledWith({ queryKey: queryKeys.adminUsers("me") });
+  expect(queryClient.getQueryData(queryKeys.adminUsers("me"))).toEqual([]);
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.adminUsers("me") });
+  queryClient.clear();
 });
 
 it("管理写入失败不改缓存，成功后同步账号状态和角色", async () => {

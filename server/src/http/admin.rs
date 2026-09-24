@@ -9,14 +9,14 @@ use crate::{
     application::{
         auth::{CurrentSessionError, current_session},
         system_admin::{
-            RegistrationPolicy, SystemAdminError, get_registration_policy, list_users,
+            RegistrationPolicy, SystemAdminError, delete_user, get_registration_policy, list_users,
             reset_password, set_registration_policy, set_system_admin, set_user_disabled,
         },
         system_information::{read_database_version, read_storage},
     },
     infrastructure::{
-        auth_repository::PostgresAuthRepository, clock::SystemClock,
-        password::Argon2PasswordHasher, session::SessionToken,
+        attachment_store::LocalAttachmentStore, auth_repository::PostgresAuthRepository,
+        clock::SystemClock, password::Argon2PasswordHasher, session::SessionToken,
         system_admin_repository::PostgresSystemAdminRepository,
         system_information::PostgresSystemInformationProbe,
     },
@@ -167,6 +167,7 @@ pub(crate) async fn require_admin(
 fn map_error(error: SystemAdminError, request_id: RequestId) -> ApiError {
     match error {
         SystemAdminError::UserNotFound => ApiError::user_not_found(request_id),
+        SystemAdminError::UserHasBusinessRecords => ApiError::user_has_business_records(request_id),
         SystemAdminError::LastActiveAdmin => ApiError::last_active_admin(request_id),
         SystemAdminError::VersionConflict => ApiError::admin_version_conflict(request_id),
         SystemAdminError::InvalidPassword => ApiError::invalid_admin_input(request_id),
@@ -222,6 +223,44 @@ pub(crate) async fn users(
                 is_system_admin: user.is_system_admin,
             })
             .collect(),
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/admin/users/{user_id}",
+    params(("user_id" = String, Path, description = "用户 UUID")),
+    responses((status = 200, body = AdminMutationEnvelope), (status = 401, body = super::error::ErrorEnvelope), (status = 403, body = super::error::ErrorEnvelope), (status = 404, body = super::error::ErrorEnvelope), (status = 409, body = super::error::ErrorEnvelope), (status = 429, body = super::error::ErrorEnvelope))
+)]
+pub(crate) async fn delete_user_account(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    axum::extract::Path(user_id): axum::extract::Path<String>,
+) -> Result<Json<AdminMutationEnvelope>, ApiError> {
+    let actor = require_admin(&state, &jar, &headers, request_id.clone(), true).await?;
+    check_sensitive_limit(&state, actor, request_id.clone())?;
+    let target = parse_user_id(&user_id, request_id.clone())?;
+    let repository = PostgresSystemAdminRepository::new(state.pool);
+    let avatar_storage_key = delete_user(&repository, target)
+        .await
+        .map_err(|error| map_error(error, request_id))?;
+    // 账号事务已提交，文件清理失败不能伪装成删除失败；现有孤立图片任务负责重试。
+    if let Some(storage_key) = avatar_storage_key {
+        let removed = match LocalAttachmentStore::new(&state.uploads_dir) {
+            Ok(store) => store.remove(&storage_key).await.is_ok(),
+            Err(_) => false,
+        };
+        if !removed {
+            tracing::error!(%storage_key, "删除账号后的头像清理失败，将由孤立图片清理任务重试");
+        }
+    }
+    Ok(Json(AdminMutationEnvelope {
+        data: AdminMutationData {
+            user_id,
+            changed: true,
+        },
     }))
 }
 

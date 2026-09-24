@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   status: { isPending: false, mutateAsync: vi.fn() },
   role: { isPending: false, mutateAsync: vi.fn() },
   reset: { isPending: false, mutateAsync: vi.fn(), variables: undefined },
+  remove: { isPending: false, mutateAsync: vi.fn() },
   policy: { policy: "INVITE_ONLY", version: 1 },
   policyUpdate: { isPending: false, mutateAsync: vi.fn() },
 }));
@@ -27,6 +28,7 @@ vi.mock("./api", () => ({
   useUpdateAdminUserStatusMutation: () => state.status,
   useUpdateAdminRoleMutation: () => state.role,
   useResetAdminPasswordMutation: () => state.reset,
+  useDeleteAdminUserMutation: () => state.remove,
   useRegistrationPolicyQuery: () => ({ data: state.policy, isPending: false, error: null }),
   useUpdateRegistrationPolicyMutation: () => state.policyUpdate,
 }));
@@ -36,6 +38,67 @@ import { AdminHomePage, AdminSettingsPage, AdminSystemInformationPage, AdminUser
 afterEach(() => { cleanup(); vi.clearAllMocks(); state.online = true; state.usersError = null; state.usersPending = false; state.status.isPending = false; state.role.isPending = false; state.reset.isPending = false; state.status.mutateAsync.mockReset(); state.role.mutateAsync.mockReset(); state.reset.mutateAsync.mockReset(); state.users = [{ id: "admin-1", username: "admin", displayName: "管理员", avatarPreset: 2, disabled: false, isSystemAdmin: true }, { id: "user-1", username: "alice", displayName: "Alice", avatarPreset: 5, disabled: false, isSystemAdmin: false }]; });
 
 describe("系统管理页面", () => {
+  afterEach(() => { state.remove.isPending = false; state.remove.mutateAsync.mockReset(); });
+
+  it.each([false, true])("空账号删除确认、取消、成功后保留搜索并恢复焦点（禁用=%s）", async (disabled) => {
+    state.users[1].disabled = disabled;
+    state.remove.mutateAsync.mockImplementation(async () => { state.users = state.users.filter((user) => user.id !== "user-1"); });
+    render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
+    const search = screen.getByRole("searchbox");
+    fireEvent.change(search, { target: { value: "alice" } });
+    fireEvent.click(screen.getByRole("button", { name: /管理用户 Alice/ }));
+    fireEvent.click(screen.getByRole("button", { name: "删除账号" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Alice（@alice）");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("删除后无法恢复");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("原用户名可重新注册");
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(state.remove.mutateAsync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "删除账号" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除账号" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(state.remove.mutateAsync).toHaveBeenCalledExactlyOnceWith("user-1");
+    expect(screen.getByText("账号已删除。")).toHaveAttribute("role", "status");
+    expect(search).toHaveValue("alice");
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("button", { name: "全部 0" })).toBeInTheDocument();
+    expect(state.status.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("有历史时保留确认弹窗、账号及错误，可重试且不自动禁用", async () => {
+    state.remove.mutateAsync.mockRejectedValueOnce(new ApiRequestError(409, { error: { code: "USER_HAS_BUSINESS_RECORDS", message: "该账号存在业务或历史记录，无法删除，请使用禁用账号。", requestId: "test", fieldErrors: {}, details: {} } }));
+    render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: /管理用户 Alice/ }));
+    fireEvent.click(screen.getByRole("button", { name: "删除账号" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除账号" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("请使用禁用账号");
+    expect(screen.getByRole("alertdialog")).toContainElement(screen.getByRole("alert"));
+    expect(screen.getByRole("button", { name: /管理用户 Alice/ })).toBeInTheDocument();
+    expect(state.status.mutateAsync).not.toHaveBeenCalled();
+    state.remove.mutateAsync.mockImplementationOnce(async () => { state.users = state.users.filter((user) => user.id !== "user-1"); });
+    fireEvent.click(screen.getByRole("button", { name: "确认删除账号" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(state.remove.mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("删除提交期间禁止重复提交和关闭，并提示自身删除将退出", async () => {
+    let finish!: () => void;
+    state.remove.mutateAsync.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: /管理用户 管理员/ }));
+    fireEvent.click(screen.getByRole("button", { name: "删除账号" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("操作成功后你将退出登录");
+    const confirm = screen.getByRole("button", { name: "确认删除账号" });
+    fireEvent.click(confirm); fireEvent.click(confirm);
+    expect(state.remove.mutateAsync).toHaveBeenCalledExactlyOnceWith("admin-1");
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    finish();
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+  });
+
   it("用户管理提供启用、管理员和重置密码操作", () => {
     render(<MemoryRouter><AdminUsersPage /></MemoryRouter>);
     expect(screen.getByText("Alice")).toBeInTheDocument();

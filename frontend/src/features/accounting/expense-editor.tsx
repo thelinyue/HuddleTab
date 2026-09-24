@@ -1,5 +1,5 @@
-import { ArrowLeft, Check, ChevronRight, ImagePlus, Info, Minus, Plus, Trash2 } from "lucide-react";
-import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, ImagePlus, Info, Minus, Plus, Trash2 } from "lucide-react";
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiRequestError } from "../../api/error";
 import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
@@ -95,13 +95,18 @@ function RoutedExpenseEditor(props: ExpenseEditorProps) {
   );
 }
 
+/** 只读详情按需展开服务端结算事实；编辑页保留完整展示，不在前端推导结算状态。 */
 function ExpenseSettlementProgressSection({
   progress,
   members,
+  compact = false,
 }: {
   progress?: ExpenseAggregate["settlementProgress"];
   members: readonly ActivityMember[];
+  compact?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const sectionId = useId();
   if (!progress) return null;
   const statusLabel = progress.status === "NO_SETTLEMENT_REQUIRED"
     ? "无需结算"
@@ -111,11 +116,14 @@ function ExpenseSettlementProgressSection({
         ? "部分结算"
         : "待结算";
   const statusClass = progress.status.toLowerCase().replaceAll("_", "-");
-  return <section className="expense-settlement-progress" aria-labelledby="expense-settlement-progress-heading">
+  return <section className="expense-settlement-progress" aria-labelledby={`${sectionId}-heading`}>
     <header className="expense-settlement-progress__header">
-      <div><h2 id="expense-settlement-progress-heading">结算进度</h2><p>账单结算进度仅统计明确关联到本账单的结算记录。</p></div>
+      <div><h2 id={`${sectionId}-heading`}>结算进度</h2>{!compact ? <p>账单结算进度仅统计明确关联到本账单的结算记录。</p> : null}</div>
       <strong className={`expense-settlement-progress__status expense-settlement-progress__status--${statusClass}`}>{statusLabel}</strong>
+      {compact && progress.status !== "NO_SETTLEMENT_REQUIRED" ? <button className="expense-detail-disclosure" type="button" aria-label={expanded ? "收起结算明细" : "查看结算明细"} aria-expanded={expanded} aria-controls={`${sectionId}-details`} onClick={() => setExpanded(value => !value)}>{expanded ? "收起明细" : "查看明细"}<ChevronDown aria-hidden="true" size={16} /></button> : null}
     </header>
+    <div id={`${sectionId}-details`} hidden={compact && !expanded && progress.status !== "NO_SETTLEMENT_REQUIRED"}>
+    {compact && progress.status !== "NO_SETTLEMENT_REQUIRED" ? <p className="expense-settlement-progress__explanation">账单结算进度仅统计明确关联到本账单的结算记录。</p> : null}
     {progress.status === "NO_SETTLEMENT_REQUIRED"
       ? <p className="expense-settlement-progress__empty">这笔账从一开始无需成员间结算。</p>
       : <div className="expense-settlement-progress__table" role="table" aria-label="账单成员结算进度">
@@ -129,10 +137,11 @@ function ExpenseSettlementProgressSection({
             <span role="cell" className="expense-settlement-progress__member"><MemberAvatar memberId={member.memberId} {...memberAvatarImage(member.memberId, members)} displayName={memberName(member.memberId, members)} avatarPreset={memberAvatarPreset(member.memberId, members)} size="sm" /><span>{memberName(member.memberId, members)}</span></span>
             <span role="cell"><small>{received ? "应收" : "应结"}</small>{formatMoney(progress.currency, member.expectedMinor)}</span>
             <span role="cell"><small>{received ? "已收" : "已结"}</small>{formatMoney(progress.currency, member.settledMinor)}</span>
-            <span role="cell" className={settled ? "expense-settlement-progress__remaining expense-settlement-progress__remaining--settled" : "expense-settlement-progress__remaining"}><small>{received ? "待收" : "待结"}</small>{formatMoney(progress.currency, member.remainingMinor)}{settled ? <Check aria-label="已结清" size={15} /> : null}</span>
+            <span role="cell" className={settled ? "expense-settlement-progress__remaining expense-settlement-progress__remaining--settled" : "expense-settlement-progress__remaining"}><small>{received ? "待收" : "待结"}</small><span>{formatMoney(progress.currency, member.remainingMinor)}{settled ? <Check aria-label="已结清" size={15} /> : null}</span></span>
           </div>;
         })}
       </div>}
+    </div>
   </section>;
 }
 
@@ -1001,36 +1010,45 @@ export function NewExpensePage() {
   return <div className="workspace-page"><Link className="inline-back" to=".."><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><RoutedExpenseEditor /></div>;
 }
 
-/** 只读账单沿用“记一笔 / 修改账单”的字段名称和顺序，只把输入控件替换为事实展示。 */
+/**
+ * 两种只读入口共用紧凑事实展示：参与人数只计已有分摊行，成员金额不重新计算。
+ * 展开状态仅属于当前账单，入口以 expenseId 为 key，在切换账单时恢复默认状态。
+ */
 function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { aggregate: ExpenseAggregate; memberData: readonly ActivityMember[]; activity: ReturnType<typeof useWorkspace>["activity"]; offline: boolean }) {
+  const [splitExpanded, setSplitExpanded] = useState(false);
+  const splitDetailsId = useId();
+  const collapsibleSplit = aggregate.shares.length > 4;
   const category = categories.find(([value]) => value === aggregate.expense.category);
   const splitModeLabel = splitModes.find(([value]) => value === aggregate.expense.splitMode)?.[1] ?? aggregate.expense.splitMode;
   const isForeignCurrency = aggregate.expense.originalCurrency !== aggregate.expense.baseCurrency;
   const memberDisplayName = (memberId: string) => memberName(memberId, memberData);
   const memberAvatar = (memberId: string) => memberAvatarPreset(memberId, memberData);
-  const memberRows = (items: readonly { factId: string; memberId: string; originalAmountMinor: string }[], showAmount: boolean) => items.length
-    ? <div className="expense-detail-member-list">{items.map((item) => <div className="expense-detail-member-row" key={item.factId}><MemberAvatar memberId={item.memberId} {...memberAvatarImage(item.memberId, memberData)} displayName={memberDisplayName(item.memberId)} avatarPreset={memberAvatar(item.memberId)} size="sm" /><span>{memberDisplayName(item.memberId)}</span>{showAmount ? <Money value={formatMoney(aggregate.expense.originalCurrency, item.originalAmountMinor)} /> : null}</div>)}</div>
+  const memberRows = (items: readonly { factId: string; memberId: string; originalAmountMinor: string }[]) => items.length
+    ? <div className="expense-detail-member-list">{items.map((item) => <div className="expense-detail-member-row" key={item.factId}><MemberAvatar memberId={item.memberId} {...memberAvatarImage(item.memberId, memberData)} displayName={memberDisplayName(item.memberId)} avatarPreset={memberAvatar(item.memberId)} size="sm" /><span>{memberDisplayName(item.memberId)}</span><Money value={formatMoney(aggregate.expense.originalCurrency, item.originalAmountMinor)} /></div>)}</div>
     : <span className="expense-detail-empty">无</span>;
-  return <section className="standalone-detail-page" aria-label="账单详情">
+  return <section className="standalone-detail-page expense-detail-readonly" aria-label="账单详情">
     {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，账单使用最近一次同步的只读快照。</span></div> : null}
     <section className="expense-detail-summary" aria-label="金额">
       <small>金额</small>
       <div className="expense-detail-summary__amount"><span>{aggregate.expense.originalCurrency}</span><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></div>
       {isForeignCurrency ? <div className="expense-detail-summary__conversion"><span>折算后 {formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)}</span><small>汇率 {aggregate.expense.exchangeRate}（1 {aggregate.expense.originalCurrency} = N {aggregate.expense.baseCurrency}）</small>{aggregate.expense.exchangeRateReferenceDate ? <small>{aggregate.expense.exchangeRateKind === "CACHE" ? "缓存参考汇率" : aggregate.expense.exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {aggregate.expense.exchangeRateReferenceDate}</small> : null}</div> : null}
     </section>
-    <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} members={memberData} />
     <div className="expense-detail-fields">
       <dl>
         <div><dt>分类</dt><dd><span className="expense-detail-category">{category ? <img src={`/expense-categories/${category[2]}.webp`} width="34" height="34" alt="" /> : null}<span>{category?.[1] ?? "其他"}</span></span></dd></div>
         <div><dt>用途</dt><dd>{aggregate.expense.title}</dd></div>
-        <div><dt>付款人</dt><dd>{memberRows(aggregate.payments, true)}</dd></div>
+        <div><dt>付款人</dt><dd>{memberRows(aggregate.payments)}</dd></div>
         <div><dt>时间</dt><dd><time dateTime={aggregate.expense.occurredAt}>{new Date(aggregate.expense.occurredAt).toLocaleString("zh-CN")}</time></dd></div>
-        <div><dt>参与人</dt><dd>{memberRows(aggregate.shares, false)}</dd></div>
-        <div><dt>分摊设置</dt><dd><strong className="expense-detail-split-mode">{splitModeLabel}</strong>{memberRows(aggregate.shares, true)}</dd></div>
-        <div><dt>备注</dt><dd>{aggregate.expense.note || <span className="expense-detail-empty">无</span>}</dd></div>
+        <div><dt>参与人</dt><dd>{aggregate.shares.length} 人</dd></div>
+        <div><dt>分摊设置</dt><dd>
+          <div className="expense-detail-split-header"><strong className="expense-detail-split-mode">{splitModeLabel}</strong>{collapsibleSplit ? <button className="expense-detail-disclosure" type="button" aria-label={splitExpanded ? "收起分摊明细" : "查看分摊明细"} aria-expanded={splitExpanded} aria-controls={splitDetailsId} onClick={() => setSplitExpanded(value => !value)}>{splitExpanded ? "收起明细" : "查看明细"}<ChevronDown aria-hidden="true" size={16} /></button> : null}</div>
+          <div className="expense-detail-split-members" id={splitDetailsId} hidden={collapsibleSplit && !splitExpanded}>{memberRows(aggregate.shares)}</div>
+        </dd></div>
       </dl>
     </div>
-    <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments} />
+    <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} members={memberData} compact />
+    {aggregate.expense.note ? <div className="expense-detail-fields expense-detail-note"><dl><div><dt>备注</dt><dd>{aggregate.expense.note}</dd></div></dl></div> : null}
+    <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments ?? []} compact />
   </section>;
 }
 
@@ -1041,7 +1059,7 @@ export function ExpenseReadonlyOverlay({ expenseId, onClose }: { expenseId: stri
   const members = useMembersQuery(session.userId, activity.activityId, !offline);
   const aggregate = expense.data ?? snapshot?.snapshot.expenses.find(item => item.expense.expenseId === expenseId);
   return <Overlay open title="账单详情" onClose={onClose} initialFocus="mobile-dialog" mobileSheet={{ maxHeight: 0.92 }} className="expense-readonly-overlay">
-    {expense.error && !offline ? <ErrorNotice error={expense.error} /> : aggregate ? <ReadonlyExpenseDetail aggregate={aggregate} memberData={members.data ?? cachedMembers ?? []} activity={activity} offline={offline} /> : <LoadingState label="正在读取账单…" />}
+    {expense.error && !offline ? <ErrorNotice error={expense.error} /> : aggregate ? <ReadonlyExpenseDetail key={aggregate.expense.expenseId} aggregate={aggregate} memberData={members.data ?? cachedMembers ?? []} activity={activity} offline={offline} /> : <LoadingState label="正在读取账单…" />}
   </Overlay>;
 }
 
@@ -1061,7 +1079,7 @@ export function ExpenseDetailPage() {
   if (!aggregate) return null;
   // 统计中的账单下钻只查看既有事实，保持分析与编辑两条入口的语义独立。
   if (activity.status !== "ACTIVE" || offline || searchParams.get("view") === "readonly") {
-    return <ReadonlyExpenseDetail aggregate={aggregate} memberData={memberData} activity={activity} offline={offline} />;
+    return <ReadonlyExpenseDetail key={aggregate.expense.expenseId} aggregate={aggregate} memberData={memberData} activity={activity} offline={offline} />;
   }
   return (
     <div className="workspace-page">

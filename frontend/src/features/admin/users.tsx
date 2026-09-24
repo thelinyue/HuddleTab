@@ -5,7 +5,7 @@ import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, ErrorNotice, Input, LoadingState } from "../../components/ui";
 import { useOnlineStatus } from "../activities/offline-workspace";
 import { useSessionQuery } from "../auth/api";
-import { type AdminUser, useAdminUsersQuery, useResetAdminPasswordMutation, useUpdateAdminRoleMutation, useUpdateAdminUserStatusMutation } from "./api";
+import { type AdminUser, useAdminUsersQuery, useDeleteAdminUserMutation, useResetAdminPasswordMutation, useUpdateAdminRoleMutation, useUpdateAdminUserStatusMutation } from "./api";
 
 const filters = [
   { id: "all", label: "全部", matches: (_user: AdminUser) => true },
@@ -23,9 +23,14 @@ export function AdminUsersContent() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<(typeof filters)[number]["id"]>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (!online) setSelectedId(null); }, [online]);
+  useEffect(() => {
+    // 删除导致原入口与弹层一起卸载，等弹层完成焦点清理后再聚焦仍存在的搜索框。
+    if (message && selectedId === null) searchRef.current?.focus({ preventScroll: true });
+  }, [message, selectedId]);
 
   if (!online) return <div className="notice" role="status">当前离线，系统管理需要联网后使用。</div>;
   if (users.isPending) return <LoadingState label="正在读取用户…" />;
@@ -57,6 +62,7 @@ export function AdminUsersContent() {
             <button className="admin-user-row" type="button" aria-label={`管理用户 ${user.displayName} @${user.username}${user.id === actorId ? "（我）" : ""}${user.disabled ? "，已禁用" : ""}`} onClick={(event) => {
               // Safari 的触控点击不会自动聚焦按钮；先记录入口，供 Sheet 关闭时恢复且不滚动列表。
               event.currentTarget.focus({ preventScroll: true });
+              setMessage("");
               setSelectedId(user.id);
             }}>
               <MemberAvatar memberId={user.id} userId={user.id} displayName={user.displayName} avatarPreset={user.avatarPreset} avatarImageId={user.avatarImageId} />
@@ -69,33 +75,40 @@ export function AdminUsersContent() {
         ))}
       </ul>
       {!visible.length ? <div className="admin-users-empty" role="status"><p>{users.data.length ? "没有找到匹配的用户" : "暂无用户"}</p>{search || filter !== "all" ? <Button variant="ghost" onClick={() => { setSearch(""); setFilter("all"); }}>清除搜索与筛选</Button> : null}</div> : null}
-      {selected ? <UserManagementPanel key={selected.id} user={selected} actorId={actorId} onClose={closePanel} /> : null}
+      {message ? <p className="notice" role="status">{message}</p> : null}
+      {selected ? <UserManagementPanel key={selected.id} user={selected} actorId={actorId} onClose={closePanel} onDeleted={() => { setSelectedId(null); setMessage("账号已删除。"); }} /> : null}
     </>
   );
 }
 
-type Confirmation = "disable" | "grant" | "revoke";
+type Confirmation = "disable" | "grant" | "revoke" | "delete";
 
 /** 同一层 Sheet 管理账号与密码子表单；敏感操作确认后写入，密码子表单卸载即丢弃草稿。 */
-function UserManagementPanel({ user, actorId, onClose }: { user: AdminUser; actorId: string; onClose: () => void }) {
+function UserManagementPanel({ user, actorId, onClose, onDeleted }: { user: AdminUser; actorId: string; onClose: () => void; onDeleted: () => void }) {
   const status = useUpdateAdminUserStatusMutation(actorId);
   const role = useUpdateAdminRoleMutation(actorId);
   const reset = useResetAdminPasswordMutation(actorId);
+  const remove = useDeleteAdminUserMutation(actorId);
   const [view, setView] = useState<"details" | "password">("details");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const inFlight = useRef(false);
-  const busy = submitting || status.isPending || role.isPending || reset.isPending;
+  const busy = submitting || status.isPending || role.isPending || reset.isPending || remove.isPending;
   const self = user.id === actorId;
-  const confirmationTitle = confirmation === "disable" ? "禁用账号" : confirmation === "grant" ? "设为管理员" : "撤销管理员";
+  const confirmationTitle = confirmation === "delete" ? "删除账号" : confirmation === "disable" ? "禁用账号" : confirmation === "grant" ? "设为管理员" : "撤销管理员";
 
   async function run(action: "enable" | Confirmation) {
     if (inFlight.current || busy) return;
     inFlight.current = true;
     setSubmitting(true); setError(undefined); setMessage("");
     try {
+      if (action === "delete") {
+        await remove.mutateAsync(user.id);
+        if (!self) onDeleted();
+        return;
+      }
       if (action === "enable" || action === "disable") await status.mutateAsync({ userId: user.id, disabled: action === "disable" });
       else await role.mutateAsync({ userId: user.id, granted: action === "grant" });
       setConfirmation(null);
@@ -124,13 +137,14 @@ function UserManagementPanel({ user, actorId, onClose }: { user: AdminUser; acto
               <button className="settings-link" type="button" disabled={busy} onClick={() => { setError(undefined); setMessage(""); setView("password"); }}><KeyRound aria-hidden="true" size={18} /><span>重置密码</span><ChevronRight aria-hidden="true" size={18} /></button>
             </div>
             <Button variant={user.disabled ? "secondary" : "danger"} busy={submitting} disabled={busy} onClick={() => user.disabled ? void run("enable") : confirm("disable")}>{user.disabled ? "启用账号" : "禁用账号"}</Button>
+            <Button variant="danger" disabled={busy} onClick={() => confirm("delete")}>删除账号</Button>
             <p className="form-hint">系统管理员只能管理平台账号，不会因此获得任何活动账目权限。</p>
           </div>
         )}
       </Overlay>
       <ConfirmDialog open={confirmation !== null} title={confirmationTitle} confirmLabel={`确认${confirmationTitle}`} busy={busy} onCancel={() => { if (!busy) { setConfirmation(null); setError(undefined); } }} onConfirm={() => { if (confirmation) void run(confirmation); }} error={error ? <ErrorNotice error={error} /> : undefined} message={<>
         <p className="admin-user-confirm-target">{user.displayName}（@{user.username}）</p>
-        <p>{confirmation === "disable" ? "禁用后，该用户将无法登录，已有登录状态将失效。" : confirmation === "grant" ? "该用户将能够管理平台账号与系统设置，但不会因此获得活动账目权限。" : "撤销后，该用户将失去系统管理权限，已有登录状态将失效。"}</p>
+        <p>{confirmation === "delete" ? "仅允许删除没有业务或历史记录的账号。删除后无法恢复，所有登录凭据将失效，原用户名可重新注册。有关联记录的账号请使用禁用。" : confirmation === "disable" ? "禁用后，该用户将无法登录，已有登录状态将失效。" : confirmation === "grant" ? "该用户将能够管理平台账号与系统设置，但不会因此获得活动账目权限。" : "撤销后，该用户将失去系统管理权限，已有登录状态将失效。"}</p>
         {self && confirmation !== "grant" ? <p>这是你当前使用的账号，操作成功后你将退出登录。</p> : null}
       </>} />
     </>

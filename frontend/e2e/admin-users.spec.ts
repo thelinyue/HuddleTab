@@ -13,7 +13,12 @@ async function installFixture(page: Page) {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() !== "GET") {
       controls.writes++;
-      if (controls.fail) return route.fulfill({ status: 409, json: { error: { code: "LAST_ACTIVE_ADMIN", message: "至少保留一位可登录的系统管理员。" } } });
+      if (controls.fail) return route.fulfill({ status: 409, json: { error: route.request().method() === "DELETE" ? { code: "USER_HAS_BUSINESS_RECORDS", message: "该账号存在业务或历史记录，无法删除，请使用禁用账号。" } : { code: "LAST_ACTIVE_ADMIN", message: "至少保留一位可登录的系统管理员。" } } });
+      if (route.request().method() === "DELETE") {
+        const index = users.findIndex((user) => user.id === path.split("/").at(-1));
+        const [target] = users.splice(index, 1);
+        return route.fulfill({ json: { data: { userId: target.id, changed: true } } });
+      }
       const target = users.find((user) => user.id === path.split("/").at(-2))!;
       const body = route.request().postDataJSON();
       if (path.endsWith("/status")) target.disabled = body.disabled;
@@ -97,6 +102,38 @@ test("确认弹层键盘操作、错误重试、密码关闭清空", async ({ pa
   await page.getByRole("button", { name: /管理用户 王五/ }).click();
   await panel.getByRole("button", { name: "重置密码" }).click();
   await expect(panel.getByLabel("新密码", { exact: true })).toHaveValue("");
+});
+
+test("删除空账号的确认、错误重试、列表计数和焦点恢复", async ({ page }, info) => {
+  const controls = await installFixture(page);
+  await page.goto("/admin/users");
+  await page.getByRole("searchbox").fill("alice");
+  await page.getByRole("button", { name: "管理用户 李四 @alice" }).click();
+  const panel = page.getByRole("dialog", { name: "管理用户" });
+  await panel.getByRole("button", { name: "删除账号", exact: true }).click();
+  const confirm = page.getByRole("alertdialog");
+  await expect(confirm).toContainText("李四（@alice）");
+  await expect(confirm.getByRole("button", { name: "取消", exact: true })).toBeFocused();
+  await page.screenshot({ path: info.outputPath("delete-user-confirm.png") });
+  expect(await confirm.evaluate((element) => { const r = element.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; })).toBeTruthy();
+  await page.keyboard.press("Escape");
+  await expect(confirm).not.toBeVisible();
+  expect(controls.writes).toBe(0);
+  await panel.getByRole("button", { name: "删除账号", exact: true }).click();
+  controls.fail = true;
+  await confirm.getByRole("button", { name: "确认删除账号" }).click();
+  await expect(confirm.getByRole("alert")).toContainText("请使用禁用账号");
+  await expect(page.getByRole("button", { name: "全部 2" })).toBeVisible();
+  controls.fail = false;
+  await confirm.getByRole("button", { name: "确认删除账号" }).click();
+  await expect(confirm).not.toBeVisible();
+  await expect(panel).not.toBeVisible();
+  await expect(page.getByText("账号已删除。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "全部 1" })).toBeVisible();
+  await expect(page.getByRole("searchbox")).toHaveValue("alice");
+  await expect(page.getByRole("searchbox")).toBeFocused();
+  await expect(page.getByRole("button", { name: "管理用户 李四 @alice" })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("delete-user-complete.png") });
 });
 
 test("长列表返回保持位置，减少动态效果时焦点仍恢复", async ({ page }) => {

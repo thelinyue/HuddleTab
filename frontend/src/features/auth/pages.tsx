@@ -1,27 +1,23 @@
-import { ArrowRight, Eye, EyeOff, LockKeyhole, LogIn, UserPlus, UserRound } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Button, ErrorNotice, Field, Input, LoadingState } from "../../components/ui";
+import { Button, ErrorNotice, Input, LoadingState } from "../../components/ui";
 import { errorMessage } from "../../api/error";
 import { queryKeys } from "../../api/query-keys";
 import { joinInvitation, useInvitationPreviewQuery, useJoinInvitationMutation, useJoinRequestQuery, useLoginMutation, useRegisterMutation, useRegistrationPolicyQuery, useSessionQuery } from "./api";
 
+/** 三个入口共用轻量外壳；加载、错误和审批状态也保留品牌及同一内容宽度，手机端按文档自然滚动。 */
 function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <main className="account-page">
-      <div className="account-card">
-        <section className="account-card__hero" aria-label="朋友共同旅行与记账">
-          <img src="/auth/auth-hero.webp" alt="朋友们一起旅行" width={950} height={625} />
-        </section>
-        <section className="account-card__body">
-          <div className="account-brand">
-            <img src="/icons/icon-192.png" alt="" width={64} height={64} />
-            <span><strong>伙记</strong><small>HuddleTab</small></span>
-          </div>
-          {children}
-        </section>
-      </div>
+      <section className="account-card">
+        <Link className="account-brand" to="/activities" aria-label="伙记首页">
+          <img src="/icons/icon-192.png" alt="" width={40} height={40} />
+          <strong>伙记</strong>
+        </Link>
+        {children}
+      </section>
     </main>
   );
 }
@@ -30,7 +26,6 @@ function PasswordInput({ id, value, onChange, autoComplete }: { id: string; valu
   const [visible, setVisible] = useState(false);
   return (
     <div className="auth-input-wrap">
-      <LockKeyhole aria-hidden="true" size={20} />
       <Input
         id={id}
         name={id}
@@ -38,50 +33,43 @@ function PasswordInput({ id, value, onChange, autoComplete }: { id: string; valu
         value={value}
         onChange={(event) => onChange(event.target.value)}
         autoComplete={autoComplete}
+        autoCapitalize="none"
+        spellCheck={false}
         required
         minLength={8}
         maxLength={128}
       />
-      <button className="auth-password-toggle" type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? "隐藏密码" : "显示密码"}>
+      <button className="auth-password-toggle" type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? "隐藏密码" : "显示密码"} aria-pressed={visible}>
         {visible ? <EyeOff aria-hidden="true" size={19} /> : <Eye aria-hidden="true" size={19} />}
       </button>
     </div>
   );
 }
 
-function AuthField({ id, label, value, onChange, autoComplete, icon, type = "text", minLength, maxLength, autoFocus }: {
+function AuthField({ id, label, value, onChange, autoComplete, type = "text", minLength, maxLength }: {
   id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
   autoComplete: string;
-  icon?: React.ReactNode;
   type?: "text" | "password";
   minLength?: number;
   maxLength?: number;
-  autoFocus?: boolean;
 }) {
   return (
-    <label className="auth-field" htmlFor={id}>
-      <span>{label}</span>
+    <div className="auth-field">
+      <label htmlFor={id}>{label}</label>
       {type === "password" ? <PasswordInput id={id} value={value} onChange={onChange} autoComplete={autoComplete} /> : (
-        <div className="auth-input-wrap">
-          {icon}
-          <Input id={id} name={id} value={value} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} required minLength={minLength} maxLength={maxLength} autoFocus={autoFocus} />
-        </div>
+        <Input id={id} name={id} value={value} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} autoCapitalize={autoComplete === "username" || autoComplete === "off" ? "none" : undefined} spellCheck={autoComplete === "username" || autoComplete === "off" ? false : undefined} required minLength={minLength} maxLength={maxLength} />
       )}
-    </label>
+    </div>
   );
 }
 
-/** 认证页底部的分隔式切换入口，保持 v0.0.2 的视觉层级，同时保留键盘可访问链接。 */
+/** 次要入口保持轻量，同时携带原邀请地址，避免登录与注册切换时丢失上下文。 */
 function AuthSwitch({ prompt, label, href, from }: { prompt: string; label: string; href: string; from?: string }) {
   return (
-    <div className="auth-switch">
-      <span aria-hidden="true" />
-      <div><span>{prompt}</span><Link to={href} state={from ? { from } : undefined}>{label}<ArrowRight aria-hidden="true" size={16} /></Link></div>
-      <span aria-hidden="true" />
-    </div>
+    <p className="auth-switch"><span>{prompt}</span><Link to={href} state={from ? { from } : undefined}>{label}</Link></p>
   );
 }
 
@@ -109,10 +97,9 @@ export function LoginPage() {
     <AuthLayout>
       <header className="auth-panel__header">
         <h1 aria-label="登录伙记">登录</h1>
-        <p>继续管理你的活动和账目</p>
       </header>
       <form className="auth-form" onSubmit={submit}>
-        <AuthField id="login-username" label="用户名" value={username} onChange={setUsername} autoComplete="username" minLength={3} maxLength={32} autoFocus icon={<UserRound aria-hidden="true" size={20} />} />
+        <AuthField id="login-username" label="用户名" value={username} onChange={setUsername} autoComplete="username" minLength={3} maxLength={32} />
         <AuthField id="login-password" label="密码" value={password} onChange={setPassword} autoComplete="current-password" type="password" />
         {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
         <Button className="auth-submit" type="submit" busy={mutation.isPending}>
@@ -142,15 +129,15 @@ export function RegisterPage() {
   const [completing, setCompleting] = useState(false);
 
   if (session.data && !completing) return <Navigate to={invitationToken ? `/join/${encodeURIComponent(invitationToken)}` : "/activities"} replace />;
-  if (invitationToken && preview.isPending) return <LoadingState label="正在读取邀请…" />;
-  if (!invitationToken && policy.isPending) return <LoadingState label="正在读取注册策略…" />;
-  if (!invitationToken && policy.error) return <main className="center-page"><ErrorNotice error={policy.error} /><Button onClick={() => void policy.refetch()}>重试</Button></main>;
+  if (invitationToken && preview.isPending) return <AuthLayout><LoadingState label="正在读取邀请…" /></AuthLayout>;
+  if (!invitationToken && policy.isPending) return <AuthLayout><LoadingState label="正在读取注册策略…" /></AuthLayout>;
+  if (!invitationToken && policy.error) return <AuthLayout><ErrorNotice error={policy.error} /><Button onClick={() => void policy.refetch()}>重试</Button></AuthLayout>;
 
   if (!invitationToken && policy.data === "INVITE_ONLY") return (
     <AuthLayout>
       <header className="auth-panel__header"><h1>凭邀请注册</h1><p>输入活动邀请口令后继续。</p></header>
       <form className="auth-form" onSubmit={(event) => { event.preventDefault(); if (entryToken.trim()) navigate(`/join/${encodeURIComponent(entryToken.trim())}`); }}>
-        <Field label="邀请口令"><Input value={entryToken} onChange={(event) => setEntryToken(event.target.value)} required autoFocus /></Field>
+        <AuthField id="register-invitation" label="邀请口令" value={entryToken} onChange={setEntryToken} autoComplete="off" />
         <Button className="auth-submit" type="submit">查看邀请 <ArrowRight aria-hidden="true" size={18} /></Button>
       </form>
       <AuthSwitch prompt="已有账号？" label="登录" href="/login" />
@@ -189,17 +176,17 @@ export function RegisterPage() {
     }
   }
 
-  if (invitationToken && preview.error) return <main className="center-page"><ErrorNotice error={preview.error} /><Link className="button button--secondary" to="/login">返回登录</Link></main>;
+  if (invitationToken && preview.error) return <AuthLayout><ErrorNotice error={preview.error} /><Link className="button button--secondary" to="/login">返回登录</Link></AuthLayout>;
 
   return (
     <AuthLayout>
       <header className="auth-panel__header">
         <h1>{invitationToken ? preview.data?.purpose === "GUEST_BINDING" ? "注册并绑定" : "注册并加入" : "创建账号"}</h1>
-        <p>{invitationToken ? preview.data?.activityName : "创建账号后即可开始管理活动和账目。"}</p>
+        {invitationToken ? <p>{preview.data?.activityName}</p> : null}
       </header>
       <form className="auth-form" onSubmit={submit}>
-        <AuthField id="register-nickname" label="昵称" value={displayName} onChange={setDisplayName} autoComplete="name" maxLength={80} autoFocus />
-        <AuthField id="register-username" label="用户名" value={username} onChange={setUsername} autoComplete="username" minLength={3} maxLength={32} icon={<UserRound aria-hidden="true" size={20} />} />
+        <AuthField id="register-nickname" label="昵称" value={displayName} onChange={setDisplayName} autoComplete="name" maxLength={80} />
+        <AuthField id="register-username" label="用户名" value={username} onChange={setUsername} autoComplete="username" minLength={3} maxLength={32} />
         <AuthField id="register-password" label="密码" value={password} onChange={setPassword} autoComplete="new-password" type="password" />
         <AuthField id="register-confirm-password" label="确认密码" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" type="password" />
         {preview.data?.purpose === "GUEST_BINDING" ? <p>请使用邀请者指定的用户名注册。注册后还需确认绑定。</p> : null}
@@ -226,7 +213,7 @@ export function JoinPage() {
   const navigate = useNavigate();
   const joinError = (location.state as { joinError?: string } | null)?.joinError;
 
-  if (preview.isPending || session.isPending) return <LoadingState label="正在读取邀请…" />;
+  if (preview.isPending || session.isPending) return <AuthLayout><LoadingState label="正在读取邀请…" /></AuthLayout>;
   const expiresAt = new Date(preview.data?.expiresAt ?? "");
   const expiryLabel = Number.isNaN(expiresAt.getTime())
     ? "有效期暂无法显示"
@@ -251,19 +238,15 @@ export function JoinPage() {
   ) : null;
 
   return (
-    <main className="center-page join-page">
-      <section className="join-panel">
-        {/* 应用图标用于品牌识别，邀请插画独立展示，避免将场景插画误作标志。 */}
-        <Link className="join-panel__brand" to="/activities" aria-label="伙记 HuddleTab 首页">
-          <img className="join-panel__brand-icon" src="/icons/icon-192.png" alt="" aria-hidden="true" width="48" height="48" />
-          <span className="join-panel__brand-copy"><strong>伙记</strong><small>HuddleTab</small></span>
-        </Link>
-        <img className="join-panel__illustration" src="/illustrations/invitation.webp" alt="" aria-hidden="true" decoding="async" />
+    <AuthLayout>
+      <div className="join-panel">
         {joinError ? <div className="field__error" role="alert">账号已创建，但未能加入活动：{joinError}</div> : null}
         {preview.error ? <><ErrorNotice error={preview.error} />{requestStatus}<Link className="button button--secondary" to="/activities">返回活动列表</Link></> : preview.data ? (
           <>
-            <p className="eyebrow">{preview.data.purpose === "GUEST_BINDING" ? "绑定临时成员身份" : "活动邀请"}</p>
-            <h1>{preview.data.activityName}</h1>
+            <header className="auth-panel__header">
+              <p className="eyebrow">{preview.data.purpose === "GUEST_BINDING" ? "绑定临时成员身份" : "活动邀请"}</p>
+              <h1>{preview.data.activityName}</h1>
+            </header>
             {preview.data.purpose === "GUEST_BINDING" && preview.data.guestDisplayName ? <strong className="join-panel__guest">{preview.data.guestDisplayName}</strong> : null}
             <div className="join-panel__details"><p>已有 {preview.data.activeMemberCount} 位成员</p><p>{expiryLabel}</p></div>
             {session.data ? (
@@ -288,12 +271,12 @@ export function JoinPage() {
             ) : (
               <div className="join-panel__actions">
                 <Link className="button button--primary" to={`/register?invite=${encodeURIComponent(token)}`}>{preview.data.purpose === "GUEST_BINDING" ? "注册后确认绑定" : "注册并加入"}</Link>
-                <p>已有账号？<Link to="/login" state={{ from: `/join/${encodeURIComponent(token)}` }}>登录</Link></p>
+                <AuthSwitch prompt="已有账号？" label="登录" href="/login" from={`/join/${encodeURIComponent(token)}`} />
               </div>
             )}
           </>
         ) : null}
-      </section>
-    </main>
+      </div>
+    </AuthLayout>
   );
 }

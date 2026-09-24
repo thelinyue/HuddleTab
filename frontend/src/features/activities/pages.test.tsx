@@ -1361,17 +1361,20 @@ describe("活动管理 Overlay", () => {
     expect(screen.getByRole("textbox", { name: "地点" })).toHaveValue("苏州");
   });
 
-  it("加入方式在主 Sheet 原地展开并选择后立即提交", async () => {
+  it("加入方式在浮层选择后立即提交，成功收起并恢复焦点", async () => {
     renderWorkspace("/activities/activity-1?panel=manage");
     fireEvent.click(screen.getByRole("button", { name: "直接加入" }));
     const options = screen.getByRole("radiogroup", { name: "加入方式选项" });
-    expect(within(options).getByRole("radio", { name: /直接加入.*访问有效邀请后直接成为成员/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(options).getByRole("radio", { name: /直接加入.*通过邀请直接加入/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(options).getByRole("radio", { name: /直接加入/ })).toHaveFocus();
     fireEvent.click(within(options).getByRole("radio", { name: /需要审批/ }));
 
     await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({
       inviteMode: "REQUIRE_APPROVAL",
       version: "7",
     }));
+    await waitFor(() => expect(screen.queryByRole("radiogroup", { name: "加入方式选项" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "需要审批" })).toHaveFocus());
   });
 
   it("主币种与加入方式互斥展开，重复选择当前加入方式不提交", () => {
@@ -1391,15 +1394,59 @@ describe("活动管理 Overlay", () => {
   });
 
   it("加入方式保存失败时保留草稿、展开选项和中文错误", async () => {
-    activityApiState.update.mutateAsync.mockRejectedValue(new Error("加入方式保存失败"));
+    activityApiState.update.mutateAsync.mockRejectedValueOnce(new Error("加入方式保存失败"));
     renderWorkspace("/activities/activity-1?panel=manage");
 
-    fireEvent.click(screen.getByRole("button", { name: "直接加入" }));
+    const trigger = screen.getByRole("button", { name: "直接加入" });
+    fireEvent.click(trigger);
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "加入方式选项" })).getByRole("radio", { name: /需要审批/ }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("加入方式保存失败");
-    expect(screen.getByRole("button", { name: "需要审批" })).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(within(screen.getByRole("radiogroup", { name: "加入方式选项" })).getByRole("radio", { name: /需要审批/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(screen.getByRole("dialog", { name: "加入方式" })).getByRole("alert")).toHaveTextContent("加入方式保存失败");
+    fireEvent.click(screen.getByRole("radio", { name: /需要审批/ }));
+    await waitFor(() => expect(screen.queryByRole("radiogroup", { name: "加入方式选项" })).not.toBeInTheDocument());
+    expect(activityApiState.update.mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("加入方式的 Escape 只关闭浮层并恢复焦点", async () => {
+    const user = userEvent.setup();
+    renderWorkspace("/activities/activity-1?panel=manage");
+    const trigger = screen.getByRole("button", { name: "直接加入" });
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("radiogroup", { name: "加入方式选项" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+    expect(activityApiState.update.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("加入方式支持方向键选择，保存期间阻止重复提交和关闭", async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    activityApiState.update.mutateAsync.mockImplementation(() => new Promise<unknown>((resolve) => { resolveUpdate = resolve; }));
+    const user = userEvent.setup();
+    renderWorkspace("/activities/activity-1?panel=manage");
+    await user.click(screen.getByRole("button", { name: "直接加入" }));
+    await user.keyboard("{ArrowDown}");
+    expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ inviteMode: "REQUIRE_APPROVAL", version: "7" });
+    expect(screen.getByRole("radio", { name: /需要审批/ })).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}{ArrowUp}{Enter}");
+    fireEvent.click(screen.getByRole("radio", { name: /直接加入/ }));
+    expect(screen.getByRole("radiogroup", { name: "加入方式选项" })).toBeInTheDocument();
+    expect(activityApiState.update.mutateAsync).toHaveBeenCalledTimes(1);
+    resolveUpdate({ data: { ...activityApiState.activity, inviteMode: "REQUIRE_APPROVAL", version: "8" }, warnings: [] });
+    await waitFor(() => expect(screen.queryByRole("radiogroup", { name: "加入方式选项" })).not.toBeInTheDocument());
+    expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument();
+  });
+
+  it.each(["无编辑权", "离线"])("加入方式在%s时保持只读", (reason) => {
+    if (reason === "无编辑权") activityApiState.activity.fieldPermissions.inviteMode = false;
+    else activityApiState.online = false;
+    renderWorkspace("/activities/activity-1?panel=manage");
+    expect(screen.queryByRole("button", { name: "直接加入" })).not.toBeInTheDocument();
+    expect(screen.getByText("直接加入")).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "加入方式选项" })).not.toBeInTheDocument();
   });
 
   it("主币种在当前 Sheet 原地展开并按选项立即保存", async () => {

@@ -70,8 +70,8 @@ const inviteModeLabels: Record<string, string> = {
 };
 
 const inviteModeOptions = [
-  ["DIRECT_JOIN", "直接加入", "访问有效邀请后直接成为成员。"],
-  ["REQUIRE_APPROVAL", "需要审批", "申请通过管理员审批后加入。"],
+  ["DIRECT_JOIN", "直接加入", "通过邀请直接加入"],
+  ["REQUIRE_APPROVAL", "需要审批", "管理员审批后加入"],
 ] as const;
 
 type ActivityField = keyof Activity["fieldPermissions"];
@@ -170,6 +170,8 @@ export function MorePage({
   const [dateMonth, setDateMonth] = useState(() => dateFromIso(activity.startDate));
   const [dateError, setDateError] = useState<unknown>();
   const datePickerHeadingRef = useRef<HTMLDivElement | null>(null);
+  const inviteModeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const inviteModeOptionsRef = useRef<HTMLDivElement | null>(null);
   const transferPanelRef = useRef<HTMLElement | null>(null);
   const members = useMembersQuery(session.userId, activity.activityId, view === "transfer");
 
@@ -557,9 +559,45 @@ export function MorePage({
             </div>
             <div className="management-field" role="listitem">
               <div className="management-field__heading"><UserPlus aria-hidden="true" size={17} /><span><strong>加入方式</strong></span></div>
-              {canEdit("inviteMode") ? <div className="management-field__choice"><button className="management-choice-trigger" type="button" aria-expanded={expandedChoice === "inviteMode"} aria-controls="activity-invite-mode-options" disabled={editingBusy} onClick={() => setExpandedChoice((current) => current === "inviteMode" ? null : "inviteMode")}><span>{inviteModeLabels[draft.inviteMode] ?? draft.inviteMode}</span>{fieldStatus("inviteMode", <ChevronDown aria-hidden="true" className={expandedChoice === "inviteMode" ? "management-field__chevron management-field__chevron--open" : "management-field__chevron"} size={18} />)}</button></div> : <><span className="management-field__readonly">{inviteModeLabels[activity.inviteMode] ?? activity.inviteMode}</span><span className="management-field__status" aria-hidden="true" /></>}
-              {expandedChoice === "inviteMode" && canEdit("inviteMode") ? <div className="management-choice-list" id="activity-invite-mode-options" role="radiogroup" aria-label="加入方式选项">{inviteModeOptions.map(([value, label, description]) => <button key={value} type="button" role="radio" aria-checked={draft.inviteMode === value} disabled={editingBusy} onClick={() => void saveField("inviteMode", value)}><span><strong>{label}</strong><small>{description}</small></span>{draft.inviteMode === value ? <Check aria-hidden="true" size={18} /> : null}</button>)}</div> : null}
-              {fieldError("inviteMode")}
+              {canEdit("inviteMode") ? <div className="management-field__choice">
+                <Popover.Root modal open={expandedChoice === "inviteMode"} onOpenChange={(open) => { if (!editingBusy) setExpandedChoice(open ? "inviteMode" : null); }}>
+                  <Popover.Trigger asChild><button ref={inviteModeTriggerRef} className="management-choice-trigger" type="button" aria-label={inviteModeLabels[draft.inviteMode] ?? draft.inviteMode} disabled={editingBusy}><span>{inviteModeLabels[draft.inviteMode] ?? draft.inviteMode}</span>{fieldStatus("inviteMode", <ChevronDown aria-hidden="true" className={expandedChoice === "inviteMode" ? "management-field__chevron management-field__chevron--open" : "management-field__chevron"} size={18} />)}</button></Popover.Trigger>
+                  {/* 透明接收层让 Safari 的空白区域轻触也产生点击，且不会穿透到外层 Sheet。 */}
+                  <Popover.Portal><button className="management-invite-dismiss" type="button" tabIndex={-1} aria-hidden="true" onClick={() => { if (!editingBusy) setExpandedChoice(null); }} /></Popover.Portal>
+                  <Popover.Portal><Popover.Content className="management-invite-popover" aria-label="加入方式" side="bottom" align="end" sideOffset={8} collisionPadding={12}
+                    onOpenAutoFocus={(event) => {
+                      event.preventDefault();
+                      inviteModeOptionsRef.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus({ preventScroll: true });
+                    }}
+                    onCloseAutoFocus={(event) => { event.preventDefault(); inviteModeTriggerRef.current?.focus({ preventScroll: true }); }}
+                    onInteractOutside={(event) => { if (editingBusy) event.preventDefault(); }}
+                    onEscapeKeyDown={(event) => {
+                      // 在 Radix 的原生捕获阶段消费 Escape，避免浮层卸载后事件继续关闭外层 Sheet。
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (!editingBusy) setExpandedChoice(null);
+                    }}>
+                    <div ref={inviteModeOptionsRef} role="radiogroup" aria-label="加入方式选项" aria-busy={editingBusy} onKeyDown={(event) => {
+                      if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                      event.preventDefault();
+                      if (editingBusy) return;
+                      const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+                      const current = options.indexOf(document.activeElement as HTMLButtonElement);
+                      const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+                        : (current + (["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : -1) + options.length) % options.length;
+                      options[next]?.focus({ preventScroll: true });
+                      options[next]?.click();
+                    }}>
+                      {inviteModeOptions.map(([value, label, description]) => <button key={value} type="button" role="radio" aria-checked={draft.inviteMode === value} aria-disabled={editingBusy} tabIndex={draft.inviteMode === value ? 0 : -1} onClick={() => { if (!editingBusy) void saveField("inviteMode", value); }}>
+                        <span><strong>{label}</strong><small>{description}</small></span>
+                        {draft.inviteMode === value ? savingField === "inviteMode" ? <LoaderCircle aria-label="正在保存" className="spinner" size={18} /> : <Check aria-hidden="true" size={18} /> : null}
+                      </button>)}
+                    </div>
+                    {fieldError("inviteMode")}
+                  </Popover.Content></Popover.Portal>
+                </Popover.Root>
+              </div> : <><span className="management-field__readonly">{inviteModeLabels[activity.inviteMode] ?? activity.inviteMode}</span><span className="management-field__status" aria-hidden="true" /></>}
+              {expandedChoice !== "inviteMode" ? fieldError("inviteMode") : null}
             </div>
             <div className="management-action-item" role="listitem"><button className="management-action-row management-action-row--command" type="button" aria-label="导出 CSV" disabled={actionBusy} aria-busy={exporting} aria-describedby="activity-export-description" onClick={() => void exportCsv()}><Download aria-hidden="true" size={19} /><span><strong>导出 CSV</strong><small id="activity-export-description">下载账务明细</small></span><span className="management-action-row__status" role="status">{exporting ? <LoaderCircle aria-label="正在准备 CSV" className="spinner" size={17} /> : null}</span></button></div>
             <div className="management-action-item" role="listitem"><button ref={auditTriggerRef} className="management-action-row management-action-row--navigate" type="button" disabled={offline || actionBusy} onClick={() => onViewChange?.("audit")}><History aria-hidden="true" size={19} /><span><strong>活动记录</strong><small>{offline ? "联网后查看记录" : "查看变更记录"}</small></span><span className="management-action-row__status"><ChevronRight aria-hidden="true" size={18} /></span></button></div>

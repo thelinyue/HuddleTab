@@ -107,8 +107,8 @@ function ActivityListSkeleton() {
             </span>
             <span className="activity-list-item__balance">
               <span className="activity-balance-skeleton"><i /><i /></span>
-              <ChevronRight aria-hidden="true" size={16} />
             </span>
+            <ChevronRight className="activity-list-item__chevron" aria-hidden="true" size={16} />
           </li>
         ))}
       </ul>
@@ -153,8 +153,8 @@ function ActivityGroup({ title, activities, allActivities, ledgers }: { title: s
                   {readiness === "error" ? <small className="activity-list-item__balance--unavailable">余额暂不可用</small> : null}
                   {readiness === "ready" && amount === 0n ? <small>已结清</small> : null}
                   {readiness === "ready" && amount !== 0n ? <><small>{amount > 0n ? "应收" : "应付"}</small><Money value={formatMoney(activity.baseCurrency, (amount < 0n ? -amount : amount).toString())} tone={amount > 0n ? "positive" : "negative"} /></> : null}
-                  <ChevronRight aria-hidden="true" size={16} />
                 </span>
+                <ChevronRight className="activity-list-item__chevron" aria-hidden="true" size={16} />
               </Link>
             </li>
           );

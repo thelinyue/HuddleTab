@@ -302,6 +302,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn user_has_business_records(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "USER_HAS_BUSINESS_RECORDS",
+            "该账号存在业务或历史记录，无法删除，请使用禁用账号。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn last_active_admin(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

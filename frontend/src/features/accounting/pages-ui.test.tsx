@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiRequestError } from "../../api/error";
+import type { ExpenseAggregate } from "./api";
 
 const activity = vi.hoisted(() => ({
   activityId: "activity-1",
@@ -105,6 +106,7 @@ const rateMutation = vi.hoisted(() => ({
 }));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 const workspaceState = vi.hoisted(() => ({ offline: false, snapshotOnly: false }));
+const readonlyExpenseState = vi.hoisted(() => ({ data: undefined as (typeof expense & { settlementProgress?: ExpenseAggregate["settlementProgress"] }) | undefined }));
 const aiCapability = vi.hoisted(() => ({ textDraftAvailable: false }));
 const aiCapabilityQuery = vi.hoisted(() => vi.fn());
 const aiTextDraftMutation = vi.hoisted(() => vi.fn());
@@ -144,7 +146,7 @@ vi.mock("./api", () => ({
   useDeleteExpenseMutation: () => deleteExpenseMutation,
   useDeleteAttachmentMutation: () => deleteAttachmentMutation,
   useUploadAttachmentMutation: () => uploadAttachmentMutation,
-  useExpenseQuery: () => ({ data: expense, isPending: false }),
+  useExpenseQuery: () => ({ data: readonlyExpenseState.data ?? expense, isPending: false }),
   useExchangeRateSuggestionMutation: () => rateMutation,
   useAiCapabilityQuery: (...args: unknown[]) => { aiCapabilityQuery(...args); return { data: aiCapability, isPending: false, error: null }; },
   createAiTextDraft: (...args: unknown[]) => aiTextDraftMutation(...args),
@@ -197,6 +199,7 @@ afterEach(() => {
   pendingMutations.records = [];
   workspaceState.offline = false;
   workspaceState.snapshotOnly = false;
+  readonlyExpenseState.data = undefined;
   aiCapability.textDraftAvailable = false;
   aiCapabilityQuery.mockClear();
   aiTextDraftMutation.mockReset();
@@ -1599,6 +1602,90 @@ describe("AI 智能录入入口", () => {
   });
 });
 
+describe("只读账单紧凑明细", () => {
+  beforeEach(() => {
+    activity.status = "ENDED";
+    readonlyExpenseState.data = structuredClone(expense);
+  });
+
+  it.each([4, 5])("%s 人分摊按边界展示，保留零金额成员", async (count) => {
+    const data = readonlyExpenseState.data!;
+    data.shares = Array.from({ length: count }, (_, index) => ({ factId: `share-${index}`, memberId: `member-${index + 1}`, baseAmountMinor: index === 4 ? "0" : "250", originalAmountMinor: index === 4 ? "0" : "250" }));
+    data.expense.splitMode = count === 5 ? "EXACT" : "EQUAL";
+    renderPage(<ExpenseDetailPage />);
+    expect(screen.getByText(`${count} 人`)).toBeVisible();
+    const rows = document.querySelectorAll(".expense-detail-split-members .expense-detail-member-row");
+    expect(rows).toHaveLength(count);
+    if (count === 4) {
+      expect(screen.queryByRole("button", { name: "查看分摊明细" })).not.toBeInTheDocument();
+      expect(rows[0]).toBeVisible();
+    } else {
+      expect(rows[0]).not.toBeVisible();
+      const toggle = screen.getByRole("button", { name: "查看分摊明细" });
+      toggle.focus();
+      await userEvent.keyboard("{Enter}");
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(rows[4]).toBeVisible();
+      expect(rows[4]).toHaveTextContent("¥0.00");
+      await userEvent.keyboard(" ");
+      expect(rows[0]).not.toBeVisible();
+    }
+  });
+
+  it.each([["UNSETTLED", "待结算"], ["PARTIALLY_SETTLED", "部分结算"], ["SETTLED", "已结清"]])("%s 使用服务端状态，展开后才展示结算事实", (status, label) => {
+    readonlyExpenseState.data!.settlementProgress = {
+      currency: "CNY", status, remainingMinor: "300", settledMinor: "200", totalRequiredMinor: "500",
+      members: [{ memberId: "member-2", direction: "PAYABLE", expectedMinor: "500", settledMinor: "200", remainingMinor: "300", status }],
+    };
+    renderPage(<ExpenseDetailPage />);
+    const progress = screen.getByRole("region", { name: "结算进度" });
+    expect(progress).toHaveTextContent(label);
+    expect(within(progress).queryByRole("table")).not.toBeInTheDocument();
+    fireEvent.click(within(progress).getByRole("button", { name: "查看结算明细" }));
+    expect(within(progress).getByRole("table")).toHaveTextContent("待结¥3.00");
+    expect(within(progress).getByText(/仅统计明确关联/)).toBeVisible();
+    expect(document.querySelector(".expense-detail-fields")!.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("无需结算直接说明，不提供空的展开入口", () => {
+    readonlyExpenseState.data!.settlementProgress = { currency: "CNY", status: "NO_SETTLEMENT_REQUIRED", members: [], remainingMinor: "0", settledMinor: "0", totalRequiredMinor: "0" };
+    renderPage(<ExpenseDetailPage />);
+    expect(screen.getByText("这笔账从一开始无需成员间结算。")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "查看结算明细" })).not.toBeInTheDocument();
+  });
+
+  it("切换账单重置分摊与结算的展开状态", () => {
+    const data = readonlyExpenseState.data!;
+    data.shares = Array.from({ length: 5 }, (_, index) => ({ ...expense.shares[0], factId: `s${index}`, memberId: `m${index}` }));
+    data.settlementProgress = { currency: "CNY", status: "UNSETTLED", members: [], remainingMinor: "500", settledMinor: "0", totalRequiredMinor: "500" };
+    const view = renderPage(<ExpenseDetailPage />);
+    fireEvent.click(screen.getByRole("button", { name: "查看分摊明细" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看结算明细" }));
+    data.expense.expenseId = "expense-2";
+    view.rerender(<MemoryRouter><ExpenseDetailPage /></MemoryRouter>);
+    expect(screen.getByRole("button", { name: "查看分摊明细" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "查看结算明细" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("缺少进度、备注和图片时隐藏对应区域，外币和多付款人金额保持原始事实", () => {
+    const data = readonlyExpenseState.data!;
+    data.expense.note = "";
+    data.attachments = [];
+    data.expense.originalCurrency = "USD";
+    data.expense.originalAmountMinor = "150";
+    data.expense.exchangeRate = "6.666667";
+    data.payments = [{ ...data.payments[0], originalAmountMinor: "100" }, { ...data.payments[0], factId: "p2", memberId: "member-2", originalAmountMinor: "50" }];
+    renderPage(<ExpenseDetailPage />);
+    expect(screen.queryByRole("region", { name: "结算进度" })).not.toBeInTheDocument();
+    expect(screen.queryByText("备注", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "图片" })).not.toBeInTheDocument();
+    expect(screen.getByText("折算后 ¥10.00")).toBeVisible();
+    expect(screen.getByText(/汇率 6.666667/)).toBeVisible();
+    const payers = screen.getByText("付款人", { exact: true }).nextElementSibling!;
+    expect(payers).toHaveTextContent("甲US$1.00乙US$0.50");
+  });
+});
+
 describe("Activity 生命周期写权限", () => {
   it.each(["ACTIVE", "ENDED", "ARCHIVED"])("%s 活动在结算页提供生成分享摘要入口", (status) => {
     activity.status = status;
@@ -1631,7 +1718,7 @@ describe("Activity 生命周期写权限", () => {
     expect(detail).toHaveTextContent("付款人甲¥10.00");
     const occurredAt = within(detail).getByText(new Date(expense.expense.occurredAt).toLocaleString("zh-CN"), { exact: true });
     expect(occurredAt).toHaveAttribute("dateTime", expense.expense.occurredAt);
-    expect(detail).toHaveTextContent("参与人甲乙");
+    expect(detail).toHaveTextContent("参与人2 人");
     expect(detail).toHaveTextContent("分摊设置均摊甲¥5.00乙¥5.00");
     expect(detail).toHaveTextContent("团队午餐");
     expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();

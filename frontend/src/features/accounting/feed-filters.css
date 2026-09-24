@@ -25,6 +25,8 @@
 .feed-filter-categories button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); background: var(--secondary); }
 .feed-filter-categories button:active, .feed-filter-chips button:active { opacity: .7; }
 .feed-filter-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 8px; }
+/* 限制字段内部的网格列，避免 iOS 原生日期控件的固有宽度撑出外层等分列。 */
+.feed-filter-dates > .field { grid-template-columns: minmax(0, 1fr); }
 .feed-filter-dates .input { min-width: 0; max-width: 100%; }
 .feed-filter-error { color: var(--destructive); font-size: 12px; }
 .feed-filter-members { border-bottom: 1px solid var(--border); }

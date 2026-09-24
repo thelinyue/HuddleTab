@@ -101,8 +101,8 @@ test("活动管理字段、命令与 PWA 导出在目标视口保持统一", asy
   await expect(management.getByRole("radiogroup", { name: "主币种选项" })).toBeVisible();
   await management.getByRole("button", { name: "直接加入" }).click();
   await expect(management.getByRole("radiogroup", { name: "主币种选项" })).toHaveCount(0);
-  await expect(management.getByRole("radiogroup", { name: "加入方式选项" })).toBeVisible();
-  await management.getByRole("button", { name: "直接加入" }).click();
+  await expect(page.getByRole("radiogroup", { name: "加入方式选项" })).toBeVisible();
+  await page.keyboard.press("Escape");
 
   await expect(management.locator(".management-action-row--command .lucide-chevron-right")).toHaveCount(0);
   await expect(management.locator(".management-action-row--navigate .lucide-chevron-right")).toHaveCount(3);

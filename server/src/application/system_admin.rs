@@ -47,6 +47,8 @@ impl RegistrationPolicy {
 pub enum SystemAdminError {
     #[error("用户不存在")]
     UserNotFound,
+    #[error("该账号存在业务或历史记录，无法删除，请使用禁用账号。")]
+    UserHasBusinessRecords,
     #[error("系统必须至少保留一个能够正常登录的系统管理员。")]
     LastActiveAdmin,
     #[error("资源状态已变化，请刷新后重试。")]
@@ -74,6 +76,8 @@ impl From<IdentityError> for SystemAdminError {
 pub trait SystemAdminRepository: Send + Sync {
     async fn list_users(&self) -> Result<Vec<SystemUser>, SystemAdminError>;
     async fn is_system_admin(&self, user_id: Uuid) -> Result<bool, SystemAdminError>;
+    /// 仅删除无业务记录的账号；返回已解除引用的头像路径供提交后回收。
+    async fn delete_user(&self, user_id: Uuid) -> Result<Option<String>, SystemAdminError>;
     async fn set_user_disabled(
         &self,
         user_id: Uuid,
@@ -124,6 +128,18 @@ pub async fn is_system_admin(
     user_id: Uuid,
 ) -> Result<bool, SystemAdminError> {
     repository.is_system_admin(user_id).await
+}
+
+/// 永久删除空账号，保留历史引用与最后一位可登录管理员。
+///
+/// # Errors
+///
+/// 账号不存在、存在业务记录、违反管理员保护或数据库失败时返回对应错误。
+pub async fn delete_user(
+    repository: &dyn SystemAdminRepository,
+    user_id: Uuid,
+) -> Result<Option<String>, SystemAdminError> {
+    repository.delete_user(user_id).await
 }
 
 /// 修改账号禁用状态，并由 Repository 维护最后一个管理员不变量。

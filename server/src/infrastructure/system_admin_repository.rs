@@ -9,6 +9,7 @@ use crate::application::system_admin::{
 
 const ADMIN_INVARIANT_LOCK: &str = "huddletab-system-admin-invariant";
 
+/// 平台账号写入在事务中维护历史引用及管理员保护，账号附属数据沿用数据库级联规则。
 #[derive(Clone, Debug)]
 pub struct PostgresSystemAdminRepository {
     pool: PgPool,
@@ -56,6 +57,65 @@ impl SystemAdminRepository for PostgresSystemAdminRepository {
         .fetch_one(&self.pool)
         .await
         .map_err(|error| log_error(&error))
+    }
+
+    async fn delete_user(&self, user_id: Uuid) -> Result<Option<String>, SystemAdminError> {
+        let mut transaction = self.pool.begin().await.map_err(|error| log_error(&error))?;
+        lock_admin_invariant(&mut transaction).await?;
+        // FOR UPDATE 与引用用户的外键检查互斥，确保检查后不会插入新的入群申请并被级联误删。
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+            .bind(user_id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|error| log_error(&error))?
+            .ok_or(SystemAdminError::UserNotFound)?;
+        // 不按活动、成员或账目状态过滤；退出、结清、拒绝、软删除也都是仍保留的历史。
+        let has_history = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                SELECT 1 FROM activities WHERE created_by_user_id = $1
+                UNION ALL SELECT 1 FROM activity_members WHERE user_id = $1
+                UNION ALL SELECT 1 FROM activity_join_requests WHERE applicant_user_id = $1
+                UNION ALL SELECT 1 FROM expenses WHERE created_by_user_id = $1
+                UNION ALL SELECT 1 FROM settlements WHERE created_by_user_id = $1 OR voided_by_user_id = $1
+                UNION ALL SELECT 1 FROM activity_audit_logs WHERE actor_user_id = $1
+                UNION ALL SELECT 1 FROM system_admin_audit_logs WHERE actor_user_id = $1
+             )",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|error| log_error(&error))?;
+        if has_history {
+            return Err(SystemAdminError::UserHasBusinessRecords);
+        }
+        let avatar_storage_key = sqlx::query_scalar::<_, String>(
+            "SELECT storage_key FROM user_avatar_images WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|error| log_error(&error))?;
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| {
+                // 保留 RESTRICT 外键作为最终保护，约束冲突应给出可理解的业务提示。
+                if error
+                    .as_database_error()
+                    .is_some_and(sqlx::error::DatabaseError::is_foreign_key_violation)
+                {
+                    SystemAdminError::UserHasBusinessRecords
+                } else {
+                    log_error(&error)
+                }
+            })?;
+        ensure_login_capable_admin_remains(&mut transaction).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|error| log_error(&error))?;
+        Ok(avatar_storage_key)
     }
 
     async fn set_user_disabled(

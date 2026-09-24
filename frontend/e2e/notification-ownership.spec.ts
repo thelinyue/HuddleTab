@@ -55,7 +55,7 @@ async function changeInviteModeToApproval(page: Page): Promise<void> {
   await page.getByRole("navigation", { name: "活动操作" }).getByRole("link", { name: "活动管理" }).click();
   const management = page.getByRole("dialog", { name: "活动管理" });
   await management.getByRole("button", { name: "直接加入" }).click();
-  await management.getByRole("radiogroup", { name: "加入方式选项" }).getByRole("radio", { name: /需要审批/ }).click();
+  await page.getByRole("radiogroup", { name: "加入方式选项" }).getByRole("radio", { name: /需要审批/ }).click();
   await expect(management.getByRole("button", { name: "需要审批" })).toHaveAttribute("aria-expanded", "false");
   await page.getByRole("button", { name: "关闭活动管理" }).click();
 }

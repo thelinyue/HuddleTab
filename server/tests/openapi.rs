@@ -209,6 +209,7 @@ fn system_admin_contract_publishes_management_routes() {
         .expect("OpenAPI 应可序列化");
     for (path, method) in [
         ("/api/admin/users", "get"),
+        ("/api/admin/users/{user_id}", "delete"),
         ("/api/admin/users/{user_id}/status", "patch"),
         ("/api/admin/users/{user_id}/system-admin", "patch"),
         ("/api/admin/users/{user_id}/password", "put"),

@@ -47,6 +47,146 @@ async function fitsScreen(page: Page) {
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(area!.y + area!.height + 1);
 }
 
+/** 只读验收复用现有入口，进度直接由夹具响应提供，不在页面重新计算。 */
+async function installReadonlyFixture(page: Page) {
+  const control = await installFixture(page, 5);
+  control.activity.status = 'ENDED';
+  const item = control.expenses[0]!;
+  item.expense.note = '靠窗的桌子\n包含饮料';
+  item.expense.splitMode = 'EXACT';
+  item.shares[4]!.originalAmountMinor = '0';
+  item.shares[4]!.baseAmountMinor = '0';
+  const progress = {
+    currency: 'CNY', status: 'PARTIALLY_SETTLED', totalRequiredMinor: '36000', settledMinor: '18000', remainingMinor: '18000',
+    members: control.members.slice(0, 4).map((member, index) => ({
+      memberId: member.memberId, direction: index ? 'PAYABLE' : 'RECEIVABLE',
+      expectedMinor: index ? '12000' : '36000', settledMinor: ['18000', '6000', '12000', '0'][index],
+      remainingMinor: ['18000', '6000', '0', '12000'][index], status: index === 2 ? 'SETTLED' : index < 2 ? 'PARTIALLY_SETTLED' : 'UNSETTLED',
+    })),
+  };
+  Object.assign(item, { settlementProgress: progress });
+  item.payments.forEach((payment, index) => Object.assign(payment, { factId: `payment-${index}` }));
+  item.shares.forEach((share, index) => Object.assign(share, { factId: `share-${index}` }));
+  await page.route('**/api/activities/demo/expenses/e1/attachments/**', route => route.fulfill({ path: 'public/expense-categories/food.webp', contentType: 'image/webp' }));
+  return { ...control, progress };
+}
+
+async function readonlyFitsWidth(page: Page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  const detail = page.getByRole('region', { name: '账单详情', exact: true });
+  expect(await detail.evaluate(root => [root, ...root.querySelectorAll('.expense-detail-fields, .expense-detail-member-row, .money, .expense-settlement-progress__table, .expense-settlement-progress__row')].every(element => element.clientWidth === 0 || element.scrollWidth <= element.clientWidth + 1))).toBe(true);
+  for (const button of await detail.getByRole('button', { name: /明细/ }).all()) {
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+}
+
+test('只读账单：紧凑首屏、两种入口与原地展开', async ({ page }, info) => {
+  const control = await installReadonlyFixture(page);
+  await page.goto('/activities/demo');
+  await page.locator('.expense-row').click();
+  const detail = page.getByRole('region', { name: '账单详情', exact: true });
+  await expect(detail.getByRole('button', { name: '查看分摊明细' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(detail.getByRole('button', { name: '查看结算明细' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(detail.locator('.expense-detail-split-members')).toBeHidden();
+  if (page.viewportSize()!.width >= 390) {
+    for (const selector of ['.expense-detail-summary', '.expense-detail-category', 'time']) {
+      await expect(detail.locator(selector)).toBeInViewport({ ratio: 1 });
+    }
+  }
+  await expect(detail.locator('.expense-attachments img')).toHaveJSProperty('complete', true);
+  await readonlyFitsWidth(page);
+  await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-overlay.png`, scale: 'css' });
+  await detail.getByRole('button', { name: '查看分摊明细' }).click();
+  await expect(detail.locator('.expense-detail-split-members .expense-detail-member-row')).toHaveCount(5);
+  await expect(detail.locator('.expense-detail-split-members')).toContainText('¥0.00');
+  await detail.getByRole('button', { name: '查看结算明细' }).click();
+  await expect(detail.getByRole('table')).toBeVisible();
+  const firstRow = detail.locator('.expense-settlement-progress__row').nth(1);
+  // 桌面窄弹层也按容器切换为姓名下的纵向金额。
+  const cells = await firstRow.locator('[role="cell"]').evaluateAll(items => items.map(item => item.getBoundingClientRect().y));
+  expect(cells[1]).toBeGreaterThan(cells[0]);
+  expect(cells[2]).toBeGreaterThan(cells[1]);
+  await readonlyFitsWidth(page);
+  await page.getByRole('button', { name: '关闭账单详情' }).click();
+  await expect(page.getByRole('dialog', { name: '账单详情' })).toHaveCount(0);
+  await page.locator('.expense-row').click();
+  await expect(detail.getByRole('button', { name: '查看分摊明细' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(detail.getByRole('button', { name: '查看结算明细' })).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: '关闭账单详情' }).click();
+  await page.goto('/activities/demo/expenses/e1');
+  await expect(page.getByRole('button', { name: '返回流水' })).toBeVisible();
+  await expect(detail.getByRole('button', { name: '查看分摊明细' })).toBeVisible();
+  await expect(detail.locator('.expense-attachments img')).toHaveJSProperty('complete', true);
+  await detail.getByRole('link', { name: '查看图片 1' }).click();
+  await expect(page.getByRole('dialog', { name: '图片大图预览 1' })).toBeVisible();
+  await page.getByRole('button', { name: '关闭图片预览', exact: true }).click();
+  await expect(detail).toBeVisible();
+  // 图片和键盘聚焦会滚动文档；从页顶截图，避免固定页头落在长截图中段。
+  await page.evaluate(() => new Promise<void>(resolve => { window.scrollTo(0, 0); requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+  await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-page.png`, fullPage: true, scale: 'css' });
+  await detail.getByRole('button', { name: '查看分摊明细' }).click();
+  const settlementToggle = detail.getByRole('button', { name: /结算明细$/ });
+  await settlementToggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(settlementToggle).toHaveAttribute('aria-expanded', 'true');
+  if (info.project.name === 'chromium-desktop') {
+    await expect(detail.getByRole('columnheader', { name: '成员' })).toBeVisible();
+  }
+  await expect(detail.getByLabel('已结清', { exact: true })).toBeVisible();
+  expect(await detail.locator('.expense-settlement-progress__remaining--settled > span').evaluate(element => element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1)).toBe(true);
+  await readonlyFitsWidth(page);
+  await page.evaluate(() => new Promise<void>(resolve => { window.scrollTo(0, 0); requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+  await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-expanded.png`, fullPage: true, scale: 'css' });
+  await page.keyboard.press('Space');
+  await expect(settlementToggle).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: '返回流水' }).click();
+  await expect(page).toHaveURL('/activities/demo');
+  expect(control.writes).toHaveLength(0);
+});
+
+test('只读账单：外币、大金额和长姓名在深色窄容器完整展示', async ({ page }, info) => {
+  const control = await installReadonlyFixture(page);
+  const item = control.expenses[0]!;
+  control.members[0]!.displayName = '名字比较长的同行成员用于验证手机端布局';
+  Object.assign(item.expense, { title: '跨城市多人出游往返交通与住宿组合账单用于验证长用途展示', originalCurrency: 'USD', originalAmountMinor: '9007199254740993', baseAmountMinor: '63050394783186951', exchangeRate: '7', exchangeRateKind: 'MANUAL' });
+  item.payments = [{ ...item.payments[0]!, originalAmountMinor: '9007199254740893' }, { ...item.payments[0]!, memberId: 'm1', originalAmountMinor: '100' }];
+  item.payments.forEach((payment, index) => Object.assign(payment, { factId: `payment-${index}` }));
+  item.shares[0]!.originalAmountMinor = '9007199254704993';
+  control.progress.members[0]!.remainingMinor = '63050394783186251';
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.goto('/activities/demo?viewExpense=e1');
+  const detail = page.getByRole('region', { name: '账单详情', exact: true });
+  await expect(detail.locator('.expense-detail-summary__amount')).toContainText('US$90,071,992,547,409.93');
+  await expect(detail.locator('.expense-detail-summary__conversion')).toContainText('折算后 ¥630,503,947,831,869.51');
+  await detail.getByRole('button', { name: '查看分摊明细' }).click();
+  await detail.getByRole('button', { name: '查看结算明细' }).click();
+  await readonlyFitsWidth(page);
+  await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-long-values.png`, scale: 'css' });
+});
+
+test('只读账单：归档与离线保持展开功能和只读边界', async ({ page }) => {
+  const control = await installReadonlyFixture(page);
+  control.activity.status = 'ARCHIVED';
+  control.expenses[0]!.attachments = [];
+  control.expenses[0]!.expense.note = '';
+  await page.goto('/activities/demo');
+  await expect(page.locator('.expense-row')).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(page.getByText(/当前离线，以下流水/)).toBeVisible();
+  await page.locator('.expense-row').click();
+  const detail = page.getByRole('region', { name: '账单详情', exact: true });
+  await expect(detail.getByText(/最近一次同步的只读快照/)).toBeVisible();
+  await expect(detail.getByText('备注', { exact: true })).toHaveCount(0);
+  await expect(detail.getByRole('heading', { name: '图片' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /删除账单|保存账单/ })).toHaveCount(0);
+  await detail.getByRole('button', { name: '查看分摊明细' }).click();
+  await detail.getByRole('button', { name: '查看结算明细' }).click();
+  await readonlyFitsWidth(page);
+  await page.getByRole('button', { name: '关闭账单详情' }).click();
+  await expect(page.getByText(/当前离线，以下流水/)).toBeVisible();
+  expect(control.writes).toHaveLength(0);
+});
+
 test('紧凑流水摘要为只读字段，独立结算页覆盖收付和零余额', async ({ page }, info) => {
   const control = await installFixture(page);
   await page.goto('/activities/demo');
@@ -305,6 +445,70 @@ test('流水筛选：草稿、多选、条件标签与搜索在窄屏完整可�
   await page.getByRole('button', { name: '清除全部', exact: true }).click();
   await expect(filter).toHaveText('筛选');
 });
+
+for (const width of [320, 380, 390, 430, 1440]) {
+  test(`流水筛选：日期框在 ${width}px 下对齐且不溢出`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: width > 600 ? 1000 : 844 });
+    await installFixture(page);
+    await page.goto('/activities/demo');
+    await page.getByRole('button', { name: '筛选', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '筛选流水' });
+    const dates = dialog.locator('.feed-filter-dates');
+    const start = dialog.getByLabel('开始日期');
+    const end = dialog.getByLabel('结束日期');
+    // 等待面板入场完成，并容忍 WebKit 对可见比例的亚像素舍入。
+    await expect(dialog.getByRole('button', { name: '应用筛选' })).toBeInViewport({ ratio: 0.99 });
+
+    async function expectDatesFit() {
+      // 检查控件本身的边界，避免弹窗裁切溢出后页面宽度仍正常而漏报。
+      await expect(async () => {
+        const geometry = await dates.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            left: bounds.left, right: bounds.right,
+            fields: Array.from(element.querySelectorAll('.field')).map(field => {
+              const box = field.getBoundingClientRect();
+              const input = field.querySelector('input')!.getBoundingClientRect();
+              const label = field.querySelector('.field__label')!.getBoundingClientRect();
+              return { left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+                input: { left: input.left, right: input.right, top: input.top, width: input.width, height: input.height },
+                labelLeft: label.left };
+            }),
+          };
+        });
+        const [first, second] = geometry.fields;
+        for (const field of geometry.fields) {
+          expect(field.input.left).toBeGreaterThanOrEqual(geometry.left - 1);
+          expect(field.input.right).toBeLessThanOrEqual(geometry.right + 1);
+          expect(Math.abs(field.input.left - field.labelLeft)).toBeLessThanOrEqual(1);
+          expect(Math.abs(field.input.right - field.right)).toBeLessThanOrEqual(1);
+          expect(field.input.height).toBeGreaterThanOrEqual(44);
+        }
+        expect(Math.abs(first.input.width - second.input.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(first.input.height - second.input.height)).toBeLessThanOrEqual(1);
+        if (width <= 380) {
+          expect(Math.abs(first.input.left - second.input.left)).toBeLessThanOrEqual(1);
+          expect(Math.abs(second.top - first.bottom - 10)).toBeLessThanOrEqual(1);
+        } else {
+          expect(Math.abs(first.input.top - second.input.top)).toBeLessThanOrEqual(1);
+          expect(Math.abs(second.input.left - first.input.right - 10)).toBeLessThanOrEqual(1);
+        }
+      }).toPass();
+    }
+
+    await expectDatesFit();
+    if (width === 390) await page.screenshot({ path: info.outputPath('dates-empty.png') });
+    await start.fill('2026-09-05');
+    await end.fill('2026-09-06');
+    await expectDatesFit();
+    await page.screenshot({ path: info.outputPath('dates-filled.png') });
+    await dialog.getByRole('button', { name: '清空日期' }).click();
+    await expect(start).toHaveValue('');
+    await expect(end).toHaveValue('');
+    await expectDatesFit();
+    if (width === 390) await page.screenshot({ path: info.outputPath('dates-cleared.png') });
+  });
+}
 
 test('流水筛选：编辑和结算往返保留，退出活动及刷新重置', async ({ page }) => {
   await installFixture(page);

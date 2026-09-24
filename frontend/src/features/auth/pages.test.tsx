@@ -311,17 +311,12 @@ describe("JoinPage approval states", () => {
     expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login");
   });
 
-  it("应用图标和独立邀请插画在审批状态持续显示", async () => {
+  it("审批状态保留统一的中文品牌入口", async () => {
     const { container } = renderJoin();
-    const brand = container.querySelector(".join-panel__brand");
-    const illustration = container.querySelector('.join-panel__illustration');
-    expect(brand?.querySelector('img[src="/icons/icon-192.png"]')).toBeInTheDocument();
-    expect(brand?.contains(illustration)).toBe(false);
-    expect(brand).toBeInTheDocument();
-    expect(illustration).toHaveAttribute("alt", "");
-    expect(illustration).toHaveAttribute("aria-hidden", "true");
+    const brand = screen.getByRole("link", { name: "伙记首页" });
+    expect(brand.querySelector('img[src="/icons/icon-192.png"]')).toHaveAttribute("alt", "");
     expect(screen.getByText("伙记")).toBeInTheDocument();
-    expect(screen.getByText("HuddleTab")).toBeInTheDocument();
+    expect(screen.queryByText("HuddleTab")).not.toBeInTheDocument();
 
     state.join.mutateAsync.mockResolvedValue({
       activityId: "activity-1",
@@ -334,7 +329,8 @@ describe("JoinPage approval states", () => {
     fireEvent.click(screen.getByRole("button", { name: /加入活动/ }));
 
     expect(await screen.findByText("等待活动所有者审批")).toBeInTheDocument();
-    expect(container.querySelector('.join-panel__illustration[src="/illustrations/invitation.webp"]')).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "伙记首页" })).toBe(brand);
+    expect(container.querySelector(".account-card")).toContainElement(screen.getByText("等待活动所有者审批"));
   });
 
   it("Pending 留在邀请页并显示等待审批", async () => {
