@@ -121,7 +121,7 @@ docker compose up -d
 docker compose ps
 ```
 
-下一版支持全新安装和从 `v0.0.30` 原地升级，不支持直接从更早版本升级。原地升级应保留 PostgreSQL、应用数据和密钥，并先同步旧格式的未完成离线附件；全新安装须使用空数据库和独立应用目录。具体操作见 [安装与升级](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
+`v0.0.31` 支持全新安装和从 `v0.0.30` 原地升级，不支持直接从更早版本升级。原地升级应保留 PostgreSQL、应用数据和密钥，并先同步旧格式的未完成离线附件；全新安装须使用空数据库和独立应用目录。具体操作见 [安装与升级](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
 
 前端热更新要求 Rust API 已运行在 `127.0.0.1:5660`：
 

@@ -203,7 +203,7 @@ test('取消请求后输入仍保留且旧响应不覆盖状态', async ({ page 
   await page.getByRole('textbox', { name: '账单描述' }).fill('取消测试账单');
   await page.getByRole('button', { name: '生成账单草稿' }).click();
   await page.getByRole('button', { name: '取消智能录入' }).click();
-  await expect(page.getByRole('status')).toContainText('请求已取消');
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('请求已取消');
   await expect(page.getByRole('textbox', { name: '账单描述' })).toHaveValue('取消测试账单');
   await page.waitForTimeout(900);
   await expect(page.getByRole('heading', { name: '记一笔' })).not.toBeVisible();

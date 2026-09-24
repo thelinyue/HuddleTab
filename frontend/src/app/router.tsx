@@ -1,9 +1,9 @@
 import { retryableLazy } from "../components/retryable-lazy";
 import { AccountingSkeleton } from "../features/accounting/skeleton";
 import { FileQuestion } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { Brand } from "../components/brand";
 import { EmptyState, LoadingState, StateIllustration } from "../components/ui";
 import { ExpenseQueueSync } from "../features/accounting/expense-queue-sync";
@@ -105,20 +105,17 @@ function NotFoundPage() {
   );
 }
 
+/** 兼容旧结算链接；替换当前历史项，避免返回时再次落入重定向。 */
 function ActivityPrimaryPage() {
   const [searchParams] = useSearchParams();
-  const settlement = searchParams.get("tab") === "settlement";
-  const reducedMotion = useReducedMotion();
-  // 标签切换只对主内容做轻微位移；减少动态效果时保留淡入，页头和滚动容器保持稳定。
-  return (
-    <Suspense fallback={<LoadingState label={settlement ? "正在打开结算…" : "正在打开流水…"} />}>
-      <AnimatePresence initial={false} mode="popLayout" custom={settlement ? 1 : -1}>
-        <motion.div key={settlement ? "settlement" : "feed"} className="workspace-tab-content" initial={reducedMotion ? { opacity: 0 } : { opacity: 0, x: settlement ? 12 : -12 }} animate={{ opacity: 1, x: 0 }} exit={reducedMotion ? { opacity: 0 } : { opacity: 0, x: settlement ? -12 : 12 }} transition={reducedMotion ? { opacity: { duration: 0.12 } } : { opacity: { duration: 0.16 }, x: { type: "spring", bounce: 0, duration: 0.24 } }}>
-          {settlement ? <SettlementsPage /> : <ExpenseFeedPage />}
-        </motion.div>
-      </AnimatePresence>
-    </Suspense>
-  );
+  const { activityId = "" } = useParams();
+  const location = useLocation();
+  if (searchParams.get("tab") === "settlement") {
+    const next = new URLSearchParams(searchParams);
+    next.delete("tab");
+    return <Navigate replace to={{ pathname: `/activities/${encodeURIComponent(activityId)}/settlement`, search: next.toString() }} state={location.state} />;
+  }
+  return <Suspense fallback={<AccountingSkeleton />}><ExpenseFeedPage /></Suspense>;
 }
 
 function RoutePwaUpdatePrompt() {
@@ -139,6 +136,7 @@ export function ApplicationRouter() {
           <Route path="/activities" element={<ActivitiesPage />} />
           <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
             <Route index element={<ActivityPrimaryPage />} />
+            <Route path="settlement" element={<Suspense fallback={<AccountingSkeleton kind="settlement" />}><SettlementsPage /></Suspense>} />
             <Route path="statistics" element={<ActivityStatisticsPage />} />
             <Route path="expenses/new" element={<Suspense fallback={<LoadingState label="正在打开记账…" />}><NewExpensePage /></Suspense>} />
             <Route path="expenses/:expenseId" element={<Suspense fallback={<LoadingState label="正在打开账单…" />}><ExpenseDetailPage /></Suspense>} />

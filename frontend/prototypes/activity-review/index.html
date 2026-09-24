@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HuddleTab · 活动详情方案验证</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e9eeeb;color:#20352d;font:15px system-ui,sans-serif}header{max-width:1120px;margin:40px auto 24px;padding:0 24px}h1{font-size:28px;letter-spacing:-1px;margin:8px 0}p{color:#607068;line-height:1.7}small{color:#62796e;letter-spacing:2px}main{display:flex;gap:36px;justify-content:center;align-items:flex-start;padding:0 20px 50px}article{width:392px;min-width:0}h2{font-size:17px;margin:0 0 6px}article p{font-size:13px;margin:0 0 16px}iframe{width:100%;height:780px;border:1px solid #c7d2cb;border-radius:24px;background:#fafbf9;box-shadow:0 16px 40px #233a2d15}nav{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}button,select,a{font:inherit;padding:9px 13px;border:1px solid #c6d0c8;border-radius:9px;background:#fff;color:inherit;text-decoration:none;cursor:pointer}button:hover,a:hover{background:#f4f8f4}#task{padding:12px 16px;background:#f6f8f5;border-radius:10px}footer{max-width:860px;margin:0 auto 36px;padding:0 24px;color:#64736b;font-size:13px}@media(max-width:720px){header{margin:20px auto}main{flex-direction:column;align-items:center}article{width:100%;max-width:392px}iframe{height:720px}h1{font-size:24px}}
+</style>
+<header><small>HUDDLETAB / DESIGN STUDY</small><h1>活动详情，两种组织方式</h1><p>相同账目、相同表单，比较途中记账与集中对账。预览中的更改仅存在于当前浏览器内。</p>
+<nav><select id="scenario" aria-label="验证任务"><option value="1">① 连续记账与查找</option><option value="2">② 个人部分付款</option><option value="3">③ 组织者集中对账</option></select><button id="reset">重置两版</button><button id="large">大字体预览</button><a href="./app.html?variant=A">单独打开 A</a><a href="./app.html?variant=B">单独打开 B</a></nav><p id="task"></p></header>
+<main><article><h2>A · 紧凑双视图</h2><p>共享摘要，账单与结算平级；个人余额打开快捷面板。</p><iframe id="a" title="A 紧凑双视图"></iframe></article><article><h2>B · 账单主页与独立对账页</h2><p>先看账单；进入对账后选择与我有关或全部成员。</p><iframe id="b" title="B 独立对账页"></iframe></article></main>
+<footer>这是交互原型，不连接真实活动或付款服务。建议先完成一版再试另一版；重置可恢复同一组数据。</footer>
+<script>
+const tasks={1:'连续新增：早餐 ¥180、打车 ¥60、水果 ¥36，均由我付款、六人均分。然后搜索“晚餐”，筛选昨天，打开“古城晚餐”并返回。',2:'查看我的应付 ¥680，向小王记录已付 ¥200，确认剩余应付 ¥480，并返回账单。',3:'核对六人余额，然后记录：小林付小王 ¥200、小陈付小王 ¥320、小赵付小刘 ¥450。检查记录与余额，再回到账单。'};
+let large=false;function reset(){const s=document.querySelector('#scenario').value;document.querySelector('#task').textContent=tasks[s];for(const v of ['A','B'])document.getElementById(v.toLowerCase()).src=`./app.html?variant=${v}&scenario=${s}&large=${large?1:0}`;}document.querySelector('#scenario').onchange=reset;document.querySelector('#reset').onclick=reset;document.querySelector('#large').onclick=()=>{large=!large;reset()};reset();
+</script>
+</html>

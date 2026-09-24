@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiRequestError } from "../../api/error";
 
@@ -108,7 +108,7 @@ const workspaceState = vi.hoisted(() => ({ offline: false, snapshotOnly: false }
 const aiCapability = vi.hoisted(() => ({ textDraftAvailable: false }));
 const aiCapabilityQuery = vi.hoisted(() => vi.fn());
 const aiTextDraftMutation = vi.hoisted(() => vi.fn());
-const accountingQueryState = vi.hoisted(() => ({ emptyExpenses: false, emptySettlements: false, netMinor: '-500', ledgerPending: false }));
+const accountingQueryState = vi.hoisted(() => ({ emptyExpenses: false, emptySettlements: false, netMinor: '-500', ledgerPending: false, ledgerError: undefined as Error | undefined }));
 const guestMutation = vi.hoisted(() => ({
   error: null,
   isPending: false,
@@ -149,7 +149,7 @@ vi.mock("./api", () => ({
   useAiCapabilityQuery: (...args: unknown[]) => { aiCapabilityQuery(...args); return { data: aiCapability, isPending: false, error: null }; },
   createAiTextDraft: (...args: unknown[]) => aiTextDraftMutation(...args),
   useExpensesQuery: () => ({ data: workspaceState.snapshotOnly ? undefined : accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
-  useLedgerQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : { balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }] }, isPending: accountingQueryState.ledgerPending }),
+  useLedgerQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : { balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }] }, isPending: accountingQueryState.ledgerPending, error: accountingQueryState.ledgerError }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
   useSettlementsQuery: () => ({ data: accountingQueryState.emptySettlements ? [] : [settlement], isPending: false }),
   useUpdateExpenseMutation: () => updateMutation,
@@ -167,11 +167,12 @@ vi.mock("./expense-queue-sync", () => ({
 
 import { ExpenseDetailPage, NewExpensePage, UnifiedExpenseEditor } from "./expense-editor";
 import { ExpenseFeedPage } from "./feed-page";
+import { ActivityViewProvider } from "../activities/activity-view-state";
 import { FeedFilterProvider } from "./feed-filter-context";
 import { SettlementsPage } from "./settlement-page";
 
 function renderPage(node: ReactNode, initialEntries?: string[]) {
-  return render(<MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>, { wrapper: FeedFilterProvider });
+  return render(<MemoryRouter initialEntries={initialEntries}>{node}</MemoryRouter>, { wrapper: ({ children }) => <ActivityViewProvider><FeedFilterProvider>{children}</FeedFilterProvider></ActivityViewProvider> });
 }
 
 function openNoteView(container: HTMLElement = document.body) {
@@ -184,6 +185,10 @@ function chooseCurrency(code: string) {
   fireEvent.click(screen.getByRole("button", { name: /^币种：/ }));
   fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${code}`) }));
 }
+
+beforeEach(() => {
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn() })));
+});
 
 afterEach(() => {
   cleanup();
@@ -199,6 +204,7 @@ afterEach(() => {
   accountingQueryState.emptySettlements = false;
   accountingQueryState.netMinor = '-500';
   accountingQueryState.ledgerPending = false;
+  accountingQueryState.ledgerError = undefined;
   createMutation.mutateAsync.mockClear();
   reviseMutation.mutateAsync.mockClear();
   updateMutation.error = null;
@@ -313,7 +319,7 @@ describe("快捷记账 v0.0.2 信息路径", () => {
   async function openQuickExpense() {
     renderPage(<ExpenseFeedPage />);
     const trigger = screen.getByRole("button", { name: "记一笔" });
-    expect(trigger).toHaveClass("activity-add-fab", "quick-expense-trigger");
+    expect(trigger).toHaveClass("activity-floating-action--manual", "quick-expense-trigger");
     expect(trigger).toHaveAttribute("title", "记一笔");
     trigger.focus();
     fireEvent.click(trigger);
@@ -695,16 +701,16 @@ describe("流水内修改账单 Sheet", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "修改账单" })).not.toBeInTheDocument());
   });
 
-  it("离线与非活动状态继续使用独立账单深链", () => {
+  it("离线与非活动状态打开流水内只读面板", () => {
     workspaceState.offline = true;
     const offline = renderPage(<ExpenseFeedPage />, ["/activities/activity-1"]);
-    expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1");
+    expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute("href", "/activities/activity-1?viewExpense=expense-1");
     offline.unmount();
 
     workspaceState.offline = false;
     activity.status = "ENDED";
     renderPage(<ExpenseFeedPage />, ["/activities/activity-1"]);
-    expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1");
+    expect(screen.getByRole("link", { name: /午餐/ })).toHaveAttribute("href", "/activities/activity-1?viewExpense=expense-1");
   });
 });
 
@@ -1428,15 +1434,16 @@ describe("账务空状态插画", () => {
 });
 
 describe("我的结算摘要", () => {
-  it.each([['500', '应收', 'positive'], ['-500', '应付', 'negative'], ['0', '已结清', null]] as const)("余额 %s 保留正确金额、状态与说明", (netMinor, label, tone) => {
+  it.each([['500', '我的应收', 'positive'], ['-500', '我的应付', 'negative'], ['0', '个人余额已平', null]] as const)("余额 %s 保留正确金额、状态与说明", (netMinor, label, tone) => {
     accountingQueryState.netMinor = netMinor;
     renderPage(<SettlementsPage />);
     const summary = screen.getByRole('region', { name: '我的结算' });
     expect(within(summary).getByText(label, { exact: true })).toBeVisible();
     if (tone) expect(within(summary).getByText('¥5.00')).toHaveClass(`money--${tone}`);
-    else expect(summary.querySelector('.money')).toBeNull();
-    expect(within(summary).getByText(netMinor === '0' ? '0 人未结清 · 2 人已结清' : '2 人未结清 · 0 人已结清')).toBeVisible();
-    expect(within(summary).getByRole('link', { name: '生成分享摘要' })).toHaveAttribute('href', '/share-summary/activity-1');
+    else expect(within(summary).getByText('¥0.00')).toBeVisible();
+    expect(screen.getByRole('button', { name: '成员余额' })).toHaveTextContent(netMinor === '0' ? '0 人未结清' : '2 人未结清');
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    expect(screen.getByRole('link', { name: '生成分享摘要' })).toHaveAttribute('href', '/share-summary/activity-1');
   });
 
   it("余额未知时只显示摘要占位，不宣告已结清", () => {
@@ -1448,15 +1455,28 @@ describe("我的结算摘要", () => {
     expect(summary.querySelector('.accounting-skeleton__row')).toBeNull();
   });
 
-  it("可以在推荐转账区域切换结算方案", async () => {
+  it("余额刷新失败时不把缓存的零余额宣告为已结清", () => {
+    accountingQueryState.netMinor = '0';
+    accountingQueryState.ledgerError = new Error('余额读取失败');
     renderPage(<SettlementsPage />);
-    fireEvent.click(screen.getByRole("button", { name: /切换方案/ }));
+    expect(screen.getByRole('region', { name: '我的结算' })).toHaveTextContent('余额读取失败');
+    expect(screen.queryByText('个人余额已平')).toBeNull();
+    expect(screen.queryByText('全员余额已结清')).toBeNull();
+    expect(screen.getByRole('button', { name: '成员余额' })).toHaveTextContent('读取失败');
+    fireEvent.click(screen.getByRole('button', { name: '成员余额' }));
+    expect(screen.queryByText('余额已平')).toBeNull();
+  });
+
+  it("可以在更多菜单切换结算方案", async () => {
+    renderPage(<SettlementsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "切换结算方案" }));
 
     const sheet = screen.getByRole("dialog", { name: "选择结算方案" });
     expect(within(sheet).getByRole("radio", { name: /最少转账/ })).toHaveAttribute("aria-checked", "true");
     fireEvent.click(within(sheet).getByRole("radio", { name: /由我统一收付/ }));
 
-    expect(screen.getByText("当前：由我统一收付")).toBeVisible();
+    expect(screen.getByText("当前方案：由我统一收付")).toBeVisible();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "选择结算方案" })).not.toBeInTheDocument());
   });
 });
@@ -1497,7 +1517,7 @@ describe("AI 智能录入入口", () => {
     const manualButton = screen.getByRole("button", { name: "记一笔" });
     expect(aiButton).toBeInTheDocument();
     expect(manualButton).toBeInTheDocument();
-    expect(aiButton.parentElement).toHaveClass("expense-entry-fabs");
+    expect(aiButton.parentElement).toHaveClass("activity-floating-actions");
     expect(aiButton.compareDocumentPosition(manualButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -1584,6 +1604,7 @@ describe("Activity 生命周期写权限", () => {
     activity.status = status;
     renderPage(<SettlementsPage />);
 
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     expect(screen.getByRole("link", { name: "生成分享摘要" })).toHaveAttribute("href", "/share-summary/activity-1");
     expect(screen.getByRole("button", { name: "成员余额" })).toBeVisible();
     expect(screen.queryByText("查看 Rust 账本计算的全员余额")).not.toBeInTheDocument();

@@ -79,7 +79,7 @@ describe("ApplicationRouter", () => {
     expect(screen.queryByText("PWA 更新提示")).not.toBeInTheDocument();
   });
 
-  it("通过 tab query 在同一活动地址打开结算主视图", async () => {
+  it("旧 tab query 重定向到独立结算页", async () => {
     renderRoute("/activities/activity-1?tab=settlement");
     expect(await screen.findByText("结算页")).toBeInTheDocument();
     expect(screen.queryByText("流水页")).not.toBeInTheDocument();

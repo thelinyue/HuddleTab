@@ -75,7 +75,8 @@ jobs:
       - name: Rust PostgreSQL 测试
         env:
           TEST_DATABASE_URL: postgresql://huddletab:release-verification@127.0.0.1:5432/huddletab_test
-        run: cargo test --manifest-path server/Cargo.toml --all-targets --all-features -- --ignored --test-threads=1
+        # 真实 v0.0.30 升级用例需要由旧镜像建立独立数据库，在发布验收中单独运行。
+        run: cargo test --manifest-path server/Cargo.toml --all-targets --all-features -- --ignored --skip real_v030_database_upgrades_without_rewriting_data --test-threads=1
 
       - name: OpenAPI 与 TypeScript client 漂移检查
         shell: bash

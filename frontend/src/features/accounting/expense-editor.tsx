@@ -1034,6 +1034,17 @@ function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { a
   </section>;
 }
 
+/** 流水内的只读查看沿用详情内容，关闭面板即可回到原账单；独立链接继续可用。 */
+export function ExpenseReadonlyOverlay({ expenseId, onClose }: { expenseId: string; onClose: () => void }) {
+  const { session, activity, members: cachedMembers, offline, snapshot } = useWorkspace();
+  const expense = useExpenseQuery(session.userId, activity.activityId, expenseId, !offline);
+  const members = useMembersQuery(session.userId, activity.activityId, !offline);
+  const aggregate = expense.data ?? snapshot?.snapshot.expenses.find(item => item.expense.expenseId === expenseId);
+  return <Overlay open title="账单详情" onClose={onClose} initialFocus="mobile-dialog" mobileSheet={{ maxHeight: 0.92 }} className="expense-readonly-overlay">
+    {expense.error && !offline ? <ErrorNotice error={expense.error} /> : aggregate ? <ReadonlyExpenseDetail aggregate={aggregate} memberData={members.data ?? cachedMembers ?? []} activity={activity} offline={offline} /> : <LoadingState label="正在读取账单…" />}
+  </Overlay>;
+}
+
 export function ExpenseDetailPage() {
   const { expenseId = "" } = useParams();
   const [searchParams] = useSearchParams();

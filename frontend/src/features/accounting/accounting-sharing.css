@@ -97,15 +97,9 @@
 .settlement-share-entry::before { position: absolute; inset: 50% 0 auto; min-height: 44px; height: 100%; transform: translateY(-50%); content: ""; }
 .settlement-page .balance-entry { margin-top: 0; }
 .balance-entry .is-expanded { transform: rotate(180deg); }
-.settlement-recommendation-item + .settlement-recommendation-item { border-top: 1px solid var(--border); }
 .settlement-section__heading { align-items: center !important; min-height: 44px !important; }
 .settlement-section__heading h2 { margin: 0; }
-.settlement-strategy-heading { display: flex; min-width: 0; flex: 1 1 auto; align-items: baseline; flex-wrap: wrap; gap: 8px; }
 /* 标题和当前方案使用真实布局，窄屏换行时不再依赖负边距或相对定位补偿。 */
-.settlement-strategy-trigger { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; gap: 3px; border: 0; padding: 0; color: var(--primary); background: transparent; font-size: 12px; font-weight: 650; touch-action: manipulation; }
-.settlement-strategy-trigger:hover { color: var(--foreground); }
-.settlement-strategy-trigger:disabled { color: var(--muted-foreground); opacity: .65; cursor: not-allowed; }
-.settlement-strategy-trigger:active { transform: scale(.97); }
 .settlement-strategy-current { color: var(--muted-foreground); font-size: 12px; }
 .settlement-strategy-options { display: grid; gap: 8px; }
 .settlement-strategy-option { display: grid; min-height: 76px; grid-template-columns: 22px minmax(0, 1fr) 20px; align-items: center; gap: 10px; border: 1px solid transparent; border-radius: 12px; padding: 12px; color: var(--foreground); background: transparent; text-align: left; touch-action: manipulation; }

@@ -1,5 +1,5 @@
 import { ApiRequestError } from "../../api/error";
-import { Image as ImageIcon, Info, Plus, ReceiptText, ImageDown, Sparkles } from "lucide-react";
+import { Image as ImageIcon, Info, ReceiptText } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -12,7 +12,8 @@ import {
   type ExpenseAggregate,
   useAiCapabilityQuery,
   useDiscardPendingExpenseMutation,
-  useExpensesQuery
+  useExpensesQuery,
+  useLedgerQuery
 } from "./api";
 import { usePendingExpenseMutations } from "./expense-queue-sync";
 import { AiExpenseEntry, type AiExpenseEditorInitialValues } from "./ai-expense-entry";
@@ -21,10 +22,14 @@ import { retryableLazy } from "../../components/retryable-lazy";
 import { categories, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
 import { AccountingSkeleton } from "./skeleton";
 import { FeedFilterControls } from "./feed-filter-controls";
+import { ActivityFloatingActions } from "./activity-floating-actions";
+import { PersonalBalance } from "./personal-balance";
+import { useActivityPagePosition } from "../activities/activity-view-state";
 import { useFeedFilters } from "./feed-filter-context";
 import { emptyFeedFilters, feedCalendarDate, feedFilterCount, matchesFeedExpense } from "./feed-filters";
 const UnifiedExpenseEditor = retryableLazy(() => import("./expense-editor").then(m => ({ default: m.UnifiedExpenseEditor })));
 const ExpenseEditOverlay = retryableLazy(() => import("./expense-editor").then(m => ({ default: m.ExpenseEditOverlay })));
+const ExpenseReadonlyOverlay = retryableLazy(() => import("./expense-editor").then(m => ({ default: m.ExpenseReadonlyOverlay })));
 /** 接口顺序不是页面契约；流水在展示边界按发生时间倒序并稳定合并同一公历日。 */
 export function groupExpensesByDate(expenses: readonly ExpenseAggregate[], timeZone: string) {
   const sorted = [...expenses].sort((left, right) =>
@@ -54,6 +59,7 @@ export function ExpenseFeedPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const expenses = useExpensesQuery(session.userId, activity.activityId, !offline);
+  const ledger = useLedgerQuery(session.userId, activity.activityId, !offline);
   const pendingExpenses = usePendingExpenseMutations(
     session.userId,
     activity.activityId,
@@ -88,7 +94,8 @@ export function ExpenseFeedPage() {
     }
   }
 
-  const blockingError = [expenses.error, members.error].find(error => error instanceof ApiRequestError && [401, 403, 404].includes(error.status));
+  const { containerRef, restorePosition } = useActivityPagePosition("feed", Boolean(expenses.data ?? snapshot?.snapshot.expenses) && !pendingExpenses.isPending && !(members.isPending && (cachedMembers?.length ?? 0) === 0));
+  const blockingError = [expenses.error, members.error, ledger.error].find(error => error instanceof ApiRequestError && [401, 403, 404].includes(error.status));
   if (blockingError) return <ErrorNotice error={blockingError} />;
   if ((!expenses.data && !snapshot && expenses.isPending) || members.isPending && (cachedMembers?.length ?? 0) === 0) return <AccountingSkeleton />;
   if ((!offline && expenses.error && !expenses.data && !snapshot) || members.error && (cachedMembers?.length ?? 0) === 0) return <div className="workspace-page"><ErrorNotice error={expenses.error ?? members.error} /><Button variant="secondary" onClick={() => { void expenses.refetch(); void members.refetch(); }}>重试</Button></div>;
@@ -114,13 +121,17 @@ export function ExpenseFeedPage() {
   const aiAvailable = !offline && expenseWritable && aiCapability.data?.textDraftAvailable === true;
   const existingExpenseWritable = expenseWritable && !offline;
   const editExpenseId = existingExpenseWritable ? searchParams.get("editExpense") ?? "" : "";
+  const readonlyExpenseId = searchParams.get("viewExpense") ?? (!existingExpenseWritable ? searchParams.get("editExpense") ?? "" : "");
+  const personalNet = (ledger.data ?? snapshot?.snapshot.ledger)?.balances.find(item => item.memberId === activity.currentMemberId)?.netMinor;
   const closeEditExpense = () => {
+    restorePosition();
     if ((location.state as { expenseOverlay?: boolean } | null)?.expenseOverlay) {
       navigate(-1);
       return;
     }
     const next = new URLSearchParams(searchParams);
     next.delete("editExpense");
+    next.delete("viewExpense");
     navigate({ pathname: location.pathname, search: next.toString() ? `?${next.toString()}` : "" }, { replace: true });
   };
   for (const item of allExpenses) {
@@ -129,13 +140,14 @@ export function ExpenseFeedPage() {
   }
 
   return (
-    <div className="workspace-page expense-feed-page">
+    <div ref={containerRef} className="workspace-page expense-feed-page">
       {expenses.error && (expenses.data !== undefined || snapshot !== undefined) ? <div role="alert" className="notice">流水更新失败，当前显示已加载内容。<Button variant="ghost" onClick={() => void expenses.refetch()}>重试</Button></div> : null}
       {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，以下流水使用最近一次同步的只读快照；新账单仍可先保存在本机。</span></div> : null}
       <section className="expense-summary" aria-label="消费摘要">
-        {/* 与结算摘要共用标题行，保证两个工作台页面的卡片视觉基准一致。 */}
-        <header className="accounting-summary__header"><p>总消费</p><Link className="settlement-share-entry" to={`/share-feed/${encodeURIComponent(activity.activityId)}`}><ImageDown aria-hidden="true" size={17} />分享流水小票</Link></header>
-        <div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div>
+        <div className="expense-summary__columns">
+          <div className="expense-summary__total"><header className="accounting-summary__header"><p>总消费 · {activity.baseCurrency}</p></header><div className="accounting-summary__value"><Money value={formatMoney(activity.baseCurrency, total.toString())} /></div></div>
+          <PersonalBalance currency={activity.baseCurrency} netMinor={personalNet} error={ledger.error} onRetry={() => void ledger.refetch()} />
+        </div>
         {[...foreignTotals].length ? <p className="expense-summary__foreign">其中外币消费 {[...foreignTotals].map(([currencyCode, amount]) => formatMoney(currencyCode, amount.toString())).join(" · ")} · 已折算</p> : null}
         <p className="expense-summary__meta accounting-summary__meta">
           <span>{allExpenses.length} 笔消费 · 人均消费 <strong>{formatMoney(activity.baseCurrency, average.toString())}</strong></span>
@@ -200,7 +212,7 @@ export function ExpenseFeedPage() {
                 )?.lastError?.message ?? (local?.attachments.some((attachment) =>
                   ["PENDING", "SYNCING", "RETRYABLE"].includes(attachment.status)
                 ) ? "图片等待同步" : undefined);
-                const hasAttachments = attachments.length > 0 || local?.attachments.some(
+                const hasAttachments = (attachments?.length ?? 0) > 0 || local?.attachments.some(
                   (attachment) => attachment.status !== "REJECTED",
                 ) === true;
                 const settlementStatus = settlementProgress?.status;
@@ -213,14 +225,11 @@ export function ExpenseFeedPage() {
                       : settlementStatus === "UNSETTLED"
                         ? "待结算"
                         : undefined;
-                const detailUrl = `/activities/${activity.activityId}/expenses/${expense.expenseId}`;
                 const editQuery = new URLSearchParams(searchParams);
-                editQuery.set("editExpense", expense.expenseId);
-                const rowUrl = existingExpenseWritable
-                  ? { pathname: `/activities/${activity.activityId}`, search: `?${editQuery.toString()}` }
-                  : detailUrl;
+                editQuery.set(existingExpenseWritable ? "editExpense" : "viewExpense", expense.expenseId);
+                const rowUrl = { pathname: `/activities/${activity.activityId}`, search: `?${editQuery.toString()}` };
                 return (
-                  <Link key={expense.expenseId} to={rowUrl} state={existingExpenseWritable ? { expenseOverlay: true } : { expenseDetailFromFeed: true }} className="expense-row">
+                  <Link key={expense.expenseId} to={rowUrl} state={{ expenseOverlay: true }} className="expense-row" data-reading-key={expense.expenseId} data-focus-key={`expense-${expense.expenseId}`}>
                     <span className="category-illustration"><img src={`/expense-categories/${categoryInfo[2]}.webp`} width={44} height={44} alt="" /></span>
                     <span className="expense-row__content"><span className="expense-row__title"><strong>{expense.title}</strong>{hasAttachments ? <ExpenseAttachmentIndicator /> : null}</span>{expense.note ? <span className="expense-row__note">{expense.note}</span> : null}<small>{payerNames || "未知付款人"} 付款 · {shares.length}人{settlementLabel ? ` · ${settlementLabel}` : ""}</small>{attachmentMessage ? <small>{attachmentMessage}</small> : null}</span>
                     <span className="expense-row__amount"><Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} /><small>{new Date(expense.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</small></span>
@@ -232,10 +241,9 @@ export function ExpenseFeedPage() {
         )) : !filteredPending.length ? <EmptyState icon={<ReceiptText size={28} />} visual={allExpenses.length || pendingRecords.length || filtering ? undefined : <StateIllustration src="/illustrations/expense-feed-empty.webp" />} title={allExpenses.length || pendingRecords.length || filtering ? "没有符合条件的流水" : "还没有流水"} description={allExpenses.length || pendingRecords.length || filtering ? "调整搜索或筛选条件后再试。" : "记录第一笔共同支出，账本会自动计算成员余额。"} action={filtering ? <Button variant="secondary" onClick={() => setFeedState(current => ({ ...current, query: "", filters: emptyFeedFilters() }))}>清除全部条件</Button> : undefined} /> : null}
       </section>
 
-      {expenseWritable ? <div className="expense-entry-fabs">
-        {aiAvailable ? <button className="expense-ai-fab" type="button" aria-label="智能录入" title="智能录入" onClick={() => { setEntryMode("ai"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(true); }}><Sparkles aria-hidden="true" size={18} /><span>AI</span></button> : null}
-        <button className="activity-add-fab quick-expense-trigger" type="button" aria-label="记一笔" title="记一笔" onClick={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(true); }}><Plus aria-hidden="true" size={24} /></button>
-      </div> : null}
+      <ActivityFloatingActions activityId={activity.activityId} writable={expenseWritable} aiAvailable={aiAvailable}
+        onAi={() => { setEntryMode("ai"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(true); }}
+        onManual={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(true); }} />
       {expenseWritable && entryOpen ? <Overlay
         open={true}
         title={entryMode === "ai" ? "智能录入" : quickExpenseViewTitle(quickView)}
@@ -253,9 +261,10 @@ export function ExpenseFeedPage() {
           imageAvailable={aiCapability.data?.imageDraftAvailable === true}
           onManual={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); }}
           onDraft={(draft) => { setInitialDraft(draft); setEntryMode("manual"); setQuickView("entry"); }}
-        /> : <UnifiedExpenseEditor initialDraft={initialDraft} view={quickView} onViewChange={setQuickView} onSaved={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(false); }} />}
+        /> : <UnifiedExpenseEditor initialDraft={initialDraft} view={quickView} onViewChange={setQuickView} onSaved={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(false); restorePosition(); }} />}
       </Overlay> : null}
       {rejectedDraft ? <Overlay open={true} title={rejectedView === "entry" ? "修改被拒账单" : quickExpenseViewTitle(rejectedView)} onBack={rejectedView === "entry" ? undefined : { label: quickExpenseBackLabel(rejectedView, "修改被拒账单"), onClick: () => setRejectedView(parentQuickExpenseView(rejectedView)) }} focusKey={rejectedView} initialFocus="mobile-dialog" mobileSheet={quickExpenseMobileSheet(rejectedView)} onClose={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} className={quickExpenseOverlayClass(rejectedView)}><UnifiedExpenseEditor rejected={rejectedDraft} view={rejectedView} onViewChange={setRejectedView} onSaved={() => { setRejectedView("entry"); setRejectedDraft(undefined); }} /></Overlay> : null}
+      {readonlyExpenseId ? <ExpenseReadonlyOverlay expenseId={readonlyExpenseId} onClose={closeEditExpense} /> : null}
       {editExpenseId ? <ExpenseEditOverlay expenseId={editExpenseId} onClose={closeEditExpense} /> : null}
       <ConfirmDialog open={Boolean(discardTarget)} title="丢弃本地记录" message="丢弃后无法恢复这条本地离线消费，也不会影响服务器上的账单。确定继续吗？" confirmLabel="确认丢弃" busy={discardPending.isPending} onConfirm={() => void confirmDiscard()} onCancel={() => setDiscardTarget(undefined)} />
     </div>
