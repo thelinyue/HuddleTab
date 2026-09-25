@@ -121,6 +121,20 @@ pub struct ExpenseAggregateData {
     pub shares: Vec<ExpenseFactData>,
     pub attachments: Vec<ExpenseAttachmentData>,
     pub settlement_progress: ExpenseSettlementProgressData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clearings: Option<Vec<BillClearingData>>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BillClearingData {
+    pub member_id: String,
+    pub kind: String,
+    pub amount_minor: String,
+    pub settlement_id: Option<String>,
+    pub offset_expense_id: Option<String>,
+    pub offset_expense_title: Option<String>,
+    pub origin: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -130,6 +144,8 @@ pub struct ExpenseSettlementProgressData {
     pub currency: String,
     pub total_required_minor: String,
     pub settled_minor: String,
+    pub paid_minor: String,
+    pub offset_minor: String,
     pub remaining_minor: String,
     pub members: Vec<MemberSettlementProgressData>,
 }
@@ -141,6 +157,8 @@ pub struct MemberSettlementProgressData {
     pub direction: String,
     pub expected_minor: String,
     pub settled_minor: String,
+    pub paid_minor: String,
+    pub offset_minor: String,
     pub remaining_minor: String,
     pub status: String,
 }
@@ -529,6 +547,21 @@ pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateDat
             .map(format_attachment)
             .collect(),
         settlement_progress: settlement_progress_data(aggregate.settlement_progress, base_currency),
+        clearings: (!aggregate.clearings.is_empty()).then(|| {
+            aggregate
+                .clearings
+                .into_iter()
+                .map(|entry| BillClearingData {
+                    member_id: entry.member_id.to_string(),
+                    kind: entry.kind,
+                    amount_minor: entry.amount_minor.to_string(),
+                    settlement_id: entry.settlement_id.map(|id| id.to_string()),
+                    offset_expense_id: entry.offset_expense_id.map(|id| id.to_string()),
+                    offset_expense_title: entry.offset_expense_title,
+                    origin: entry.origin,
+                })
+                .collect()
+        }),
     }
 }
 
@@ -541,6 +574,8 @@ fn settlement_progress_data(
         currency,
         total_required_minor: progress.total_required_minor.to_string(),
         settled_minor: progress.settled_minor.to_string(),
+        paid_minor: progress.paid_minor.to_string(),
+        offset_minor: progress.offset_minor.to_string(),
         remaining_minor: progress.remaining_minor.to_string(),
         members: progress
             .members
@@ -556,6 +591,8 @@ fn member_progress_data(member: &MemberSettlementProgress) -> MemberSettlementPr
         direction: member.balance_type.as_str().to_owned(),
         expected_minor: member.expected_minor.to_string(),
         settled_minor: member.settled_minor.to_string(),
+        paid_minor: member.paid_minor.to_string(),
+        offset_minor: member.offset_minor.to_string(),
         remaining_minor: member.remaining_minor.to_string(),
         status: member.status.as_str().to_owned(),
     }

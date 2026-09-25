@@ -122,7 +122,15 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
         .expect("应可读取 SQLx 迁移记录");
     assert_eq!(
         versions,
-        [202_609_230_001, 202_609_230_002, 202_609_230_003]
+        [
+            202_609_230_001,
+            202_609_230_002,
+            202_609_230_003,
+            202_609_250_001,
+            202_609_250_002,
+            202_609_250_003,
+            202_609_250_004
+        ]
     );
     let settings: (String, i64) = sqlx::query_as(
         "SELECT registration_policy, version FROM system_settings WHERE id = 'singleton'",
@@ -132,6 +140,110 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
     .expect("重复启动后设置仍存在");
     assert_eq!(settings, ("OPEN".into(), 2));
     replayed_pool.close().await;
+    drop_schema(admin, &schema).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn date_scope_upgrade_preserves_cash_and_explicit_allocations_but_unconfirms_pure_offsets() {
+    let (admin, schema, url) = isolated_schema().await;
+    let pool = PgPool::connect(&url).await.unwrap();
+    let all = sqlx::migrate!("./migrations");
+    let before_scope = sqlx::migrate::Migrator {
+        migrations: std::borrow::Cow::Owned(
+            all.iter()
+                .filter(|m| m.version < 202_609_250_003)
+                .cloned()
+                .collect(),
+        ),
+        ..sqlx::migrate::Migrator::DEFAULT
+    };
+    before_scope.run(&pool).await.unwrap();
+    let user = Uuid::new_v4();
+    let activity = Uuid::new_v4();
+    let owner = Uuid::new_v4();
+    let members = [owner, Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    let bills = [
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+    ];
+    let payment = Uuid::new_v4();
+    let explicit_payment = Uuid::new_v4();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO users(id, username, password_hash, display_name, created_at, updated_at) VALUES ($1,'upgrade-cash','test','迁移用户',now(),now())").bind(user).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO activities(id,name,base_currency,start_date,owner_member_id,created_by_user_id,created_at,updated_at,revision) VALUES ($1,'日期迁移','CNY',CURRENT_DATE,$2,$3,now(),now(),10)").bind(activity).bind(owner).bind(user).execute(&mut *tx).await.unwrap();
+    for (index, member) in members.iter().enumerate() {
+        sqlx::query("INSERT INTO activity_members(id,activity_id,user_id,display_name,role,joined_at) VALUES ($1,$2,$3,'成员',$4,now())").bind(member).bind(activity).bind((index == 0).then_some(user)).bind(if index == 0 {"OWNER"} else {"MEMBER"}).execute(&mut *tx).await.unwrap();
+    }
+    // A/B 的 100 与 40 由真实 60 元转账支持；C/D 的互欠 70 没有现金支持。
+    for (index, (debtor, creditor, amount)) in [(0, 1, 100_i64), (1, 0, 40), (2, 3, 70), (3, 2, 70)]
+        .iter()
+        .enumerate()
+    {
+        let bill = bills[index];
+        sqlx::query("INSERT INTO expenses(id,activity_id,created_by_user_id,client_mutation_id,title,category,occurred_at,original_currency,original_amount_minor,base_currency,base_amount_minor,exchange_rate_kind,exchange_rate,split_mode,created_at,updated_at) VALUES ($1,$2,$3,$4,'历史账单','OTHER',now() - interval '1 day','CNY',$5,'CNY',$5,'IDENTITY',1,'EXACT',now() - interval '1 day',now())").bind(bill).bind(activity).bind(user).bind(Uuid::new_v4()).bind(amount).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO expense_payments(id,activity_id,expense_id,payer_member_id,original_currency,original_amount_minor,base_currency,base_amount_minor) VALUES ($1,$2,$3,$4,'CNY',$5,'CNY',$5)").bind(Uuid::new_v4()).bind(activity).bind(bill).bind(members[*creditor]).bind(amount).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO expense_shares(id,activity_id,expense_id,member_id,original_currency,original_amount_minor,base_currency,base_amount_minor) VALUES ($1,$2,$3,$4,'CNY',$5,'CNY',$5)").bind(Uuid::new_v4()).bind(activity).bind(bill).bind(members[*debtor]).bind(amount).execute(&mut *tx).await.unwrap();
+    }
+    for (id, amount, ago) in [
+        (explicit_payment, 20_i64, "2 hours"),
+        (payment, 40, "1 hour"),
+    ] {
+        sqlx::query("INSERT INTO settlements(id,activity_id,created_by_user_id,client_mutation_id,payer_member_id,receiver_member_id,currency,amount_minor,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,'CNY',$7,now() - $8::interval,now())").bind(id).bind(activity).bind(user).bind(Uuid::new_v4()).bind(owner).bind(members[1]).bind(amount).bind(ago).execute(&mut *tx).await.unwrap();
+    }
+    sqlx::query("INSERT INTO settlement_allocations(activity_id,settlement_id,expense_id,amount_minor,created_at) VALUES ($1,$2,$3,20,now())").bind(activity).bind(explicit_payment).bind(bills[0]).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bill_clearing_entries(id,activity_id,expense_id,member_id,offset_expense_id,kind,amount_minor,origin,created_at) VALUES ($1,$2,$3,$4,$5,'OFFSET',70,'AUTO',now())").bind(Uuid::new_v4()).bind(activity).bind(bills[2]).bind(members[2]).bind(bills[3]).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let facts_sql = "SELECT json_build_object('payments',(SELECT json_agg(s ORDER BY id) FROM (SELECT id,payer_member_id,receiver_member_id,amount_minor FROM settlements) s),'allocations',(SELECT json_agg(a ORDER BY settlement_id) FROM settlement_allocations a))::text";
+    let before: String = sqlx::query_scalar(facts_sql)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let upgraded = connect_and_migrate(&url).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(facts_sql)
+            .fetch_one(&upgraded)
+            .await
+            .unwrap(),
+        before
+    );
+    let mut connection = upgraded.acquire().await.unwrap();
+    let state = huddletab_server::infrastructure::bill_clearing::load_state(
+        &mut connection,
+        activity,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(state.balances(&bills).unwrap().values().all(|n| *n == 0));
+    assert_eq!(state.remaining[&(bills[0], owner)], 0);
+    assert_eq!(state.remaining[&(bills[2], members[2])], -70);
+    assert!(
+        state
+            .display_entries()
+            .iter()
+            .any(|entry| entry.origin == "HISTORICAL_EXPLICIT")
+    );
+    assert!(
+        state
+            .display_entries()
+            .iter()
+            .all(|entry| entry.expense_id != bills[2] && entry.expense_id != bills[3])
+    );
+    drop(connection);
+    upgraded.close().await;
+    let replay = connect_and_migrate(&url).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(facts_sql)
+            .fetch_one(&replay)
+            .await
+            .unwrap(),
+        before
+    );
+    replay.close().await;
     drop_schema(admin, &schema).await;
 }
 
@@ -186,14 +298,14 @@ async fn v030_history_preserves_business_data_without_applying_baseline() {
             .fetch_all(&upgraded)
             .await
             .expect("应读取升级记录");
-    assert_eq!(versions.last(), Some(&202_609_230_003));
+    assert_eq!(versions.last(), Some(&202_609_250_004));
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-async fn v030_upgrade_invalidates_only_ordinary_direct_invites_and_pending_requests() {
+async fn v030_upgrade_invalidates_legacy_direct_and_link_invites_but_preserves_binding_invites() {
     let (admin, schema, database_url) = isolated_schema().await;
     let pool = old_schema(&database_url)
         .await
@@ -244,7 +356,7 @@ async fn v030_upgrade_invalidates_only_ordinary_direct_invites_and_pending_reque
     assert_eq!(invites.len(), 3);
     assert!(invites.contains(&(direct_id, true, 2)));
     assert!(invites.contains(&(binding_id, false, 1)));
-    assert!(invites.contains(&(link_id, false, 1)));
+    assert!(invites.contains(&(link_id, true, 2)));
     let request: (String, bool, bool) = sqlx::query_as("SELECT status, decided_at IS NOT NULL, decided_by_member_id IS NULL FROM activity_join_requests WHERE id = $1")
         .bind(request_id).fetch_one(&upgraded).await.expect("应读取申请状态");
     assert_eq!(request, ("INVALIDATED".to_owned(), true, true));
@@ -259,9 +371,9 @@ async fn v030_upgrade_invalidates_only_ordinary_direct_invites_and_pending_reque
     let applicant_notice_count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications WHERE recipient_user_id = $1 AND type = 'JOIN_APPROVAL_RESOLVED' AND payload->>'status' = 'INVALIDATED'")
         .bind(applicant_id).fetch_one(&upgraded).await.expect("应读取申请人通知");
     assert_eq!(applicant_notice_count, 1);
-    let audit: (i64, i64) = sqlx::query_as("SELECT revision, (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1 AND action = 'LEGACY_DIRECT_INVITATIONS_INVALIDATED') FROM activities WHERE id = $1")
+    let audit: (i64, i64, i64) = sqlx::query_as("SELECT revision, (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1 AND action = 'LEGACY_DIRECT_INVITATIONS_INVALIDATED'), (SELECT count(*) FROM activity_audit_logs WHERE activity_id = $1 AND action = 'LEGACY_LINK_INVITATIONS_INVALIDATED') FROM activities WHERE id = $1")
         .bind(activity_id).fetch_one(&upgraded).await.expect("应读取迁移审计");
-    assert_eq!(audit, (2, 1));
+    assert_eq!(audit, (3, 1, 1));
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }

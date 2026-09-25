@@ -16,6 +16,7 @@ pub mod push;
 pub(crate) mod rate_limit;
 pub mod router;
 pub mod settlement;
+pub mod settlement_scope;
 pub mod sharing;
 pub mod snapshot;
 mod static_files;

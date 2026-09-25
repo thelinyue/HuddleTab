@@ -183,6 +183,318 @@ fn settlement_payload(context: &AccountingContext, mutation_id: Uuid, amount_min
     })
 }
 
+fn direct_bill_payload(
+    title: &str,
+    payer: Uuid,
+    debtor: Uuid,
+    amount: &str,
+    occurred_at: &str,
+) -> Value {
+    json!({
+        "clientMutationId": Uuid::new_v4(),
+        "title": title,
+        "category": "OTHER",
+        "occurredAt": occurred_at,
+        "originalCurrency": "CNY",
+        "originalAmountMinor": amount,
+        "exchangeRateKind": "IDENTITY",
+        "exchangeRate": "1",
+        "payments": [{"memberId": payer, "amountMinor": amount}],
+        "split": {"mode": "EXACT", "entries": [{"memberId": debtor, "value": amount}]}
+    })
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 同一活动连续验证移除成员的历史账单可修正、新账单不能再引用该成员。
+#[allow(clippy::too_many_lines)]
+async fn removed_member_can_be_reused_on_existing_bills_but_not_new_bills() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let collection_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let original = direct_bill_payload(
+        "原有参与",
+        context.guest_member_id,
+        context.guest_member_id,
+        "100",
+        "2026-08-30T12:00:00Z",
+    );
+    let forgotten = direct_bill_payload(
+        "漏记成员",
+        context.owner_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-08-30T13:00:00Z",
+    );
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", collection_uri.clone(), original.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let original_uri = format!(
+        "{collection_uri}/{}",
+        created["data"]["expense"]["expenseId"]
+            .as_str()
+            .expect("应返回账单 ID")
+    );
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", collection_uri.clone(), forgotten.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let forgotten_uri = format!(
+        "{collection_uri}/{}",
+        created["data"]["expense"]["expenseId"]
+            .as_str()
+            .expect("应返回账单 ID")
+    );
+    let unreferenced_member_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO activity_members (id, activity_id, display_name, role, joined_at)
+         VALUES ($1, $2, '漏记的成员', 'MEMBER', now())",
+    )
+    .bind(unreferenced_member_id)
+    .bind(context.activity_id)
+    .execute(&context.pool)
+    .await
+    .expect("应插入尚无账务引用的成员");
+
+    for member_id in [context.guest_member_id, unreferenced_member_id] {
+        let (status, removed) = response(
+            &context,
+            request(
+                &context,
+                "DELETE",
+                format!(
+                    "/api/activities/{}/members/{member_id}",
+                    context.activity_id
+                ),
+                json!({}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(removed["data"]["result"], "LEFT");
+    }
+
+    let mut revised = original.clone();
+    revised["version"] = json!("1");
+    revised["title"] = json!("改用途仍保留成员");
+    let (status, saved) = response(
+        &context,
+        request(&context, "PUT", original_uri.clone(), revised.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["data"]["expense"]["version"], "2");
+
+    revised["version"] = json!("2");
+    revised["payments"] = json!([{"memberId": context.owner_member_id, "amountMinor": "100"}]);
+    revised["split"] = json!({"mode": "EXACT", "entries": [{"memberId": context.owner_member_id, "value": "100"}]});
+    let (status, saved) = response(
+        &context,
+        request(&context, "PUT", original_uri.clone(), revised.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["data"]["expense"]["version"], "3");
+
+    revised["version"] = json!("3");
+    revised["payments"] = original["payments"].clone();
+    revised["split"] = original["split"].clone();
+    let (status, saved) = response(&context, request(&context, "PUT", original_uri, revised)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["data"]["expense"]["version"], "4");
+
+    let mut corrected = forgotten.clone();
+    corrected["version"] = json!("1");
+    corrected["payments"] = json!([{"memberId": unreferenced_member_id, "amountMinor": "100"}]);
+    corrected["split"] =
+        json!({"mode": "EXACT", "entries": [{"memberId": unreferenced_member_id, "value": "100"}]});
+    let (status, saved) = response(
+        &context,
+        request(&context, "PUT", forgotten_uri, corrected.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        saved["data"]["payments"][0]["memberId"],
+        unreferenced_member_id.to_string()
+    );
+    assert_eq!(
+        saved["data"]["shares"][0]["memberId"],
+        unreferenced_member_id.to_string()
+    );
+
+    let new_bill = direct_bill_payload(
+        "已移除成员不能参与新账单",
+        unreferenced_member_id,
+        unreferenced_member_id,
+        "100",
+        "2026-08-30T14:00:00Z",
+    );
+    let (status, rejected) = response(
+        &context,
+        request(&context, "POST", collection_uri, new_bill),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(rejected["error"]["code"], "INVALID_EXPENSE");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 同一账本场景验证净额付款及跨账单抵销共同清偿，需保留完整状态迁移顺序。
+#[allow(clippy::too_many_lines)]
+async fn net_payment_and_cross_bill_offset_clear_both_bills_without_manual_links() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let bills_uri = format!("/api/activities/{}/expenses", context.activity_id);
+    let first = direct_bill_payload(
+        "甲欠乙",
+        context.guest_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-08-30T12:00:00Z",
+    );
+    let second = direct_bill_payload(
+        "乙欠甲",
+        context.owner_member_id,
+        context.guest_member_id,
+        "40",
+        "2026-08-31T12:00:00Z",
+    );
+    let (status, first_created) = response(
+        &context,
+        request(&context, "POST", bills_uri.clone(), first),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let first_id = first_created["data"]["expense"]["expenseId"]
+        .as_str()
+        .expect("应返回账单 ID");
+    let (status, second_created) = response(
+        &context,
+        request(&context, "POST", bills_uri.clone(), second),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let second_id = second_created["data"]["expense"]["expenseId"]
+        .as_str()
+        .expect("应返回账单 ID");
+    assert_eq!(
+        second_created["data"]["settlementProgress"]["offsetMinor"],
+        "0"
+    );
+    let settlement_uri = format!("/api/activities/{}/settlements", context.activity_id);
+    let (status, created) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            settlement_uri,
+            settlement_payload(&context, Uuid::new_v4(), "60"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let applications = created["data"]["settlement"]["applications"]
+        .as_array()
+        .expect("应返回自动清偿来源");
+    assert_eq!(applications.len(), 2);
+    assert!(
+        applications
+            .iter()
+            .all(|entry| entry["expenseId"] == first_id && entry["amountMinor"] == "60")
+    );
+    for expense_id in [first_id, second_id] {
+        let uri = format!("{bills_uri}/{expense_id}");
+        let (status, detail) = response(&context, request(&context, "GET", uri, json!(null))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(detail["data"]["settlementProgress"]["status"], "SETTLED");
+        assert_eq!(detail["data"]["settlementProgress"]["remainingMinor"], "0");
+    }
+    let backdated = direct_bill_payload(
+        "后补旧账",
+        context.guest_member_id,
+        context.owner_member_id,
+        "20",
+        "2026-08-29T12:00:00Z",
+    );
+    let (status, _) = response(
+        &context,
+        request(&context, "POST", bills_uri.clone(), backdated),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (_, first_after) = response(
+        &context,
+        request(
+            &context,
+            "GET",
+            format!("{bills_uri}/{first_id}"),
+            json!(null),
+        ),
+    )
+    .await;
+    assert_eq!(
+        first_after["data"]["settlementProgress"]["status"],
+        "SETTLED"
+    );
+    let second_uri = format!("{bills_uri}/{second_id}");
+    let mut revised = direct_bill_payload(
+        "乙欠甲",
+        context.owner_member_id,
+        context.guest_member_id,
+        "20",
+        "2026-08-31T12:00:00Z",
+    );
+    revised["version"] = json!("1");
+    let (status, _) = response(
+        &context,
+        request(&context, "PUT", second_uri.clone(), revised),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, first_after_edit) = response(
+        &context,
+        request(
+            &context,
+            "GET",
+            format!("{bills_uri}/{first_id}"),
+            json!(null),
+        ),
+    )
+    .await;
+    assert_eq!(
+        first_after_edit["data"]["settlementProgress"]["remainingMinor"],
+        "20"
+    );
+
+    let (status, _) = response(
+        &context,
+        request(&context, "DELETE", second_uri, json!({"version": "2"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, first_after_delete) = response(
+        &context,
+        request(
+            &context,
+            "GET",
+            format!("{bills_uri}/{first_id}"),
+            json!(null),
+        ),
+    )
+    .await;
+    assert_eq!(
+        first_after_delete["data"]["settlementProgress"]["remainingMinor"],
+        "40"
+    );
+}
+
 fn request(context: &AccountingContext, method: &str, uri: String, body: Value) -> Request<Body> {
     let serialized_body = body.to_string();
     drop(body);
@@ -199,6 +511,558 @@ fn request(context: &AccountingContext, method: &str, uri: String, body: Value) 
         .header("x-csrf-token", context.csrf.expose_for_header())
         .body(Body::from(serialized_body))
         .expect("请求应可构造")
+}
+
+async fn date_preview(
+    context: &AccountingContext,
+    dates: Value,
+    timezone: &str,
+    centralized: bool,
+) -> Value {
+    let mut body = json!({"dates": dates, "timeZone": timezone, "strategy": "min_transfers"});
+    if centralized {
+        body["strategy"] = json!("centralized");
+        body["hubMemberId"] = json!(context.owner_member_id);
+    }
+    let (status, preview) = response(
+        context,
+        request(
+            context,
+            "POST",
+            format!("/api/activities/{}/settlement-preview", context.activity_id),
+            body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    preview["data"].clone()
+}
+
+async fn scope_bill(
+    context: &AccountingContext,
+    title: &str,
+    payer: Uuid,
+    debtor: Uuid,
+    amount: &str,
+    date: &str,
+) -> Value {
+    let body = direct_bill_payload(title, payer, debtor, amount, date);
+    let (status, created) = response(
+        context,
+        request(
+            context,
+            "POST",
+            format!("/api/activities/{}/expenses", context.activity_id),
+            body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    created["data"].clone()
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)] // 一个连续场景验证预览、支付、补录、修改和作废的范围恢复。
+async fn date_scope_preserves_selection_replay_and_later_bills() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let first = scope_bill(
+        &context,
+        "第一天",
+        context.guest_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-09-24T04:00:00Z",
+    )
+    .await;
+    let second = scope_bill(
+        &context,
+        "第二天",
+        context.owner_member_id,
+        context.guest_member_id,
+        "40",
+        "2026-09-25T04:00:00Z",
+    )
+    .await;
+    let before = activity_side_effects(&context).await;
+    let combined = date_preview(
+        &context,
+        json!(["2026-09-24", "2026-09-25"]),
+        "Asia/Shanghai",
+        false,
+    )
+    .await;
+    assert_eq!(combined["recommendations"][0]["amountMinor"], "60");
+    let preview = date_preview(
+        &context,
+        json!(["2026-09-24", "2026-09-24"]),
+        "Asia/Shanghai",
+        false,
+    )
+    .await;
+    assert_eq!(preview["recommendations"][0]["amountMinor"], "100");
+    assert_eq!(preview["scope"]["dates"], json!(["2026-09-24"]));
+    assert_eq!(activity_side_effects(&context).await, before);
+    let collection = format!("/api/activities/{}/settlements", context.activity_id);
+    let mut body = settlement_payload(&context, Uuid::new_v4(), "100");
+    body["scope"] = preview["scope"].clone();
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", collection.clone(), body.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(
+        created["data"]["settlement"]["scopeExpenseIds"],
+        json!([first["expense"]["expenseId"]])
+    );
+    let after_create = activity_side_effects(&context).await;
+    let (status, replay) = response(
+        &context,
+        request(&context, "POST", collection.clone(), body.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{replay}");
+    assert_eq!(replay["data"]["idempotentReplay"], true);
+    assert_eq!(activity_side_effects(&context).await, after_create);
+    let second_preview =
+        date_preview(&context, json!(["2026-09-25"]), "Asia/Shanghai", false).await;
+    assert_eq!(second_preview["recommendations"][0]["amountMinor"], "40");
+    let second_uri = format!(
+        "/api/activities/{}/expenses/{}",
+        context.activity_id,
+        second["expense"]["expenseId"].as_str().unwrap()
+    );
+    let (_, detail) = response(&context, request(&context, "GET", second_uri, json!(null))).await;
+    assert_eq!(detail["data"]["settlementProgress"]["settledMinor"], "0");
+    scope_bill(
+        &context,
+        "后来补录",
+        context.guest_member_id,
+        context.owner_member_id,
+        "20",
+        "2026-09-24T05:00:00Z",
+    )
+    .await;
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await["recommendations"]
+            [0]["amountMinor"],
+        "20"
+    );
+    let before_stale = activity_side_effects(&context).await;
+    body["clientMutationId"] = json!(Uuid::new_v4());
+    let (status, stale) = response(
+        &context,
+        request(&context, "POST", collection.clone(), body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{stale}");
+    assert_eq!(stale["error"]["code"], "SETTLEMENT_PREVIEW_EXPIRED");
+    assert_eq!(activity_side_effects(&context).await, before_stale);
+    let item = format!(
+        "{collection}/{}",
+        created["data"]["settlement"]["settlementId"]
+            .as_str()
+            .unwrap()
+    );
+    let (status, updated) = response(&context, request(&context, "PUT", item.clone(), json!({"version":"1", "payerMemberId":context.owner_member_id, "receiverMemberId":context.guest_member_id, "amountMinor":"80"}))).await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await["recommendations"]
+            [0]["amountMinor"],
+        "40"
+    );
+    let (status, result) = response(
+        &context,
+        request(&context, "DELETE", item, json!({"version":"2"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await["recommendations"]
+            [0]["amountMinor"],
+        "120"
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn date_scope_offset_confirmation_is_cashless_and_idempotent() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    scope_bill(
+        &context,
+        "第一天",
+        context.guest_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-09-24T04:00:00Z",
+    )
+    .await;
+    scope_bill(
+        &context,
+        "第二天",
+        context.owner_member_id,
+        context.guest_member_id,
+        "100",
+        "2026-09-25T04:00:00Z",
+    )
+    .await;
+    let preview = date_preview(&context, json!(null), "Asia/Shanghai", false).await;
+    assert_eq!(preview["requiresOffsetConfirmation"], true);
+    assert_eq!(preview["settled"], false);
+    let uri = format!(
+        "/api/activities/{}/offset-confirmations",
+        context.activity_id
+    );
+    let body = json!({"clientMutationId":Uuid::new_v4(), "scope":preview["scope"]});
+    let (status, confirmed) = response(
+        &context,
+        request(&context, "POST", uri.clone(), body.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+    let side_effects = activity_side_effects(&context).await;
+    let (status, replay) = response(&context, request(&context, "POST", uri, body)).await;
+    assert_eq!(status, StatusCode::OK, "{replay}");
+    assert_eq!(replay["data"]["idempotentReplay"], true);
+    assert_eq!(activity_side_effects(&context).await, side_effects);
+    let cash: i64 = sqlx::query_scalar("SELECT count(*) FROM settlements WHERE activity_id = $1")
+        .bind(context.activity_id)
+        .fetch_one(&context.pool)
+        .await
+        .unwrap();
+    assert_eq!(cash, 0);
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await["settled"],
+        true
+    );
+    scope_bill(
+        &context,
+        "补录",
+        context.guest_member_id,
+        context.owner_member_id,
+        "20",
+        "2026-09-24T05:00:00Z",
+    )
+    .await;
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await["recommendations"]
+            [0]["amountMinor"],
+        "20"
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn date_scope_centralized_collection_keeps_hub_outgoing_balance() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let creditor = Uuid::new_v4();
+    sqlx::query("INSERT INTO activity_members(id, activity_id, display_name, role, joined_at) VALUES ($1,$2,'小周','MEMBER',now())")
+        .bind(creditor).bind(context.activity_id).execute(&context.pool).await.unwrap();
+    scope_bill(
+        &context,
+        "代收代付",
+        creditor,
+        context.guest_member_id,
+        "100",
+        "2026-09-24T04:00:00Z",
+    )
+    .await;
+    let collection = format!("/api/activities/{}/settlements", context.activity_id);
+    let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", true).await;
+    let (status, collected) = response(&context, request(&context, "POST", collection.clone(), json!({"clientMutationId":Uuid::new_v4(), "payerMemberId":context.guest_member_id,"receiverMemberId":context.owner_member_id,"currency":"CNY","amountMinor":"100","scope":preview["scope"]}))).await;
+    assert_eq!(status, StatusCode::CREATED, "{collected}");
+    let next = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", true).await;
+    assert_eq!(next["recommendations"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        next["recommendations"][0]["payerMemberId"],
+        context.owner_member_id.to_string()
+    );
+    assert_eq!(
+        next["recommendations"][0]["receiverMemberId"],
+        creditor.to_string()
+    );
+    assert_eq!(next["settled"], false);
+    let (status, paid) = response(&context, request(&context, "POST", collection, json!({"clientMutationId":Uuid::new_v4(), "payerMemberId":context.owner_member_id,"receiverMemberId":creditor,"currency":"CNY","amountMinor":"100","scope":next["scope"]}))).await;
+    assert_eq!(status, StatusCode::CREATED, "{paid}");
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", true).await["settled"],
+        true
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn date_scope_uses_local_midnight_and_dst_and_rejects_empty_dates() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    for timestamp in [
+        "2026-03-08T06:30:00Z",
+        "2026-03-08T07:30:00Z",
+        "2026-03-09T03:30:00Z",
+        "2026-03-09T04:30:00Z",
+    ] {
+        scope_bill(
+            &context,
+            "夏令时",
+            context.guest_member_id,
+            context.owner_member_id,
+            "100",
+            timestamp,
+        )
+        .await;
+    }
+    let preview = date_preview(&context, json!(["2026-03-08"]), "America/New_York", false).await;
+    assert_eq!(preview["expenseIds"].as_array().unwrap().len(), 3);
+    assert_eq!(preview["recommendations"][0]["amountMinor"], "300");
+    assert_eq!(
+        date_preview(&context, json!(["2026-03-08"]), "UTC", false).await["expenseIds"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    for body in [
+        json!({"dates":[],"timeZone":"UTC"}),
+        json!({"dates":["2026-02-30"],"timeZone":"UTC"}),
+        json!({"dates":null,"timeZone":"Invalid/Timezone"}),
+    ] {
+        let (status, error) = response(
+            &context,
+            request(
+                &context,
+                "POST",
+                format!("/api/activities/{}/settlement-preview", context.activity_id),
+                body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{error}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn date_scope_concurrent_writes_replay_or_reject_stale_revision() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    scope_bill(
+        &context,
+        "并发结算",
+        context.guest_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-09-24T04:00:00Z",
+    )
+    .await;
+    let uri = format!("/api/activities/{}/settlements", context.activity_id);
+    for same_key in [true, false] {
+        let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await;
+        let mut body = settlement_payload(&context, Uuid::new_v4(), "30");
+        body["scope"] = preview["scope"].clone();
+        let mut other = body.clone();
+        if !same_key {
+            other["clientMutationId"] = json!(Uuid::new_v4());
+        }
+        let before = activity_side_effects(&context).await;
+        let (a, b) = tokio::join!(
+            response(&context, request(&context, "POST", uri.clone(), body)),
+            response(&context, request(&context, "POST", uri.clone(), other))
+        );
+        let expected = if same_key {
+            StatusCode::OK
+        } else {
+            StatusCode::CONFLICT
+        };
+        assert!(
+            (a.0 == StatusCode::CREATED && b.0 == expected)
+                || (b.0 == StatusCode::CREATED && a.0 == expected),
+            "{a:?} {b:?}"
+        );
+        assert_eq!(
+            activity_side_effects(&context).await,
+            (before.0 + 1, before.1 + 1)
+        );
+    }
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "UTC", false).await["recommendations"][0]["amountMinor"],
+        "40"
+    );
+    scope_bill(
+        &context,
+        "相反账单",
+        context.owner_member_id,
+        context.guest_member_id,
+        "40",
+        "2026-09-26T04:00:00Z",
+    )
+    .await;
+    let preview = date_preview(&context, json!(["2026-09-24", "2026-09-26"]), "UTC", false).await;
+    let uri = format!(
+        "/api/activities/{}/offset-confirmations",
+        context.activity_id
+    );
+    let body = json!({"clientMutationId":Uuid::new_v4(), "scope":preview["scope"]});
+    let (a, b) = tokio::join!(
+        response(
+            &context,
+            request(&context, "POST", uri.clone(), body.clone())
+        ),
+        response(
+            &context,
+            request(&context, "POST", uri.clone(), body.clone())
+        )
+    );
+    assert_eq!((a.0, b.0), (StatusCode::OK, StatusCode::OK));
+    assert_ne!(
+        a.1["data"]["idempotentReplay"],
+        b.1["data"]["idempotentReplay"]
+    );
+    let mut stale = body;
+    stale["clientMutationId"] = json!(Uuid::new_v4());
+    assert_eq!(
+        response(&context, request(&context, "POST", uri, stale))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn date_scope_bill_date_changes_and_deletion_preserve_cash_and_history() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let bill = scope_bill(
+        &context,
+        "已付账单",
+        context.guest_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-09-24T04:00:00Z",
+    )
+    .await;
+    let preview = date_preview(&context, json!(null), "Asia/Shanghai", false).await;
+    let collection = format!("/api/activities/{}/settlements", context.activity_id);
+    let mut body = settlement_payload(&context, Uuid::new_v4(), "100");
+    body["scope"] = preview["scope"].clone();
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", collection.clone(), body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(
+        created["data"]["settlement"]["scopeDates"],
+        json!(["2026-09-24"])
+    );
+    let uri = format!(
+        "/api/activities/{}/expenses/{}",
+        context.activity_id,
+        bill["expense"]["expenseId"].as_str().unwrap()
+    );
+    let mut changed = direct_bill_payload(
+        "已付账单",
+        context.guest_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-09-26T04:00:00Z",
+    );
+    changed["version"] = json!("1");
+    let (status, result) = response(&context, request(&context, "PUT", uri.clone(), changed)).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-26"]), "UTC", false).await["settled"],
+        true
+    );
+    let (_, history) = response(
+        &context,
+        request(&context, "GET", collection.clone(), json!(null)),
+    )
+    .await;
+    assert_eq!(history["data"][0]["scopeDates"], json!(["2026-09-24"]));
+    let (status, result) = response(
+        &context,
+        request(&context, "DELETE", uri, json!({"version":"2"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    let refund = date_preview(&context, json!(null), "UTC", false).await;
+    assert_eq!(
+        refund["recommendations"][0]["payerMemberId"],
+        context.guest_member_id.to_string()
+    );
+    assert_eq!(refund["recommendations"][0]["amountMinor"], "100");
+    let mut repayment = refund["recommendations"][0].clone();
+    repayment["currency"] = json!("CNY");
+    repayment["clientMutationId"] = json!(Uuid::new_v4());
+    repayment["scope"] = refund["scope"].clone();
+    let (status, result) =
+        response(&context, request(&context, "POST", collection, repayment)).await;
+    assert_eq!(status, StatusCode::CREATED, "{result}");
+    assert_eq!(
+        date_preview(&context, json!(null), "UTC", false).await["settled"],
+        true
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn date_scope_unallocated_payment_needs_explicit_all_date_confirmation() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let collection = format!("/api/activities/{}/settlements", context.activity_id);
+    let (status, _) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection,
+            settlement_payload(&context, Uuid::new_v4(), "100"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    scope_bill(
+        &context,
+        "后来账单",
+        context.guest_member_id,
+        context.owner_member_id,
+        "100",
+        "2026-09-24T04:00:00Z",
+    )
+    .await;
+    let single = date_preview(&context, json!(["2026-09-24"]), "UTC", false).await;
+    assert_eq!(single["recommendations"][0]["amountMinor"], "100");
+    let all = date_preview(&context, json!(null), "UTC", false).await;
+    assert_eq!(all["requiresOffsetConfirmation"], true);
+    let before = activity_side_effects(&context).await;
+    let uri = format!(
+        "/api/activities/{}/offset-confirmations",
+        context.activity_id
+    );
+    let body = json!({"clientMutationId":Uuid::new_v4(), "scope":all["scope"]});
+    let mut no_csrf = request(&context, "POST", uri.clone(), body.clone());
+    no_csrf.headers_mut().remove("x-csrf-token");
+    assert_eq!(response(&context, no_csrf).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(activity_side_effects(&context).await, before);
+    let (status, result) = response(&context, request(&context, "POST", uri, body)).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(
+        date_preview(&context, json!(["2026-09-24"]), "UTC", false).await["settled"],
+        true
+    );
+    let cash: i64 = sqlx::query_scalar(
+        "SELECT sum(amount_minor)::bigint FROM settlements WHERE activity_id = $1",
+    )
+    .bind(context.activity_id)
+    .fetch_one(&context.pool)
+    .await
+    .unwrap();
+    assert_eq!(cash, 100);
 }
 
 async fn response(context: &AccountingContext, request: Request<Body>) -> (StatusCode, Value) {

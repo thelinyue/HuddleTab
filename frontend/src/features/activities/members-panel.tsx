@@ -1,5 +1,5 @@
 import { Link as LinkIcon, LogOut, Plus, Trash2, UserPlus, UserRoundCheck, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { Button, ConfirmDialog, ErrorNotice, Field, Input, LoadingState } from "../../components/ui";
 import { MemberAvatar } from "../../components/member-avatar";
@@ -8,6 +8,7 @@ import {
   type CreatedInvitation,
   type Invitation,
   type InvitationIntent,
+  getInvitationLink,
   useCreateGuestMutation,
   useCreateGuestBindingInvitationMutation,
   useCreateInvitationMutation,
@@ -50,22 +51,49 @@ export function MembersOverlay({ onClose }: { onClose: () => void }) {
 
 export function MemberInvitationPanel({
   onCreate,
+  invitation,
+  activityId,
+  onRevoke,
+  onRefresh,
 }: {
   onCreate: (intent: InvitationIntent) => Promise<CreatedInvitation>;
+  invitation?: Invitation;
+  activityId?: string;
+  onRevoke?: (invitationId: string) => Promise<unknown>;
+  onRefresh?: () => Promise<unknown>;
 }) {
   const [createdToken, setCreatedToken] = useState<string>();
+  const [createdId, setCreatedId] = useState<string>();
+  const [revokedId, setRevokedId] = useState<string>();
   const [copyMessage, setCopyMessage] = useState("");
   const inviteUrl = createdToken ? `${window.location.origin}/join/${encodeURIComponent(createdToken)}` : undefined;
   const [error, setError] = useState<unknown>();
   const [submitting, setSubmitting] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const listedId = invitation?.invitationId;
+  const activeId = listedId && listedId !== revokedId ? listedId : createdId;
+
+  useEffect(() => {
+    if (!activityId || !activeId || createdId === activeId) return;
+    let cancelled = false;
+    setError(undefined);
+    setCreatedToken(undefined);
+    getInvitationLink(activityId, activeId).then((token) => {
+      if (!cancelled) setCreatedToken(token);
+    }).catch((reason: unknown) => {
+      if (!cancelled) setError(reason);
+    });
+    return () => { cancelled = true; };
+  }, [activityId, activeId, createdId]);
 
   const create = async (intent: InvitationIntent) => {
     setSubmitting(true);
     setCopyMessage("");
-    setCreatedToken(undefined);
     setError(undefined);
     try {
       const invitation = await onCreate(intent);
+      setCreatedId(invitation.invitationId);
       setCreatedToken(invitation.token);
     } catch (reason) {
       setError(reason);
@@ -77,35 +105,82 @@ export function MemberInvitationPanel({
   return (
     <div className="member-invite-panel">
       <section className="invite-mode-panel" aria-label="链接邀请">
-        <p>生成可分享的邀请链接，对方登录或注册后即可加入活动。</p>
-        <Button busy={submitting} data-overlay-initial-focus onClick={() => void create({ mode: "link" })}><LinkIcon aria-hidden="true" size={18} />生成链接邀请</Button>
+        {activeId ? (
+          <div className="issued-invite" role="status" aria-live="polite">
+            <strong>邀请链接</strong>
+            {inviteUrl ? <a href={inviteUrl} aria-label="邀请链接，可左右滑动查看完整地址">{inviteUrl}</a> : error && activityId ? <Button variant="secondary" type="button" onClick={() => {
+              setError(undefined);
+              void getInvitationLink(activityId, activeId).then(setCreatedToken).catch(setError);
+            }}>重试读取</Button> : <span>正在读取邀请链接…</span>}
+            <div className="issued-invite__actions">
+              <Button data-overlay-initial-focus disabled={!inviteUrl} type="button" onClick={async () => {
+                let token = createdToken;
+                if (activityId) {
+                  try {
+                    token = await getInvitationLink(activityId, activeId);
+                  } catch (reason) {
+                    setCreatedId(undefined);
+                    setCreatedToken(undefined);
+                    setCopyMessage("");
+                    setError(reason);
+                    void onRefresh?.();
+                    return;
+                  }
+                }
+                try {
+                  if (!navigator.clipboard || !token) throw new Error("剪贴板不可用");
+                  const url = `${window.location.origin}/join/${encodeURIComponent(token)}`;
+                  await navigator.clipboard.writeText(url);
+                  setCopyMessage("邀请链接已复制");
+                } catch {
+                  setCopyMessage("复制失败，请长按或选择上方链接手动复制。");
+                }
+              }}>复制邀请链接</Button>
+              {onRevoke ? <Button variant="secondary" type="button" onClick={() => setConfirmRevoke(true)}>撤销链接</Button> : null}
+            </div>
+            {copyMessage ? <small>{copyMessage}</small> : null}
+          </div>
+        ) : (
+          <>
+            <p>生成可分享的邀请链接，对方登录或注册后即可加入活动。</p>
+            <Button busy={submitting} data-overlay-initial-focus onClick={() => void create({ mode: "link" })}><LinkIcon aria-hidden="true" size={18} />生成链接邀请</Button>
+          </>
+        )}
       </section>
-
-      {createdToken ? (
-        <div className="issued-invite" role="status" aria-live="polite">
-          <strong>邀请链接已创建</strong>
-          <a href={inviteUrl} aria-label="邀请链接，可左右滑动查看完整地址">{inviteUrl}</a>
-          <Button variant="secondary" type="button" onClick={async () => {
-            try {
-              if (!navigator.clipboard) throw new Error("剪贴板不可用");
-              await navigator.clipboard.writeText(inviteUrl ?? "");
-              setCopyMessage("邀请链接已复制");
-            } catch {
-              setCopyMessage("复制失败，请长按或选择上方链接手动复制。");
-            }
-          }}>复制邀请链接</Button>
-          {copyMessage ? <small>{copyMessage}</small> : null}
-          <small>邀请链接只在本次创建后显示，请及时发送给对方。</small>
-        </div>
-      ) : null}
       {error ? <ErrorNotice error={error} /> : null}
+      <ConfirmDialog
+        open={confirmRevoke}
+        title="撤销邀请链接？"
+        message="已分享的链接将立即失效，使用该链接提交的待审批申请也会关闭。"
+        confirmLabel="撤销链接"
+        busy={revoking}
+        error={error ? <ErrorNotice error={error} /> : undefined}
+        onConfirm={() => {
+          if (!activeId || !onRevoke) return;
+          setRevoking(true);
+          setError(undefined);
+          void onRevoke(activeId).then(() => {
+            setRevokedId(activeId);
+            setCreatedId(undefined);
+            setCreatedToken(undefined);
+            setCopyMessage("");
+            setConfirmRevoke(false);
+          }).catch((reason: unknown) => setError(reason)).finally(() => setRevoking(false));
+        }}
+        onCancel={() => setConfirmRevoke(false)}
+      />
     </div>
   );
 }
 
 function MemberInvitationView({ userId, activityId }: { userId: string; activityId: string }) {
   const createInvitation = useCreateInvitationMutation(userId, activityId);
-  return <MemberInvitationPanel onCreate={createInvitation.mutateAsync} />;
+  const revokeInvitation = useRevokeInvitationMutation(userId, activityId);
+  const invitations = useInvitationsQuery(userId, activityId, true);
+  if (invitations.isPending) return <LoadingState label="正在读取邀请链接…" />;
+  if (invitations.error) return <ErrorNotice error={invitations.error} />;
+  const activeLink = activeInvitations(invitations.data ?? [], Date.now()).find((item) => item.kind === "LINK");
+  return <MemberInvitationPanel activityId={activityId} invitation={activeLink} onCreate={createInvitation.mutateAsync} onRevoke={revokeInvitation.mutateAsync} onRefresh={invitations.refetch} />;
 }
 
 function activeInvitations(invitations: readonly Invitation[], now: number): Invitation[] {
@@ -215,7 +290,7 @@ export function MembersPage({ view = "list", onInvite, onMenuPointerDownOutside 
     return <MemberInvitationView userId={session.userId} activityId={activity.activityId} />;
   }
   const visibleInvitations = canManage
-    ? activeInvitations(invitations.data ?? [], Date.now())
+    ? activeInvitations(invitations.data ?? [], Date.now()).filter((invitation) => invitation.kind !== "LINK")
     : [];
   return (
     <div className="member-center">

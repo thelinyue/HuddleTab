@@ -12,6 +12,31 @@ fn document_contains_health_and_shared_envelopes() {
 }
 
 #[test]
+fn date_settlement_contract_exposes_readonly_preview_and_cashless_confirmation() {
+    let value = serde_json::to_value(huddletab_server::http::openapi::document()).unwrap();
+    assert_eq!(
+        value["paths"]["/api/activities/{activity_id}/settlement-preview"]["post"]["requestBody"]["content"]
+            ["application/json"]["schema"]["$ref"],
+        "#/components/schemas/SettlementPreviewRequest"
+    );
+    assert!(value["paths"]["/api/activities/{activity_id}/offset-confirmations"]["post"]["responses"]["409"].is_object());
+    let schemas = &value["components"]["schemas"];
+    for field in ["dates", "timeZone", "revision", "strategy", "hubMemberId"] {
+        assert!(schemas["SettlementScope"]["properties"][field].is_object());
+    }
+    for field in ["scope", "scopeExpenseIds", "scopeDates"] {
+        assert!(schemas["SettlementData"]["properties"][field].is_object());
+    }
+    assert!(
+        !schemas["CreateSettlementRequest"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("scope")),
+        "旧客户端的全活动结算仍兼容"
+    );
+}
+
+#[test]
 fn activity_audit_contract_publishes_cursor_and_structured_change_schemas() {
     let value = serde_json::to_value(huddletab_server::http::openapi::document())
         .expect("OpenAPI 应可序列化");

@@ -10,6 +10,50 @@ async function mutate(page: Page, path: string, body: unknown, method = "POST") 
   }, { path, body, method });
 }
 
+async function expectMobileConfirmationFits(page: Page) {
+  const confirmation = page.getByRole("alertdialog");
+  const geometry = await confirmation.evaluate((dialog) => {
+    const buttons = [...dialog.querySelectorAll<HTMLButtonElement>(".confirm-dialog__actions button")];
+    const scrim = dialog.parentElement?.querySelector(".confirm-overlay__scrim");
+    return {
+      portalParent: dialog.parentElement?.parentElement === document.body,
+      buttonsVisible: buttons.length === 2 && buttons.every((button) => button.getBoundingClientRect().bottom <= window.innerHeight - 34),
+      bottomCovered: document.elementFromPoint(window.innerWidth / 2, window.innerHeight - 1) === scrim,
+    };
+  });
+  expect(geometry).toEqual({ portalParent: true, buttonsVisible: true, bottomCovered: true });
+}
+
+test("活动管理保存并关闭后，系统返回直达活动列表", async ({ page }) => {
+  await login(page);
+  const activity = await mutate(page, "/api/activities", { name: "管理返回验收", baseCurrency: "CNY", startDate: "2026-09-21" });
+  let version = activity.version;
+  try {
+    await page.goto("/activities");
+    await page.locator(".activity-list-item").filter({ hasText: "管理返回验收" }).click();
+    await page.getByRole("button", { name: "更多操作" }).click();
+    await page.getByRole("link", { name: "活动信息" }).click();
+    await expect(page.getByRole("dialog", { name: "活动管理" })).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole("dialog", { name: "活动管理" })).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/activities/${activity.activityId}$`));
+
+    await page.getByRole("button", { name: "更多操作" }).click();
+    await page.getByRole("link", { name: "活动信息" }).click();
+    const location = page.getByRole("textbox", { name: "地点" });
+    await location.fill("苏州");
+    const saveResponse = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().endsWith(`/api/activities/${activity.activityId}`));
+    await location.blur();
+    version = (await (await saveResponse).json()).data.version;
+    await page.getByRole("button", { name: "关闭活动管理" }).click();
+    await expect(page.getByRole("dialog", { name: "活动管理" })).toHaveCount(0);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/activities$/);
+  } finally {
+    await mutate(page, `/api/activities/${activity.activityId}`, { version }, "DELETE");
+  }
+});
+
 test("活动首页加载与读取失败不显示虚假的已结清", async ({ page }) => {
   await login(page);
   const activity = await mutate(page, "/api/activities", { name: "加载状态验收", baseCurrency: "CNY", startDate: "2026-09-21" });
@@ -141,12 +185,20 @@ test("活动首页四状态、返回、永久删除与响应式布局", async ({
     await expect(filters.getByRole("button", { name: "进行中", exact: true })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page.locator(".activity-list-item")).toHaveCount(1);
+    await page.goto(`/activities/${activities[1].activityId}?panel=manage`);
+    await page.locator("html").evaluate((root) => root.style.setProperty("--safe-area-bottom", "34px"));
+    await page.getByRole("button", { name: /^归档活动/ }).click();
+    await expectMobileConfirmationFits(page);
+    await page.getByRole("alertdialog").getByRole("button", { name: "取消", exact: true }).click();
     await page.goto(`/activities/${activities[0].activityId}?panel=manage`);
+    await page.locator("html").evaluate((root) => root.style.setProperty("--safe-area-bottom", "34px"));
     await page.getByRole("button", { name: /^删除活动/ }).click();
     let confirmation = page.getByRole("alertdialog");
     await expect(confirmation).toContainText("对所有成员生效，删除后无法恢复");
+    await expectMobileConfirmationFits(page);
     await confirmation.getByRole("button", { name: "取消", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "活动管理" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^删除活动/ })).toBeFocused();
     await page.getByRole("button", { name: /^删除活动/ }).click();
     confirmation = page.getByRole("alertdialog");
     const response = page.waitForResponse((response) => response.request().method() === "DELETE" && response.url().includes(activities[0].activityId));

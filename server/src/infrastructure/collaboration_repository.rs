@@ -112,74 +112,34 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             return Err(CollaborationRepositoryError::Forbidden);
         }
 
-        // 账务、邀请和审计外键都属于成员历史的一部分；任一引用存在时只能标记 LEFT。
-        let has_references = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (
-                SELECT 1 FROM expense_payments
-                 WHERE activity_id = $1 AND payer_member_id = $2
-                UNION ALL
-                SELECT 1 FROM expense_shares
-                 WHERE activity_id = $1 AND member_id = $2
-                UNION ALL
-                SELECT 1 FROM settlements
-                 WHERE activity_id = $1 AND (payer_member_id = $2 OR receiver_member_id = $2)
-                UNION ALL
-                SELECT 1 FROM activity_invites
-                 WHERE activity_id = $1 AND (created_by_member_id = $2 OR guest_member_id = $2)
-                UNION ALL
-                SELECT 1 FROM activity_join_requests
-                 WHERE activity_id = $1 AND decided_by_member_id = $2
-                UNION ALL
-                SELECT 1 FROM activity_audit_logs
-                 WHERE activity_id = $1 AND actor_member_id = $2
-            )",
+        // 保留已移除成员的身份，允许日后在已有账单中补记其付款或分摊。
+        sqlx::query(
+            "UPDATE activity_members
+             SET status = 'LEFT', left_at = $1, version = version + 1
+             WHERE id = $2 AND activity_id = $3",
         )
-        .bind(activity_id)
+        .bind(now)
         .bind(member_id)
-        .fetch_one(&mut *transaction)
+        .bind(activity_id)
+        .execute(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
+        let result = GuestRemovalResult::Left;
 
-        // 自主退出也必须保留成员历史，因为后续审计记录会引用该成员。
-        let result = if is_self || has_references {
-            sqlx::query(
-                "UPDATE activity_members
-                 SET status = 'LEFT', left_at = $1, version = version + 1
-                 WHERE id = $2 AND activity_id = $3",
-            )
-            .bind(now)
-            .bind(member_id)
-            .bind(activity_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(log_repository_error)?;
-            GuestRemovalResult::Left
-        } else {
-            sqlx::query("DELETE FROM activity_members WHERE id = $1 AND activity_id = $2")
-                .bind(member_id)
-                .bind(activity_id)
-                .execute(&mut *transaction)
-                .await
-                .map_err(log_repository_error)?;
-            GuestRemovalResult::Deleted
-        };
-
-        if result == GuestRemovalResult::Left {
-            sqlx::query(
-                "UPDATE activity_invites
-                 SET revoked_at = $1, version = version + 1
-                 WHERE activity_id = $2 AND guest_member_id = $3
-                   AND revoked_at IS NULL
-                   AND (max_uses IS NULL OR use_count < max_uses)
-                   AND expires_at > $1",
-            )
-            .bind(now)
-            .bind(activity_id)
-            .bind(member_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(log_repository_error)?;
-        }
+        sqlx::query(
+            "UPDATE activity_invites
+             SET revoked_at = $1, version = version + 1
+             WHERE activity_id = $2 AND guest_member_id = $3
+               AND revoked_at IS NULL
+               AND (max_uses IS NULL OR use_count < max_uses)
+               AND expires_at > $1",
+        )
+        .bind(now)
+        .bind(activity_id)
+        .bind(member_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
 
         let revision = revise_and_audit(
             &mut transaction,
@@ -218,6 +178,20 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             invitation.actor_user_id,
         )
         .await?;
+        if invitation.kind == InvitationKind::Link {
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM activity_invites WHERE activity_id = $1 \
+                 AND kind = 'LINK' AND revoked_at IS NULL AND expires_at > $2)",
+            )
+            .bind(invitation.activity_id)
+            .bind(invitation.now)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+            if exists {
+                return Err(CollaborationRepositoryError::Conflict);
+            }
+        }
         if let Some(guest_member_id) = invitation.guest_member_id {
             let guest_exists = sqlx::query_scalar::<_, Uuid>(
                 "SELECT id FROM activity_members
@@ -236,8 +210,8 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         }
         sqlx::query(
             "INSERT INTO activity_invites (id, activity_id, created_by_member_id, token_hash, \
-             kind, target_display_name, guest_member_id, expires_at, max_uses, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+             kind, target_display_name, guest_member_id, expires_at, max_uses, created_at, encrypted_link_token) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(invitation.id)
         .bind(invitation.activity_id)
@@ -249,6 +223,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .bind(invitation.expires_at)
         .bind(invitation.max_uses)
         .bind(invitation.now)
+        .bind(&invitation.encrypted_link_token)
         .execute(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
@@ -319,6 +294,31 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         rows.into_iter()
             .map(|row| invitation_from_row(activity_id, revision, row))
             .collect()
+    }
+
+    async fn get_link_token(
+        &self,
+        activity_id: Uuid,
+        invitation_id: Uuid,
+        actor_user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<Vec<u8>, CollaborationRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        authorize_owner(&mut transaction, activity_id, actor_user_id).await?;
+        let encrypted = sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT encrypted_link_token FROM activity_invites WHERE activity_id = $1 AND id = $2 \
+             AND kind = 'LINK' AND revoked_at IS NULL AND expires_at > $3 \
+             AND (max_uses IS NULL OR use_count < max_uses)",
+        )
+        .bind(activity_id)
+        .bind(invitation_id)
+        .bind(now)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?
+        .ok_or(CollaborationRepositoryError::InvalidInvitation)?;
+        transaction.commit().await.map_err(log_repository_error)?;
+        Ok(encrypted)
     }
 
     async fn revoke_invitation(

@@ -21,6 +21,8 @@ export type RecommendationSelection = {
 };
 export type RecommendationResult = components["schemas"]["StrategyRecommendationData"];
 export type Settlement = components["schemas"]["SettlementData"];
+export type SettlementScope = components["schemas"]["SettlementScope"];
+export type SettlementPreview = components["schemas"]["SettlementPreview"];
 export type CreateSettlementInput = components["schemas"]["CreateSettlementRequest"];
 export type ExchangeRateSuggestion = components["schemas"]["ExchangeRateSuggestionData"];
 export type AiCapability = components["schemas"]["AiCapabilityData"];
@@ -229,6 +231,7 @@ function useAccountingInvalidation(userId: string, activityId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.ledger(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.recommendations(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settlements(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.settlementPreview(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitySummary(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
@@ -404,6 +407,27 @@ export function useRecommendationsQuery(
 
 export function useSettlementsQuery(userId: string, activityId: string, enabled = true) {
   return useQuery({ queryKey: queryKeys.settlements(userId, activityId), queryFn: () => listSettlements(activityId), enabled: enabled && userId.length > 0 && activityId.length > 0 });
+}
+
+/** 日期、时区和策略共同隔离缓存；不使用上一范围数据作为加载占位，避免提交错误金额。 */
+export function useSettlementPreviewQuery(userId: string, activityId: string, dates: string[] | null, timeZone: string, selection: RecommendationSelection, enabled = true) {
+  const body = { dates: dates ? [...new Set(dates)].sort() : null, timeZone, ...selection };
+  return useQuery({
+    queryKey: [...queryKeys.settlementPreview(userId, activityId), body],
+    queryFn: async ({ signal }) => unwrap(await apiClient.POST("/api/activities/{activity_id}/settlement-preview", { params: { path: { activity_id: activityId } }, body, signal })).data,
+    enabled: enabled && Boolean(userId && activityId),
+    retry: false,
+  });
+}
+
+export function useConfirmBillOffsetsMutation(userId: string, activityId: string) {
+  const invalidate = useAccountingInvalidation(userId, activityId);
+  return useMutation({
+    mutationFn: async (body: components["schemas"]["ConfirmBillOffsetsRequest"]) => unwrap(await apiClient.POST("/api/activities/{activity_id}/offset-confirmations", {
+      params: { path: { activity_id: activityId } }, body, headers: await mutationHeaders(),
+    })).data,
+    onSuccess: invalidate,
+  });
 }
 
 export function useCreateSettlementMutation(userId: string, activityId: string) {

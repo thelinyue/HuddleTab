@@ -52,6 +52,7 @@ it("挂载后新入队会前台同步并刷新全部权威账务查询", async (
     queryKeys.expenses("user-sync", "activity-1"),
     queryKeys.ledger("user-sync", "activity-1"),
     queryKeys.recommendations("user-sync", "activity-1"),
+    queryKeys.settlementPreview("user-sync", "activity-1"),
     queryKeys.settlements("user-sync", "activity-1"),
     queryKeys.activityDetail("user-sync", "activity-1"),
   ];

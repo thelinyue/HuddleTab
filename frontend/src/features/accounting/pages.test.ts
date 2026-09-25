@@ -31,6 +31,8 @@ function aggregate(expenseId: string, occurredAt: string): ExpenseAggregate {
       members: [],
       remainingMinor: "0",
       settledMinor: "0",
+      paidMinor: "0",
+      offsetMinor: "0",
       status: "NO_SETTLEMENT_REQUIRED",
       totalRequiredMinor: "0",
     },

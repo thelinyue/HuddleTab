@@ -43,11 +43,11 @@ async function openFeed(page: Page) {
   await expect(page.locator('.personal-balance')).toContainText('¥680.00');
 }
 async function recordManual(page: Page, payer: string, receiver: string, amount: string) {
-  const entry = page.getByRole('button', { name: '补记结算', exact: true });
+  const entry = page.getByRole('button', { name: '记录其他转账', exact: true });
   await entry.scrollIntoViewIfNeeded();
   const before = (await entry.boundingBox())!.y;
   await entry.click();
-  const form = page.getByRole('form', { name: '补记结算' });
+  const form = page.getByRole('form', { name: '记录其他转账' });
   await form.getByRole('button', { name: '付款人：请选择' }).click();
   await form.getByRole('button', { name: payer, exact: true }).click();
   await form.getByRole('button', { name: '收款人：请选择' }).click();
@@ -55,6 +55,7 @@ async function recordManual(page: Page, payer: string, receiver: string, amount:
   await form.getByLabel('金额（CNY）').fill(amount);
   await form.getByRole('button', { name: '记录结算', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(entry).toBeFocused();
   await expect.poll(async () => Math.abs((await entry.boundingBox())!.y - before)).toBeLessThanOrEqual(2);
   return Math.abs((await entry.boundingBox())!.y - before);
 }
@@ -112,7 +113,8 @@ test('旅行流程二：普通成员记录部分付款，权威响应从680更�
   await expect.poll(async () => Math.abs((await transfer.boundingBox())!.y - before)).toBeLessThanOrEqual(2);
   const anchorError = Math.abs((await transfer.boundingBox())!.y - before);
   expect(fixture.control.writes).toHaveLength(1);
-  expect(fixture.control.writes[0]).toMatchObject({ amountMinor: '20000', allocations: [] });
+  expect(fixture.control.writes[0]).toMatchObject({ amountMinor: '20000' });
+  expect(fixture.control.writes[0]).not.toHaveProperty('allocations');
   await page.getByRole('button', { name: '返回流水' }).click();
   await expect(page.locator('.personal-balance')).toContainText('¥480.00');
   await evidence(page, info, 'flow-2', { anchorError });
@@ -209,9 +211,9 @@ test('三个独立玻璃按钮：宽度、末行避让、键盘和生命周期',
   fixture.activity.status = 'ENDED'; await page.reload();
   await expect(buttons).toHaveCount(1);
   await page.getByRole('link', { name: '结算', exact: true }).click();
-  await expect(page.getByRole('button', { name: '补记结算', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '记录其他转账', exact: true })).toBeVisible();
   fixture.activity.status = 'ARCHIVED'; await page.reload();
-  await expect(page.getByRole('button', { name: '补记结算', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '记录其他转账', exact: true })).toHaveCount(0);
   await expect(page.locator('.settlement-record')).toHaveCount(1);
 });
 
@@ -221,7 +223,6 @@ test('个人余额为零仍显示统一收付任务，全员归零才显示全�
   await page.goto('/activities/travel/settlement');
   await expect(page.getByRole('region', { name: '我的结算' })).toContainText('个人余额已平');
   await expect(page.getByText('全员余额已结清', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: '更多操作' }).click();
   await page.getByRole('button', { name: '切换结算方案' }).click();
   await page.getByRole('radio', { name: /由我统一收付/ }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -263,7 +264,7 @@ test('旧结算链接保留成员面板，离线结算继续展示只读记录',
   await expect(page.locator('.settlement-record')).toHaveCount(1);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await expect(page.getByText(/当前离线，以下结算/)).toBeVisible();
-  await expect(page.getByRole('button', { name: '补记结算', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '记录其他转账', exact: true })).toHaveCount(0);
   await expect(page.locator('.settlement-record')).toHaveCount(1);
 });
 

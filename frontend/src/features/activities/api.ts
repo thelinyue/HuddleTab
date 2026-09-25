@@ -161,6 +161,14 @@ async function listInvitations(activityId: string): Promise<Invitation[]> {
   ).data;
 }
 
+export async function getInvitationLink(activityId: string, invitationId: string): Promise<string> {
+  return unwrap(
+    await apiClient.GET("/api/activities/{activity_id}/invitations/{invitation_id}/link", {
+      params: { path: { activity_id: activityId, invitation_id: invitationId } },
+    }),
+  ).data.token;
+}
+
 async function createInvitation(
   activityId: string,
   input: CreateInvitationInput,
@@ -418,6 +426,7 @@ export function useRemoveGuestMutation(userId: string, activityId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.ledger(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.recommendations(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settlements(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.settlementPreview(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitySummary(userId, activityId) }),
     ]),
   });
@@ -438,6 +447,11 @@ export function useCreateInvitationMutation(userId: string, activityId: string) 
       createInvitation(activityId, invitationRequest(intent)),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
+    onError: (error) => {
+      if (error instanceof ApiRequestError && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) });
+      }
+    },
   });
 }
 

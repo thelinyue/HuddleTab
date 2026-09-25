@@ -76,6 +76,19 @@ pub struct ExpenseAggregate {
     pub shares: Vec<ExpenseShare>,
     pub attachments: Vec<ExpenseAttachmentRecord>,
     pub settlement_progress: ExpenseSettlementProgress,
+    pub clearings: Vec<ExpenseClearingRecord>,
+}
+
+/// 每笔账单的现金清偿或跨账单抵销，保留来源以便核对。
+#[derive(Clone, Debug)]
+pub struct ExpenseClearingRecord {
+    pub member_id: Uuid,
+    pub kind: String,
+    pub amount_minor: i64,
+    pub settlement_id: Option<Uuid>,
+    pub offset_expense_id: Option<Uuid>,
+    pub offset_expense_title: Option<String>,
+    pub origin: String,
 }
 
 #[derive(Clone, Debug)]

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "../../api/error";
 
@@ -59,6 +59,7 @@ const activityApiState = vi.hoisted(() => ({
   removeGuest: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   transfer: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   invitationQueryEnabled: [] as boolean[],
+  getInvitationLink: vi.fn(),
   members: [
     {
       activityId: "activity-1",
@@ -160,6 +161,7 @@ vi.mock("./api", async (importOriginal) => {
       activityApiState.invitationQueryEnabled.push(enabled);
       return { data: activityApiState.invitations, isPending: false };
     },
+    getInvitationLink: activityApiState.getInvitationLink,
     useCreateGuestMutation: () => activityApiState.createGuest,
     useCreateInvitationMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
     useCreateGuestBindingInvitationMutation: () => activityApiState.createGuestBinding,
@@ -192,6 +194,11 @@ function renderWorkspace(entry = "/activities/activity-1?panel=members", include
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname}{location.search}</output>;
+}
+
+function HistoryBackButton() {
+  const navigate = useNavigate();
+  return <button type="button" onClick={() => navigate(-1)}>系统返回</button>;
 }
 
 function renderActivitiesPage(entry = "/activities", includeLocation = false) {
@@ -249,9 +256,10 @@ afterEach(() => {
     mutation.mutateAsync.mockReset();
     mutation.mutateAsync.mockResolvedValue(activityApiState.activity);
   }
-  activityApiState.removeGuest.mutateAsync.mockResolvedValue({ data: { memberId: "guest-1", result: "DELETED", revision: "2" } });
+  activityApiState.removeGuest.mutateAsync.mockResolvedValue({ data: { memberId: "guest-1", result: "LEFT", revision: "2" } });
   activityApiState.update.mutateAsync.mockResolvedValue({ data: activityApiState.activity, warnings: [] });
   activityApiState.invitationQueryEnabled.length = 0;
+  activityApiState.getInvitationLink.mockReset();
   activityApiState.members.length = 2;
   activityApiState.members[1] = {
     activityId: "activity-1",
@@ -354,13 +362,43 @@ describe("活动管理导出", () => {
 });
 
 describe("MemberInvitationPanel", () => {
+  it("重新打开后可复制并在邀请区域撤销链接", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    activityApiState.getInvitationLink.mockResolvedValue("saved-token");
+    const onRevoke = vi.fn().mockResolvedValue(undefined);
+    try {
+      render(<MemberInvitationPanel
+        activityId="activity-1"
+        invitation={{ invitationId: "invite-1" } as Parameters<typeof MemberInvitationPanel>[0]["invitation"]}
+        onCreate={vi.fn()}
+        onRevoke={onRevoke}
+      />);
+      expect(screen.queryByRole("button", { name: "生成链接邀请" })).not.toBeInTheDocument();
+      expect(await screen.findByRole("link", { name: "邀请链接，可左右滑动查看完整地址" })).toHaveAttribute("href", `${window.location.origin}/join/saved-token`);
+      fireEvent.click(screen.getByRole("button", { name: "复制邀请链接" }));
+      expect(await screen.findByText("邀请链接已复制")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "复制邀请链接" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/join/saved-token`);
+      fireEvent.click(screen.getByRole("button", { name: "撤销链接" }));
+      fireEvent.click(within(screen.getByRole("alertdialog", { name: "撤销邀请链接？" })).getByRole("button", { name: "撤销链接" }));
+      await waitFor(() => expect(onRevoke).toHaveBeenCalledWith("invite-1"));
+      expect(await screen.findByRole("button", { name: "生成链接邀请" })).toBeInTheDocument();
+    } finally {
+      if (original) Object.defineProperty(navigator, "clipboard", original);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("复制完整链接并反馈失败", async () => {
     const token = "a".repeat(96);
     const writeText = vi.fn().mockResolvedValue(undefined);
     const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     try {
-      render(<MemberInvitationPanel onCreate={vi.fn().mockResolvedValue({ token })} />);
+      render(<MemberInvitationPanel onCreate={vi.fn().mockResolvedValue({ invitationId: "invite-1", token })} />);
       fireEvent.click(screen.getByRole("button", { name: "生成链接邀请" }));
       const copy = await screen.findByRole("button", { name: "复制邀请链接" });
       expect(screen.queryByText(token)).not.toBeInTheDocument();
@@ -409,6 +447,15 @@ describe("MemberInvitationPanel", () => {
 });
 
 describe("成员 Overlay", () => {
+  it("成员列表不重复展示链接邀请", () => {
+    activityApiState.invitations = [{
+      activityId: "activity-1", expiresAt: "2099-01-01T00:00:00Z", invitationId: "invite-1",
+      kind: "LINK", maxUses: null, revision: "1", revokedAt: null, useCount: 0, version: "1",
+    }];
+    renderWorkspace();
+    expect(screen.queryByRole("heading", { name: "有效邀请" })).not.toBeInTheDocument();
+  });
+
   it("成员列表优先展示，邀请菜单进入邀请子面板并可返回", async () => {
     const user = userEvent.setup();
     renderWorkspace();
@@ -596,7 +643,7 @@ describe("成员 Overlay", () => {
 
   it("确认删除时显示说明、支持焦点恢复并只提交一次", async () => {
     const mutateAsync = activityApiState.removeGuest.mutateAsync.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ data: { memberId: "guest-1", result: "DELETED", revision: "2" } }), 0)),
+      () => new Promise((resolve) => setTimeout(() => resolve({ data: { memberId: "guest-1", result: "LEFT", revision: "2" } }), 0)),
     );
     renderWorkspace();
 
@@ -628,31 +675,10 @@ describe("成员 Overlay", () => {
     expect(screen.getByRole("alertdialog", { name: "确认移除成员「临时成员」" })).toBeInTheDocument();
   });
 
-  it("硬删除后成员消失，软删除后保留原位并标记只读状态", async () => {
-    activityApiState.removeGuest.mutateAsync.mockImplementationOnce(async () => {
-      activityApiState.members.splice(1, 1);
-      return { data: { memberId: "guest-1", result: "DELETED", revision: "2" } };
-    });
-    renderWorkspace();
-    fireEvent.click(screen.getByRole("button", { name: "移除成员 临时成员" }));
-    fireEvent.click(screen.getByRole("button", { name: "移除成员" }));
-
-    await waitFor(() => expect(screen.queryByText("临时成员")).not.toBeInTheDocument());
-    expect(screen.getByRole("heading", { name: "活动成员 · 1人" })).toBeInTheDocument();
-
-    cleanup();
-    activityApiState.members[1] = {
-      activityId: "activity-1",
-      displayName: "临时成员",
-      memberId: "guest-1",
-      role: "MEMBER",
-      status: "ACTIVE",
-      userId: null,
-      version: "1",
-    };
+  it("移除后保留成员昵称并标记只读状态", async () => {
     activityApiState.removeGuest.mutateAsync.mockImplementationOnce(async () => {
       activityApiState.members[1] = { ...activityApiState.members[1], status: "LEFT", version: "2" };
-      return { data: { memberId: "guest-1", result: "LEFT", revision: "3" } };
+      return { data: { memberId: "guest-1", result: "LEFT", revision: "2" } };
     });
     renderWorkspace();
     fireEvent.click(screen.getByRole("button", { name: "移除成员 临时成员" }));
@@ -1069,6 +1095,55 @@ describe("创建活动 Overlay", () => {
 });
 
 describe("活动管理 Overlay", () => {
+  it("修改管理信息并关闭后，系统返回直接回到活动列表", async () => {
+    render(<MemoryRouter initialEntries={["/activities", "/activities/activity-1"]} initialIndex={1}>
+      <Routes>
+        <Route path="/activities/:activityId" element={<ActivityWorkspace />} />
+        <Route path="/activities" element={<p>活动列表页</p>} />
+      </Routes>
+      <HistoryBackButton />
+      <LocationProbe />
+    </MemoryRouter>);
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("link", { name: "活动信息" }));
+    const location = screen.getByRole("textbox", { name: "地点" });
+    fireEvent.change(location, { target: { value: "苏州" } });
+    fireEvent.blur(location);
+    await waitFor(() => expect(activityApiState.update.mutateAsync).toHaveBeenCalledWith({ location: "苏州", version: "7" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭活动管理" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "活动管理" })).not.toBeInTheDocument());
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities/activity-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "系统返回" }));
+    expect(screen.getByText("活动列表页")).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities");
+  });
+
+  it("系统返回可直接关闭由详情页打开的管理面板", async () => {
+    render(<MemoryRouter initialEntries={["/activities", "/activities/activity-1"]} initialIndex={1}>
+      <Routes>
+        <Route path="/activities/:activityId" element={<ActivityWorkspace />} />
+        <Route path="/activities" element={<p>活动列表页</p>} />
+      </Routes>
+      <HistoryBackButton />
+      <LocationProbe />
+    </MemoryRouter>);
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("link", { name: "活动信息" }));
+    fireEvent.click(screen.getByRole("button", { name: "系统返回" }));
+    expect(screen.queryByRole("dialog", { name: "活动管理" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities/activity-1");
+  });
+
+  it("直接打开管理链接后关闭，仅移除面板参数", async () => {
+    renderWorkspace("/activities/activity-1?panel=manage", true);
+    fireEvent.click(screen.getByRole("button", { name: "关闭活动管理" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "活动管理" })).not.toBeInTheDocument());
+    expect(screen.getByTestId("location")).toHaveTextContent("/activities/activity-1");
+  });
+
   it("根视图使用一张连续列表并移除可见组名", () => {
     renderWorkspace("/activities/activity-1?panel=manage");
 
@@ -1634,6 +1709,7 @@ describe("活动管理 Overlay", () => {
     expect(activityApiState.remove.mutateAsync).not.toHaveBeenCalled();
     const confirmation = screen.getByRole("alertdialog", { name: "永久删除“测试活动”？" });
     expect(confirmation).toHaveTextContent("对所有成员生效，删除后无法恢复。");
+    expect(confirmation.parentElement?.parentElement).toBe(document.body);
     expect(within(confirmation).getByRole("button", { name: "取消" })).toHaveFocus();
 
     fireEvent.click(within(confirmation).getByRole("button", { name: "取消" }));
@@ -1816,12 +1892,13 @@ describe("活动状态筛选", () => {
     }));
   }
 
-  it("默认全部直接显示三个状态；切换仅过滤列表，金额仍匹配原活动", () => {
+  it("默认全部将进行中排在最前；切换仅过滤列表，金额仍匹配原活动", () => {
     seedStatuses();
     const { container } = renderActivitiesPage("/activities?keep=yes", true);
     const filters = screen.getByRole("group", { name: "活动状态筛选" });
     expect(within(filters).getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
-    expect([...container.querySelectorAll(".activity-list-item__content strong")].map((node) => node.textContent)).toEqual(["结束的聚餐", "进行中的旅行", "归档的旅行"]);
+    expect([...container.querySelectorAll(".activity-list-item__content strong")].map((node) => node.textContent)).toEqual(["进行中的旅行", "结束的聚餐", "归档的旅行"]);
+    expect(container.querySelector(".activity-list-item__balance")).toHaveTextContent("2.00");
     const summary = container.querySelector(".home-summary")!.textContent;
     fireEvent.click(within(filters).getByRole("button", { name: "已归档" }));
     expect(screen.queryByText("进行中的旅行")).not.toBeInTheDocument();
@@ -1834,6 +1911,26 @@ describe("活动状态筛选", () => {
     fireEvent.click(within(filters).getByRole("button", { name: "已结束" }));
     expect(screen.getByText("结束的聚餐")).toBeInTheDocument();
     expect(container.querySelector(".activity-list-item__balance")).toHaveTextContent("1.00");
+  });
+
+  it("全部视图保持进行中及其他活动各自的原有顺序和余额对应关系", () => {
+    seedStatuses();
+    activityApiState.activities.push(
+      { ...activityApiState.activity, activityId: "active-2", name: "进行中的聚会", status: "ACTIVE" },
+      { ...activityApiState.activity, activityId: "ended-2", name: "结束的旅行", status: "ENDED" },
+    );
+    activityApiState.ledgers.push(...[400, 500].map((amount) => ({
+      isPending: false, isError: false,
+      data: { balances: [{ memberId: activityApiState.activity.currentMemberId, netMinor: String(amount) }] },
+    })));
+    const { container } = renderActivitiesPage();
+    const rows = [...container.querySelectorAll(".activity-list-item")];
+    expect(rows.map((row) => row.querySelector("strong")?.textContent)).toEqual([
+      "进行中的旅行", "进行中的聚会", "结束的聚餐", "归档的旅行", "结束的旅行",
+    ]);
+    expect(rows.map((row) => row.querySelector(".activity-list-item__balance")?.textContent)).toEqual([
+      "应付¥2.00", "应收¥4.00", "应收¥1.00", "应收¥3.00", "应收¥5.00",
+    ]);
   });
 
   it.each(["active", "ended", "archived"])("URL 恢复 %s 筛选", (status) => {

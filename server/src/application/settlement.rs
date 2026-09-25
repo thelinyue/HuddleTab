@@ -3,6 +3,17 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// 日期按选择时的本地时区解析；revision 用于拒绝过期预览，账单集合由服务端固定。
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettlementScope {
+    pub dates: Option<Vec<String>>,
+    pub time_zone: String,
+    pub revision: String,
+    pub strategy: Option<String>,
+    pub hub_member_id: Option<String>,
+}
+
 use crate::{
     application::ports::Clock,
     domain::{currency::Currency, money::Money},
@@ -32,18 +43,24 @@ pub struct SettlementRecord {
     pub updated_at: OffsetDateTime,
     pub voided_at: Option<OffsetDateTime>,
     pub allocations: Vec<SettlementAllocationRecord>,
+    pub applications: Vec<SettlementApplicationRecord>,
+    pub scope: Option<SettlementScope>,
+    pub scope_expense_ids: Vec<Uuid>,
+    pub scope_dates: Vec<String>,
+}
+
+/// 自动对账把真实转账的每一侧应用到具体账单，保留成员和来源供审计。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementApplicationRecord {
+    pub expense_id: Uuid,
+    pub member_id: Uuid,
+    pub amount_minor: i64,
+    pub origin: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// 一笔真实 Settlement 在具体 Expense 上的金额归属；不复制付款人、收款人或原始分摊事实。
 pub struct SettlementAllocationRecord {
-    pub expense_id: Uuid,
-    pub amount_minor: i64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-/// 创建或更新 Settlement 时提交的归属事实，最终由 Repository 在活动锁内校验。
-pub struct SettlementAllocationInput {
     pub expense_id: Uuid,
     pub amount_minor: i64,
 }
@@ -59,7 +76,7 @@ pub struct NewSettlement {
     pub receiver_member_id: Uuid,
     pub currency: String,
     pub amount_minor: i64,
-    pub allocations: Vec<SettlementAllocationInput>,
+    pub scope: Option<SettlementScope>,
     pub now: OffsetDateTime,
 }
 
@@ -74,7 +91,6 @@ pub struct SettlementUpdate {
     pub payer_member_id: Uuid,
     pub receiver_member_id: Uuid,
     pub amount_minor: i64,
-    pub allocations: Vec<SettlementAllocationInput>,
     pub now: OffsetDateTime,
 }
 
@@ -97,6 +113,10 @@ pub struct CreatedSettlement {
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum SettlementRepositoryError {
+    #[error("结算预览已过期，请刷新后重新确认")]
+    PreviewExpired,
+    #[error("结算日期、范围或金额无效")]
+    InvalidScope,
     #[error("没有结算操作权限")]
     Forbidden,
     #[error("结算不存在")]
@@ -105,8 +125,6 @@ pub enum SettlementRepositoryError {
     VersionConflict,
     #[error("幂等键与其他结算冲突")]
     MutationConflict,
-    #[error("结算归属超过账单当前可结算余额")]
-    AllocationConflict,
     #[error("结算成员无效")]
     InvalidMember,
     #[error("结算数据访问失败")]
@@ -154,13 +172,7 @@ pub struct CreateSettlementInput {
     pub receiver_member_id: Uuid,
     pub currency: String,
     pub amount_minor: String,
-    pub allocations: Vec<SettlementAllocationInputText>,
-}
-
-#[derive(Clone, Debug)]
-pub struct SettlementAllocationInputText {
-    pub expense_id: Uuid,
-    pub amount_minor: String,
+    pub scope: Option<SettlementScope>,
 }
 
 #[derive(Clone, Debug)]
@@ -172,11 +184,14 @@ pub struct UpdateSettlementInput {
     pub payer_member_id: Uuid,
     pub receiver_member_id: Uuid,
     pub amount_minor: String,
-    pub allocations: Vec<SettlementAllocationInputText>,
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum SettlementError {
+    #[error("结算日期、范围或金额无效")]
+    InvalidScope,
+    #[error("结算预览已过期，请刷新后重新确认")]
+    PreviewExpired,
     #[error("结算输入无效")]
     InvalidInput,
     #[error("没有结算操作权限")]
@@ -187,8 +202,6 @@ pub enum SettlementError {
     VersionConflict,
     #[error("幂等键冲突")]
     MutationConflict,
-    #[error("结算归属超过账单当前可结算余额")]
-    AllocationConflict,
     #[error("结算服务暂时不可用")]
     Unavailable,
 }
@@ -224,7 +237,7 @@ pub async fn create_settlement(
             receiver_member_id: input.receiver_member_id,
             currency: context.base_currency.clone(),
             amount_minor,
-            allocations: parse_allocations(&context.base_currency, input.allocations)?,
+            scope: input.scope,
             now: clock.now(),
         })
         .await
@@ -260,7 +273,6 @@ pub async fn update_settlement(
             payer_member_id: input.payer_member_id,
             receiver_member_id: input.receiver_member_id,
             amount_minor,
-            allocations: parse_allocations(&context.base_currency, input.allocations)?,
             now: clock.now(),
         })
         .await
@@ -352,29 +364,14 @@ fn parse_version(value: &str) -> Result<i64, SettlementError> {
     Ok(version)
 }
 
-fn parse_allocations(
-    currency: &str,
-    allocations: Vec<SettlementAllocationInputText>,
-) -> Result<Vec<SettlementAllocationInput>, SettlementError> {
-    allocations
-        .into_iter()
-        .map(|allocation| {
-            let amount_minor = parse_amount(currency, &allocation.amount_minor)?;
-            Ok(SettlementAllocationInput {
-                expense_id: allocation.expense_id,
-                amount_minor,
-            })
-        })
-        .collect()
-}
-
 fn map_repository_error(error: SettlementRepositoryError) -> SettlementError {
     match error {
+        SettlementRepositoryError::PreviewExpired => SettlementError::PreviewExpired,
         SettlementRepositoryError::Forbidden => SettlementError::Forbidden,
         SettlementRepositoryError::NotFound => SettlementError::NotFound,
         SettlementRepositoryError::VersionConflict => SettlementError::VersionConflict,
         SettlementRepositoryError::MutationConflict => SettlementError::MutationConflict,
-        SettlementRepositoryError::AllocationConflict => SettlementError::AllocationConflict,
+        SettlementRepositoryError::InvalidScope => SettlementError::InvalidScope,
         SettlementRepositoryError::InvalidMember => SettlementError::InvalidInput,
         SettlementRepositoryError::Unavailable => SettlementError::Unavailable,
     }

@@ -53,7 +53,7 @@ function aggregateFromInput(input: Record<string, any>) {
     payments: input.payments.map((payment: { memberId: string; amountMinor: string }, index: number) => ({ factId: `payment-ai-${index}`, memberId: payment.memberId, originalAmountMinor: payment.amountMinor, baseAmountMinor: payment.amountMinor })),
     shares: splitMembers.map((memberId: string, index: number) => ({ factId: `share-ai-${index}`, memberId, originalAmountMinor: input.originalAmountMinor, baseAmountMinor: input.originalAmountMinor })),
     attachments: [],
-    settlementProgress: { currency: 'CNY', members: [], remainingMinor: '0', settledMinor: '0', status: 'NO_SETTLEMENT_REQUIRED', totalRequiredMinor: '0' },
+    settlementProgress: { currency: 'CNY', members: [], remainingMinor: '0', settledMinor: '0', paidMinor: '0', offsetMinor: '0', status: 'NO_SETTLEMENT_REQUIRED', totalRequiredMinor: '0' },
   };
 }
 

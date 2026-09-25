@@ -416,6 +416,8 @@ async fn create_link_invitation(
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+// 同一活动串联邀请校验、令牌读取、权限、撤销和并发创建，覆盖唯一链接约束。
+#[allow(clippy::too_many_lines)]
 async fn ordinary_invites_accept_only_unlimited_links() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
     let pool = connect_and_migrate(&database_url)
@@ -430,7 +432,11 @@ async fn ordinary_invites_accept_only_unlimited_links() {
     let (activity_id, _) = seed_activity(&pool, &owner).await;
     let app = router_with_state(
         None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
+        AppState::new(
+            pool.clone(),
+            secret.clone(),
+            "http://localhost:5660".to_owned(),
+        ),
     );
 
     for body in [
@@ -449,7 +455,40 @@ async fn ordinary_invites_accept_only_unlimited_links() {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
-    create_link_invitation(&app, &owner, activity_id).await;
+    let token = create_link_invitation(&app, &owner, activity_id).await;
+    let invitation_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM activity_invites WHERE activity_id = $1 AND kind = 'LINK'",
+    )
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("应找到已创建的链接邀请");
+    let link_path = format!("/api/activities/{activity_id}/invitations/{invitation_id}/link");
+    let (status, link) = json_response(
+        &app,
+        authenticated_request(&owner, "GET", link_path.clone(), ""),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(link["data"]["token"], token);
+    let outsider = seed_actor(&pool, &secret, "outsider", "Outsider").await;
+    let (status, _) = json_response(
+        &app,
+        authenticated_request(&outsider, "GET", link_path.clone(), ""),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "POST",
+            format!("/api/activities/{activity_id}/invitations"),
+            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
     let max_uses: Option<i32> =
         sqlx::query_scalar("SELECT max_uses FROM activity_invites WHERE activity_id = $1")
             .bind(activity_id)
@@ -457,6 +496,35 @@ async fn ordinary_invites_accept_only_unlimited_links() {
             .await
             .expect("应找到不限次数链接");
     assert_eq!(max_uses, None);
+    let (status, _) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "DELETE",
+            format!("/api/activities/{activity_id}/invitations/{invitation_id}"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) =
+        json_response(&app, authenticated_request(&owner, "GET", link_path, "")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let create_path = format!("/api/activities/{activity_id}/invitations");
+    let body = r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#;
+    let (first, second) = tokio::join!(
+        json_response(
+            &app,
+            authenticated_request(&owner, "POST", create_path.clone(), body)
+        ),
+        json_response(
+            &app,
+            authenticated_request(&owner, "POST", create_path, body)
+        ),
+    );
+    let statuses = [first.0, second.0];
+    assert!(statuses.contains(&StatusCode::CREATED));
+    assert!(statuses.contains(&StatusCode::CONFLICT));
 }
 
 #[tokio::test]
@@ -2025,27 +2093,22 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
         ),
     );
 
-    let mut tokens = Vec::new();
-    for _ in 0..2 {
-        let (status, invitation) = json_response(
-            &app,
-            authenticated_request(
-                &owner,
-                "POST",
-                format!("/api/activities/{activity_id}/invitations"),
-                r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
-            ),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED);
-        tokens.push(
-            invitation["data"]["token"]
-                .as_str()
-                .expect("应返回邀请 token")
-                .to_owned(),
-        );
-    }
-    let joining_user = register_invited_actor(&app, &secret, &tokens[1]).await;
+    let (status, invitation) = json_response(
+        &app,
+        authenticated_request(
+            &owner,
+            "POST",
+            format!("/api/activities/{activity_id}/invitations"),
+            r#"{"kind":"LINK","targetDisplayName":null,"maxUses":null}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let token = invitation["data"]["token"]
+        .as_str()
+        .expect("应返回邀请 token")
+        .to_owned();
+    let joining_user = register_invited_actor(&app, &secret, &token).await;
 
     permanent_activity::delete(&pool, activity_id).await;
 
@@ -2065,8 +2128,7 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
             .header("sec-fetch-site", "same-origin")
             .header("x-csrf-token", csrf.expose_for_header())
             .body(Body::from(format!(
-                r#"{{"username":"carol","password":"correct horse battery staple","displayName":"Carol","invitationToken":"{}"}}"#,
-                tokens[0]
+                r#"{{"username":"carol","password":"correct horse battery staple","displayName":"Carol","invitationToken":"{token}"}}"#
             )))
             .expect("注册请求应可构造"),
     )
@@ -2079,7 +2141,7 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
         authenticated_request(
             &joining_user,
             "POST",
-            format!("/api/invitations/{}/join", tokens[1]),
+            format!("/api/invitations/{token}/join"),
             "{}",
         ),
     )
@@ -2145,8 +2207,8 @@ async fn insert_guest_expense_reference(
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
-// 无引用时物理删除 Guest，并将删除事实、活动 revision 与审计放在同一事务中。
-async fn remove_guest_hard_deletes_unreferenced_guest_and_records_audit() {
+// 无引用时仍保留 Guest，允许后续在已有账单中补记，同时记录 revision 与审计。
+async fn remove_guest_retains_unreferenced_guest_and_records_audit() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL");
     let pool = connect_and_migrate(&database_url)
         .await
@@ -2176,18 +2238,20 @@ async fn remove_guest_hard_deletes_unreferenced_guest_and_records_audit() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"]["memberId"], guest_member_id.to_string());
-    assert_eq!(body["data"]["result"], "DELETED");
+    assert_eq!(body["data"]["result"], "LEFT");
     assert_eq!(body["data"]["revision"], "3");
 
-    let member_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM activity_members WHERE activity_id = $1 AND id = $2",
+    let member: (String, String, Option<OffsetDateTime>) = sqlx::query_as(
+        "SELECT status, display_name, left_at FROM activity_members WHERE activity_id = $1 AND id = $2",
     )
     .bind(activity_id)
     .bind(guest_member_id)
     .fetch_one(&pool)
     .await
-    .expect("应读取物理删除结果");
-    assert_eq!(member_count, 0);
+    .expect("应读取保留的成员");
+    assert_eq!(member.0, "LEFT");
+    assert!(!member.1.is_empty());
+    assert!(member.2.is_some());
     let audit = sqlx::query_as::<_, (String, i64, Uuid, Option<Uuid>)>(
         "SELECT action, activity_revision, resource_id, actor_member_id
          FROM activity_audit_logs WHERE activity_id = $1
@@ -2439,7 +2503,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["result"], "DELETED");
+    assert_eq!(body["data"]["result"], "LEFT");
 
     let (status, body) = json_response(
         &app,
@@ -2506,7 +2570,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["result"], "DELETED");
+    assert_eq!(body["data"]["result"], "LEFT");
 
     for target_member_id in [left_guest] {
         let (status, body) = json_response(

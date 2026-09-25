@@ -8,8 +8,9 @@ type ReadingPosition = { y: number; anchors: Array<{ key: string; top: number }>
 function useActivityViewState() {
   const [strategySelection, setStrategySelection] = useState<RecommendationSelection>({});
   const [balanceOpen, setBalanceOpen] = useState(false);
+  const [settlementDates, setSettlementDates] = useState<string[] | null>(null);
   const positions = useRef<Partial<Record<PageKind, ReadingPosition>>>({});
-  return { strategySelection, setStrategySelection, balanceOpen, setBalanceOpen, positions };
+  return { strategySelection, setStrategySelection, balanceOpen, setBalanceOpen, settlementDates, setSettlementDates, positions };
 }
 const ActivityViewContext = createContext<ReturnType<typeof useActivityViewState> | null>(null);
 
@@ -39,11 +40,13 @@ export function useActivityPagePosition(kind: PageKind, ready: boolean) {
   const restoring = useRef(false);
   const firstLayout = useRef(true);
   const frame = useRef(0);
-  const capturePosition = useCallback((trigger?: HTMLElement) => {
+  const capturePosition = useCallback((trigger?: HTMLElement, readingKey?: string) => {
     if (restoring.current || !containerRef.current?.isConnected) return;
     const rows = [...containerRef.current.querySelectorAll<HTMLElement>("[data-reading-key]")];
     const edge = document.querySelector(".workspace-header")?.getBoundingClientRect().bottom ?? 0;
-    const index = rows.findIndex(row => row.getBoundingClientRect().bottom > edge);
+    // 卡片底部的连续录入入口会随推荐数量移动，允许调用方明确指定本次操作的恢复参照。
+    const preferredIndex = readingKey ? rows.findIndex(row => row.dataset.readingKey === readingKey) : -1;
+    const index = preferredIndex >= 0 ? preferredIndex : rows.findIndex(row => row.getBoundingClientRect().bottom > edge);
     const neighbors = index < 0 ? [] : [rows[index], rows[index + 1], rows[index - 1]].filter(Boolean);
     const focused = trigger ?? document.activeElement?.closest<HTMLElement>("[data-focus-key]");
     positions.current[kind] = {

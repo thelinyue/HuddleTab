@@ -46,6 +46,8 @@ pub struct MemberSettlementProgress {
     pub balance_type: BalanceType,
     pub expected_minor: i64,
     pub settled_minor: i64,
+    pub paid_minor: i64,
+    pub offset_minor: i64,
     pub remaining_minor: i64,
     pub status: MemberSettlementStatus,
 }
@@ -75,6 +77,8 @@ pub struct ExpenseSettlementProgress {
     pub status: ExpenseSettlementStatus,
     pub total_required_minor: i64,
     pub settled_minor: i64,
+    pub paid_minor: i64,
+    pub offset_minor: i64,
     pub remaining_minor: i64,
     pub members: Vec<MemberSettlementProgress>,
 }
@@ -167,6 +171,8 @@ pub fn calculate_expense_progress(
             balance_type,
             expected_minor: expected,
             settled_minor: settled,
+            paid_minor: settled,
+            offset_minor: 0,
             remaining_minor: remaining,
             status,
         });
@@ -187,7 +193,127 @@ pub fn calculate_expense_progress(
         status,
         total_required_minor: total_required,
         settled_minor: settled_total,
+        paid_minor: settled_total,
+        offset_minor: 0,
         remaining_minor: remaining_total,
+        members,
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BillClearingFact {
+    pub member_id: Uuid,
+    pub amount_minor: i64,
+    pub is_offset: bool,
+}
+
+/// 从账单原始净额与可追溯清偿事实派生进度；每位成员分别记录现金与抵销。
+///
+/// # Errors
+///
+/// 账单事实不守恒、清偿超过成员原始余额或金额溢出时返回错误。
+pub fn calculate_cleared_progress(
+    member_ids: Vec<Uuid>,
+    payments: Vec<LedgerEntry>,
+    shares: Vec<LedgerEntry>,
+    clearings: Vec<BillClearingFact>,
+) -> Result<ExpenseSettlementProgress, SettlementProgressError> {
+    let initial = calculate_ledger(member_ids, payments, shares, Vec::new())
+        .map_err(|_| SettlementProgressError::Integrity)?;
+    let mut grouped = BTreeMap::<Uuid, (i64, i64)>::new();
+    for clearing in clearings {
+        if clearing.amount_minor <= 0 {
+            return Err(SettlementProgressError::Integrity);
+        }
+        let amounts = grouped.entry(clearing.member_id).or_default();
+        let target = if clearing.is_offset {
+            &mut amounts.1
+        } else {
+            &mut amounts.0
+        };
+        *target = target
+            .checked_add(clearing.amount_minor)
+            .ok_or(SettlementProgressError::Overflow)?;
+    }
+    let mut members = Vec::new();
+    let mut total_required = 0_i64;
+    let mut settled_total = 0_i64;
+    let mut paid_total = 0_i64;
+    let mut offset_total = 0_i64;
+    let mut any_settled = false;
+    let mut all_settled = true;
+    for balance in initial {
+        let net = balance.net_minor();
+        if net == 0 {
+            continue;
+        }
+        let expected = net.checked_abs().ok_or(SettlementProgressError::Overflow)?;
+        let (paid, offset) = grouped.remove(&balance.member_id()).unwrap_or_default();
+        let settled = paid
+            .checked_add(offset)
+            .ok_or(SettlementProgressError::Overflow)?;
+        let remaining = expected
+            .checked_sub(settled)
+            .filter(|amount| *amount >= 0)
+            .ok_or(SettlementProgressError::Integrity)?;
+        let balance_type = if net < 0 {
+            BalanceType::Payable
+        } else {
+            BalanceType::Receivable
+        };
+        if net < 0 {
+            total_required = total_required
+                .checked_add(expected)
+                .ok_or(SettlementProgressError::Overflow)?;
+            settled_total = settled_total
+                .checked_add(settled)
+                .ok_or(SettlementProgressError::Overflow)?;
+            paid_total = paid_total
+                .checked_add(paid)
+                .ok_or(SettlementProgressError::Overflow)?;
+            offset_total = offset_total
+                .checked_add(offset)
+                .ok_or(SettlementProgressError::Overflow)?;
+        }
+        any_settled |= settled > 0;
+        all_settled &= remaining == 0;
+        let status = if settled == 0 {
+            MemberSettlementStatus::Unsettled
+        } else if remaining == 0 {
+            MemberSettlementStatus::Settled
+        } else {
+            MemberSettlementStatus::PartiallySettled
+        };
+        members.push(MemberSettlementProgress {
+            member_id: balance.member_id(),
+            balance_type,
+            expected_minor: expected,
+            settled_minor: settled,
+            paid_minor: paid,
+            offset_minor: offset,
+            remaining_minor: remaining,
+            status,
+        });
+    }
+    if !grouped.is_empty() {
+        return Err(SettlementProgressError::Integrity);
+    }
+    let status = if total_required == 0 {
+        ExpenseSettlementStatus::NoSettlementRequired
+    } else if all_settled {
+        ExpenseSettlementStatus::Settled
+    } else if any_settled {
+        ExpenseSettlementStatus::PartiallySettled
+    } else {
+        ExpenseSettlementStatus::Unsettled
+    };
+    Ok(ExpenseSettlementProgress {
+        status,
+        total_required_minor: total_required,
+        settled_minor: settled_total,
+        paid_minor: paid_total,
+        offset_minor: offset_total,
+        remaining_minor: total_required - settled_total,
         members,
     })
 }

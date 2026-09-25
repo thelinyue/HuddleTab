@@ -12,7 +12,7 @@ const saved: ExpenseAggregate = {
   expense: { ...draft, activityId: "a1", expenseId: "e1", baseCurrency: "CNY", baseAmountMinor: "1000", revision: "1", version: "1", splitMode: "EQUAL", createdAt: draft.occurredAt, updatedAt: draft.occurredAt },
   payments: draft.payments.map(payment => ({ memberId: payment.memberId, factId: payment.memberId, originalAmountMinor: payment.amountMinor, baseAmountMinor: payment.amountMinor })),
   shares: [{ memberId: "participant", factId: "s1", originalAmountMinor: "1000", baseAmountMinor: "1000" }, { memberId: "left-member", factId: "s2", originalAmountMinor: "0", baseAmountMinor: "0" }],
-  attachments: [], settlementProgress: { currency: "CNY", members: [], status: "UNSETTLED", remainingMinor: "1000", totalRequiredMinor: "1000", settledMinor: "0" },
+  attachments: [], settlementProgress: { currency: "CNY", members: [], status: "UNSETTLED", remainingMinor: "1000", totalRequiredMinor: "1000", settledMinor: "0", paidMinor: "0", offsetMinor: "0" },
 };
 
 describe("流水匹配口径", () => {

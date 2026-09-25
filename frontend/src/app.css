@@ -399,6 +399,11 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .expense-settlement-progress__row--heading { border-top: 0; padding-top: 0; color: var(--muted-foreground); font-size: 12px; }
 .expense-settlement-progress__row > span:not(.expense-settlement-progress__member) { display: grid; gap: 2px; justify-items: end; text-align: right; }
 .expense-settlement-progress__row small { color: var(--muted-foreground); font-size: 11px; }
+.expense-settlement-progress__row .expense-settlement-progress__breakdown small { color: var(--foreground); overflow-wrap: anywhere; }
+.expense-settlement-progress__sources { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 12px; }
+.expense-settlement-progress__sources li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.expense-settlement-progress__sources li span:last-of-type { margin-left: auto; font-variant-numeric: tabular-nums; }
+.expense-settlement-progress__sources small { color: var(--muted-foreground); }
 .expense-settlement-progress__member { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
 .expense-settlement-progress__member > span { min-width: 0; overflow-wrap: anywhere; }
 .expense-settlement-progress__remaining { color: var(--foreground); font-weight: 650; }
@@ -680,6 +685,10 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .invite-mode-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .invite-mode-panel > p { color: var(--muted-foreground); font-size: 14px; }
 .invite-mode-panel > .button { width: 100%; }
+.member-invite-panel .issued-invite { margin-top: 0; border-top: 0; padding-top: 0; }
+.issued-invite__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.issued-invite__actions > .button:only-child { grid-column: 1 / -1; }
+.issued-invite__actions > .button { min-width: 0; }
 .member-section h2, .activity-more h2 { margin-bottom: 8px; font-size: 15px; }
 .member-list, .settings-list { border-top: 1px solid var(--border); }
 .member-entry { border-bottom: 1px solid var(--border); }
@@ -1403,6 +1412,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .quick-member-row:last-child { border-bottom: 0; }
 .quick-member-row__button { display: flex; min-width: 0; min-height: 56px; flex: 1 1 auto; align-items: center; gap: 10px; border: 0; padding: 6px 4px; color: var(--foreground); background: transparent; text-align: left; touch-action: manipulation; }
 .quick-member-row__button > span:not(.avatar):not(.quick-member-row__check) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-member-row__button > span > small { margin-left: 6px; color: var(--muted-foreground); font-size: 12px; }
 .quick-member-row__check { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; margin-left: auto; border: 1px solid var(--border); border-radius: 50%; color: transparent; }
 .quick-member-row__check--selected { border-color: var(--primary); color: var(--primary-foreground); background: var(--primary); }
 .quick-member-row > .input { width: 112px; min-width: 88px; margin-right: 2px; padding-inline: 8px; text-align: right; }
@@ -1551,7 +1561,7 @@ button:not(:disabled):active, a.button:not(:disabled):active, .button:not(:disab
 .confirm-dialog__error { display: grid; gap: 8px; color: var(--danger); font-size: 13px; line-height: 1.45; }
 .confirm-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 520px) {
-  .confirm-overlay { align-items: end; padding: 12px; }
+  .confirm-overlay { align-items: end; padding: 12px max(12px, var(--safe-area-right)) max(12px, var(--safe-area-bottom)) max(12px, var(--safe-area-left)); }
   .confirm-dialog { width: 100%; border-radius: 16px; padding: 18px; }
   .confirm-dialog__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .confirm-dialog__actions .button { width: 100%; }

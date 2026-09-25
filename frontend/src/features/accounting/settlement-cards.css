@@ -1,0 +1,57 @@
+/* 推荐与历史采用同一分组表面；金额独立对齐，长姓名和日期允许自然扩展。 */
+.settlement-page .settlement-section { margin-top: 24px; }
+.settlement-section__title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.settlement-section__title h2 { margin: 0; font-weight: 650; }
+.settlement-section__title > span, .settlement-section__title > small { color: var(--muted-foreground); font-size: 12px; }
+.settlement-section__title > small { margin-left: 2px; font-size: 10px; letter-spacing: .03em; }
+.settlement-strategy-trigger { display: inline-flex; min-height: 44px; align-items: center; justify-content: flex-end; gap: 5px; padding: 6px 0 6px 8px; border: 0; background: transparent; color: var(--primary); font-size: 12px; }
+.settlement-strategy-trigger:disabled { color: var(--muted-foreground); }
+.settlement-card { border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 16px; background: var(--surface); }
+.settlement-page .settlement-card .settlement-recommendations, .settlement-page .settlement-card .settlement-list { padding: 0 16px; margin: 0; border: 0; }
+.settlement-page .settlement-card .settlement-recommendation-item { display: block; padding: 0; }
+.settlement-card .settlement-recommendation-content { flex: 1 1 130px; }
+.settlement-card .settlement-recommendation-item:last-child, .settlement-card .settlement-record:last-child { border-bottom: 0; }
+.settlement-recommendation-actions { display: flex; flex: 0 1 auto; align-items: center; gap: 8px; min-width: 0; max-width: 100%; margin-left: auto; }
+.settlement-recommendation-actions > .money { min-width: 0; font-size: 18px; font-weight: 650; line-height: 1.3; font-variant-numeric: tabular-nums; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+.settlement-recommendation-actions > svg { flex-shrink: 0; color: var(--muted-foreground); }
+/* 整行作为表单入口，金额与箭头并排；离线时复用同一排版展示只读内容。 */
+.settlement-page .settlement-card .settlement-recommendation-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; width: 100%; min-height: 76px; padding: 16px 0; border: 0; border-radius: 8px; background: transparent; color: var(--foreground); text-align: left; }
+@media (hover: hover) {
+  .settlement-page .settlement-card .settlement-recommendation-trigger:hover:not(:disabled) { background: var(--surface-muted); }
+}
+.settlement-page .settlement-card .settlement-recommendation-trigger:active:not(:disabled) { background: var(--surface-muted); }
+.settlement-page .settlement-card .settlement-transfer { align-items: center; row-gap: 6px; }
+.settlement-page .settlement-card .settlement-transfer strong { display: block; overflow: visible; font-size: 13px; line-height: 1.5; -webkit-line-clamp: unset; }
+.settlement-card__footer { border-top: 1px solid var(--border); padding: 4px 16px; }
+.settlement-card__footer .button { min-height: 44px; padding-inline: 0; color: var(--primary); font-size: 13px; }
+.settlement-card__state { margin: 0; padding: 16px; }
+.settlement-card__state--complete { display: flex; align-items: center; gap: 10px; min-height: 76px; color: var(--primary); font-size: 14px; }
+.settlement-card__state--complete svg { flex-shrink: 0; }
+.settlement-card .settlement-load-error { padding: 16px; }
+.settlement-card__state .settlement-load-error { padding: 0; }
+.settlement-card .settlement-offset-confirm { margin: 0; padding: 16px; font-size: 14px; }
+.settlement-history-hint { margin: 0 0 10px; font-size: 12px; color: var(--muted-foreground); }
+.settlement-page .settlement-card .settlement-record { padding: 12px 0 6px; }
+.settlement-page .settlement-card .settlement-record__main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.settlement-card .settlement-record__main > .settlement-transfer { flex: 1 1 150px; }
+.settlement-record__trailing { display: flex; flex: 0 1 auto; align-items: center; justify-content: flex-end; min-width: 0; max-width: 100%; margin-left: auto; }
+.settlement-page .settlement-card .settlement-record__amount { min-width: 0; gap: 4px; font-weight: 650; font-size: 15px; font-variant-numeric: tabular-nums; }
+.settlement-record__menu { flex: 0 0 44px; min-width: 44px; min-height: 44px; margin-right: -10px; color: var(--muted-foreground); }
+.settlement-record__menu-space { flex: 0 0 34px; min-height: 44px; }
+.settlement-page .settlement-card .settlement-record__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; margin: 0; }
+.settlement-record__summary { display: inline-flex; flex: 1 1 auto; min-width: 0; min-height: 44px; align-items: center; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--muted-foreground); text-align: left; font-size: 12px; }
+.settlement-record__summary > span { overflow-wrap: anywhere; }
+.settlement-record__summary > svg { flex-shrink: 0; }
+.settlement-record__summary[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.settlement-record__meta > time { font-size: 11px; white-space: nowrap; }
+.settlement-record__details { margin: 0 0 10px; padding: 12px; border-radius: 10px; background: var(--surface-muted); color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
+.settlement-record__details p { margin: 0; }
+.settlement-record__details p + p { margin-top: 6px; }
+.settlement-page .settlement-card .settlement-record--void { background: transparent; }
+.settlement-record--void .settlement-record__main { color: var(--muted-foreground); }
+.settlement-record--void .settlement-record__amount .money { color: var(--muted-foreground); font-weight: 400; text-decoration: line-through; text-decoration-thickness: 1px; }
+.settlement-record--void .avatar { filter: grayscale(1); }
+.settlement-page .settlement-card .settlement-record__status { flex-shrink: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--muted-foreground); font-size: 12px; font-weight: 400; }
+.settlement-record-menu__void { color: var(--destructive); }
+.settlement-history-empty { display: flex; align-items: center; gap: 10px; min-height: 84px; color: var(--muted-foreground); font-size: 13px; }
+.settlement-history-empty p { margin: 0; }

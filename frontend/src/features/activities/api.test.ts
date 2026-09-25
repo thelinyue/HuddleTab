@@ -232,6 +232,7 @@ describe("Activity mutation adapter", () => {
       queryKeys.ledger("user-1", "activity-1"),
       queryKeys.recommendations("user-1", "activity-1"),
       queryKeys.settlements("user-1", "activity-1"),
+      queryKeys.settlementPreview("user-1", "activity-1"),
       queryKeys.activitySummary("user-1", "activity-1"),
     ]);
   });

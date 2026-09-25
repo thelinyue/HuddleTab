@@ -24,7 +24,8 @@ use super::static_files::mount_static_files;
 use super::{
     accounting, activity, admin, ai_expense, attachment, auth, collaboration,
     error::{ApiError, RequestId},
-    exchange_rate, expense, mcp, notification, push, settlement, sharing, snapshot,
+    exchange_rate, expense, mcp, notification, push, settlement, settlement_scope, sharing,
+    snapshot,
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
@@ -330,6 +331,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
                 .fallback(api_method_not_allowed),
         )
         .route(
+            "/activities/{activity_id}/invitations/{invitation_id}/link",
+            get(collaboration::get_invitation_link).fallback(api_method_not_allowed),
+        )
+        .route(
             "/activities/{activity_id}/join-requests",
             get(collaboration::list_join_requests).fallback(api_method_not_allowed),
         )
@@ -412,6 +417,14 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
         .route(
             "/activities/{activity_id}/export.csv",
             get(sharing::export_csv).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/settlement-preview",
+            axum::routing::post(settlement_scope::preview).fallback(api_method_not_allowed),
+        )
+        .route(
+            "/activities/{activity_id}/offset-confirmations",
+            axum::routing::post(settlement_scope::confirm).fallback(api_method_not_allowed),
         )
         .route(
             "/activities/{activity_id}/settlements",

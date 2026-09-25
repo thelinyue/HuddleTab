@@ -33,6 +33,25 @@ pub enum ApiError {
 
 impl ApiError {
     #[must_use]
+    pub fn settlement_preview_expired(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "SETTLEMENT_PREVIEW_EXPIRED",
+            "账单或结算已变化，请刷新预览后重新确认。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn invalid_settlement_scope(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_SETTLEMENT_SCOPE",
+            "请选择有效日期，转账金额不能超过所选范围的可结算金额。",
+            request_id,
+        )
+    }
+    #[must_use]
     pub fn invalid_username(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,

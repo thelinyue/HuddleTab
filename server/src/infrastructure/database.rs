@@ -76,6 +76,7 @@ pub async fn connect_and_migrate(database_url: &str) -> Result<PgPool> {
                 .run(&pool)
                 .await
                 .context("v0.0.30 数据库升级失败，未启动 HuddleTab 服务")?;
+            backfill_bill_clearing(&pool).await?;
             return Ok(pool);
         }
 
@@ -112,5 +113,48 @@ pub async fn connect_and_migrate(database_url: &str) -> Result<PgPool> {
         "数据库初始化或迁移记录校验失败，未启动 HuddleTab 服务；仅支持全新安装或从 v0.0.30 升级",
     )?;
 
+    backfill_bill_clearing(&pool).await?;
+
     Ok(pool)
+}
+
+/// 升级时按当前历史事实生成首次对账结果；已有投影不因服务重启而改写。
+async fn backfill_bill_clearing(pool: &PgPool) -> Result<()> {
+    let activities = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT a.id FROM activities a WHERE EXISTS \
+         (SELECT 1 FROM expenses e WHERE e.activity_id = a.id AND e.deleted_at IS NULL) \
+         AND NOT EXISTS (SELECT 1 FROM bill_clearing_entries b WHERE b.activity_id = a.id)",
+    )
+    .fetch_all(pool)
+    .await
+    .context("无法读取需要自动对账的历史活动")?;
+    for activity_id in activities {
+        let mut transaction = pool.begin().await.context("无法开始历史账单对账")?;
+        sqlx::query("SELECT id FROM activities WHERE id = $1 FOR UPDATE")
+            .bind(activity_id)
+            .execute(&mut *transaction)
+            .await
+            .context("无法锁定历史活动")?;
+        let already_reconciled = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM bill_clearing_entries WHERE activity_id = $1)",
+        )
+        .bind(activity_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .context("无法检查历史账单对账状态")?;
+        if already_reconciled {
+            continue;
+        }
+        super::bill_clearing::reconcile_activity(
+            &mut transaction,
+            activity_id,
+            false,
+            "HISTORICAL_AUTO",
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .context("历史账单自动对账失败，未启动服务")?;
+        transaction.commit().await.context("无法提交历史账单对账")?;
+    }
+    Ok(())
 }

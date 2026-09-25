@@ -34,7 +34,7 @@ function ActivityActionsMenu({ activityId }: { activityId: string }) {
     <Popover.Trigger asChild><button className="icon-button" type="button" aria-label="更多操作" data-focus-key="activity-menu"><MoreHorizontal aria-hidden="true" size={21} /></button></Popover.Trigger>
     <Popover.Portal><Popover.Content className="activity-actions-popover" side="bottom" align="end" sideOffset={8}>
       <nav className="activity-actions-popover__list" aria-label="活动操作">
-        <Link className="activity-actions-popover__item" to={tabUrl(activityId, "feed", "manage")} onClick={closeMenu}>活动信息</Link>
+        <Link className="activity-actions-popover__item" to={tabUrl(activityId, "feed", "manage")} state={{ activityManagementFromWorkspace: true }} onClick={closeMenu}>活动信息</Link>
         <Link className="activity-actions-popover__item" to={`/activities/${encodeURIComponent(activityId)}/statistics`} state={{ activityStatisticsFromWorkspace: true, activityStatisticsFromTab: "feed" }} onClick={closeMenu}>活动统计</Link>
         <Link className="activity-actions-popover__item" to={`/share-feed/${encodeURIComponent(activityId)}`} onClick={closeMenu}>分享流水小票</Link>
       </nav>
@@ -98,6 +98,10 @@ export function ActivityWorkspace() {
   const membersData = members.data ?? snapshot.data?.snapshot.members ?? [];
   const panel = searchParams.get("panel");
   const closePanel = () => {
+    if (panel === "manage" && (location.state as { activityManagementFromWorkspace?: boolean } | null)?.activityManagementFromWorkspace) {
+      navigate(-1);
+      return;
+    }
     const next = new URLSearchParams(searchParams);
     next.delete("panel");
     navigate({ pathname: location.pathname, search: next.toString() }, { replace: true });

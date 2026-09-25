@@ -236,6 +236,24 @@ async fn create_link_invitation(
     response_json(response).await
 }
 
+async fn assert_link_invitation_conflict(
+    app: &Router,
+    invitations_uri: &str,
+    context: &AuthContext,
+) {
+    let response = app
+        .clone()
+        .oneshot(mutation_request(
+            "POST",
+            invitations_uri,
+            Body::from(r#"{"kind":"LINK"}"#),
+            context,
+        ))
+        .await
+        .expect("router 应响应");
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
 async fn create_activity(app: &Router, context: &AuthContext, name: &str) -> Value {
     let response = app
         .clone()
@@ -561,8 +579,9 @@ async fn sensitive_writes_require_session_and_csrf_before_sharing_user_limit() {
         .expect("router 应响应");
     assert_eq!(revoked_response.status(), StatusCode::OK);
 
-    for _ in 0..8 {
-        create_link_invitation(&app, &invitations_uri, &first_context).await;
+    create_link_invitation(&app, &invitations_uri, &first_context).await;
+    for _ in 0..7 {
+        assert_link_invitation_conflict(&app, &invitations_uri, &first_context).await;
     }
 
     let response = app
@@ -641,8 +660,9 @@ async fn sensitive_authenticated_bucket_includes_guest_binding_invites() {
     let binding_uri =
         format!("/api/activities/{activity_id}/members/{guest_member_id}/binding-invitations");
 
-    for _ in 0..9 {
-        create_link_invitation(&app, &invitations_uri, &owner).await;
+    create_link_invitation(&app, &invitations_uri, &owner).await;
+    for _ in 0..8 {
+        assert_link_invitation_conflict(&app, &invitations_uri, &owner).await;
     }
 
     let binding_response = app

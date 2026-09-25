@@ -1,6 +1,7 @@
 //! 领域层只包含无框架、无数据库依赖的业务规则。
 
 pub mod activity;
+pub mod bill_clearing;
 pub mod currency;
 pub mod exchange_rate;
 pub mod expense;

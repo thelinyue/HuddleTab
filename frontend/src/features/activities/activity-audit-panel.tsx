@@ -31,6 +31,7 @@ const actionLabels: Record<string, string> = {
   SETTLEMENT_CREATED: "创建了结算",
   SETTLEMENT_UPDATED: "修改了结算",
   SETTLEMENT_VOIDED: "作废了结算",
+  BILL_OFFSETS_CONFIRMED: "确认了账单抵销",
   ATTACHMENT_UPLOADED: "上传了附件",
   ATTACHMENT_DELETED: "删除了附件",
 };

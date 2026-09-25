@@ -1,17 +1,15 @@
-use std::collections::BTreeSet;
-
 use async_trait::async_trait;
 use sqlx::{FromRow, PgConnection, PgPool};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use super::bill_clearing::reconcile_activity;
+use super::settlement_scope::{normalize_scope, validate_submission, validate_transfer};
 use crate::application::settlement::{
-    ActivitySettlementContext, CreatedSettlement, NewSettlement, SettlementAllocationInput,
-    SettlementAllocationRecord, SettlementRecord, SettlementRepository, SettlementRepositoryError,
+    ActivitySettlementContext, CreatedSettlement, NewSettlement, SettlementAllocationRecord,
+    SettlementApplicationRecord, SettlementRecord, SettlementRepository, SettlementRepositoryError,
     SettlementUpdate, SettlementVoid,
 };
-use crate::domain::ledger::{LedgerEntry, SettlementFact};
-use crate::domain::settlement_progress::{calculate_expense_progress, direct_allocation_capacity};
 
 #[derive(Clone, Debug)]
 pub struct PostgresSettlementRepository {
@@ -41,6 +39,9 @@ struct SettlementRow {
     created_at: OffsetDateTime,
     updated_at: OffsetDateTime,
     voided_at: Option<OffsetDateTime>,
+    scope_request: Option<sqlx::types::Json<crate::application::settlement::SettlementScope>>,
+    scope_expense_ids: Vec<Uuid>,
+    scope_dates: Vec<String>,
 }
 
 #[derive(FromRow)]
@@ -50,16 +51,11 @@ struct AllocationRow {
 }
 
 #[derive(FromRow)]
-struct ExpenseFactAmountRow {
+struct ApplicationRow {
+    expense_id: Uuid,
     member_id: Uuid,
     amount_minor: i64,
-}
-
-#[derive(FromRow)]
-struct ExpenseAllocationFactRow {
-    payer_member_id: Uuid,
-    receiver_member_id: Uuid,
-    amount_minor: i64,
+    origin: String,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -90,6 +86,8 @@ impl SettlementRepository for PostgresSettlementRepository {
         &self,
         settlement: NewSettlement,
     ) -> Result<CreatedSettlement, SettlementRepositoryError> {
+        let mut settlement = settlement;
+        settlement.scope = settlement.scope.map(normalize_scope).transpose()?;
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
         let context = lock_context(
             &mut transaction,
@@ -102,7 +100,6 @@ impl SettlementRepository for PostgresSettlementRepository {
         {
             return Err(SettlementRepositoryError::Forbidden);
         }
-        let allocations = normalized_allocations(&settlement.allocations)?;
         if let Some((id, activity_id)) = sqlx::query_as::<_, (Uuid, Uuid)>(
             "SELECT id, activity_id FROM settlements \
              WHERE created_by_user_id = $1 AND client_mutation_id = $2 FOR UPDATE",
@@ -120,7 +117,7 @@ impl SettlementRepository for PostgresSettlementRepository {
             if record.payer_member_id != settlement.payer_member_id
                 || record.receiver_member_id != settlement.receiver_member_id
                 || record.amount_minor != settlement.amount_minor
-                || !same_allocations(&record.allocations, &allocations)
+                || record.scope != settlement.scope
             {
                 return Err(SettlementRepositoryError::MutationConflict);
             }
@@ -137,20 +134,34 @@ impl SettlementRepository for PostgresSettlementRepository {
             settlement.receiver_member_id,
         )
         .await?;
-        validate_allocations(
-            &mut transaction,
-            settlement.activity_id,
-            settlement.payer_member_id,
-            settlement.receiver_member_id,
-            settlement.amount_minor,
-            &allocations,
-            None,
-        )
-        .await?;
+        let scope_ids = if let Some(scope) = &settlement.scope {
+            validate_submission(
+                &mut transaction,
+                settlement.activity_id,
+                settlement.actor_user_id,
+                scope,
+                settlement.payer_member_id,
+                settlement.receiver_member_id,
+                settlement.amount_minor,
+            )
+            .await?
+        } else {
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM expenses WHERE activity_id = $1 AND deleted_at IS NULL ORDER BY occurred_at, id")
+                .bind(settlement.activity_id).fetch_all(&mut *transaction).await.map_err(log_repository_error)?
+        };
+        let order =
+            sqlx::query_scalar::<_, i64>("SELECT revision + 1 FROM activities WHERE id = $1")
+                .bind(settlement.activity_id)
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(log_repository_error)?;
+        let scope_dates = sqlx::query_scalar::<_, String>("SELECT DISTINCT to_char(occurred_at AT TIME ZONE $2, 'YYYY-MM-DD') AS day FROM expenses WHERE id = ANY($1) ORDER BY day")
+            .bind(&scope_ids).bind(settlement.scope.as_ref().map_or("UTC", |scope| scope.time_zone.as_str()))
+            .fetch_all(&mut *transaction).await.map_err(log_repository_error)?;
         sqlx::query(
             "INSERT INTO settlements (id, activity_id, created_by_user_id, client_mutation_id, \
-             payer_member_id, receiver_member_id, currency, amount_minor, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)",
+             payer_member_id, receiver_member_id, currency, amount_minor, created_at, updated_at, scope_expense_ids, scope_request, clearing_order, scope_dates) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11, $12, $13)",
         )
         .bind(settlement.id)
         .bind(settlement.activity_id)
@@ -161,17 +172,22 @@ impl SettlementRepository for PostgresSettlementRepository {
         .bind(&settlement.currency)
         .bind(settlement.amount_minor)
         .bind(settlement.now)
+        .bind(&scope_ids)
+        .bind(settlement.scope.as_ref().map(sqlx::types::Json))
+        .bind(order)
+        .bind(scope_dates)
         .execute(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
-        insert_allocations(
+        reconcile_activity(
             &mut transaction,
             settlement.activity_id,
-            settlement.id,
-            &allocations,
+            true,
+            "AUTO",
             settlement.now,
         )
-        .await?;
+        .await
+        .map_err(log_repository_error)?;
         revise_and_audit(
             &mut transaction,
             SettlementAudit {
@@ -264,25 +280,33 @@ impl SettlementRepository for PostgresSettlementRepository {
             settlement.receiver_member_id,
         )
         .await?;
-        let allocations = normalized_allocations(&settlement.allocations)?;
         if current.payer_member_id == settlement.payer_member_id
             && current.receiver_member_id == settlement.receiver_member_id
             && current.amount_minor == settlement.amount_minor
-            && same_allocations(&current.allocations, &allocations)
         {
             transaction.commit().await.map_err(log_repository_error)?;
             return Ok(current);
         }
-        validate_allocations(
-            &mut transaction,
-            settlement.activity_id,
-            settlement.payer_member_id,
-            settlement.receiver_member_id,
-            settlement.amount_minor,
-            &allocations,
-            Some(settlement.settlement_id),
-        )
-        .await?;
+        if let Some(scope) = &current.scope {
+            // 同方向减少真实金额不扩大范围；增加金额或改收付人必须重新校验范围内容量。
+            if settlement.amount_minor > current.amount_minor
+                || settlement.payer_member_id != current.payer_member_id
+                || settlement.receiver_member_id != current.receiver_member_id
+            {
+                validate_transfer(
+                    &mut transaction,
+                    settlement.activity_id,
+                    settlement.actor_member_id,
+                    scope,
+                    &current.scope_expense_ids,
+                    settlement.payer_member_id,
+                    settlement.receiver_member_id,
+                    settlement.amount_minor,
+                    Some(settlement.settlement_id),
+                )
+                .await?;
+            }
+        }
         sqlx::query("DELETE FROM settlement_allocations WHERE settlement_id = $1")
             .bind(settlement.settlement_id)
             .execute(&mut *transaction)
@@ -300,14 +324,15 @@ impl SettlementRepository for PostgresSettlementRepository {
         .execute(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
-        insert_allocations(
+        reconcile_activity(
             &mut transaction,
             settlement.activity_id,
-            settlement.settlement_id,
-            &allocations,
+            false,
+            "AUTO",
             settlement.now,
         )
-        .await?;
+        .await
+        .map_err(log_repository_error)?;
         revise_and_audit(
             &mut transaction,
             SettlementAudit {
@@ -359,6 +384,15 @@ impl SettlementRepository for PostgresSettlementRepository {
         .bind(settlement.actor_user_id)
         .bind(settlement.settlement_id)
         .execute(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        reconcile_activity(
+            &mut transaction,
+            settlement.activity_id,
+            false,
+            "AUTO",
+            settlement.now,
+        )
         .await
         .map_err(log_repository_error)?;
         revise_and_audit(
@@ -526,7 +560,7 @@ pub(crate) async fn load(
     let row = sqlx::query_as::<_, SettlementRow>(
         "SELECT s.id, s.activity_id, s.created_by_user_id, s.client_mutation_id, \
          s.payer_member_id, s.receiver_member_id, s.currency, s.amount_minor, s.status, \
-         s.version, a.revision, s.created_at, s.updated_at, s.voided_at \
+         s.version, a.revision, s.created_at, s.updated_at, s.voided_at, s.scope_request, s.scope_expense_ids, s.scope_dates \
          FROM settlements s JOIN activities a ON a.id = s.activity_id \
          WHERE s.id = $1",
     )
@@ -550,6 +584,9 @@ pub(crate) async fn load(
         created_at: row.created_at,
         updated_at: row.updated_at,
         voided_at: row.voided_at,
+        scope: row.scope_request.map(|scope| scope.0),
+        scope_expense_ids: row.scope_expense_ids,
+        scope_dates: row.scope_dates,
         allocations: sqlx::query_as::<_, AllocationRow>(
             "SELECT expense_id, amount_minor FROM settlement_allocations \
              WHERE settlement_id = $1 ORDER BY expense_id",
@@ -564,153 +601,23 @@ pub(crate) async fn load(
             amount_minor: allocation.amount_minor,
         })
         .collect(),
-    })
-}
-
-fn normalized_allocations(
-    allocations: &[SettlementAllocationInput],
-) -> Result<Vec<SettlementAllocationInput>, SettlementRepositoryError> {
-    let mut result = allocations.to_vec();
-    result.sort_unstable_by_key(|allocation| allocation.expense_id);
-    let mut seen = BTreeSet::new();
-    if result
-        .iter()
-        .any(|allocation| !seen.insert(allocation.expense_id))
-    {
-        return Err(SettlementRepositoryError::AllocationConflict);
-    }
-    Ok(result)
-}
-
-fn same_allocations(
-    stored: &[SettlementAllocationRecord],
-    requested: &[SettlementAllocationInput],
-) -> bool {
-    stored.len() == requested.len()
-        && stored.iter().zip(requested).all(|(stored, requested)| {
-            stored.expense_id == requested.expense_id
-                && stored.amount_minor == requested.amount_minor
-        })
-}
-
-async fn insert_allocations(
-    connection: &mut PgConnection,
-    activity_id: Uuid,
-    settlement_id: Uuid,
-    allocations: &[SettlementAllocationInput],
-    created_at: OffsetDateTime,
-) -> Result<(), SettlementRepositoryError> {
-    for allocation in allocations {
-        sqlx::query(
-            "INSERT INTO settlement_allocations \
-             (activity_id, settlement_id, expense_id, amount_minor, created_at) \
-             VALUES ($1, $2, $3, $4, $5)",
+        applications: sqlx::query_as::<_, ApplicationRow>(
+            "SELECT expense_id, member_id, amount_minor, origin FROM bill_clearing_entries \
+             WHERE settlement_id = $1 ORDER BY expense_id, member_id",
         )
-        .bind(activity_id)
         .bind(settlement_id)
-        .bind(allocation.expense_id)
-        .bind(allocation.amount_minor)
-        .bind(created_at)
-        .execute(&mut *connection)
-        .await
-        .map_err(log_repository_error)?;
-    }
-    Ok(())
-}
-
-async fn validate_allocations(
-    connection: &mut PgConnection,
-    activity_id: Uuid,
-    payer_member_id: Uuid,
-    receiver_member_id: Uuid,
-    settlement_amount: i64,
-    allocations: &[SettlementAllocationInput],
-    excluded_settlement_id: Option<Uuid>,
-) -> Result<(), SettlementRepositoryError> {
-    if allocations.is_empty() {
-        return Ok(());
-    }
-    let allocation_total = allocations.iter().try_fold(0_i64, |sum, allocation| {
-        sum.checked_add(allocation.amount_minor)
-            .ok_or(SettlementRepositoryError::AllocationConflict)
-    })?;
-    // API 保持核心不变量：已明确归属的金额不能超过真实付款；前端账单结算入口默认要求刚好分配完，剩余金额仍可留作未指定账单部分。
-    if allocation_total > settlement_amount {
-        return Err(SettlementRepositoryError::AllocationConflict);
-    }
-    for allocation in allocations {
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM expenses \
-             WHERE id = $1 AND activity_id = $2 AND deleted_at IS NULL)",
-        )
-        .bind(allocation.expense_id)
-        .bind(activity_id)
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(log_repository_error)?;
-        if !exists {
-            return Err(SettlementRepositoryError::AllocationConflict);
-        }
-        let payments = sqlx::query_as::<_, ExpenseFactAmountRow>(
-            "SELECT payer_member_id AS member_id, base_amount_minor AS amount_minor \
-             FROM expense_payments WHERE expense_id = $1",
-        )
-        .bind(allocation.expense_id)
         .fetch_all(&mut *connection)
         .await
-        .map_err(log_repository_error)?;
-        let shares = sqlx::query_as::<_, ExpenseFactAmountRow>(
-            "SELECT member_id, base_amount_minor AS amount_minor \
-             FROM expense_shares WHERE expense_id = $1",
-        )
-        .bind(allocation.expense_id)
-        .fetch_all(&mut *connection)
-        .await
-        .map_err(log_repository_error)?;
-        let existing = sqlx::query_as::<_, ExpenseAllocationFactRow>(
-            "SELECT s.payer_member_id, s.receiver_member_id, sa.amount_minor \
-             FROM settlement_allocations sa \
-             JOIN settlements s ON s.id = sa.settlement_id \
-             WHERE sa.expense_id = $1 AND s.status = 'ACTIVE' \
-             AND ($2::uuid IS NULL OR s.id <> $2)",
-        )
-        .bind(allocation.expense_id)
-        .bind(excluded_settlement_id)
-        .fetch_all(&mut *connection)
-        .await
-        .map_err(log_repository_error)?;
-        let mut member_ids = BTreeSet::new();
-        member_ids.extend(payments.iter().map(|fact| fact.member_id));
-        member_ids.extend(shares.iter().map(|fact| fact.member_id));
-        let progress = calculate_expense_progress(
-            member_ids.into_iter().collect(),
-            payments
-                .iter()
-                .map(|fact| LedgerEntry::new(fact.member_id, fact.amount_minor))
-                .collect(),
-            shares
-                .iter()
-                .map(|fact| LedgerEntry::new(fact.member_id, fact.amount_minor))
-                .collect(),
-            existing
-                .into_iter()
-                .map(|fact| {
-                    SettlementFact::new(
-                        fact.payer_member_id,
-                        fact.receiver_member_id,
-                        fact.amount_minor,
-                    )
-                })
-                .collect(),
-        )
-        .map_err(|_| SettlementRepositoryError::AllocationConflict)?;
-        if allocation.amount_minor
-            > direct_allocation_capacity(&progress, payer_member_id, receiver_member_id)
-        {
-            return Err(SettlementRepositoryError::AllocationConflict);
-        }
-    }
-    Ok(())
+        .map_err(log_repository_error)?
+        .into_iter()
+        .map(|application| SettlementApplicationRecord {
+            expense_id: application.expense_id,
+            member_id: application.member_id,
+            amount_minor: application.amount_minor,
+            origin: application.origin,
+        })
+        .collect(),
+    })
 }
 
 struct SettlementAudit {

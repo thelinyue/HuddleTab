@@ -98,10 +98,12 @@ function RoutedExpenseEditor(props: ExpenseEditorProps) {
 /** 只读详情按需展开服务端结算事实；编辑页保留完整展示，不在前端推导结算状态。 */
 function ExpenseSettlementProgressSection({
   progress,
+  clearings,
   members,
   compact = false,
 }: {
   progress?: ExpenseAggregate["settlementProgress"];
+  clearings?: ExpenseAggregate["clearings"];
   members: readonly ActivityMember[];
   compact?: boolean;
 }) {
@@ -118,12 +120,11 @@ function ExpenseSettlementProgressSection({
   const statusClass = progress.status.toLowerCase().replaceAll("_", "-");
   return <section className="expense-settlement-progress" aria-labelledby={`${sectionId}-heading`}>
     <header className="expense-settlement-progress__header">
-      <div><h2 id={`${sectionId}-heading`}>结算进度</h2>{!compact ? <p>账单结算进度仅统计明确关联到本账单的结算记录。</p> : null}</div>
+      <div><h2 id={`${sectionId}-heading`}>结算进度</h2></div>
       <strong className={`expense-settlement-progress__status expense-settlement-progress__status--${statusClass}`}>{statusLabel}</strong>
       {compact && progress.status !== "NO_SETTLEMENT_REQUIRED" ? <button className="expense-detail-disclosure" type="button" aria-label={expanded ? "收起结算明细" : "查看结算明细"} aria-expanded={expanded} aria-controls={`${sectionId}-details`} onClick={() => setExpanded(value => !value)}>{expanded ? "收起明细" : "查看明细"}<ChevronDown aria-hidden="true" size={16} /></button> : null}
     </header>
     <div id={`${sectionId}-details`} hidden={compact && !expanded && progress.status !== "NO_SETTLEMENT_REQUIRED"}>
-    {compact && progress.status !== "NO_SETTLEMENT_REQUIRED" ? <p className="expense-settlement-progress__explanation">账单结算进度仅统计明确关联到本账单的结算记录。</p> : null}
     {progress.status === "NO_SETTLEMENT_REQUIRED"
       ? <p className="expense-settlement-progress__empty">这笔账从一开始无需成员间结算。</p>
       : <div className="expense-settlement-progress__table" role="table" aria-label="账单成员结算进度">
@@ -136,11 +137,17 @@ function ExpenseSettlementProgressSection({
           return <div className="expense-settlement-progress__row" role="row" key={member.memberId}>
             <span role="cell" className="expense-settlement-progress__member"><MemberAvatar memberId={member.memberId} {...memberAvatarImage(member.memberId, members)} displayName={memberName(member.memberId, members)} avatarPreset={memberAvatarPreset(member.memberId, members)} size="sm" /><span>{memberName(member.memberId, members)}</span></span>
             <span role="cell"><small>{received ? "应收" : "应结"}</small>{formatMoney(progress.currency, member.expectedMinor)}</span>
-            <span role="cell"><small>{received ? "已收" : "已结"}</small>{formatMoney(progress.currency, member.settledMinor)}</span>
+            <span role="cell" className="expense-settlement-progress__breakdown"><small>{received ? "已收款" : "已付款"} {formatMoney(progress.currency, member.paidMinor ?? member.settledMinor)}</small><small>已抵销 {formatMoney(progress.currency, member.offsetMinor ?? "0")}</small></span>
             <span role="cell" className={settled ? "expense-settlement-progress__remaining expense-settlement-progress__remaining--settled" : "expense-settlement-progress__remaining"}><small>{received ? "待收" : "待结"}</small><span>{formatMoney(progress.currency, member.remainingMinor)}{settled ? <Check aria-label="已结清" size={15} /> : null}</span></span>
           </div>;
         })}
       </div>}
+    {clearings?.length ? <ul className="expense-settlement-progress__sources" aria-label="清偿来源">{clearings.map((entry, index) => <li key={`${entry.memberId}-${entry.settlementId ?? entry.offsetExpenseId}-${index}`}>
+      <strong>{memberName(entry.memberId, members)}</strong>
+      <span>{entry.kind === "OFFSET" ? `与「${entry.offsetExpenseTitle ?? "其他账单"}」抵销` : "转账清偿"}</span>
+      <span>{formatMoney(progress.currency, entry.amountMinor)}</span>
+      {entry.origin === "HISTORICAL_AUTO" ? <small>历史自动对账</small> : null}
+    </li>)}</ul> : null}
     </div>
   </section>;
 }
@@ -446,7 +453,7 @@ function QuickMemberChoiceList({ members, mode, selectedIds, onToggle, paymentVa
             <div className={`quick-member-row${paymentValues && selected ? " quick-member-row--with-input" : ""}`} key={member.memberId}>
               <button type="button" role={mode === "single" ? "radio" : "checkbox"} aria-checked={selected} aria-label={member.displayName} className="quick-member-row__button" onClick={() => onToggle(member.memberId)}>
                 <MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} size="md" />
-                <span>{member.displayName}</span>
+                <span>{member.displayName}{member.status === "LEFT" ? <small>已移除</small> : null}</span>
                 <span aria-hidden="true" className={`quick-member-row__check${selected ? " quick-member-row__check--selected" : ""}`}>{selected ? <Check size={15} /> : null}</span>
               </button>
               {paymentValues && selected ? <Input inputMode="decimal" aria-label={`${member.displayName}付款金额`} value={paymentValues[member.memberId] ?? ""} disabled={!onPaymentChange} onChange={(event) => onPaymentChange?.(member.memberId, event.target.value)} /> : null}
@@ -553,7 +560,9 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
   const amountRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const activeMembers = [...(members.data ?? cachedMembers ?? []), ...createdMembers.filter((created) => !(members.data ?? cachedMembers ?? []).some((member) => member.memberId === created.memberId))].filter((member) => member.status === "ACTIVE");
+  const memberData = [...(members.data ?? cachedMembers ?? []), ...createdMembers.filter((created) => !(members.data ?? cachedMembers ?? []).some((member) => member.memberId === created.memberId))];
+  const activeMembers = memberData.filter((member) => member.status === "ACTIVE");
+  const selectableMembers = initial ? memberData : activeMembers;
   const canAddGuest = activity.status === "ACTIVE" && activity.currentMemberRole === "OWNER";
   const totalMinor = (() => { try { return amount.trim() ? BigInt(amountToMinor(amount, currency)) : null; } catch { return null; } })();
   const splitPreview = previewQuickSplit(totalMinor, currency, participantIds, splitMode, splitValues);
@@ -879,7 +888,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
     }
   }
 
-  const selectedPayerNames = payerIds.map((id) => memberName(id, activeMembers)).join("、");
+  const selectedPayerNames = payerIds.map((id) => memberName(id, memberData)).join("、");
   const selectedPayerLabel = payerIds.length > 1 ? `${payerIds.length} 人` : selectedPayerNames;
   const selectedCategory = categories.find(([value]) => value === category) ?? categories[0];
   const selectedSplitLabel = quickSplitModes.find(([value]) => value === splitMode)?.[1] ?? "均摊";
@@ -919,7 +928,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
   const renderMemberPicker = (mode: PayerMode) => (
     <>
       <div className="quick-expense-segmented" role="group" aria-label="付款模式"><button type="button" aria-pressed={payerDraftMode === "single"} onClick={() => switchPayerMode("single")}>单人付款</button><button type="button" aria-pressed={payerDraftMode === "multiple"} onClick={() => switchPayerMode("multiple")}>多人付款</button></div>
-      <QuickMemberChoiceList members={activeMembers} mode={mode} selectedIds={payerDraftIds} onToggle={togglePayer} paymentValues={mode === "multiple" ? payerDraftValues : undefined} onPaymentChange={(id, value) => { setQuickError(undefined); markAiFieldEdited("payer"); setPayerDraftValues((current) => ({ ...current, [id]: value })); }} canAddGuest={canAddGuest} online={!offline} onAddGuest={() => { setGuestError(undefined); onViewChange("payer-add-guest"); }} />
+      <QuickMemberChoiceList members={selectableMembers} mode={mode} selectedIds={payerDraftIds} onToggle={togglePayer} paymentValues={mode === "multiple" ? payerDraftValues : undefined} onPaymentChange={(id, value) => { setQuickError(undefined); markAiFieldEdited("payer"); setPayerDraftValues((current) => ({ ...current, [id]: value })); }} canAddGuest={canAddGuest} online={!offline} onAddGuest={() => { setGuestError(undefined); onViewChange("payer-add-guest"); }} />
       {mode === "multiple" ? <QuickExpenseActionDock status={totalMinor === null ? "先填写账单金额，再分配多人付款金额" : <>已分配 {formatMoney(currency, payerDraftResolution.allocatedMinor.toString())} / {formatMoney(currency, totalMinor.toString())}</>}><Button type="button" disabled={!payerDraftResolution.payments} onClick={commitPayers}>完成</Button></QuickExpenseActionDock> : null}
     </>
   );
@@ -945,9 +954,9 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
           <div className="quick-expense-grid">
             <QuickValueButton label="分类" value={selectedCategory[1]} initialFocus={entryFocusTarget === "category"} onClick={() => { setEntryFocusTarget("category"); onViewChange("category"); }}><img className="quick-expense-value-button__image" src={`/expense-categories/${selectedCategory[2]}.webp`} width={34} height={34} alt="" /></QuickValueButton>
             <label className="quick-expense-inline-field"><span>用途 {aiBadge("title")}</span><Input ref={titleRef} aria-label="用途" value={title} onChange={(event) => { setTitle(event.target.value); markAiFieldEdited("title"); clearFieldError("title"); }} placeholder="例如：晚餐" maxLength={120} aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? "quick-expense-title-error" : undefined} required />{fieldErrors.title ? <small id="quick-expense-title-error" className="quick-expense-error" role="alert">{fieldErrors.title}</small> : null}</label>
-            <QuickFieldButton label="付款人" value={selectedPayerLabel || "请选择"} initialFocus={entryFocusTarget === "payer"} onClick={openPayer}><span className="quick-expense-avatar-stack" aria-hidden="true">{payerIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} {...memberAvatarImage(id, activeMembers)} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>
+            <QuickFieldButton label="付款人" value={selectedPayerLabel || "请选择"} initialFocus={entryFocusTarget === "payer"} onClick={openPayer}><span className="quick-expense-avatar-stack" aria-hidden="true">{payerIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} {...memberAvatarImage(id, memberData)} displayName={memberName(id, memberData)} avatarPreset={memberAvatarPreset(id, memberData)} size="sm" />)}</span></QuickFieldButton>
             <QuickTimePicker value={occurredAt} onChange={(value) => { setOccurredAt(value); markAiFieldEdited("occurredAt"); if (exchangeRateKind === "PROVIDER" || exchangeRateKind === "CACHE") { setExchangeRate(""); setExchangeRateKind("MANUAL"); setExchangeRateReferenceDate(null); setExchangeRateProvider(null); } }} />
-            <div className="quick-expense-participants"><QuickFieldButton label="参与人" value={participantIds.length ? `${participantIds.length} 人` : "请选择"} initialFocus={entryFocusTarget === "participants"} onClick={openParticipants}><span className="quick-expense-avatar-stack" aria-hidden="true">{participantIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} {...memberAvatarImage(id, activeMembers)} displayName={memberName(id, activeMembers)} avatarPreset={memberAvatarPreset(id, activeMembers)} size="sm" />)}</span></QuickFieldButton>{fieldErrors.participants ? <small className="quick-expense-error" role="alert">{fieldErrors.participants}</small> : null}</div>
+            <div className="quick-expense-participants"><QuickFieldButton label="参与人" value={participantIds.length ? `${participantIds.length} 人` : "请选择"} initialFocus={entryFocusTarget === "participants"} onClick={openParticipants}><span className="quick-expense-avatar-stack" aria-hidden="true">{participantIds.slice(0, 2).map((id) => <MemberAvatar key={id} memberId={id} {...memberAvatarImage(id, memberData)} displayName={memberName(id, memberData)} avatarPreset={memberAvatarPreset(id, memberData)} size="sm" />)}</span></QuickFieldButton>{fieldErrors.participants ? <small className="quick-expense-error" role="alert">{fieldErrors.participants}</small> : null}</div>
             <QuickValueButton label="分摊设置" value={selectedSplitLabel} initialFocus={entryFocusTarget === "split"} onClick={() => { setEntryFocusTarget("split"); onViewChange("split"); }} />
           </div>
             <QuickFieldButton label="备注" value={noteSummary} initialFocus={entryFocusTarget === "note"} onClick={() => { setEntryFocusTarget("note"); onViewChange("note"); }} />
@@ -956,7 +965,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
           <QuickExpenseActionDock><Button type="submit" className="quick-expense-submit" busy={mutation.isPending}>{rejected ? "修改后重试" : "保存"}</Button></QuickExpenseActionDock>
         </div>
       ) : view === "payer" ? <div className="quick-expense-subview" data-quick-expense-view="payer">{renderMemberPicker(payerDraftMode)}</div>
-        : view === "participants" ? <div className="quick-expense-subview" data-quick-expense-view="participants"><QuickMemberChoiceList members={activeMembers} mode="multiple" selectedIds={participantDraft} onToggle={(id) => { setQuickError(undefined); markAiFieldEdited("participants"); setParticipantDraft((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }} canAddGuest={canAddGuest} online={!offline} onAddGuest={() => { setGuestError(undefined); onViewChange("participants-add-guest"); }} /><QuickExpenseActionDock><Button type="button" disabled={!participantDraft.length} onClick={commitParticipants}>完成</Button></QuickExpenseActionDock></div>
+        : view === "participants" ? <div className="quick-expense-subview" data-quick-expense-view="participants"><QuickMemberChoiceList members={selectableMembers} mode="multiple" selectedIds={participantDraft} onToggle={(id) => { setQuickError(undefined); markAiFieldEdited("participants"); setParticipantDraft((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }} canAddGuest={canAddGuest} online={!offline} onAddGuest={() => { setGuestError(undefined); onViewChange("participants-add-guest"); }} /><QuickExpenseActionDock><Button type="button" disabled={!participantDraft.length} onClick={commitParticipants}>完成</Button></QuickExpenseActionDock></div>
         : view === "payer-add-guest" || view === "participants-add-guest" ? <div className="quick-expense-subview quick-expense-guest-view" data-quick-expense-view={view}><label className="field"><span className="field__label">临时成员昵称</span><Input data-overlay-initial-focus value={guestName} maxLength={40} autoFocus required onChange={(event) => setGuestName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submitGuest(); } }} /></label>{guestError ? <p className="quick-expense-error" role="alert">{guestError}</p> : null}<QuickExpenseActionDock><Button type="button" disabled={!guestName.trim() || createGuest.isPending} busy={createGuest.isPending} onClick={() => void submitGuest()}>确认添加</Button></QuickExpenseActionDock></div>
         : view === "category" ? <div className="quick-expense-subview" data-quick-expense-view="category"><div className="quick-category-grid" role="radiogroup" aria-label="分类">{categories.map(([value, label, image]) => <button key={value} type="button" role="radio" aria-checked={category === value} onClick={() => { setCategory(value); markAiFieldEdited("category"); onViewChange("entry"); }}><img src={`/expense-categories/${image}.webp`} width={44} height={44} alt="" /><span>{label}</span>{category === value ? <Check aria-hidden="true" size={15} /> : null}</button>)}</div></div>
         : view === "currency" ? <div className="quick-expense-subview" data-quick-expense-view="currency"><label className="quick-currency-search"><span className="sr-only">搜索币种</span><Input data-overlay-initial-focus placeholder="搜索币种" value={currencySearchDraft} onChange={(event) => setCurrencySearchDraft(event.target.value)} /></label><CurrencyQuickList value={currency} search={currencySearchDraft} onSelect={selectCurrency} /></div>
@@ -967,7 +976,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
           <div className="quick-split-summary" aria-live="polite"><QuickSplitSummary currency={currency} memberIds={participantIds} mode={splitMode} values={splitValues} totalMinor={totalMinor} onFillRemainder={fillRemainder} /></div>
           <div className="quick-split-list" role="list" aria-label="参与成员分摊">
             <div className="quick-split-list__rows">{participantIds.map((memberId) => {
-              const name = memberName(memberId, activeMembers);
+              const name = memberName(memberId, memberData);
               const allocation = splitPreview.allocations.find((row) => row.memberId === memberId);
               const updateSplitValue = (value: string) => {
                 setQuickError(undefined);
@@ -975,7 +984,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
                 setSplitValues((current) => ({ ...current, [memberId]: value }));
               };
               return <div className={`quick-split-row${splitMode === "EQUAL" ? " quick-split-row--equal" : ""}`} key={memberId}>
-                <MemberAvatar memberId={memberId} {...memberAvatarImage(memberId, activeMembers)} displayName={name} avatarPreset={memberAvatarPreset(memberId, activeMembers)} size="sm" />
+                <MemberAvatar memberId={memberId} {...memberAvatarImage(memberId, memberData)} displayName={name} avatarPreset={memberAvatarPreset(memberId, memberData)} size="sm" />
                 <span className="quick-split-row__name">{name}</span>
                 {splitMode === "WEIGHT"
                   ? <div className="quick-split-row__control"><QuickIntegerStepper name={name} unit="份数" value={splitValues[memberId] ?? "1"} onChange={updateSplitValue} /></div>
@@ -1046,7 +1055,7 @@ function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { a
         </dd></div>
       </dl>
     </div>
-    <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} members={memberData} compact />
+    <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} clearings={aggregate.clearings} members={memberData} compact />
     {aggregate.expense.note ? <div className="expense-detail-fields expense-detail-note"><dl><div><dt>备注</dt><dd>{aggregate.expense.note}</dd></div></dl></div> : null}
     <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments ?? []} compact />
   </section>;
@@ -1086,7 +1095,7 @@ export function ExpenseDetailPage() {
       <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
       {remove.error ? <ErrorNotice error={remove.error} /> : null}
       <ConfirmDialog open={deleteOpen} title="删除账单" message="删除后账本会立即重新计算，这笔账单无法恢复。确定继续吗？" confirmLabel="确认删除" busy={remove.isPending} onConfirm={() => { void remove.mutateAsync(expense.data!.expense.version).then(() => { setDeleteOpen(false); navigate(`/activities/${activity.activityId}`); }).catch(() => undefined); }} onCancel={() => setDeleteOpen(false)} />
-      <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} members={memberData} />
+      <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} clearings={aggregate.clearings} members={memberData} />
       <RoutedExpenseEditor initial={aggregate} />
     </div>
   );

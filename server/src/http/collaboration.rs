@@ -1,7 +1,7 @@
 use axum::{
     Extension, Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header::CACHE_CONTROL},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use serde::{Deserialize, Serialize};
@@ -16,8 +16,9 @@ use crate::{
             Invitation, JoinInput, JoinRequestView, create_guest as add_guest,
             create_guest_binding_invitation as issue_guest_binding_invitation,
             create_invitation as issue_invitation, decide_join_request as decide_request,
-            get_join_request as load_join_request, join_invitation as accept_invitation,
-            list_invitations as load_invitations, list_join_requests as load_join_requests,
+            get_join_request as load_join_request, get_link_token as load_link_token,
+            join_invitation as accept_invitation, list_invitations as load_invitations,
+            list_join_requests as load_join_requests,
             preview_invitation as load_invitation_preview, remove_guest as remove_guest_member,
             revoke_invitation as cancel_invitation,
         },
@@ -121,6 +122,16 @@ pub struct CreatedInvitationData {
 #[derive(Serialize, ToSchema)]
 pub struct InvitationListEnvelope {
     pub data: Vec<InvitationData>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct InvitationLinkEnvelope {
+    pub data: InvitationLinkData,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct InvitationLinkData {
+    pub token: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -413,6 +424,7 @@ pub(crate) async fn create_invitation(
         &repository,
         &SecureInvitationTokenCodec,
         &SystemClock,
+        &state.app_secret,
         CreateInvitationInput {
             activity_id,
             actor_user_id: actor.user_id,
@@ -470,6 +482,49 @@ pub(crate) async fn list_invitations(
     Ok(Json(InvitationListEnvelope {
         data: invitations.into_iter().map(invitation_data).collect(),
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/activities/{activity_id}/invitations/{invitation_id}/link",
+    params(("activity_id" = String, Path, description = "活动 UUID"),
+           ("invitation_id" = String, Path, description = "邀请 UUID")),
+    responses(
+        (status = 200, description = "有效邀请链接令牌", headers(("Cache-Control" = String, description = "private, no-store")), body = InvitationLinkEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 403, description = "无权限", body = super::error::ErrorEnvelope),
+        (status = 409, description = "邀请已失效", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn get_invitation_link(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path((activity_id, invitation_id)): Path<(String, String)>,
+    jar: CookieJar,
+) -> Result<(HeaderMap, Json<InvitationLinkEnvelope>), ApiError> {
+    let actor = authenticate(&state, &jar, request_id.clone()).await?;
+    let activity_id = parse_uuid(&activity_id, request_id.clone())?;
+    let invitation_id = parse_uuid(&invitation_id, request_id.clone())?;
+    let repository = PostgresCollaborationRepository::new(state.pool);
+    let token = load_link_token(
+        &repository,
+        &SecureInvitationTokenCodec,
+        &SystemClock,
+        &state.app_secret,
+        activity_id,
+        invitation_id,
+        actor.user_id,
+    )
+    .await
+    .map_err(|error| map_error(error, request_id))?;
+    let mut headers = HeaderMap::new();
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    Ok((
+        headers,
+        Json(InvitationLinkEnvelope {
+            data: InvitationLinkData { token },
+        }),
+    ))
 }
 
 #[utoipa::path(

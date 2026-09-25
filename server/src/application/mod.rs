@@ -12,6 +12,7 @@ pub mod expense;
 pub mod notification;
 pub mod ports;
 pub mod settlement;
+pub mod settlement_scope;
 pub mod sharing;
 pub mod snapshot;
 pub mod system_admin;

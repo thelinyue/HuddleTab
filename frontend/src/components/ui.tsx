@@ -1,5 +1,6 @@
 import { AlertCircle, LoaderCircle } from "lucide-react";
 import { forwardRef, useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
 import { errorMessage } from "../api/error";
 
 function classes(...values: Array<string | false | null | undefined>): string {
@@ -185,7 +186,7 @@ export function ConfirmDialog({
   }, [open]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="confirm-overlay" role="presentation">
       <button className="confirm-overlay__scrim" type="button" tabIndex={-1} aria-label={`取消${title}`} disabled={busy} onClick={onCancel} />
       <section ref={dialogRef} className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
@@ -197,7 +198,8 @@ export function ConfirmDialog({
           <Button variant="danger" type="button" busy={busy} disabled={busy} onClick={onConfirm}>{confirmLabel}</Button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

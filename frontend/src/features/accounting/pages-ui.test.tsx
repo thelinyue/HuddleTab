@@ -30,6 +30,7 @@ const members = vi.hoisted(() => [
   { activityId: "activity-1", displayName: "甲", memberId: "member-1", role: "OWNER", status: "ACTIVE", userId: "user-1", version: "1" },
   { activityId: "activity-1", displayName: "乙", memberId: "member-2", role: "MEMBER", status: "ACTIVE", userId: "user-2", version: "1" },
 ] as const);
+const removedMemberState = vi.hoisted(() => ({ enabled: false }));
 
 const expense = vi.hoisted(() => ({
   attachments: [{
@@ -135,7 +136,7 @@ vi.mock("../activities/workspace-context", () => ({
 
 vi.mock("../activities/api", () => ({
   useCreateGuestMutation: () => guestMutation,
-  useMembersQuery: () => ({ data: members, isPending: false }),
+  useMembersQuery: () => ({ data: removedMemberState.enabled ? [...members, { activityId: "activity-1", displayName: "丙", memberId: "member-3", role: "MEMBER", status: "LEFT", userId: null, version: "2" }] : members, isPending: false }),
 }));
 
 vi.mock("./api", () => ({
@@ -153,6 +154,12 @@ vi.mock("./api", () => ({
   useExpensesQuery: () => ({ data: workspaceState.snapshotOnly ? undefined : accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
   useLedgerQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : { balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }] }, isPending: accountingQueryState.ledgerPending, error: accountingQueryState.ledgerError }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
+  useSettlementPreviewQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : {
+    scope: { dates: null, timeZone: "Asia/Shanghai", revision: "1" }, expenseIds: ["expense-1"], dateOptions: [{ date: "2026-09-01", expenseCount: 1 }],
+    balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }],
+    recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }], settled: accountingQueryState.netMinor === "0", requiresOffsetConfirmation: false,
+  }, isPending: accountingQueryState.ledgerPending, error: accountingQueryState.ledgerError, refetch: vi.fn() }),
+  useConfirmBillOffsetsMutation: () => ({ ...mutation(), reset: vi.fn() }),
   useSettlementsQuery: () => ({ data: accountingQueryState.emptySettlements ? [] : [settlement], isPending: false }),
   useUpdateExpenseMutation: () => updateMutation,
   useUpdateSettlementMutation: mutation,
@@ -200,6 +207,7 @@ afterEach(() => {
   workspaceState.offline = false;
   workspaceState.snapshotOnly = false;
   readonlyExpenseState.data = undefined;
+  removedMemberState.enabled = false;
   aiCapability.textDraftAvailable = false;
   aiCapabilityQuery.mockClear();
   aiTextDraftMutation.mockReset();
@@ -591,6 +599,49 @@ describe("快捷记账 v0.0.2 信息路径", () => {
 });
 
 describe("统一账单编辑器", () => {
+  it("已有账单可保留、移出并补记已移除成员，新账单不展示该成员", async () => {
+    removedMemberState.enabled = true;
+    readonlyExpenseState.data = {
+      ...expense,
+      payments: [{ ...expense.payments[0], memberId: "member-3" }],
+      shares: [...expense.shares, { ...expense.shares[0], factId: "share-3", memberId: "member-3" }],
+    };
+    renderPage(<ExpenseDetailPage />);
+    expect(screen.getByRole("button", { name: /^付款人：/ })).toHaveTextContent("丙");
+    expect(screen.getByRole("button", { name: /^付款人：/ })).not.toHaveTextContent("未知成员");
+
+    fireEvent.click(screen.getByRole("button", { name: /^付款人：/ }));
+    expect(screen.getByRole("radio", { name: "丙" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("已移除")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "甲" }));
+    fireEvent.click(screen.getByRole("button", { name: /^参与人：/ }));
+    expect(screen.getByRole("checkbox", { name: "丙" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("checkbox", { name: "丙" }));
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(updateMutation.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      payments: [{ memberId: "member-1", amountMinor: "1000" }],
+      split: { mode: "EQUAL", members: ["member-1", "member-2"] },
+    })));
+    cleanup();
+    readonlyExpenseState.data = expense;
+    renderPage(<ExpenseDetailPage />);
+    fireEvent.click(screen.getByRole("button", { name: /^付款人：/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "丙" }));
+    fireEvent.click(screen.getByRole("button", { name: /^参与人：/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "丙" }));
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(updateMutation.mutateAsync).toHaveBeenLastCalledWith(expect.objectContaining({
+      payments: [{ memberId: "member-3", amountMinor: "1000" }],
+      split: { mode: "EQUAL", members: ["member-1", "member-2", "member-3"] },
+    })));
+    cleanup();
+    renderPage(<NewExpensePage />);
+    fireEvent.click(screen.getByRole("button", { name: /^付款人：/ }));
+    expect(screen.queryByRole("radio", { name: "丙" })).not.toBeInTheDocument();
+  });
+
   it("修改页沿用新增字段顺序，并从付款与分摊事实无损回填", () => {
     renderPage(<ExpenseDetailPage />);
 
@@ -1427,12 +1478,13 @@ describe("账务空状态插画", () => {
     expect(container.querySelector(".empty-state__icon")).toBeInTheDocument();
   });
 
-  it("结算记录为空时显示紧凑插画", () => {
+  it("结算记录为空时显示紧凑提示", () => {
     accountingQueryState.emptySettlements = true;
     const { container } = renderPage(<SettlementsPage />);
 
-    expect(screen.getByRole("heading", { name: "还没有结算记录" })).toBeInTheDocument();
-    expect(container.querySelector('img[src="/illustrations/settlement-history-empty.webp"]')).toHaveClass("state-illustration--compact");
+    expect(screen.getByText("还没有结算记录")).toBeInTheDocument();
+    expect(container.querySelector('img[src="/illustrations/settlement-history-empty.webp"]')).not.toBeInTheDocument();
+    expect(container.querySelector('.settlement-history-empty svg')).toBeInTheDocument();
   });
 });
 
@@ -1446,7 +1498,7 @@ describe("我的结算摘要", () => {
     else expect(within(summary).getByText('¥0.00')).toBeVisible();
     expect(screen.getByRole('button', { name: '成员余额' })).toHaveTextContent(netMinor === '0' ? '0 人未结清' : '2 人未结清');
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
-    expect(screen.getByRole('link', { name: '生成分享摘要' })).toHaveAttribute('href', '/share-summary/activity-1');
+    expect(screen.getByRole('link', { name: '生成活动分享摘要' })).toHaveAttribute('href', '/share-summary/activity-1');
   });
 
   it("余额未知时只显示摘要占位，不宣告已结清", () => {
@@ -1470,16 +1522,15 @@ describe("我的结算摘要", () => {
     expect(screen.queryByText('余额已平')).toBeNull();
   });
 
-  it("可以在更多菜单切换结算方案", async () => {
+  it("可以在推荐标题旁切换结算方案", async () => {
     renderPage(<SettlementsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
     fireEvent.click(screen.getByRole("button", { name: "切换结算方案" }));
 
     const sheet = screen.getByRole("dialog", { name: "选择结算方案" });
     expect(within(sheet).getByRole("radio", { name: /最少转账/ })).toHaveAttribute("aria-checked", "true");
     fireEvent.click(within(sheet).getByRole("radio", { name: /由我统一收付/ }));
 
-    expect(screen.getByText("当前方案：由我统一收付")).toBeVisible();
+    expect(screen.getByRole("button", { name: "切换结算方案" })).toHaveTextContent("由我统一收付");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "选择结算方案" })).not.toBeInTheDocument());
   });
 });
@@ -1608,6 +1659,17 @@ describe("只读账单紧凑明细", () => {
     readonlyExpenseState.data = structuredClone(expense);
   });
 
+  it("已移除成员的付款和分摊仍显示昵称", () => {
+    removedMemberState.enabled = true;
+    readonlyExpenseState.data!.payments[0].memberId = "member-3";
+    readonlyExpenseState.data!.shares[0].memberId = "member-3";
+    renderPage(<ExpenseDetailPage />);
+    const rows = document.querySelectorAll(".expense-detail-member-row");
+    expect(rows[0]).toHaveTextContent("丙");
+    expect(rows[1]).toHaveTextContent("丙");
+    expect(screen.queryByText("未知成员")).not.toBeInTheDocument();
+  });
+
   it.each([4, 5])("%s 人分摊按边界展示，保留零金额成员", async (count) => {
     const data = readonlyExpenseState.data!;
     data.shares = Array.from({ length: count }, (_, index) => ({ factId: `share-${index}`, memberId: `member-${index + 1}`, baseAmountMinor: index === 4 ? "0" : "250", originalAmountMinor: index === 4 ? "0" : "250" }));
@@ -1634,8 +1696,8 @@ describe("只读账单紧凑明细", () => {
 
   it.each([["UNSETTLED", "待结算"], ["PARTIALLY_SETTLED", "部分结算"], ["SETTLED", "已结清"]])("%s 使用服务端状态，展开后才展示结算事实", (status, label) => {
     readonlyExpenseState.data!.settlementProgress = {
-      currency: "CNY", status, remainingMinor: "300", settledMinor: "200", totalRequiredMinor: "500",
-      members: [{ memberId: "member-2", direction: "PAYABLE", expectedMinor: "500", settledMinor: "200", remainingMinor: "300", status }],
+      currency: "CNY", status, remainingMinor: "300", settledMinor: "200", paidMinor: "150", offsetMinor: "50", totalRequiredMinor: "500",
+      members: [{ memberId: "member-2", direction: "PAYABLE", expectedMinor: "500", settledMinor: "200", paidMinor: "150", offsetMinor: "50", remainingMinor: "300", status }],
     };
     renderPage(<ExpenseDetailPage />);
     const progress = screen.getByRole("region", { name: "结算进度" });
@@ -1643,12 +1705,12 @@ describe("只读账单紧凑明细", () => {
     expect(within(progress).queryByRole("table")).not.toBeInTheDocument();
     fireEvent.click(within(progress).getByRole("button", { name: "查看结算明细" }));
     expect(within(progress).getByRole("table")).toHaveTextContent("待结¥3.00");
-    expect(within(progress).getByText(/仅统计明确关联/)).toBeVisible();
+    expect(within(progress).getByText("已抵销 ¥0.50")).toBeVisible();
     expect(document.querySelector(".expense-detail-fields")!.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("无需结算直接说明，不提供空的展开入口", () => {
-    readonlyExpenseState.data!.settlementProgress = { currency: "CNY", status: "NO_SETTLEMENT_REQUIRED", members: [], remainingMinor: "0", settledMinor: "0", totalRequiredMinor: "0" };
+    readonlyExpenseState.data!.settlementProgress = { currency: "CNY", status: "NO_SETTLEMENT_REQUIRED", members: [], remainingMinor: "0", settledMinor: "0", paidMinor: "0", offsetMinor: "0", totalRequiredMinor: "0" };
     renderPage(<ExpenseDetailPage />);
     expect(screen.getByText("这笔账从一开始无需成员间结算。")).toBeVisible();
     expect(screen.queryByRole("button", { name: "查看结算明细" })).not.toBeInTheDocument();
@@ -1657,7 +1719,7 @@ describe("只读账单紧凑明细", () => {
   it("切换账单重置分摊与结算的展开状态", () => {
     const data = readonlyExpenseState.data!;
     data.shares = Array.from({ length: 5 }, (_, index) => ({ ...expense.shares[0], factId: `s${index}`, memberId: `m${index}` }));
-    data.settlementProgress = { currency: "CNY", status: "UNSETTLED", members: [], remainingMinor: "500", settledMinor: "0", totalRequiredMinor: "500" };
+    data.settlementProgress = { currency: "CNY", status: "UNSETTLED", members: [], remainingMinor: "500", settledMinor: "0", paidMinor: "0", offsetMinor: "0", totalRequiredMinor: "500" };
     const view = renderPage(<ExpenseDetailPage />);
     fireEvent.click(screen.getByRole("button", { name: "查看分摊明细" }));
     fireEvent.click(screen.getByRole("button", { name: "查看结算明细" }));
@@ -1692,7 +1754,7 @@ describe("Activity 生命周期写权限", () => {
     renderPage(<SettlementsPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
-    expect(screen.getByRole("link", { name: "生成分享摘要" })).toHaveAttribute("href", "/share-summary/activity-1");
+    expect(screen.getByRole("link", { name: "生成活动分享摘要" })).toHaveAttribute("href", "/share-summary/activity-1");
     expect(screen.getByRole("button", { name: "成员余额" })).toBeVisible();
     expect(screen.queryByText("查看 Rust 账本计算的全员余额")).not.toBeInTheDocument();
   });
@@ -1729,9 +1791,8 @@ describe("Activity 生命周期写权限", () => {
     activity.status = "ENDED";
     renderPage(<SettlementsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "补记结算" }));
-    expect(screen.getByRole("button", { name: "记录结算" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "补记结算" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "记录其他转账" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "结算记录操作" }));
     expect(screen.getByRole("button", { name: "修改" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "作废" })).toBeInTheDocument();
   });
@@ -1740,9 +1801,9 @@ describe("Activity 生命周期写权限", () => {
     activity.status = "ARCHIVED";
     renderPage(<SettlementsPage />);
 
-    expect(screen.getByText("实际结算记录")).toBeInTheDocument();
+    expect(screen.getByText("全部结算记录")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "记录结算" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "补记结算" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "记录其他转账" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "修改" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "作废" })).not.toBeInTheDocument();
   });

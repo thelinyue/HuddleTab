@@ -16,6 +16,7 @@ function authoritativeKeys(userId: string, activityId: string) {
     queryKeys.expenses(userId, activityId),
     queryKeys.ledger(userId, activityId),
     queryKeys.recommendations(userId, activityId),
+    queryKeys.settlementPreview(userId, activityId),
     queryKeys.settlements(userId, activityId),
     queryKeys.activityDetail(userId, activityId),
     queryKeys.activitySnapshot(userId, activityId),

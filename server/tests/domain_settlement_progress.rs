@@ -1,8 +1,8 @@
 use huddletab_server::domain::{
     ledger::{LedgerEntry, SettlementFact},
     settlement_progress::{
-        BalanceType, ExpenseSettlementStatus, MemberSettlementStatus, calculate_expense_progress,
-        direct_allocation_capacity,
+        BalanceType, BillClearingFact, ExpenseSettlementStatus, MemberSettlementStatus,
+        calculate_cleared_progress, calculate_expense_progress, direct_allocation_capacity,
     },
 };
 use uuid::Uuid;
@@ -86,4 +86,53 @@ fn multiple_payments_and_shares_keep_direct_capacity_local() {
     assert_eq!(progress.status, ExpenseSettlementStatus::PartiallySettled);
     assert_eq!(direct_allocation_capacity(&progress, receiver, payer_a), 0);
     assert_eq!(direct_allocation_capacity(&progress, payer_b, payer_a), 0);
+}
+
+#[test]
+fn cash_and_cross_bill_offset_have_separate_progress_amounts() {
+    let payer = Uuid::from_u128(1);
+    let receiver = Uuid::from_u128(2);
+    let progress = calculate_cleared_progress(
+        vec![payer, receiver],
+        vec![LedgerEntry::new(receiver, 100)],
+        vec![LedgerEntry::new(payer, 100)],
+        vec![
+            BillClearingFact {
+                member_id: payer,
+                amount_minor: 60,
+                is_offset: false,
+            },
+            BillClearingFact {
+                member_id: receiver,
+                amount_minor: 60,
+                is_offset: false,
+            },
+            BillClearingFact {
+                member_id: payer,
+                amount_minor: 40,
+                is_offset: true,
+            },
+            BillClearingFact {
+                member_id: receiver,
+                amount_minor: 40,
+                is_offset: true,
+            },
+        ],
+    )
+    .expect("现金与抵销合计应结清账单");
+    assert_eq!(progress.status, ExpenseSettlementStatus::Settled);
+    assert_eq!(
+        (
+            progress.paid_minor,
+            progress.offset_minor,
+            progress.remaining_minor
+        ),
+        (60, 40, 0)
+    );
+    assert!(
+        progress
+            .members
+            .iter()
+            .all(|member| member.status == MemberSettlementStatus::Settled)
+    );
 }

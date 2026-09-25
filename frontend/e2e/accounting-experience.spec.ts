@@ -11,6 +11,14 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
   const controls = { expenses, activityPending: false, historyPending: false, feedPending: false, snapshotPending: false, historyError: false, ledgerPending: false, failWrite: false, writes: [] as unknown[], summaryReads: 0, members, balances, activity };
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url()); const endpoint = url.pathname.split('/').at(-1);
+    if (endpoint === 'settlement-preview') {
+      while (controls.ledgerPending) await new Promise(resolve => setTimeout(resolve, 30));
+      const body = route.request().postDataJSON();
+      await route.fulfill({ json: { data: { ...recommendations, scope: { ...body, revision: activity.revision }, baseCurrency: 'CNY', revision: activity.revision,
+        expenseIds: expenses.map(item => item.expense.expenseId), dateOptions: [{ date: '2026-09-05', expenseCount: expenses.length }], balances,
+        settled: balances.every(balance => balance.netMinor === '0'), requiresOffsetConfirmation: false, offsetMinor: '0', offsetExpenseCount: 0,
+      } } }); return;
+    }
     while ((endpoint === 'demo' && controls.activityPending) || (endpoint === 'settlements' && controls.historyPending) || (endpoint === 'expenses' && controls.feedPending) || (endpoint === 'snapshot' && controls.snapshotPending) || (endpoint === 'ledger' && controls.ledgerPending)) await new Promise(resolve => setTimeout(resolve, 30));
     if (endpoint === 'settlements' && controls.historyError) { await route.fulfill({ status: 503, json: { error: { message: '记录暂时无法读取' } } }); return; }
     if (route.request().method() !== 'GET') { controls.writes.push(route.request().postDataJSON()); await route.fulfill({ status: controls.failWrite ? 409 : 200, json: controls.failWrite ? { error: { message: '记录冲突，请重试' } } : { data: records[0] } }); return; }
@@ -206,7 +214,7 @@ test('紧凑流水摘要为只读字段，独立结算页覆盖收付和零余�
     await page.screenshot({ path: info.outputPath(`settlement-${name}.png`) });
   }
   await page.getByRole('button', { name: '更多操作' }).click();
-  await page.getByRole('link', { name: '生成分享摘要' }).click();
+  await page.getByRole('link', { name: '生成活动分享摘要' }).click();
   await expect(page).toHaveURL(/\/share-summary\/demo$/);
 });
 
@@ -300,7 +308,7 @@ test('超量摘要每页无滚动，所有转账和余额恰好展示一次', as
 test('结算推荐与补记共用选择器，记录原地修改且保留错误输入', async ({ page }, info) => {
   const control = await installFixture(page);
   await page.goto('/activities/demo?tab=settlement');
-  await expect(page.getByRole('heading', { name: '实际结算记录' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '全部结算记录' })).toBeVisible();
   await page.screenshot({ path: info.outputPath('settlement.png'), fullPage: true });
   await page.locator('.settlement-recommendation-trigger').first().click();
   const form = page.getByRole('form', { name: '记录推荐转账' });
@@ -311,8 +319,8 @@ test('结算推荐与补记共用选择器，记录原地修改且保留错误�
   await form.getByRole('button', { name: '小周', exact: true }).click();
   await expect(form.getByLabel('金额（CNY）')).toHaveValue('120.00');
   await form.getByRole('button', { name: '取消', exact: true }).click();
-  await page.getByRole('button', { name: '补记结算', exact: true }).click();
-  const manual = page.getByRole('form', { name: '补记结算' });
+  await page.getByRole('button', { name: '记录其他转账', exact: true }).click();
+  const manual = page.getByRole('form', { name: '记录其他转账' });
   await manual.getByRole('button', { name: '付款人：请选择' }).click();
   await manual.getByRole('button', { name: '小陈', exact: true }).click();
   await manual.getByRole('button', { name: '收款人：请选择' }).click();
@@ -330,9 +338,11 @@ test('结算推荐与补记共用选择器，记录原地修改且保留错误�
   await expect(manual.getByRole('alert')).toContainText('记录冲突');
   await expect(manual.getByLabel('金额（CNY）')).toHaveValue('25');
   await manual.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '结算记录操作', exact: true }).click();
   await page.getByRole('button', { name: '修改', exact: true }).click();
   await page.getByRole('form', { name: '修改结算' }).getByLabel('金额（CNY）').fill('99');
   await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '结算记录操作', exact: true }).click();
   await page.getByRole('button', { name: '修改', exact: true }).click();
   await expect(page.getByRole('form', { name: '修改结算' }).getByLabel('金额（CNY）')).toHaveValue('80.00');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
@@ -356,7 +366,7 @@ test('首次流水骨架与按需模块，历史记录慢不阻塞余额', async
   await expect(page.getByRole('status', { name: '正在读取结算…' })).toBeVisible();
   await page.screenshot({ path: info.outputPath('settlement-skeleton.png') });
   control.historyPending = false; control.snapshotPending = false;
-  await expect(page.getByText('记录于', { exact: false }).first()).toBeVisible();
+  await expect(page.locator('.settlement-record__meta time').first()).toBeVisible();
 });
 
 test('长姓名与大金额分页完整，字号和视口改变后仍可截图', async ({ page }, info) => {
@@ -378,7 +388,7 @@ test('结算记录失败只影响本区域，可重试且不误报空记录', as
   const control = await installFixture(page); control.historyError = true; control.snapshotPending = true;
   await page.goto('/activities/demo?tab=settlement');
   await expect(page.getByRole('region', { name: '我的结算' })).toContainText('¥360.00');
-  const history = page.getByRole('region', { name: '实际结算记录' });
+  const history = page.getByRole('region', { name: '全部结算记录' });
   await expect(history.getByRole('alert')).toContainText('记录暂时无法读取');
   await expect(history.getByText('还没有结算记录')).toHaveCount(0);
   control.historyError = false;

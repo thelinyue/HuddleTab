@@ -45,6 +45,17 @@ export async function installTravelFixture(page: Page, currentMember = 0) {
     const request = route.request();
     const url = new URL(request.url());
     const endpoint = url.pathname.split('/').at(-1);
+    if (endpoint === 'settlement-preview') {
+      if (control.ledgerError) { await route.fulfill({ status: 503, json: { error: { message: '余额暂时无法读取' } } }); return; }
+      const body = request.postDataJSON();
+      const counts = new Map<string, number>();
+      expenses.forEach(item => { const date = item.expense.occurredAt.slice(0, 10); counts.set(date, (counts.get(date) ?? 0) + 1); });
+      await route.fulfill({ json: { data: { ...recommendations(body.strategy ?? 'min_transfers', body.hubMemberId ?? activity.currentMemberId),
+        scope: { ...body, revision: activity.revision }, expenseIds: expenses.map(item => item.expense.expenseId),
+        dateOptions: [...counts].map(([date, expenseCount]) => ({ date, expenseCount })), balances: balances(),
+        settled: balances().every(balance => balance.netMinor === '0'), requiresOffsetConfirmation: false, offsetMinor: '0', offsetExpenseCount: 0,
+      } } }); return;
+    }
     if (endpoint === 'ledger' && control.ledgerError) { await route.fulfill({ status: 503, json: { error: { message: '余额暂时无法读取' } } }); return; }
     let data: unknown = [];
     if (request.method() !== 'GET') {
@@ -60,13 +71,16 @@ export async function installTravelFixture(page: Page, currentMember = 0) {
         Object.assign(next.expense, { note: body.note ?? '', occurredAt: body.occurredAt, clientMutationId: body.clientMutationId, splitMode: body.split.mode });
         expenses.unshift(next); data = next;
       } else if (endpoint === 'settlements') {
-        const next = { ...records[0], ...body, settlementId: `s${records.length + 1}`, createdAt: `2026-09-24T12:00:${String(records.length).padStart(2, '0')}Z`, status: 'ACTIVE', version: '1' };
+        const next = { ...records[0], ...body, scopeExpenseIds: expenses.map(item => item.expense.expenseId), settlementId: `s${records.length + 1}`, createdAt: `2026-09-24T12:00:${String(records.length).padStart(2, '0')}Z`, status: 'ACTIVE', version: '1' };
         records.push(next); data = next;
       } else if (endpoint === 'void') {
         const record = records.find(r => r.settlementId === url.pathname.split('/').at(-2))!;
         record.status = 'VOID'; data = record;
       } else if (records.some(r => r.settlementId === endpoint)) {
-        const record = records.find(r => r.settlementId === endpoint)!; Object.assign(record, body); data = record;
+        const record = records.find(r => r.settlementId === endpoint)!;
+        if (request.method() === 'DELETE') record.status = 'VOID';
+        else Object.assign(record, body);
+        data = record;
       } else if (expenses.some(e => e.expense.expenseId === endpoint)) {
         const item = expenses.find(e => e.expense.expenseId === endpoint)!;
         if (request.method() === 'DELETE') expenses.splice(expenses.indexOf(item), 1);

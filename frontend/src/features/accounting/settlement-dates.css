@@ -1,0 +1,15 @@
+.settlement-date-entry { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; min-height: 52px; padding: .75rem 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: inherit; text-align: left; }
+.settlement-date-entry > span { display: flex; align-items: center; gap: .5rem; color: var(--muted-foreground); font-size: .875rem; }
+.settlement-date-entry:disabled { opacity: .55; }
+.settlement-date-picker { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+.settlement-date-picker__hint, .settlement-scope-label { margin: 0; color: var(--muted-foreground); font-size: .875rem; overflow-wrap: anywhere; }
+.settlement-date-picker__toolbar { display: flex; justify-content: flex-end; gap: .25rem; }
+.settlement-date-picker__list { overflow-y: auto; max-height: 45dvh; overscroll-behavior: contain; }
+.settlement-date-option { display: flex; align-items: center; gap: .75rem; min-height: 52px; padding: .65rem .5rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+.settlement-date-option:active { background: var(--muted); }
+.settlement-date-option input { width: 1.125rem; height: 1.125rem; flex: none; accent-color: var(--primary); }
+.settlement-date-option small { margin-left: auto; color: var(--muted-foreground); }
+.settlement-date-picker__footer { display: flex; flex-direction: column; gap: .75rem; padding-top: .75rem; border-top: 1px solid var(--border); }
+.settlement-date-picker__footer > span { color: var(--muted-foreground); font-size: .875rem; }
+.settlement-date-picker__footer > div { display: flex; justify-content: flex-end; gap: .5rem; }
+.settlement-offset-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: 1rem 0; }

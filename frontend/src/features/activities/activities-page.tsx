@@ -306,6 +306,9 @@ export function ActivitiesPage() {
   const selectedFilter = filters.find((filter) => filter.value === searchParams.get("status")) ?? filters[0];
   const filteredItems = items.filter((item) => item.baseCurrency === selectedCurrency &&
     (selectedFilter.value === "all" || item.status === selectedFilter.value.toUpperCase()));
+  if (selectedFilter.value === "all") {
+    filteredItems.sort((left, right) => Number(right.status === "ACTIVE") - Number(left.status === "ACTIVE"));
+  }
   function selectCurrency(currency: string) {
     const next = new URLSearchParams(searchParams);
     next.set("currency", currency);

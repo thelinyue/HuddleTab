@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::{
     application::ports::Clock,
     domain::join_request::{JoinDecision, JoinRequestStatus},
+    infrastructure::{app_secret::AppSecret, invitation_secret},
 };
 
 const INVITATION_LIFETIME: Duration = Duration::days(7);
@@ -121,6 +122,7 @@ pub struct NewInvitation {
     pub activity_id: Uuid,
     pub actor_user_id: Uuid,
     pub token_hash: [u8; 32],
+    pub encrypted_link_token: Option<Vec<u8>>,
     pub kind: InvitationKind,
     pub target_display_name: Option<String>,
     pub guest_member_id: Option<Uuid>,
@@ -266,6 +268,14 @@ pub trait CollaborationRepository: Send + Sync {
         activity_id: Uuid,
         actor_user_id: Uuid,
     ) -> Result<Vec<Invitation>, CollaborationRepositoryError>;
+
+    async fn get_link_token(
+        &self,
+        activity_id: Uuid,
+        invitation_id: Uuid,
+        actor_user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<Vec<u8>, CollaborationRepositoryError>;
 
     async fn revoke_invitation(
         &self,
@@ -422,7 +432,7 @@ pub async fn remove_guest(
         .map_err(map_repository_error)
 }
 
-/// 创建七天有效的链接或定向邀请，明文 token 只随本次结果返回。
+/// 创建七天有效的链接邀请；密文随邀请在同一事务中保存，以供所有者再次复制。
 ///
 /// # Errors
 ///
@@ -431,6 +441,7 @@ pub async fn create_invitation(
     repository: &dyn CollaborationRepository,
     codec: &dyn InvitationTokenCodec,
     clock: &dyn Clock,
+    app_secret: &AppSecret,
     input: CreateInvitationInput,
 ) -> Result<CreatedInvitation, CollaborationError> {
     if input.kind != "LINK" || input.target_display_name.is_some() || input.max_uses.is_some() {
@@ -441,12 +452,17 @@ pub async fn create_invitation(
         .checked_add(INVITATION_LIFETIME)
         .ok_or(CollaborationError::Unavailable)?;
     let token = codec.generate();
+    let invitation_id = Uuid::new_v4();
+    let encrypted_link_token =
+        invitation_secret::encrypt(app_secret, invitation_id, token.expose_once())
+            .map_err(|_| CollaborationError::Unavailable)?;
     let invitation = repository
         .create_invitation(NewInvitation {
-            id: Uuid::new_v4(),
+            id: invitation_id,
             activity_id: input.activity_id,
             actor_user_id: input.actor_user_id,
             token_hash: token.hash,
+            encrypted_link_token: Some(encrypted_link_token),
             kind: InvitationKind::Link,
             target_display_name: None,
             guest_member_id: None,
@@ -485,6 +501,7 @@ pub async fn create_guest_binding_invitation(
             activity_id: input.activity_id,
             actor_user_id: input.actor_user_id,
             token_hash: token.hash,
+            encrypted_link_token: None,
             kind: InvitationKind::Direct,
             target_display_name: Some(target_display_name),
             guest_member_id: Some(input.guest_member_id),
@@ -532,6 +549,32 @@ pub async fn list_invitations(
         .list_invitations(activity_id, actor_user_id)
         .await
         .map_err(map_repository_error)
+}
+
+/// 仅所有者可重新取得有效链接邀请；密文解不开时不返回不可用的链接。
+///
+/// # Errors
+///
+/// 邀请不存在、操作者无权限、密文无效或存储不可用时返回对应协作错误。
+pub async fn get_link_token(
+    repository: &dyn CollaborationRepository,
+    codec: &dyn InvitationTokenCodec,
+    clock: &dyn Clock,
+    app_secret: &AppSecret,
+    activity_id: Uuid,
+    invitation_id: Uuid,
+    actor_user_id: Uuid,
+) -> Result<String, CollaborationError> {
+    let encrypted = repository
+        .get_link_token(activity_id, invitation_id, actor_user_id, clock.now())
+        .await
+        .map_err(map_repository_error)?;
+    let token = invitation_secret::decrypt(app_secret, invitation_id, &encrypted)
+        .map_err(|_| CollaborationError::Unavailable)?;
+    if codec.hash(&token).is_none() {
+        return Err(CollaborationError::Unavailable);
+    }
+    Ok(token)
 }
 
 /// 幂等撤销邀请；首次撤销时 revision 与 Audit 只增加一次。

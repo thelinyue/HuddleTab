@@ -11,9 +11,8 @@ use uuid::Uuid;
 
 use crate::{
     application::settlement::{
-        CreateSettlementInput, SettlementAllocationInputText, SettlementError, SettlementRecord,
-        UpdateSettlementInput, create_settlement, get_settlement, list_settlements,
-        update_settlement, void_settlement,
+        CreateSettlementInput, SettlementError, SettlementRecord, UpdateSettlementInput,
+        create_settlement, get_settlement, list_settlements, update_settlement, void_settlement,
     },
     infrastructure::{clock::SystemClock, settlement_repository::PostgresSettlementRepository},
 };
@@ -25,32 +24,22 @@ use super::{
 };
 
 #[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateSettlementRequest {
     pub client_mutation_id: String,
     pub payer_member_id: String,
     pub receiver_member_id: String,
     pub currency: String,
     pub amount_minor: String,
-    #[serde(default)]
-    pub allocations: Vec<SettlementAllocationRequest>,
+    pub scope: Option<crate::application::settlement::SettlementScope>,
 }
 
 #[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateSettlementRequest {
     pub version: String,
     pub payer_member_id: String,
     pub receiver_member_id: String,
-    pub amount_minor: String,
-    #[serde(default)]
-    pub allocations: Vec<SettlementAllocationRequest>,
-}
-
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SettlementAllocationRequest {
-    pub expense_id: String,
     pub amount_minor: String,
 }
 
@@ -76,6 +65,19 @@ pub struct SettlementData {
     pub updated_at: String,
     pub voided_at: Option<String>,
     pub allocations: Vec<SettlementAllocationData>,
+    pub applications: Vec<SettlementApplicationData>,
+    pub scope: Option<crate::application::settlement::SettlementScope>,
+    pub scope_expense_ids: Vec<String>,
+    pub scope_dates: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SettlementApplicationData {
+    pub expense_id: String,
+    pub member_id: String,
+    pub amount_minor: String,
+    pub origin: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -146,16 +148,7 @@ pub(crate) async fn create(
             receiver_member_id: parse_uuid(&request.receiver_member_id, request_id.clone())?,
             currency: request.currency,
             amount_minor: request.amount_minor,
-            allocations: request
-                .allocations
-                .into_iter()
-                .map(|allocation| {
-                    Ok(SettlementAllocationInputText {
-                        expense_id: parse_uuid(&allocation.expense_id, request_id.clone())?,
-                        amount_minor: allocation.amount_minor,
-                    })
-                })
-                .collect::<Result<Vec<_>, ApiError>>()?,
+            scope: request.scope,
         },
     )
     .await
@@ -271,16 +264,6 @@ pub(crate) async fn update(
             payer_member_id: parse_uuid(&request.payer_member_id, request_id.clone())?,
             receiver_member_id: parse_uuid(&request.receiver_member_id, request_id.clone())?,
             amount_minor: request.amount_minor,
-            allocations: request
-                .allocations
-                .into_iter()
-                .map(|allocation| {
-                    Ok(SettlementAllocationInputText {
-                        expense_id: parse_uuid(&allocation.expense_id, request_id.clone())?,
-                        amount_minor: allocation.amount_minor,
-                    })
-                })
-                .collect::<Result<Vec<_>, ApiError>>()?,
         },
     )
     .await
@@ -335,6 +318,13 @@ pub(crate) async fn void(
 
 pub(crate) fn settlement_data(record: SettlementRecord) -> SettlementData {
     SettlementData {
+        scope: record.scope,
+        scope_expense_ids: record
+            .scope_expense_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        scope_dates: record.scope_dates,
         settlement_id: record.id.to_string(),
         activity_id: record.activity_id.to_string(),
         client_mutation_id: record.client_mutation_id.to_string(),
@@ -356,6 +346,16 @@ pub(crate) fn settlement_data(record: SettlementRecord) -> SettlementData {
                 amount_minor: allocation.amount_minor.to_string(),
             })
             .collect(),
+        applications: record
+            .applications
+            .into_iter()
+            .map(|application| SettlementApplicationData {
+                expense_id: application.expense_id.to_string(),
+                member_id: application.member_id.to_string(),
+                amount_minor: application.amount_minor.to_string(),
+                origin: application.origin,
+            })
+            .collect(),
     }
 }
 
@@ -365,12 +365,13 @@ fn parse_uuid(value: &str, request_id: RequestId) -> Result<Uuid, ApiError> {
 
 fn map_error(error: SettlementError, request_id: RequestId) -> ApiError {
     match error {
+        SettlementError::PreviewExpired => ApiError::settlement_preview_expired(request_id),
+        SettlementError::InvalidScope => ApiError::invalid_settlement_scope(request_id),
         SettlementError::InvalidInput => ApiError::invalid_expense(request_id),
         SettlementError::Forbidden => ApiError::operation_forbidden(request_id),
         SettlementError::NotFound => ApiError::not_found(request_id),
         SettlementError::VersionConflict => ApiError::version_conflict(request_id),
         SettlementError::MutationConflict => ApiError::mutation_conflict(request_id),
-        SettlementError::AllocationConflict => ApiError::settlement_allocation_conflict(request_id),
         SettlementError::Unavailable => ApiError::internal(request_id),
     }
 }
@@ -404,6 +405,10 @@ mod tests {
                     updated_at: timestamp,
                     voided_at,
                     allocations: Vec::new(),
+                    applications: Vec::new(),
+                    scope: None,
+                    scope_expense_ids: Vec::new(),
+                    scope_dates: Vec::new(),
                 };
                 let json = serde_json::to_value(settlement_data(record)).unwrap();
                 assert_eq!(json["createdAt"], expected);
@@ -414,5 +419,18 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn manual_bill_allocations_are_rejected() {
+        let request = serde_json::json!({
+            "clientMutationId": Uuid::nil().to_string(),
+            "payerMemberId": Uuid::nil().to_string(),
+            "receiverMemberId": Uuid::nil().to_string(),
+            "currency": "CNY",
+            "amountMinor": "100",
+            "allocations": []
+        });
+        assert!(serde_json::from_value::<CreateSettlementRequest>(request).is_err());
     }
 }

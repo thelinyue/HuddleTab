@@ -6,14 +6,15 @@ use sqlx::{FromRow, PgConnection, PgPool};
 use time::{Date, OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
+use super::bill_clearing::reconcile_activity;
 use crate::application::expense::{
     ActivityExpenseContext, CreatedExpense, ExpenseAggregate, ExpenseAttachmentRecord,
-    ExpenseAuditSource, ExpenseDelete, ExpensePayment, ExpenseRecord, ExpenseRepository,
-    ExpenseRepositoryError, ExpenseShare, ExpenseUpdate, NewExpense,
+    ExpenseAuditSource, ExpenseClearingRecord, ExpenseDelete, ExpensePayment, ExpenseRecord,
+    ExpenseRepository, ExpenseRepositoryError, ExpenseShare, ExpenseUpdate, NewExpense,
 };
 use crate::domain::expense::{ExpenseFactRow, PreparedExpense};
-use crate::domain::ledger::{LedgerEntry, SettlementFact};
-use crate::domain::settlement_progress::calculate_expense_progress;
+use crate::domain::ledger::LedgerEntry;
+use crate::domain::settlement_progress::{BillClearingFact, calculate_cleared_progress};
 
 #[derive(Clone, Debug)]
 pub struct PostgresExpenseRepository {
@@ -73,9 +74,13 @@ struct AttachmentRow {
 
 #[derive(FromRow)]
 struct AllocationRow {
-    payer_member_id: Uuid,
-    receiver_member_id: Uuid,
+    member_id: Uuid,
+    kind: String,
     amount_minor: i64,
+    settlement_id: Option<Uuid>,
+    offset_expense_id: Option<Uuid>,
+    offset_expense_title: Option<String>,
+    origin: String,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -134,7 +139,13 @@ impl ExpenseRepository for PostgresExpenseRepository {
                 idempotent_replay: true,
             });
         }
-        require_active_members(&mut transaction, expense.activity_id, &expense.prepared).await?;
+        require_expense_members(
+            &mut transaction,
+            expense.activity_id,
+            &expense.prepared,
+            false,
+        )
+        .await?;
         sqlx::query(
             "INSERT INTO expenses (id, activity_id, created_by_user_id, client_mutation_id, title, \
              category, note, occurred_at, original_currency, original_amount_minor, base_currency, \
@@ -171,6 +182,15 @@ impl ExpenseRepository for PostgresExpenseRepository {
             &expense.prepared,
         )
         .await?;
+        reconcile_activity(
+            &mut transaction,
+            expense.activity_id,
+            true,
+            "AUTO",
+            expense.now,
+        )
+        .await
+        .map_err(log_repository_error)?;
         revise_and_audit(
             &mut transaction,
             ExpenseAudit {
@@ -271,7 +291,13 @@ impl ExpenseRepository for PostgresExpenseRepository {
         if owner.1 != expense.expected_version {
             return Err(ExpenseRepositoryError::VersionConflict);
         }
-        require_active_members(&mut transaction, expense.activity_id, &expense.prepared).await?;
+        require_expense_members(
+            &mut transaction,
+            expense.activity_id,
+            &expense.prepared,
+            true,
+        )
+        .await?;
         let current = load_aggregate(&mut transaction, expense.expense_id, true).await?;
         if has_settlement_allocations(&mut transaction, expense.expense_id).await?
             && !accounting_facts_match(&current, &expense)
@@ -282,6 +308,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
             transaction.commit().await.map_err(log_repository_error)?;
             return Ok(current);
         }
+        let preserve_clearings = accounting_facts_match(&current, &expense);
         let participant_ids = participant_member_ids(&current);
         sqlx::query(
             "UPDATE expenses SET title = $1, category = $2, note = $3, occurred_at = $4, \
@@ -326,6 +353,15 @@ impl ExpenseRepository for PostgresExpenseRepository {
             &expense.prepared,
         )
         .await?;
+        reconcile_activity(
+            &mut transaction,
+            expense.activity_id,
+            preserve_clearings,
+            "AUTO",
+            expense.now,
+        )
+        .await
+        .map_err(log_repository_error)?;
         revise_and_audit(
             &mut transaction,
             ExpenseAudit {
@@ -406,6 +442,15 @@ impl ExpenseRepository for PostgresExpenseRepository {
         .bind(expense.now)
         .bind(expense.expense_id)
         .fetch_one(&mut *transaction)
+        .await
+        .map_err(log_repository_error)?;
+        reconcile_activity(
+            &mut transaction,
+            expense.activity_id,
+            false,
+            "AUTO",
+            expense.now,
+        )
         .await
         .map_err(log_repository_error)?;
         let revision = revise_and_audit(
@@ -604,10 +649,11 @@ async fn lock_activity_context(
     .ok_or(ExpenseRepositoryError::Forbidden)
 }
 
-async fn require_active_members(
+async fn require_expense_members(
     connection: &mut PgConnection,
     activity_id: Uuid,
     prepared: &PreparedExpense,
+    allow_left: bool,
 ) -> Result<(), ExpenseRepositoryError> {
     let member_ids = prepared
         .payments
@@ -619,10 +665,12 @@ async fn require_active_members(
         .collect::<Vec<_>>();
     let count = sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM activity_members \
-         WHERE activity_id = $1 AND id = ANY($2) AND status = 'ACTIVE'",
+         WHERE activity_id = $1 AND id = ANY($2)
+           AND (status = 'ACTIVE' OR ($3 AND status = 'LEFT'))",
     )
     .bind(activity_id)
     .bind(&member_ids)
+    .bind(allow_left)
     .fetch_one(connection)
     .await
     .map_err(log_repository_error)?;
@@ -756,17 +804,17 @@ pub(crate) async fn load_aggregate(
     member_ids.extend(payments.iter().map(|fact| fact.member_id));
     member_ids.extend(shares.iter().map(|fact| fact.member_id));
     let allocations = sqlx::query_as::<_, AllocationRow>(
-        "SELECT s.payer_member_id, s.receiver_member_id, sa.amount_minor \
-         FROM settlement_allocations sa \
-         JOIN settlements s ON s.id = sa.settlement_id \
-         WHERE sa.expense_id = $1 AND s.status = 'ACTIVE' \
-         ORDER BY s.created_at, s.id",
+        "SELECT b.member_id, b.kind, b.amount_minor, b.settlement_id, \
+         b.offset_expense_id, other.title AS offset_expense_title, b.origin \
+         FROM bill_clearing_entries b \
+         LEFT JOIN expenses other ON other.id = b.offset_expense_id \
+         WHERE b.expense_id = $1 ORDER BY b.created_at, b.id",
     )
     .bind(expense_id)
     .fetch_all(&mut *connection)
     .await
     .map_err(log_repository_error)?;
-    let settlement_progress = calculate_expense_progress(
+    let settlement_progress = calculate_cleared_progress(
         member_ids.into_iter().collect(),
         payments
             .iter()
@@ -777,13 +825,11 @@ pub(crate) async fn load_aggregate(
             .map(|fact| LedgerEntry::new(fact.member_id, fact.base_amount_minor))
             .collect(),
         allocations
-            .into_iter()
-            .map(|fact| {
-                SettlementFact::new(
-                    fact.payer_member_id,
-                    fact.receiver_member_id,
-                    fact.amount_minor,
-                )
+            .iter()
+            .map(|fact| BillClearingFact {
+                member_id: fact.member_id,
+                amount_minor: fact.amount_minor,
+                is_offset: fact.kind == "OFFSET",
             })
             .collect(),
     )
@@ -835,6 +881,18 @@ pub(crate) async fn load_aggregate(
         shares,
         attachments,
         settlement_progress,
+        clearings: allocations
+            .into_iter()
+            .map(|entry| ExpenseClearingRecord {
+                member_id: entry.member_id,
+                kind: entry.kind,
+                amount_minor: entry.amount_minor,
+                settlement_id: entry.settlement_id,
+                offset_expense_id: entry.offset_expense_id,
+                offset_expense_title: entry.offset_expense_title,
+                origin: entry.origin,
+            })
+            .collect(),
     })
 }
 

@@ -43,6 +43,8 @@ export const queryKeys = {
       : ["users", userId, "activities", activityId, "recommendations"] as const,
   settlements: (userId: string, activityId: string) =>
     ["users", userId, "activities", activityId, "settlements"] as const,
+  settlementPreview: (userId: string, activityId: string) =>
+    ["users", userId, "activities", activityId, "settlement-preview"] as const,
   activitySummary: (userId: string, activityId: string, strategy?: string, hubMemberId?: string) =>
     strategy
       ? ["users", userId, "activities", activityId, "summary", strategy, hubMemberId ?? ""] as const

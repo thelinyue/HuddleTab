@@ -42,7 +42,7 @@ function expense(
       version: "1",
     },
     payments: payments.map(([memberId, baseAmountMinor], index) => ({ baseAmountMinor, factId: `${id}-payment-${index}`, memberId, originalAmountMinor: baseAmountMinor })),
-    settlementProgress: { currency: "CNY", members: [], remainingMinor: amount, settledMinor: "0", status: "UNSETTLED", totalRequiredMinor: amount },
+    settlementProgress: { currency: "CNY", members: [], remainingMinor: amount, settledMinor: "0", paidMinor: "0", offsetMinor: "0", status: "UNSETTLED", totalRequiredMinor: amount },
     shares: shares.map(([memberId, baseAmountMinor], index) => ({ baseAmountMinor, factId: `${id}-share-${index}`, memberId, originalAmountMinor: baseAmountMinor })),
   };
 }

@@ -263,6 +263,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/invitations/{invitation_id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_invitation_link"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/join-requests": {
         parameters: {
             query?: never;
@@ -391,6 +407,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activities/{activity_id}/offset-confirmations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/activities/{activity_id}/ownership": {
         parameters: {
             query?: never;
@@ -417,6 +449,22 @@ export interface paths {
         get: operations["recommendations"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/activities/{activity_id}/settlement-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["preview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1319,6 +1367,15 @@ export interface components {
             memberId: string;
             netMinor: string;
         };
+        BillClearingData: {
+            amountMinor: string;
+            kind: string;
+            memberId: string;
+            offsetExpenseId?: string | null;
+            offsetExpenseTitle?: string | null;
+            origin: string;
+            settlementId?: string | null;
+        };
         ChangePasswordData: {
             changed: boolean;
         };
@@ -1342,6 +1399,18 @@ export interface components {
         };
         ClearNotificationsRequest: {
             filter: components["schemas"]["NotificationFilterData"];
+        };
+        ConfirmBillOffsetsData: {
+            confirmationId: string;
+            idempotentReplay: boolean;
+            revision: string;
+        };
+        ConfirmBillOffsetsEnvelope: {
+            data: components["schemas"]["ConfirmBillOffsetsData"];
+        };
+        ConfirmBillOffsetsRequest: {
+            clientMutationId: string;
+            scope: components["schemas"]["SettlementScope"];
         };
         /** Format: binary */
         CoverBinary: string;
@@ -1375,12 +1444,12 @@ export interface components {
             scope: string;
         };
         CreateSettlementRequest: {
-            allocations?: components["schemas"]["SettlementAllocationRequest"][];
             amountMinor: string;
             clientMutationId: string;
             currency: string;
             payerMemberId: string;
             receiverMemberId: string;
+            scope?: null | components["schemas"]["SettlementScope"];
         };
         CreatedExpenseData: {
             expense: components["schemas"]["ExpenseData"];
@@ -1478,6 +1547,7 @@ export interface components {
         };
         ExpenseAggregateData: {
             attachments: components["schemas"]["ExpenseAttachmentData"][];
+            clearings?: components["schemas"]["BillClearingData"][] | null;
             expense: components["schemas"]["ExpenseData"];
             payments: components["schemas"]["ExpenseFactData"][];
             settlementProgress: components["schemas"]["ExpenseSettlementProgressData"];
@@ -1549,6 +1619,8 @@ export interface components {
         ExpenseSettlementProgressData: {
             currency: string;
             members: components["schemas"]["MemberSettlementProgressData"][];
+            offsetMinor: string;
+            paidMinor: string;
             remainingMinor: string;
             settledMinor: string;
             status: string;
@@ -1610,6 +1682,12 @@ export interface components {
         };
         InvitationEnvelope: {
             data: components["schemas"]["InvitationData"];
+        };
+        InvitationLinkData: {
+            token: string;
+        };
+        InvitationLinkEnvelope: {
+            data: components["schemas"]["InvitationLinkData"];
         };
         InvitationListEnvelope: {
             data: components["schemas"]["InvitationData"][];
@@ -1701,6 +1779,8 @@ export interface components {
             direction: string;
             expectedMinor: string;
             memberId: string;
+            offsetMinor: string;
+            paidMinor: string;
             remainingMinor: string;
             settledMinor: string;
             status: string;
@@ -1823,6 +1903,15 @@ export interface components {
          * @enum {string}
          */
         RegistrationPolicyValue: "INVITE_ONLY" | "OPEN";
+        ScopeBalance: {
+            memberId: string;
+            netMinor: string;
+        };
+        ScopeRecommendation: {
+            amountMinor: string;
+            payerMemberId: string;
+            receiverMemberId: string;
+        };
         SessionData: {
             avatarImageId?: string | null;
             /** Format: int32 */
@@ -1839,25 +1928,36 @@ export interface components {
             amountMinor: string;
             expenseId: string;
         };
-        SettlementAllocationRequest: {
+        SettlementApplicationData: {
             amountMinor: string;
             expenseId: string;
+            memberId: string;
+            origin: string;
         };
         SettlementData: {
             activityId: string;
             allocations: components["schemas"]["SettlementAllocationData"][];
             amountMinor: string;
+            applications: components["schemas"]["SettlementApplicationData"][];
             clientMutationId: string;
             createdAt: string;
             currency: string;
             payerMemberId: string;
             receiverMemberId: string;
             revision: string;
+            scope?: null | components["schemas"]["SettlementScope"];
+            scopeDates: string[];
+            scopeExpenseIds: string[];
             settlementId: string;
             status: string;
             updatedAt: string;
             version: string;
             voidedAt?: string | null;
+        };
+        SettlementDateOption: {
+            date: string;
+            /** Format: int64 */
+            expenseCount: number;
         };
         SettlementEnvelope: {
             data: components["schemas"]["SettlementEnvelopeData"];
@@ -1867,6 +1967,40 @@ export interface components {
         };
         SettlementListEnvelope: {
             data: components["schemas"]["SettlementData"][];
+        };
+        /** @description 同一个只读快照包含日期选项、余额、建议和待确认抵销，避免界面混用不同范围的数据。 */
+        SettlementPreview: {
+            balances: components["schemas"]["ScopeBalance"][];
+            baseCurrency: string;
+            dateOptions: components["schemas"]["SettlementDateOption"][];
+            effectiveStrategy: string;
+            expenseIds: string[];
+            hubMemberId?: string | null;
+            offsetExpenseCount: number;
+            offsetMinor: string;
+            recommendations: components["schemas"]["ScopeRecommendation"][];
+            requiresOffsetConfirmation: boolean;
+            revision: string;
+            scope: components["schemas"]["SettlementScope"];
+            settled: boolean;
+        };
+        SettlementPreviewEnvelope: {
+            data: components["schemas"]["SettlementPreview"];
+        };
+        /** @description null 日期代表全部日期；空数组不是全选，防止清空选择后误结算整个活动。 */
+        SettlementPreviewRequest: {
+            dates?: string[] | null;
+            hubMemberId?: string | null;
+            strategy?: string | null;
+            timeZone: string;
+        };
+        /** @description 日期按选择时的本地时区解析；revision 用于拒绝过期预览，账单集合由服务端固定。 */
+        SettlementScope: {
+            dates?: string[] | null;
+            hubMemberId?: string | null;
+            revision: string;
+            strategy?: string | null;
+            timeZone: string;
         };
         StorageData: {
             databaseBytes: string;
@@ -1941,7 +2075,6 @@ export interface components {
             version: string;
         };
         UpdateSettlementRequest: {
-            allocations?: components["schemas"]["SettlementAllocationRequest"][];
             amountMinor: string;
             payerMemberId: string;
             receiverMemberId: string;
@@ -3280,6 +3413,60 @@ export interface operations {
             };
         };
     };
+    get_invitation_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+                /** @description 邀请 UUID */
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 有效邀请链接令牌 */
+            200: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationLinkEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 无权限 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 邀请已失效 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     list_join_requests: {
         parameters: {
             query?: never;
@@ -3704,6 +3891,42 @@ export interface operations {
             };
         };
     };
+    confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmBillOffsetsRequest"];
+            };
+        };
+        responses: {
+            /** @description 已确认抵销，无现金转账 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfirmBillOffsetsEnvelope"];
+                };
+            };
+            /** @description 预览过期或幂等冲突 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     transferActivityOwnership: {
         parameters: {
             query?: never;
@@ -3816,6 +4039,42 @@ export interface operations {
             };
             /** @description 无读取权限 */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 活动 UUID */
+                activity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettlementPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description 日期范围只读结算预览 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettlementPreviewEnvelope"];
+                };
+            };
+            /** @description 日期或时区无效 */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
