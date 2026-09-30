@@ -1,5 +1,7 @@
 //! 基础设施层实现数据库、认证、时钟与文件系统端口。
 
+pub mod access_addresses;
+
 pub mod accounting_repository;
 pub mod activity_repository;
 pub mod ai_expense_repository;

@@ -55,7 +55,7 @@ async fn insert_session(pool: &sqlx::PgPool, user_id: Uuid, now: OffsetDateTime)
 }
 
 fn get(uri: String, session: Option<&SessionToken>) -> Request<Body> {
-    let mut builder = Request::builder().uri(uri);
+    let mut builder = Request::builder().header("host", "localhost:5660").uri(uri);
     if let Some(session) = session {
         builder = builder.header(
             COOKIE,
@@ -140,18 +140,14 @@ async fn authorized_suggestion_uses_provider_then_cache_and_keeps_errors_json() 
     transaction.commit().await.expect("应提交活动和成员");
     let session = insert_session(&pool, user_id, now).await;
     let outsider = insert_session(&pool, outsider_id, now).await;
-    let state = AppState::new(
-        pool.clone(),
-        AppSecret::from_bytes([41; 32]),
-        "http://localhost:5660".to_owned(),
-    )
-    .with_exchange_rate_provider(Arc::new(FakeProvider {
-        value: Ok(ProviderExchangeRate {
-            rate: "0.0420900".to_owned(),
-            provider: "FRANKFURTER".to_owned(),
-            reference_date: date!(2026 - 08 - 30),
-        }),
-    }));
+    let state = AppState::new(pool.clone(), AppSecret::from_bytes([41; 32]))
+        .with_exchange_rate_provider(Arc::new(FakeProvider {
+            value: Ok(ProviderExchangeRate {
+                rate: "0.0420900".to_owned(),
+                provider: "FRANKFURTER".to_owned(),
+                reference_date: date!(2026 - 08 - 30),
+            }),
+        }));
     let app = router_with_state(None, state);
     let uri = format!("/api/activities/{activity_id}/exchange-rate?from=JPY&date=2026-08-30");
 
@@ -202,14 +198,11 @@ async fn authorized_suggestion_uses_provider_then_cache_and_keeps_errors_json() 
         .expect("应清空缓存");
     let unavailable_app = router_with_state(
         None,
-        AppState::new(
-            pool.clone(),
-            AppSecret::from_bytes([42; 32]),
-            "http://localhost:5660".to_owned(),
-        )
-        .with_exchange_rate_provider(Arc::new(FakeProvider {
-            value: Err(ExchangeRateProviderError::Unavailable),
-        })),
+        AppState::new(pool.clone(), AppSecret::from_bytes([42; 32])).with_exchange_rate_provider(
+            Arc::new(FakeProvider {
+                value: Err(ExchangeRateProviderError::Unavailable),
+            }),
+        ),
     );
 
     let response = unavailable_app

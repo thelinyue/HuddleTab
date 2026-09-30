@@ -36,10 +36,10 @@ function SettlementParties({ members, value, onChange }: { members: readonly Act
         {opened === field ? <div className="settlement-member-options" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); close(); } }}>
           <Input aria-label={`搜索${label}`} placeholder="搜索成员姓名" value={search} onChange={event => setSearch(event.target.value)} autoFocus />
           <div className="quick-member-list" role="group" aria-label={`选择${label}`}>
-            {members.filter(member => member.status === 'ACTIVE' && member.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map(member => <button type="button" className="quick-member-row__button" key={member.memberId} disabled={member.memberId === other} aria-label={`${member.displayName}${member.memberId === other ? `，已选为${field === "payerMemberId" ? "收款人" : "付款人"}` : ""}`} aria-pressed={member.memberId === value[field]} onClick={() => { onChange({ ...value, [field]: member.memberId }); close(); }}>
-              <MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} size="sm" /><span>{member.displayName}{member.memberId === other ? <small>已选为{field === 'payerMemberId' ? '收款人' : '付款人'}</small> : null}</span>{member.memberId === value[field] ? <Check size={18} aria-hidden="true" /> : <span />}
+            {members.filter(member => member.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map(member => <button type="button" className="quick-member-row__button" key={member.memberId} disabled={member.memberId === other} aria-label={`${member.displayName}${member.status === 'LEFT' ? '，已移除' : ''}${member.memberId === other ? `，已选为${field === "payerMemberId" ? "收款人" : "付款人"}` : ""}`} aria-pressed={member.memberId === value[field]} onClick={() => { onChange({ ...value, [field]: member.memberId }); close(); }}>
+              <MemberAvatar memberId={member.memberId} userId={member.userId} displayName={member.displayName} avatarPreset={member.avatarPreset} avatarImageId={member.avatarImageId} size="sm" /><span>{member.displayName}{member.status === 'LEFT' ? <small>已移除</small> : null}{member.memberId === other ? <small>已选为{field === 'payerMemberId' ? '收款人' : '付款人'}</small> : null}</span>{member.memberId === value[field] ? <Check size={18} aria-hidden="true" /> : <span />}
             </button>)}
-            {!members.some(member => member.status === 'ACTIVE' && member.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ? <p className="settlement-empty">没有找到成员</p> : null}
+            {!members.some(member => member.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ? <p className="settlement-empty">没有找到成员</p> : null}
           </div><Button variant="ghost" onClick={close}>取消选择</Button>
         </div> : null}
       </div>;
@@ -66,7 +66,7 @@ function SettlementForm({ initial, existing, scope, members, onClose, onRefresh 
     setError(undefined);
     if (!parties.payerMemberId || !parties.receiverMemberId) { setError('请选择付款人和收款人。'); return; }
     if (parties.payerMemberId === parties.receiverMemberId) { setError('付款人与收款人不能相同。'); return; }
-    if (![parties.payerMemberId, parties.receiverMemberId].every(id => members.some(member => member.memberId === id && member.status === 'ACTIVE'))) { setError('所选成员已不可参与结算，请重新选择。'); return; }
+    if (![parties.payerMemberId, parties.receiverMemberId].every(id => members.some(member => member.memberId === id))) { setError('所选成员不属于当前活动，请重新选择。'); return; }
     try {
       const amountMinor = amountToMinor(amount, activity.baseCurrency);
       if (BigInt(amountMinor) <= 0n) { setError('结算金额必须大于零。'); return; }

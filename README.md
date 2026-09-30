@@ -25,14 +25,13 @@ services:
 
   app:
     container_name: huddletab
-    image: ghcr.io/thelinyue/huddletab:0.0.14
+    image: ghcr.io/thelinyue/huddletab:0.0.34
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://huddletab:huddletab@postgres:5432/huddletab
-      APP_BASE_URL: http://localhost:5660
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       DATA_DIR: /data
@@ -73,11 +72,9 @@ docker compose up -d --wait
 docker compose ps
 ```
 
-默认数据库密码是 `huddletab`，仅适合本机或受控网络。开放公网前，必须修改 Compose 配置中的 `POSTGRES_PASSWORD`，并同步修改 `DATABASE_URL` 中的数据库密码。公开访问地址通过 `APP_BASE_URL` 设置；HTTPS 和可信代理边界见[HTTPS 与反向代理](docs/deployment/https.md)。
+默认数据库密码是 `huddletab`，仅适合本机或受控网络。开放公网前，必须修改 Compose 配置中的 `POSTGRES_PASSWORD`，并同步修改 `DATABASE_URL` 中的数据库密码。首次登录后，在“系统管理 → 访问地址”添加当前入口和其他需要使用的地址，保存后立即生效；HTTPS 和可信代理边界见[HTTPS 与反向代理](docs/deployment/https.md)。
 
 系统推送需要公开 HTTPS 地址（`localhost` 开发地址除外），并要求应用容器可以访问浏览器厂商的 Web Push 服务。首次启动会在 `DATA_DIR/vapid-private-key` 生成实例级 VAPID 私钥；请将它与 `./data` 一起纳入备份，不要在不同实例之间复用或公开该文件。用户可在“我的 → 偏好设置 → 系统推送”管理设备授权和四类通知开关。
-
-当前源码中的账号初始化与修改用户名功能尚未发布，请使用源码构建的镜像验证。
 
 首次启动时，服务会在开放 HTTP 端口前创建管理员。可通过环境变量 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 指定账号密码；用户名留空默认使用 `admin`，密码留空则安全随机生成。昵称默认为“管理员”。
 
@@ -121,7 +118,7 @@ docker compose up -d
 docker compose ps
 ```
 
-`v0.0.33` 支持全新安装和从 `v0.0.32`、`v0.0.31` 原地升级，也保留从 `v0.0.30` 数据库升级的路径；不支持直接从更早版本升级。原地升级应保留 PostgreSQL、应用数据和密钥，并先同步旧格式的未完成离线附件；全新安装须使用空数据库和独立应用目录。具体操作见 [安装与升级](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
+`v0.0.34` 支持全新安装和从 `v0.0.33`、`v0.0.32`、`v0.0.31` 原地升级，也保留从 `v0.0.30` 数据库升级的路径；不支持直接从更早版本升级。原地升级应保留 PostgreSQL、应用数据和密钥，并先同步旧格式的未完成离线附件；全新安装须使用空数据库和独立应用目录。具体操作见 [安装与升级](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
 
 前端热更新要求 Rust API 已运行在 `127.0.0.1:5660`：
 

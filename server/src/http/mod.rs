@@ -1,3 +1,4 @@
+pub mod access_addresses;
 pub mod accounting;
 pub mod activity;
 pub mod admin;

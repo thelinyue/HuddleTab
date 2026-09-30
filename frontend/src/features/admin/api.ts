@@ -188,3 +188,23 @@ export function useUpdateAiSettingsMutation(userId: string) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.adminAiSettings(userId) }),
   });
 }
+
+export type AccessAddresses = components["schemas"]["AccessAddressesData"];
+
+export function useAccessAddressesQuery(userId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminAccessAddresses(userId),
+    queryFn: async () => unwrap(await apiClient.GET("/api/admin/access-addresses")).data,
+    enabled: userId.length > 0 && enabled,
+    retry: false,
+  });
+}
+
+export function useUpdateAccessAddressesMutation(userId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: components["schemas"]["AccessAddressesRequest"]) =>
+      unwrap(await apiClient.PUT("/api/admin/access-addresses", { body: input, headers: await mutationHeaders() })).data,
+    onSuccess: (data) => client.setQueryData(queryKeys.adminAccessAddresses(userId), data),
+  });
+}

@@ -1,0 +1,13 @@
+.access-addresses { display: grid; gap: 16px; }
+.access-addresses p { margin: 0; }
+.access-addresses__current { display: grid; gap: 6px; }
+.access-addresses code { min-width: 0; overflow-wrap: anywhere; }
+.access-addresses__list { list-style: none; margin: 0; padding: 0; }
+.access-addresses__list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.access-addresses__list li > :last-child { flex-shrink: 0; }
+.access-addresses__add { display: grid; gap: 8px; }
+.access-addresses__add > div { display: flex; gap: 8px; }
+.access-addresses__add input { flex: 1; width: 0; min-width: 0; }
+.access-addresses__save { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.access-addresses__save [role="status"] { font-size: 0.875rem; }
+.access-addresses__save .button { flex-shrink: 0; white-space: nowrap; }

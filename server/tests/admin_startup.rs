@@ -33,7 +33,7 @@ impl Server {
             .args(["serve", "--bind", &address])
             .env("DATABASE_URL", database)
             .env("DATA_DIR", directory.path())
-            .env("APP_BASE_URL", format!("http://{address}"))
+            .env_remove("APP_BASE_URL")
             .env("RUST_LOG", "huddletab_server=info")
             .env_remove("ADMIN_USERNAME")
             .env_remove("ADMIN_PASSWORD")

@@ -99,6 +99,7 @@ async fn seed_activity(pool: &PgPool, owner: &TestActor) -> Uuid {
 
 fn request(actor: &TestActor, method: &str, uri: String) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")
@@ -116,6 +117,7 @@ fn request(actor: &TestActor, method: &str, uri: String) -> Request<Body> {
 #[allow(clippy::needless_pass_by_value)]
 fn request_with_body(actor: &TestActor, method: &str, uri: String, body: Value) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")
@@ -239,10 +241,7 @@ async fn notifications_are_user_scoped_and_order_unread_before_read() {
         .await
         .expect("应插入测试通知");
     }
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
 
     let (status, body) = json_response(
         &app,
@@ -297,10 +296,7 @@ async fn notification_read_is_recipient_scoped_and_idempotent() {
     .execute(&pool)
     .await
     .expect("应插入未读通知");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let uri = format!("/api/notifications/{notification_id}/read");
 
     let (other_status, other) = json_response(&app, request(&bob, "POST", uri.clone())).await;
@@ -359,10 +355,7 @@ async fn notification_list_caps_items_but_counts_all_unread_and_returns_time_zon
         .await
         .expect("应插入测试通知");
     }
-    let app = router_with_state(
-        None,
-        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool, secret));
 
     let (status, body) = json_response(
         &app,
@@ -430,10 +423,7 @@ async fn notification_read_all_updates_every_unread_without_crossing_users_or_ov
         None,
     )
     .await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
 
     let (status, body) = json_response(
         &app,
@@ -540,10 +530,7 @@ async fn notification_clear_applies_each_filter_to_all_history_and_preserves_oth
         None,
     )
     .await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
 
     let (status, body) = json_response(
         &app,
@@ -701,10 +688,7 @@ async fn notification_delete_is_recipient_scoped_idempotently_and_preserves_acti
         None,
     )
     .await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let uri = format!("/api/notifications/{notification_id}");
 
     let (status, body) = json_response(&app, request(&bob, "DELETE", uri.clone())).await;
@@ -743,10 +727,7 @@ async fn notification_bulk_mutations_require_authentication_and_csrf() {
         .expect("应清空测试数据");
     let secret = AppSecret::from_bytes([47; 32]);
     let alice = seed_actor(&pool, &secret, "alice").await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool, secret));
     let mut missing_csrf = request(&alice, "POST", "/api/notifications/read-all".to_owned());
     missing_csrf.headers_mut().remove("x-csrf-token");
     let (status, body) = json_response(&app, missing_csrf).await;
@@ -787,7 +768,10 @@ async fn notification_bulk_mutations_require_authentication_and_csrf() {
             None,
         ),
     ] {
-        let mut builder = Request::builder().method(method).uri(uri);
+        let mut builder = Request::builder()
+            .header("host", "localhost:5660")
+            .method(method)
+            .uri(uri);
         if body.is_some() {
             builder = builder.header(CONTENT_TYPE, "application/json");
         }

@@ -112,8 +112,7 @@ async fn seed_context() -> Context {
     let outsider_session = insert_session(&pool, outsider_user_id, now).await;
     let csrf = CsrfToken::mint(&secret, CsrfContext::Session(&session.sha256_hash()));
     let uploads = tempfile::tempdir().expect("应创建临时上传目录");
-    let state = AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned())
-        .with_uploads_dir(uploads.path().to_path_buf());
+    let state = AppState::new(pool.clone(), secret).with_uploads_dir(uploads.path().to_path_buf());
     Context {
         app: router_with_state(None, state),
         _uploads: uploads,
@@ -180,6 +179,7 @@ async fn multipart_upload_replay_and_private_download_use_json_contract() {
     let (status, headers, bytes) = raw_response(
         &context,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri(&download_uri)
             .header(COOKIE, session_cookie(&context.session))
             .body(Body::empty())
@@ -200,6 +200,7 @@ async fn multipart_upload_replay_and_private_download_use_json_contract() {
     let (status, thumbnail_headers, thumbnail_bytes) = raw_response(
         &context,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri(&thumbnail_uri)
             .header(COOKIE, session_cookie(&context.session))
             .body(Body::empty())
@@ -215,6 +216,7 @@ async fn multipart_upload_replay_and_private_download_use_json_contract() {
     let (status, not_modified_headers, not_modified_body) = raw_response(
         &context,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri(&thumbnail_uri)
             .header(COOKIE, session_cookie(&context.session))
             .header(IF_NONE_MATCH, thumbnail_headers[ETAG].clone())
@@ -229,6 +231,7 @@ async fn multipart_upload_replay_and_private_download_use_json_contract() {
     let (status, _, private_body) = raw_response(
         &context,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri(download_uri)
             .header(COOKIE, session_cookie(&context.outsider_session))
             .body(Body::empty())
@@ -312,6 +315,7 @@ async fn delete_requires_csrf_and_removes_private_attachment() {
     let (status, _, body) = raw_response(
         &context,
         Request::builder()
+            .header("host", "localhost:5660")
             .method("DELETE")
             .uri(&uri)
             .header(COOKIE, session_cookie(&context.session))
@@ -328,6 +332,7 @@ async fn delete_requires_csrf_and_removes_private_attachment() {
     let (status, _, body) = raw_response(
         &context,
         Request::builder()
+            .header("host", "localhost:5660")
             .method("DELETE")
             .uri(&uri)
             .header(COOKIE, session_cookie(&context.session))
@@ -344,6 +349,7 @@ async fn delete_requires_csrf_and_removes_private_attachment() {
     let (status, _, _) = raw_response(
         &context,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri(uri)
             .header(COOKIE, session_cookie(&context.session))
             .body(Body::empty())
@@ -360,6 +366,7 @@ fn upload_request(
     include_csrf: bool,
 ) -> Request<Body> {
     let mut builder = Request::builder()
+        .header("host", "localhost:5660")
         .method("POST")
         .uri(format!(
             "/api/activities/{}/expenses/{}/attachments",

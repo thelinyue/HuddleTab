@@ -160,7 +160,6 @@ try {
   $env:POSTGRES_PASSWORD = "$([Guid]::NewGuid().ToString('N'))Pg1!"
   $env:DATA_HOST_DIR = $temporaryData
   $env:APP_PORT = [string] $appPort
-  $env:APP_BASE_URL = $baseUrl
   $env:APP_VERSION = if ($ReleaseVerification -or $IPhoneSimulationOnly) { "0.0.14" } else { "dev" }
   $env:PUID = "10001"
   $env:PGID = "10001"
@@ -324,7 +323,7 @@ try {
   }
 
   foreach ($name in $sensitiveNames) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_BASE_URL, Env:APP_VERSION, Env:PUID, Env:PGID, Env:TRUST_PROXY, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_UI_PARITY_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
+  Remove-Item Env:DATA_HOST_DIR, Env:APP_PORT, Env:APP_VERSION, Env:PUID, Env:PGID, Env:TRUST_PROXY, Env:HUDDLETAB_E2E_BASE_URL, Env:HUDDLETAB_E2E_ATTACHMENT_MODE, Env:HUDDLETAB_E2E_TASK29_MODE, Env:HUDDLETAB_E2E_TASK30_MODE, Env:HUDDLETAB_E2E_TASK31_MODE, Env:HUDDLETAB_E2E_UI_PARITY_MODE, Env:HUDDLETAB_E2E_RELEASE_MODE -ErrorAction SilentlyContinue
   if ($null -ne $originalAppVersion) { $env:APP_VERSION = $originalAppVersion }
   if ($null -ne $originalPostgresDb) { $env:POSTGRES_DB = $originalPostgresDb } else { Remove-Item Env:POSTGRES_DB -ErrorAction SilentlyContinue }
   if ($null -ne $originalPuid) { $env:PUID = $originalPuid }

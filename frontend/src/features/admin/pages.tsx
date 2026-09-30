@@ -1,4 +1,5 @@
-import { ArrowLeft, Bot, ChevronRight, Database, HardDrive, UsersRound } from "lucide-react";
+import { AccessAddressesEditor } from "./access-addresses";
+import { ArrowLeft, Bot, Globe, ChevronRight, Database, HardDrive, UsersRound } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AdminUsersContent } from "./users";
@@ -35,6 +36,10 @@ export function AdminHomePage() {
   return (
     <AdminFrame title="系统管理" backTo="/me" backLabel="返回我的">
       <div className="settings-list admin-entry-list">
+        <Link className="settings-link" to="/admin/access-addresses" aria-label="访问地址">
+          <Globe aria-hidden="true" size={18} />
+          <span><strong>访问地址</strong></span><ChevronRight aria-hidden="true" size={18} />
+        </Link>
         <Link className="settings-link" to="/admin/users" aria-label="用户管理">
           <UsersRound aria-hidden="true" size={18} />
           <span><strong>用户管理</strong></span><ChevronRight aria-hidden="true" size={18} />
@@ -150,4 +155,10 @@ export function AdminSystemInformationPage() {
 
 function Metric({ icon, label, value, strong = false }: { readonly icon?: React.ReactNode; readonly label: string; readonly value: string; readonly strong?: boolean }) {
   return <div className={`admin-system-metric${label === "数据目录" ? " admin-system-metric--path" : ""}${strong ? " admin-system-metric--total" : ""}`}><dt>{icon ? <span aria-hidden="true">{icon}</span> : null}{label}</dt><dd className={strong ? "strong" : undefined}>{value}</dd></div>;
+}
+
+export function AdminAccessAddressesPage() {
+  const session = useSessionQuery();
+  const online = useOnlineStatus();
+  return <AdminFrame title="访问地址"><AccessAddressesEditor userId={session.data?.userId ?? ""} online={online} /></AdminFrame>;
 }

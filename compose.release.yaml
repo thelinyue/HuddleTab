@@ -15,7 +15,7 @@ services:
       retries: 20
 
   app:
-    image: ghcr.io/thelinyue/huddletab:0.0.11
+    image: ghcr.io/thelinyue/huddletab:0.0.34
     restart: unless-stopped
     depends_on:
       postgres:
@@ -23,7 +23,6 @@ services:
     environment:
       DATABASE_URL: postgresql://huddletab:huddletab@postgres:5432/huddletab
       BETTER_AUTH_URL: http://localhost:5660
-      APP_BASE_URL: http://localhost:5660
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       DATA_DIR: /data

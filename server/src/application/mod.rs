@@ -1,5 +1,7 @@
 //! 应用层负责用例编排、事务边界与端口定义。
 
+pub mod access_addresses;
+
 pub mod accounting;
 pub mod activity;
 pub mod ai_expense;

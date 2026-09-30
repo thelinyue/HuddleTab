@@ -348,6 +348,33 @@ test('结算推荐与补记共用选择器，记录原地修改且保留错误�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });
 
+test('已移除成员的推荐转账可记录，也可在其他转账中补记', async ({ page }) => {
+  const control = await installFixture(page);
+  control.members[3].status = 'LEFT';
+  await page.goto('/activities/demo?tab=settlement');
+
+  await page.getByRole('button', { name: '记录 小王付给小林' }).click();
+  const recommended = page.getByRole('form', { name: '记录推荐转账' });
+  await expect(recommended.getByRole('button', { name: '付款人：小王' })).toBeVisible();
+  await recommended.getByRole('button', { name: '记录结算', exact: true }).click();
+  await expect(recommended).toHaveCount(0);
+  expect(control.writes.at(-1)).toMatchObject({ payerMemberId: 'm3', receiverMemberId: 'm0', amountMinor: '12000' });
+
+  await page.getByRole('button', { name: '记录其他转账' }).click();
+  const manual = page.getByRole('form', { name: '记录其他转账' });
+  await manual.getByRole('button', { name: '付款人：请选择' }).click();
+  await manual.getByLabel('搜索付款人').fill('小王');
+  const removed = manual.getByRole('button', { name: '小王，已移除' });
+  await expect(removed).toContainText('已移除');
+  await removed.click();
+  await manual.getByRole('button', { name: '收款人：请选择' }).click();
+  await manual.getByRole('button', { name: '小林', exact: true }).click();
+  await manual.getByLabel('金额（CNY）').fill('20');
+  await manual.getByRole('button', { name: '记录结算', exact: true }).click();
+  await expect(manual).toHaveCount(0);
+  expect(control.writes.at(-1)).toMatchObject({ payerMemberId: 'm3', receiverMemberId: 'm0', amountMinor: '2000' });
+});
+
 test('首次流水骨架与按需模块，历史记录慢不阻塞余额', async ({ page }, info) => {
   const control = await installFixture(page); control.feedPending = true; control.snapshotPending = true;
   const scripts: string[] = []; page.on('request', request => { if (request.resourceType() === 'script') scripts.push(request.url()); });

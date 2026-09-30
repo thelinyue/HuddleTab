@@ -107,10 +107,7 @@ async fn seed_context() -> AccountingContext {
     .expect("应插入 Session");
     let secret = AppSecret::from_bytes([23; 32]);
     let csrf = CsrfToken::mint(&secret, CsrfContext::Session(&session_hash));
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     AccountingContext {
         pool,
         app,
@@ -346,6 +343,147 @@ async fn removed_member_can_be_reused_on_existing_bills_but_not_new_bills() {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
+async fn removed_member_can_settle_recommendation_and_update_payment() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    scope_bill(
+        &context,
+        "移除前的欠款",
+        context.owner_member_id,
+        context.guest_member_id,
+        "100",
+        "2026-08-30T12:00:00Z",
+    )
+    .await;
+    let (status, removed) = response(
+        &context,
+        request(
+            &context,
+            "DELETE",
+            format!(
+                "/api/activities/{}/members/{}",
+                context.activity_id, context.guest_member_id
+            ),
+            json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{removed}");
+    assert_eq!(removed["data"]["result"], "LEFT");
+
+    let preview = date_preview(&context, json!(null), "UTC", false).await;
+    let recommendation = &preview["recommendations"][0];
+    assert_eq!(
+        recommendation["payerMemberId"],
+        context.guest_member_id.to_string()
+    );
+    assert_eq!(
+        recommendation["receiverMemberId"],
+        context.owner_member_id.to_string()
+    );
+    assert_eq!(recommendation["amountMinor"], "100");
+
+    let foreign_activity_id = Uuid::new_v4();
+    let foreign_member_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    let mut foreign_transaction = context.pool.begin().await.expect("应开启其他活动事务");
+    sqlx::query("INSERT INTO activities (id, name, base_currency, start_date, owner_member_id, created_by_user_id, created_at, updated_at) VALUES ($1, '其他活动', 'CNY', '2026-08-30', $2, $3, $4, $4)")
+        .bind(foreign_activity_id)
+        .bind(foreign_member_id)
+        .bind(context.user_id)
+        .bind(now)
+        .execute(&mut *foreign_transaction)
+        .await
+        .expect("应创建其他活动");
+    sqlx::query("INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at) VALUES ($1, $2, $3, '其他活动成员', 'OWNER', $4)")
+        .bind(foreign_member_id)
+        .bind(foreign_activity_id)
+        .bind(context.user_id)
+        .bind(now)
+        .execute(&mut *foreign_transaction)
+        .await
+        .expect("应创建其他活动成员");
+    foreign_transaction.commit().await.expect("应提交其他活动");
+
+    let collection = format!("/api/activities/{}/settlements", context.activity_id);
+    let (status, rejected) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection.clone(),
+            json!({
+                "clientMutationId": Uuid::new_v4(),
+                "payerMemberId": foreign_member_id,
+                "receiverMemberId": context.owner_member_id,
+                "currency": "CNY",
+                "amountMinor": "40",
+                "scope": preview["scope"]
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{rejected}");
+
+    let (status, created) = response(
+        &context,
+        request(
+            &context,
+            "POST",
+            collection.clone(),
+            json!({
+                "clientMutationId": Uuid::new_v4(),
+                "payerMemberId": recommendation["payerMemberId"],
+                "receiverMemberId": recommendation["receiverMemberId"],
+                "currency": "CNY",
+                "amountMinor": "40",
+                "scope": preview["scope"]
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(
+        date_preview(&context, json!(null), "UTC", false).await["recommendations"][0]["amountMinor"],
+        "60"
+    );
+
+    let item = format!(
+        "{collection}/{}",
+        created["data"]["settlement"]["settlementId"]
+            .as_str()
+            .unwrap()
+    );
+    let (status, updated) = response(
+        &context,
+        request(
+            &context,
+            "PUT",
+            item,
+            json!({
+                "version": "1",
+                "payerMemberId": context.guest_member_id,
+                "receiverMemberId": context.owner_member_id,
+                "amountMinor": "100"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    let settled = date_preview(&context, json!(null), "UTC", false).await;
+    assert_eq!(settled["recommendations"], json!([]));
+    assert!(
+        settled["balances"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|balance| balance["netMinor"] == "0")
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 // 同一账本场景验证净额付款及跨账单抵销共同清偿，需保留完整状态迁移顺序。
 #[allow(clippy::too_many_lines)]
 async fn net_payment_and_cross_bill_offset_clear_both_bills_without_manual_links() {
@@ -499,6 +637,7 @@ fn request(context: &AccountingContext, method: &str, uri: String, body: Value) 
     let serialized_body = body.to_string();
     drop(body);
     Request::builder()
+        .header("host", "localhost:5660")
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")

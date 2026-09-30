@@ -41,13 +41,28 @@ services:
       - "127.0.0.1:5660:5660"
 ```
 
-然后设置公开 HTTPS 地址，并让 Cookie 在 HTTPS 部署中使用 Secure 属性：
+## 访问地址
 
-```env
-APP_BASE_URL=https://huddletab.example.com
+首次登录后，打开“系统管理 → 访问地址”，点击“添加当前地址”，再添加需要使用的内网 IP 或公网域名并保存。地址包含协议与端口，例如 `http://192.168.1.20:5660`、`https://huddletab.example.com`；不能包含业务路径或通配符。
+
+保存后网页与 MCP 立即共用这份白名单，无需重启。首次未配置时网页允许从当前入口登录和设置，MCP 暂不开放。多个地址之间不会共享登录 Cookie，也不会开放跨域调用。当前使用的地址必须保留；更换域名时先添加新地址，再从新地址登录后删除旧地址。
+
+旧部署首次升级时，如果数据库尚未配置地址，服务会将显式设置的合法 `APP_BASE_URL` 一次性导入。数据库已有配置后忽略旧变量，可以从部署配置中删除它。非法旧值会阻止启动并输出中文错误，不会悄悄放宽保护。
+
+HTTPS 由反向代理提供时，按下文设置 `TRUST_PROXY=true` 并重设外部主机和协议。应用据此识别访问地址，为 HTTPS 响应中的 Session / pre-auth Cookie 设置 `Secure`。HTTP 内网部署仍可直接使用，不要求 HTTPS。
+
+### 所有已配置入口失效时恢复
+
+通常应通过仍可访问的已配置入口修改地址。如果域名失效且没有其他入口，可由部署管理员连接应用 PostgreSQL，在保留已有列表的基础上增加一个实际可达的地址：
+
+```sql
+UPDATE system_settings
+SET access_origins = array_append(COALESCE(access_origins, ARRAY[]::text[]), 'http://192.168.1.20:5660'),
+    version = version + 1, updated_at = NOW(), updated_by_user_id = NULL
+WHERE id = 'singleton';
 ```
 
-HTTP 部署可以继续使用 `http://` 地址；HTTPS 不是应用启动前提。
+将示例替换为准确的协议、主机和端口，不带末尾斜杠。恢复后从该地址登录，在界面中检查并清理旧入口；不要通过清空配置来绕过白名单。
 
 ## 首次管理员账号
 
@@ -62,11 +77,11 @@ HTTP 部署可以继续使用 `http://` 地址；HTTPS 不是应用启动前提�
 只有部署者能够同时保证以下边界时，才设置 `TRUST_PROXY=true`：
 
 1. 应用只可经由自己控制的反向代理访问。
-2. 代理会删除客户端提交的 `X-Real-IP`。
-3. 代理会按真实连接重新设置唯一可信的 `X-Real-IP`。
+2. 代理会覆盖客户端提交的 `X-Real-IP`、`X-Forwarded-Host` 和 `X-Forwarded-Proto`。
+3. 代理按真实连接重新设置唯一可信的客户端 IP、外部主机（含端口）和 `http` / `https` 协议。
 4. 不可信客户端不能绕过代理直接访问应用端口。
 
-启用后，应用只读取格式合法的单值 `X-Real-IP`，不解析或混合信任 `Forwarded`、`X-Forwarded-For`、`CF-Connecting-IP` 等 Header；缺失或无效时回退到 TCP 对端地址。`TRUST_PROXY` 与 HTTPS 没有绑定关系；错误启用它会使 IP 限流可能被伪造或绕过。
+启用后，客户端 IP 仍只读取合法单值 `X-Real-IP`，缺失或无效时回退到 TCP 对端。访问地址读取单值 `X-Forwarded-Host` 和 `X-Forwarded-Proto`，缺失的部分回退到直连信息；重复、逗号分隔或无效值会拒绝请求。应用不解析 `Forwarded`、`X-Forwarded-For`、`CF-Connecting-IP` 等代理链头。不要在允许客户端直连应用端口的部署中开启此开关，否则 IP 限流和入口识别都可能被伪造。
 
 当前进程内固定窗口限流只覆盖以下敏感操作：
 
@@ -83,8 +98,19 @@ huddletab.example.com {
   reverse_proxy 127.0.0.1:5660 {
     header_up -X-Real-IP
     header_up X-Real-IP {http.request.remote.host}
+    header_up X-Forwarded-Host {http.request.hostport}
+    header_up X-Forwarded-Proto {http.request.scheme}
   }
 }
 ```
 
 不要同时传递或让 HuddleTab 解析 `X-Forwarded-For`、`Forwarded` 等代理链 Header。
+
+Nginx 对应设置（应用端口同样必须只允许该受控代理连接）：
+
+```nginx
+proxy_set_header Host $http_host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-Host $http_host;
+proxy_set_header X-Forwarded-Proto $scheme;
+```

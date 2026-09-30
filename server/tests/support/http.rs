@@ -19,6 +19,7 @@ pub(super) fn authenticated_request(
     body: &str,
 ) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")

@@ -23,6 +23,7 @@ const NewExpensePage = retryableLazy(() => import("../features/accounting/expens
 const SettlementsPage = retryableLazy(() => import("../features/accounting/settlement-page").then((module) => ({ default: module.SettlementsPage })), <AccountingSkeleton kind="settlement" />);
 const AdminHomePage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminHomePage })));
 const AdminSettingsPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSettingsPage })));
+const AdminAccessAddressesPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminAccessAddressesPage })));
 const AdminAiSettingsPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminAiSettingsPage })));
 const AdminSystemInformationPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminSystemInformationPage })));
 const AdminUsersPage = lazy(() => import("../features/admin/pages").then((module) => ({ default: module.AdminUsersPage })));
@@ -150,6 +151,7 @@ export function ApplicationRouter() {
             <Route path="/admin" element={<Suspense fallback={<LoadingState label="正在打开系统管理…" />}><AdminHomePage /></Suspense>} />
             <Route path="/admin/users" element={<Suspense fallback={<LoadingState label="正在打开用户管理…" />}><AdminUsersPage /></Suspense>} />
             <Route path="/admin/settings" element={<Suspense fallback={<LoadingState label="正在打开系统设置…" />}><AdminSettingsPage /></Suspense>} />
+            <Route path="/admin/access-addresses" element={<Suspense fallback={<LoadingState label="正在打开访问地址…" />}><AdminAccessAddressesPage /></Suspense>} />
             <Route path="/admin/ai" element={<Suspense fallback={<LoadingState label="正在打开 AI 设置…" />}><AdminAiSettingsPage /></Suspense>} />
             <Route path="/admin/system" element={<Suspense fallback={<LoadingState label="正在打开系统信息…" />}><AdminSystemInformationPage /></Suspense>} />
           </Route>

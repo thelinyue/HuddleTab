@@ -63,18 +63,21 @@ async fn serve(bind: SocketAddr, static_dir: PathBuf) -> anyhow::Result<()> {
         )
         .context("无法初始化持久化 VAPID 私钥，请检查 DATA_DIR 的所有权和权限")?,
     );
-    let base_origin =
-        std::env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:5660".to_owned());
+    let legacy_origin = std::env::var("APP_BASE_URL").ok();
+    huddletab_server::infrastructure::access_addresses::import_legacy(
+        &database,
+        legacy_origin.as_deref(),
+    )
+    .await?;
     let uploads_dir = data_dir.join("uploads");
     huddletab_server::infrastructure::attachment_cleanup::spawn_attachment_cleanup(
         database.clone(),
         uploads_dir.clone(),
     );
-    let state =
-        huddletab_server::http::router::AppState::new(database.clone(), app_secret, base_origin)
-            .with_data_dir(data_dir.clone())
-            .with_uploads_dir(uploads_dir)
-            .with_push_service(push_service.clone());
+    let state = huddletab_server::http::router::AppState::new(database.clone(), app_secret)
+        .with_data_dir(data_dir.clone())
+        .with_uploads_dir(uploads_dir)
+        .with_push_service(push_service.clone());
     huddletab_server::infrastructure::push::spawn_push_worker(database, push_service);
     let listener = tokio::net::TcpListener::bind(bind)
         .await

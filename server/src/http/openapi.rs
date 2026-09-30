@@ -134,6 +134,8 @@ use super::{
 #[openapi(
     info(title = "HuddleTab API", version = "0.1.0"),
     paths(
+        super::access_addresses::get,
+        super::access_addresses::update,
         health,
         csrf,
         login,

@@ -19,7 +19,7 @@ use huddletab_server::{
     },
 };
 use serde_json::Value;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt as _;
 use uuid::Uuid;
@@ -114,6 +114,7 @@ fn authenticated_request(
     body: &'static str,
 ) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")
@@ -142,27 +143,25 @@ async fn json_response(app: &axum::Router, request: Request<Body>) -> (StatusCod
 }
 
 #[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn anonymous_join_attempts_share_the_invitation_ip_limit_with_previews() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
-        .expect("测试应创建 lazy pool");
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool,
-            AppSecret::from_bytes([17; 32]),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let pool = huddletab_server::infrastructure::database::connect_and_migrate(
+        &std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL"),
+    )
+    .await
+    .expect("测试库应可迁移");
+    let app = router_with_state(None, AppState::new(pool, AppSecret::from_bytes([17; 32])));
 
     for request_index in 0..30 {
         let request = if request_index % 2 == 0 {
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/api/invitations/unused")
                 .body(Body::empty())
                 .expect("预览请求应可构造")
         } else {
             Request::builder()
+                .header("host", "localhost:5660")
                 .method("POST")
                 .uri("/api/invitations/unused/join")
                 .body(Body::empty())
@@ -180,6 +179,7 @@ async fn anonymous_join_attempts_share_the_invitation_ip_limit_with_previews() {
     let response = app
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/api/invitations/unused")
                 .body(Body::empty())
                 .expect("第 31 个邀请请求应可构造"),
@@ -226,6 +226,7 @@ fn registration_request(
         body["invitationToken"] = token.into();
     }
     Request::builder()
+        .header("host", "localhost:5660")
         .method("POST")
         .uri("/api/auth/register")
         .header(CONTENT_TYPE, "application/json")
@@ -256,18 +257,12 @@ async fn public_policy_and_registration_distinguish_missing_and_invalid_invites(
         .await
         .expect("应设置仅邀请注册");
     let secret = AppSecret::from_bytes([17; 32]);
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
 
     let (status, policy) = json_response(
         &app,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri("/api/auth/registration-policy")
             .body(Body::empty())
             .expect("策略请求应可构造"),
@@ -287,6 +282,7 @@ async fn public_policy_and_registration_distinguish_missing_and_invalid_invites(
     let (status, policy) = json_response(
         &app,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri("/api/auth/registration-policy")
             .body(Body::empty())
             .expect("策略请求应可构造"),
@@ -323,7 +319,7 @@ async fn register_named_invited_actor(
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            Request::builder().header("host", "localhost:5660")
                 .method("POST")
                 .uri("/api/auth/register")
                 .header(CONTENT_TYPE, "application/json")
@@ -430,14 +426,7 @@ async fn ordinary_invites_accept_only_unlimited_links() {
     let secret = AppSecret::from_bytes([17; 32]);
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let (activity_id, _) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
 
     for body in [
         r#"{"kind":"DIRECT","targetDisplayName":"bob","maxUses":1}"#,
@@ -547,10 +536,7 @@ async fn revoking_link_invalidates_pending_requests_and_notifies_applicant() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
     let invitation_id: Uuid =
         sqlx::query_scalar("SELECT invitation_id FROM activity_join_requests WHERE id = $1")
@@ -621,10 +607,7 @@ async fn concurrent_revoke_and_approval_finish_without_deadlock() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
     let invitation_id: Uuid =
         sqlx::query_scalar("SELECT invitation_id FROM activity_join_requests WHERE id = $1")
@@ -728,10 +711,7 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
         .execute(&pool)
         .await
         .expect("应将测试 Guest 设为 LEFT");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
 
     let (guest_status, guest) = json_response(
         &app,
@@ -922,14 +902,7 @@ async fn guest_binding_preserves_identity_bypasses_approval_and_replays_once() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
     let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
     let now = OffsetDateTime::now_utc();
     let expense_id = Uuid::new_v4();
@@ -999,6 +972,7 @@ async fn guest_binding_preserves_identity_bypasses_approval_and_replays_once() {
     let (preview_status, preview) = json_response(
         &app,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri(format!("/api/invitations/{token}"))
             .body(Body::empty())
             .expect("预览请求应可构造"),
@@ -1120,10 +1094,7 @@ async fn guest_binding_rejects_existing_member_and_wrong_target() {
     .execute(&pool)
     .await
     .expect("应插入现有成员");
-    let app = router_with_state(
-        None,
-        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool, secret));
     let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
     let token = create_binding_token(
         &app,
@@ -1181,10 +1152,7 @@ async fn guest_binding_concurrent_confirmations_have_one_winner() {
     let first_target = seed_actor(&pool, &secret, "bob", "Bob").await;
     let second_target = seed_actor(&pool, &secret, "carol", "Carol").await;
     let (activity_id, _) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
     let first_token = create_binding_token(
         &app,
@@ -1322,10 +1290,7 @@ async fn join_request_authorization_limits_owner_queue_and_applicant_status() {
     .execute(&pool)
     .await
     .expect("应插入普通成员");
-    let app = router_with_state(
-        None,
-        AppState::new(pool, secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool, secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
 
     let (owner_status, queue) = json_response(
@@ -1416,10 +1381,7 @@ async fn join_decision_approve_is_idempotent_and_opposite_decision_conflicts() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
     let decision_uri = format!("/api/activities/{activity_id}/join-requests/{request_id}");
 
@@ -1494,10 +1456,7 @@ async fn join_decision_concurrent_approve_has_single_side_effect_set() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
     let uri = format!("/api/activities/{activity_id}/join-requests/{request_id}");
     let first = authenticated_request(&owner, "POST", uri.clone(), r#"{"decision":"APPROVE"}"#);
@@ -1549,10 +1508,7 @@ async fn join_decision_rejects_after_activity_ends_without_consuming_invitation(
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
     sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
         .bind(activity_id)
@@ -1624,10 +1580,7 @@ async fn join_decision_approve_revalidates_activity_and_invitation() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
     sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
         .bind(activity_id)
@@ -1699,10 +1652,7 @@ async fn join_decision_existing_active_member_keeps_request_pending() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let request_id = create_pending_join_request(&app, &owner, &applicant, activity_id).await;
     sqlx::query(
         "INSERT INTO activity_members (id, activity_id, user_id, display_name, role, joined_at)
@@ -1761,14 +1711,7 @@ async fn join_request_replay_returns_same_pending_without_consuming_invite() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
     let token = create_link_invitation(&app, &owner, activity_id).await;
     let applicant = register_invited_actor(&app, &secret, &token).await;
 
@@ -1819,10 +1762,7 @@ async fn join_request_concurrent_submissions_create_one_pending() {
         .execute(&pool)
         .await
         .expect("应开启加入审批");
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let token = create_link_invitation(&app, &owner, activity_id).await;
     let first = authenticated_request(
         &applicant,
@@ -1866,14 +1806,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     let secret = AppSecret::from_bytes([17; 32]);
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let (activity_id, _) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
 
     let (status, guest) = json_response(
         &app,
@@ -1926,6 +1859,7 @@ async fn owner_can_add_guest_and_invite_a_user_into_the_activity() {
     let (status, preview) = json_response(
         &app,
         Request::builder()
+            .header("host", "localhost:5660")
             .uri(format!("/api/invitations/{token}"))
             .body(Body::empty())
             .expect("预览请求应可构造"),
@@ -2030,10 +1964,7 @@ async fn ended_and_deleted_activities_reject_collaboration_mutations() {
     let secret = AppSecret::from_bytes([17; 32]);
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let (activity_id, _) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
 
     for deleted in [false, true] {
         if deleted {
@@ -2084,14 +2015,7 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
     let secret = AppSecret::from_bytes([17; 32]);
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let (activity_id, _) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
 
     let (status, invitation) = json_response(
         &app,
@@ -2116,7 +2040,7 @@ async fn deleted_activity_rejects_invitation_registration_and_join() {
     let csrf = CsrfToken::mint(&secret, CsrfContext::PreAuth(pre_auth.expose_for_cookie()));
     let (status, registration) = json_response(
         &app,
-        Request::builder()
+        Request::builder().header("host", "localhost:5660")
             .method("POST")
             .uri("/api/auth/register")
             .header(CONTENT_TYPE, "application/json")
@@ -2220,10 +2144,7 @@ async fn remove_guest_retains_unreferenced_guest_and_records_audit() {
     let secret = AppSecret::from_bytes([17; 32]);
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let (activity_id, _) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
 
     let (status, body) = json_response(
@@ -2296,10 +2217,7 @@ async fn remove_guest_marks_referenced_members_left_and_revokes_binding_invites(
     let secret = AppSecret::from_bytes([17; 32]);
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let (activity_id, owner_member_id) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     let payment_guest = create_binding_guest(&app, &owner, activity_id).await;
     let share_guest = create_binding_guest(&app, &owner, activity_id).await;
     let settlement_guest = create_binding_guest(&app, &owner, activity_id).await;
@@ -2431,14 +2349,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     .execute(&pool)
     .await
     .expect("应插入正式成员");
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
     let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
 
     let mut no_csrf = authenticated_request(
@@ -2468,6 +2379,7 @@ async fn remove_guest_rejects_invalid_targets_and_non_owner_requests() {
     let (status, body) = json_response(
         &app,
         Request::builder()
+            .header("host", "localhost:5660")
             .method("DELETE")
             .uri(format!(
                 "/api/activities/{activity_id}/members/{guest_member_id}"
@@ -2651,14 +2563,7 @@ async fn remove_guest_and_binding_race_has_consistent_serial_outcome() {
     let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
     let target = seed_actor(&pool, &secret, "bob", "Bob").await;
     let (activity_id, _) = seed_activity(&pool, &owner).await;
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool.clone(),
-            secret.clone(),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
     let guest_member_id = create_binding_guest(&app, &owner, activity_id).await;
     let token = create_binding_token(
         &app,

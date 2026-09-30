@@ -7,7 +7,6 @@ use huddletab_server::{
     infrastructure::app_secret::AppSecret,
 };
 use serde_json::{Value, json};
-use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -15,6 +14,7 @@ async fn health_returns_the_success_envelope_and_request_id() {
     let response = huddletab_server::app()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/api/health")
                 .body(Body::empty())
                 .expect("测试请求应可构造"),
@@ -75,6 +75,7 @@ async fn unknown_api_route_returns_the_json_error_envelope() {
     let response = huddletab_server::app()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/api/not-a-route")
                 .body(Body::empty())
                 .expect("测试请求应可构造"),
@@ -90,6 +91,7 @@ async fn unsupported_api_method_returns_the_json_error_envelope() {
     let response = huddletab_server::app()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .method("POST")
                 .uri("/api/health")
                 .body(Body::empty())
@@ -107,18 +109,14 @@ async fn unsupported_api_method_returns_the_json_error_envelope() {
 }
 
 #[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
 async fn system_admin_routes_require_a_session() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
-        .expect("测试应创建 lazy pool");
-    let app = router_with_state(
-        None,
-        AppState::new(
-            pool,
-            AppSecret::from_bytes([7; 32]),
-            "http://localhost:5660".to_owned(),
-        ),
-    );
+    let pool = huddletab_server::infrastructure::database::connect_and_migrate(
+        &std::env::var("TEST_DATABASE_URL").expect("应提供 TEST_DATABASE_URL"),
+    )
+    .await
+    .expect("测试库应可迁移");
+    let app = router_with_state(None, AppState::new(pool, AppSecret::from_bytes([7; 32])));
     for request in [
         ("GET", "/api/admin/users"),
         ("GET", "/api/admin/registration-policy"),
@@ -129,6 +127,7 @@ async fn system_admin_routes_require_a_session() {
             .clone()
             .oneshot(
                 Request::builder()
+                    .header("host", "localhost:5660")
                     .method(request.0)
                     .uri(request.1)
                     .body(Body::empty())
@@ -148,6 +147,7 @@ async fn removed_setup_routes_return_json_not_found() {
             .clone()
             .oneshot(
                 Request::builder()
+                    .header("host", "localhost:5660")
                     .method(method)
                     .uri(uri)
                     .body(Body::empty())
@@ -180,6 +180,7 @@ async fn static_assets_and_spa_fallback_have_distinct_not_found_rules() {
         .clone()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/activities/5bfe7262-8bfc-45ea-8de5-dc037ea49ab7")
                 .body(Body::empty())
                 .expect("测试请求应可构造"),
@@ -193,6 +194,7 @@ async fn static_assets_and_spa_fallback_have_distinct_not_found_rules() {
         .clone()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/assets/app-123.js")
                 .body(Body::empty())
                 .expect("测试请求应可构造"),
@@ -205,6 +207,7 @@ async fn static_assets_and_spa_fallback_have_distinct_not_found_rules() {
     let missing_asset = app
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/assets/missing.js")
                 .body(Body::empty())
                 .expect("测试请求应可构造"),

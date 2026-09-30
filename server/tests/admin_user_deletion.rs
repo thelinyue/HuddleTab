@@ -66,8 +66,7 @@ impl Fixture {
         let uploads = tempfile::tempdir().unwrap();
         let app = router_with_state(
             None,
-            AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned())
-                .with_uploads_dir(uploads.path().to_path_buf()),
+            AppState::new(pool.clone(), secret).with_uploads_dir(uploads.path().to_path_buf()),
         );
         Self {
             pool,
@@ -152,6 +151,7 @@ async fn assert_history_rejected(fixture: &Fixture, target: Uuid) {
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
 async fn deletes_active_and_disabled_empty_accounts_and_cleans_credentials_and_avatar() {
     let _guard = TEST_LOCK.lock().await;
     for disabled in [false, true] {
@@ -238,11 +238,16 @@ async fn deletes_active_and_disabled_empty_accounts_and_cleans_credentials_and_a
                 .unwrap()
                 .is_none()
         );
+        sqlx::query("UPDATE system_settings SET access_origins = ARRAY['http://localhost:5660'] WHERE id = 'singleton'")
+            .execute(&f.pool)
+            .await
+            .unwrap();
         let response = f
             .app
             .clone()
             .oneshot(
                 Request::builder()
+                    .header("host", "localhost:5660")
                     .method("POST")
                     .uri("/mcp")
                     .header("Authorization", format!("Bearer {}", token.expose_once()))
@@ -324,12 +329,8 @@ async fn avatar_cleanup_failure_keeps_deletion_success_and_orphan_cleanup_can_re
     std::fs::write(&unavailable, b"not-a-directory").unwrap();
     let app = router_with_state(
         None,
-        AppState::new(
-            f.pool.clone(),
-            AppSecret::from_bytes([19; 32]),
-            "http://localhost:5660".to_owned(),
-        )
-        .with_uploads_dir(unavailable),
+        AppState::new(f.pool.clone(), AppSecret::from_bytes([19; 32]))
+            .with_uploads_dir(unavailable),
     );
     let (status, _) = json_response(app, f.delete_request(f.target)).await;
     assert_eq!(status, StatusCode::OK);
@@ -445,6 +446,7 @@ async fn deletion_requires_authentication_csrf_admin_and_obeys_sensitive_rate_li
     let (status, _) = json_response(
         f.app.clone(),
         Request::builder()
+            .header("host", "localhost:5660")
             .method("DELETE")
             .uri(&uri)
             .body(Body::empty())

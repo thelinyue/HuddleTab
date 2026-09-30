@@ -33,6 +33,25 @@ pub enum ApiError {
 
 impl ApiError {
     #[must_use]
+    pub fn invalid_access_address(message: &'static str, request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_ACCESS_ADDRESS",
+            message,
+            request_id,
+        )
+    }
+    #[must_use]
+    pub fn access_address_forbidden(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "ACCESS_ADDRESS_FORBIDDEN",
+            "此访问地址尚未启用，请通过已配置地址访问；首次部署请先在系统管理中配置访问地址。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn settlement_preview_expired(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

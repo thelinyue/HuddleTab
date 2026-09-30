@@ -426,33 +426,11 @@ async fn authenticate_bearer(
     })
 }
 
-fn origin_matches(state: &AppState, headers: &HeaderMap) -> bool {
-    let mut origin_values = headers.get_all(header::ORIGIN).iter();
-    let Some(origin) = origin_values.next().and_then(|value| value.to_str().ok()) else {
-        return true;
-    };
-    if origin_values.next().is_some() {
-        return false;
-    }
-    let Ok(origin_url) = Url::parse(origin) else {
-        return false;
-    };
-    let Ok(base_url) = Url::parse(&state.base_origin) else {
-        return false;
-    };
-    origin_url.scheme() == base_url.scheme()
-        && origin_url.host_str() == base_url.host_str()
-        && origin_url.port_or_known_default() == base_url.port_or_known_default()
-}
-
 async fn authenticate_mcp_request(
     State(state): State<AppState>,
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if !origin_matches(&state, request.headers()) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
     match authenticate_bearer(&state, request.headers()).await {
         Ok(identity) => {
             request.extensions_mut().insert(identity);
@@ -473,26 +451,9 @@ async fn authenticate_mcp_request(
 
 /// 构造无状态 MCP 服务；外层中间件先完成 Origin 和 Bearer 身份校验。
 pub(crate) fn service(state: AppState) -> Router {
-    let allowed_hosts = Url::parse(&state.base_origin)
-        .ok()
-        .and_then(|url| {
-            url.host_str().map(|host| {
-                url.port()
-                    .map_or_else(|| host.to_owned(), |port| format!("{host}:{port}"))
-            })
-        })
-        .into_iter()
-        .chain([
-            "localhost".to_owned(),
-            "127.0.0.1".to_owned(),
-            "::1".to_owned(),
-        ])
-        .collect::<Vec<_>>();
     let config = StreamableHttpServerConfig::default()
         .with_legacy_session_mode(false)
         .with_json_response(true)
-        .with_allowed_hosts(allowed_hosts)
-        .with_allowed_origins([state.base_origin.clone()])
         .with_max_request_body_bytes(256 * 1024);
     let factory_state = state.clone();
     let service = StreamableHttpService::new(
@@ -504,8 +465,47 @@ pub(crate) fn service(state: AppState) -> Router {
         Arc::new(NeverSessionManager::default()),
         config,
     );
+    // SDK 的静态配置按请求克隆更新，不关闭 Host / Origin 安全检查，也不缓存地址列表。
+    let dynamic_service = tower::service_fn(move |mut request: Request<axum::body::Body>| {
+        use tower::ServiceExt as _;
+        let mut service = service.clone();
+        let access = request
+            .extensions()
+            .get::<super::access_addresses::RequestAccess>()
+            .expect("外层已验证访问地址");
+        let origins = access
+            .settings
+            .origins
+            .clone()
+            .expect("未配置 MCP 已被外层拒绝");
+        let hosts: Vec<String> = origins
+            .iter()
+            .map(|origin| {
+                let url = Url::parse(origin).expect("数据库只保存规范 Origin");
+                url[url::Position::BeforeHost..url::Position::AfterPort].to_owned()
+            })
+            .collect();
+        service.config = service
+            .config
+            .with_allowed_hosts(hosts)
+            .with_allowed_origins(origins);
+        let external: axum::http::Uri = access.origin.parse().expect("入口是合法 URI");
+        let authority = external.authority().expect("入口包含主机").clone();
+        // 代理可能重写内部 Host；SDK 必须验证已由可信代理边界确认的外部地址。
+        request.headers_mut().insert(
+            header::HOST,
+            HeaderValue::from_str(authority.as_str()).expect("已验证 Host"),
+        );
+        if request.uri().authority().is_some() {
+            let mut parts = request.uri().clone().into_parts();
+            parts.authority = Some(authority);
+            parts.scheme = external.scheme().cloned();
+            *request.uri_mut() = axum::http::Uri::from_parts(parts).expect("已验证 URI");
+        }
+        service.oneshot(request)
+    });
     Router::new()
-        .fallback_service(service)
+        .fallback_service(dynamic_service)
         .layer(middleware::from_fn_with_state(
             state,
             authenticate_mcp_request,

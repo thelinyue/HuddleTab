@@ -66,10 +66,7 @@ async fn seed_authenticated_actor() -> (PgPool, axum::Router, SessionToken, Csrf
     .expect("应插入测试 Session");
     let secret = AppSecret::from_bytes([9; 32]);
     let csrf = CsrfToken::mint(&secret, CsrfContext::Session(&session_hash));
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, "http://localhost:5660".to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     (pool, app, session, csrf, user_id)
 }
 
@@ -98,7 +95,7 @@ async fn create_activity_atomically_creates_its_owner_member() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            Request::builder().header("host", "localhost:5660")
                 .method("POST")
                 .uri("/api/activities")
                 .header(CONTENT_TYPE, "application/json")
@@ -1026,12 +1023,8 @@ async fn permanent_delete_removes_all_dependencies_files_and_rolls_back_on_failu
     let uploads = tempfile::tempdir().unwrap();
     let app = router_with_state(
         None,
-        AppState::new(
-            pool.clone(),
-            AppSecret::from_bytes([9; 32]),
-            "http://localhost:5660".to_owned(),
-        )
-        .with_uploads_dir(uploads.path().to_owned()),
+        AppState::new(pool.clone(), AppSecret::from_bytes([9; 32]))
+            .with_uploads_dir(uploads.path().to_owned()),
     );
     let created = create_activity(app.clone(), &session, &csrf).await;
     let kept = create_activity(app.clone(), &session, &csrf).await;
@@ -1146,12 +1139,8 @@ async fn permanent_delete_succeeds_when_file_cleanup_fails() {
     let uploads = tempfile::tempdir().unwrap();
     let app = router_with_state(
         None,
-        AppState::new(
-            pool.clone(),
-            AppSecret::from_bytes([9; 32]),
-            "http://localhost:5660".to_owned(),
-        )
-        .with_uploads_dir(uploads.path().to_owned()),
+        AppState::new(pool.clone(), AppSecret::from_bytes([9; 32]))
+            .with_uploads_dir(uploads.path().to_owned()),
     );
     let created = create_activity(app.clone(), &session, &csrf).await;
     let activity = Uuid::parse_str(created["activityId"].as_str().unwrap()).unwrap();

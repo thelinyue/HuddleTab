@@ -20,6 +20,7 @@ export const queryKeys = {
   pushSettings: (userId: string) =>
     ["users", userId, "push-settings"] as const,
   mcpTokens: (userId: string) => ["users", userId, "mcp-tokens"] as const,
+  adminAccessAddresses: (userId: string) => ["users", userId, "admin", "access-addresses"] as const,
   adminUsers: (userId: string) => ["users", userId, "admin", "users"] as const,
   adminRegistrationPolicy: (userId: string) => ["users", userId, "admin", "registration-policy"] as const,
   adminStorage: (userId: string) => ["users", userId, "admin", "storage"] as const,

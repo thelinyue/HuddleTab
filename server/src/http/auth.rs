@@ -1,3 +1,4 @@
+use super::access_addresses::RequestAccess;
 use axum::{
     Extension, Json,
     body::Body,
@@ -328,6 +329,7 @@ pub struct DisplayNameData {
     )
 )]
 pub(crate) async fn csrf(
+    Extension(access): Extension<RequestAccess>,
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
     jar: CookieJar,
@@ -362,7 +364,7 @@ pub(crate) async fn csrf(
             .path("/")
             .http_only(true)
             .same_site(SameSite::Lax)
-            .secure(state.secure_cookies)
+            .secure(access.secure())
             .max_age(Duration::ZERO)
             .build();
         jar = jar.add(expired_session);
@@ -377,7 +379,7 @@ pub(crate) async fn csrf(
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(state.secure_cookies)
+        .secure(access.secure())
         .max_age(Duration::minutes(10))
         .build();
     Ok((
@@ -402,6 +404,7 @@ pub(crate) async fn csrf(
     )
 )]
 pub(crate) async fn login(
+    Extension(access): Extension<RequestAccess>,
     State(state): State<AppState>,
     Extension(client_ip): Extension<ClientIp>,
     Extension(request_id): Extension<RequestId>,
@@ -437,14 +440,14 @@ pub(crate) async fn login(
     .path("/")
     .http_only(true)
     .same_site(SameSite::Lax)
-    .secure(state.secure_cookies)
+    .secure(access.secure())
     .max_age(SESSION_COOKIE_MAX_AGE)
     .build();
     let expired_pre_auth = Cookie::build((PRE_AUTH_COOKIE, ""))
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(state.secure_cookies)
+        .secure(access.secure())
         .max_age(Duration::ZERO)
         .build();
 
@@ -476,6 +479,7 @@ pub(crate) async fn login(
     )
 )]
 pub(crate) async fn register(
+    Extension(access): Extension<RequestAccess>,
     State(state): State<AppState>,
     Extension(client_ip): Extension<ClientIp>,
     Extension(request_id): Extension<RequestId>,
@@ -519,14 +523,14 @@ pub(crate) async fn register(
     .path("/")
     .http_only(true)
     .same_site(SameSite::Lax)
-    .secure(state.secure_cookies)
+    .secure(access.secure())
     .max_age(SESSION_COOKIE_MAX_AGE)
     .build();
     let expired_pre_auth = Cookie::build((PRE_AUTH_COOKIE, ""))
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(state.secure_cookies)
+        .secure(access.secure())
         .max_age(Duration::ZERO)
         .build();
     Ok((
@@ -831,6 +835,7 @@ pub(crate) async fn update_profile(
     )
 )]
 pub(crate) async fn logout(
+    Extension(access): Extension<RequestAccess>,
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
     jar: CookieJar,
@@ -845,7 +850,7 @@ pub(crate) async fn logout(
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(state.secure_cookies)
+        .secure(access.secure())
         .max_age(Duration::ZERO)
         .build();
     Ok((
@@ -869,6 +874,7 @@ pub(crate) async fn logout(
     )
 )]
 pub(crate) async fn change_password(
+    Extension(access): Extension<RequestAccess>,
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
     jar: CookieJar,
@@ -913,7 +919,7 @@ pub(crate) async fn change_password(
     .path("/")
     .http_only(true)
     .same_site(SameSite::Lax)
-    .secure(state.secure_cookies)
+    .secure(access.secure())
     .max_age(SESSION_COOKIE_MAX_AGE)
     .build();
     Ok((
@@ -924,13 +930,14 @@ pub(crate) async fn change_password(
     ))
 }
 
+/// Origin 和入口白名单已由外层 `access_addresses` 中间件校验；这里验证 Cookie 绑定的凭据。
 pub(crate) fn validate_pre_auth(
     state: &AppState,
     jar: &CookieJar,
     headers: &HeaderMap,
     request_id: RequestId,
 ) -> Result<(), ApiError> {
-    if !validate_same_origin_headers(headers, &state.base_origin) {
+    if !optional_single_header_matches(headers, "sec-fetch-site", "same-origin") {
         return Err(ApiError::forbidden(request_id));
     }
     let context = jar
@@ -949,13 +956,14 @@ pub(crate) fn validate_pre_auth(
     Ok(())
 }
 
+/// 所有调用路由均先经过入口中间件；此处保留 Fetch Metadata 与 Session 绑定的 CSRF 校验。
 pub(crate) fn validate_session_csrf(
     state: &AppState,
     jar: &CookieJar,
     headers: &HeaderMap,
     request_id: RequestId,
 ) -> Result<SessionToken, ApiError> {
-    if !validate_same_origin_headers(headers, &state.base_origin) {
+    if !optional_single_header_matches(headers, "sec-fetch-site", "same-origin") {
         return Err(ApiError::forbidden(request_id));
     }
     let session = jar
@@ -981,9 +989,23 @@ pub(crate) fn validate_session_csrf(
 /// 浏览器并不保证为同源 `fetch` 发送 `Origin` 或 Fetch Metadata 头。
 /// 这两个头如果存在必须严格匹配；缺失时仍必须通过绑定 Cookie 的 HMAC CSRF token，
 /// 从而兼容真实浏览器，同时继续拒绝明确的跨站请求、非法值和重复值。
-fn validate_same_origin_headers(headers: &HeaderMap, expected_origin: &str) -> bool {
-    optional_single_header_matches(headers, ORIGIN, expected_origin)
-        && optional_single_header_matches(headers, "sec-fetch-site", "same-origin")
+pub(crate) fn validate_same_origin_headers(headers: &HeaderMap, expected_origin: &str) -> bool {
+    let mut origins = headers.get_all(ORIGIN).iter();
+    let matches = match origins.next() {
+        None => true,
+        Some(value) => {
+            origins.next().is_none()
+                && value
+                    .to_str()
+                    .ok()
+                    .and_then(|value| {
+                        crate::application::access_addresses::normalize_origin(value).ok()
+                    })
+                    .as_deref()
+                    == Some(expected_origin)
+        }
+    };
+    matches && optional_single_header_matches(headers, "sec-fetch-site", "same-origin")
 }
 
 fn optional_single_header_matches(

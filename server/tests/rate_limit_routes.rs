@@ -117,11 +117,12 @@ async fn session_context(pool: &PgPool, secret: &AppSecret, user_id: Uuid) -> Au
 }
 
 fn app(pool: PgPool, secret: AppSecret) -> Router {
-    router_with_state(None, AppState::new(pool, secret, BASE_ORIGIN.to_owned()))
+    router_with_state(None, AppState::new(pool, secret))
 }
 
 fn mutation_request(method: &str, uri: &str, body: Body, context: &AuthContext) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")
@@ -154,6 +155,7 @@ async fn pre_auth_context(app: &Router) -> AuthContext {
         .clone()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/api/auth/csrf")
                 .body(Body::empty())
                 .expect("请求应可构造"),
@@ -305,6 +307,7 @@ async fn assert_repeated_read_status(
             .clone()
             .oneshot(
                 Request::builder()
+                    .header("host", "localhost:5660")
                     .uri(uri)
                     .header(COOKIE, &context.cookie)
                     .body(Body::empty())
@@ -444,6 +447,7 @@ async fn anonymous_preview_and_join_share_limit_before_authentication() {
             .clone()
             .oneshot(with_peer_ip(
                 Request::builder()
+                    .header("host", "localhost:5660")
                     .uri("/api/invitations/invalid-token")
                     .body(Body::empty())
                     .expect("请求应可构造"),
@@ -458,6 +462,7 @@ async fn anonymous_preview_and_join_share_limit_before_authentication() {
         .clone()
         .oneshot(with_peer_ip(
             Request::builder()
+                .header("host", "localhost:5660")
                 .method("POST")
                 .uri("/api/invitations/invalid-token/join")
                 .header(ORIGIN, BASE_ORIGIN)
@@ -474,6 +479,7 @@ async fn anonymous_preview_and_join_share_limit_before_authentication() {
         .clone()
         .oneshot(with_peer_ip(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/api/invitations/invalid-token")
                 .body(Body::empty())
                 .expect("请求应可构造"),
@@ -486,6 +492,7 @@ async fn anonymous_preview_and_join_share_limit_before_authentication() {
     let response = app
         .oneshot(with_peer_ip(
             Request::builder()
+                .header("host", "localhost:5660")
                 .uri("/api/invitations/invalid-token")
                 .body(Body::empty())
                 .expect("请求应可构造"),
@@ -531,6 +538,7 @@ async fn sensitive_writes_require_session_and_csrf_before_sharing_user_limit() {
         .clone()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .method("POST")
                 .uri(&invitations_uri)
                 .header(CONTENT_TYPE, "application/json")
@@ -548,6 +556,7 @@ async fn sensitive_writes_require_session_and_csrf_before_sharing_user_limit() {
         .clone()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .method("POST")
                 .uri(&invitations_uri)
                 .header(CONTENT_TYPE, "application/json")

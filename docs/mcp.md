@@ -2,6 +2,8 @@
 
 HuddleTab 提供远程 Streamable HTTP MCP 服务，地址为部署站点的 `/mcp`。客户端使用个人访问令牌发送：
 
+请先由管理员在“系统管理 → 访问地址”保存需要使用的站点地址。网页与 MCP 共用白名单，修改立即生效；首次尚未配置时 MCP 暂不开放。
+
 此连接使用 Bearer PAT，不启用 OAuth。
 
 ```text

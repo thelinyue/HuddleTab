@@ -538,9 +538,9 @@ async fn require_members(
     payer_member_id: Uuid,
     receiver_member_id: Uuid,
 ) -> Result<(), SettlementRepositoryError> {
+    // 历史账务仍保留 LEFT 成员的余额，结算只要求收付双方属于当前活动。
     let count = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM activity_members WHERE activity_id = $1 \
-         AND id = ANY($2) AND status = 'ACTIVE'",
+        "SELECT count(*) FROM activity_members WHERE activity_id = $1 AND id = ANY($2)",
     )
     .bind(activity_id)
     .bind(vec![payer_member_id, receiver_member_id])

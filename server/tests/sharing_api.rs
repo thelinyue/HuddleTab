@@ -449,11 +449,7 @@ async fn seed_context() -> SharingContext {
     .expect("应插入 Session");
     let app = router_with_state(
         None,
-        AppState::new(
-            pool.clone(),
-            AppSecret::from_bytes([25; 32]),
-            "http://localhost:5660".to_owned(),
-        ),
+        AppState::new(pool.clone(), AppSecret::from_bytes([25; 32])),
     );
     SharingContext {
         pool,
@@ -466,6 +462,7 @@ async fn seed_context() -> SharingContext {
 
 fn request(context: &SharingContext, uri: String) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .uri(uri)
         .header(
             COOKIE,
@@ -477,6 +474,7 @@ fn request(context: &SharingContext, uri: String) -> Request<Body> {
 
 fn anonymous_request(uri: String) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .uri(uri)
         .body(Body::empty())
         .expect("匿名请求应可构造")

@@ -57,8 +57,6 @@ pub struct HealthData {
 pub struct AppState {
     pub(crate) pool: PgPool,
     pub(crate) app_secret: AppSecret,
-    pub(crate) base_origin: String,
-    pub(crate) secure_cookies: bool,
     pub(crate) time_zone: String,
     pub(crate) trust_proxy: bool,
     pub(crate) rate_limiter: RateLimiter,
@@ -73,8 +71,7 @@ pub struct AppState {
 
 impl AppState {
     #[must_use]
-    pub fn new(pool: PgPool, app_secret: AppSecret, base_origin: String) -> Self {
-        let secure_cookies = base_origin.starts_with("https://");
+    pub fn new(pool: PgPool, app_secret: AppSecret) -> Self {
         let time_zone = std::env::var("TZ")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -83,8 +80,6 @@ impl AppState {
         Self {
             pool,
             app_secret,
-            base_origin,
-            secure_cookies,
             time_zone,
             trust_proxy,
             rate_limiter: RateLimiter::new(),
@@ -134,6 +129,12 @@ pub fn router(static_dir: Option<PathBuf>) -> Router {
 pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health).fallback(api_method_not_allowed))
+        .route(
+            "/admin/access-addresses",
+            get(super::access_addresses::get)
+                .put(super::access_addresses::update)
+                .fallback(api_method_not_allowed),
+        )
         .route(
             "/auth/csrf",
             get(auth::csrf).fallback(api_method_not_allowed),
@@ -450,22 +451,35 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
 }
 
 fn finish_router(api: Router, static_dir: Option<PathBuf>) -> Router {
-    finish_outer_router(Router::new().nest("/api", api), static_dir)
+    finish_outer_router(Router::new().nest("/api", api), static_dir, None)
 }
 
 fn finish_router_with_mcp(api: Router, static_dir: Option<PathBuf>, state: AppState) -> Router {
     finish_outer_router(
         Router::new()
             .nest("/api", api)
-            .nest("/mcp", mcp::service(state)),
+            .nest("/mcp", mcp::service(state.clone())),
         static_dir,
+        Some(state),
     )
 }
 
-fn finish_outer_router(router: Router, static_dir: Option<PathBuf>) -> Router {
+fn finish_outer_router(
+    router: Router,
+    static_dir: Option<PathBuf>,
+    access_state: Option<AppState>,
+) -> Router {
     let router = static_dir.map_or(router.clone(), |directory| {
         mount_static_files(router, &directory)
     });
+    let router = if let Some(state) = access_state {
+        router.layer(middleware::from_fn_with_state(
+            state,
+            super::access_addresses::enforce,
+        ))
+    } else {
+        router
+    };
 
     router.layer(middleware::from_fn(attach_request_id))
 }

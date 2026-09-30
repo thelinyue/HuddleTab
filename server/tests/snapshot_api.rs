@@ -166,11 +166,7 @@ async fn seed_context() -> SnapshotContext {
     let outsider_session = insert_session(&pool, outsider_user_id, now).await;
     let app = router_with_state(
         None,
-        AppState::new(
-            pool.clone(),
-            AppSecret::from_bytes([31; 32]),
-            "http://localhost:5660".to_owned(),
-        ),
+        AppState::new(pool.clone(), AppSecret::from_bytes([31; 32])),
     );
     SnapshotContext {
         pool,
@@ -209,6 +205,7 @@ fn snapshot_request(
     if_none_match: Option<&str>,
 ) -> Request<Body> {
     let mut builder = Request::builder()
+        .header("host", "localhost:5660")
         .method("GET")
         .uri(format!("/api/activities/{}/snapshot", context.activity_id))
         .header(
@@ -450,6 +447,7 @@ async fn guest_binding_updates_snapshot_without_changing_member_identity() {
         .clone()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .method("POST")
                 .uri(format!(
                     "/api/activities/{}/members/{}/binding-invitations",
@@ -497,6 +495,7 @@ async fn guest_binding_updates_snapshot_without_changing_member_identity() {
         .clone()
         .oneshot(
             Request::builder()
+                .header("host", "localhost:5660")
                 .method("POST")
                 .uri(format!("/api/invitations/{token}/join"))
                 .header(CONTENT_TYPE, "application/json")

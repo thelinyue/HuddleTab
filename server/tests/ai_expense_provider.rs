@@ -285,10 +285,7 @@ async fn seed_context() -> TestContext {
 
     let secret = AppSecret::from_bytes([41; 32]);
     let csrf = CsrfToken::mint(&secret, CsrfContext::Session(&session_hash));
-    let app = router_with_state(
-        None,
-        AppState::new(pool.clone(), secret, BASE_ORIGIN.to_owned()),
-    );
+    let app = router_with_state(None, AppState::new(pool.clone(), secret));
     TestContext {
         pool,
         app,
@@ -308,6 +305,7 @@ fn json_request(
     body: &Value,
 ) -> Request<Body> {
     Request::builder()
+        .header("host", "localhost:5660")
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")
@@ -339,6 +337,7 @@ fn multipart_request(
     body.extend_from_slice(image);
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     Request::builder()
+        .header("host", "localhost:5660")
         .method("POST")
         .uri(uri)
         .header(
