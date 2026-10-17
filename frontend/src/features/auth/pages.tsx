@@ -1,11 +1,9 @@
 import { ArrowRight, Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
-import { type FormEvent, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button, ErrorNotice, Input, LoadingState } from "../../components/ui";
-import { errorMessage } from "../../api/error";
-import { queryKeys } from "../../api/query-keys";
-import { joinInvitation, useInvitationPreviewQuery, useJoinInvitationMutation, useJoinRequestQuery, useLoginMutation, useRegisterMutation, useRegistrationPolicyQuery, useSessionQuery } from "./api";
+import { ApiRequestError } from "../../api/error";
+import { useInvitationJoinOptionsQuery, useInvitationPreviewQuery, useJoinInvitationMutation, useJoinRequestQuery, useLoginMutation, useRegisterMutation, useRegistrationPolicyQuery, useSessionQuery } from "./api";
 
 /** 三个入口共用轻量外壳；加载、错误和审批状态也保留品牌及同一内容宽度，手机端按文档自然滚动。 */
 function AuthLayout({ children }: { children: React.ReactNode }) {
@@ -116,7 +114,6 @@ export function RegisterPage() {
   const policy = useRegistrationPolicyQuery();
   const mutation = useRegisterMutation();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const invitationToken = searchParams.get("invite") ?? "";
   const preview = useInvitationPreviewQuery(invitationToken);
@@ -153,24 +150,9 @@ export function RegisterPage() {
     }
     setCompleting(true);
     try {
-      const registered = await mutation.mutateAsync({ username, displayName, password, invitationToken: invitationToken || undefined });
-      if (!invitationToken) {
-        navigate("/activities", { replace: true });
-      } else if (preview.data?.purpose === "GUEST_BINDING") {
-        navigate(`/join/${encodeURIComponent(invitationToken)}`, { replace: true });
-      } else {
-        try {
-          const joined = await joinInvitation(invitationToken);
-          if (joined.status === "PENDING_APPROVAL" && joined.requestId) {
-            navigate(`/join/${encodeURIComponent(invitationToken)}?request=${encodeURIComponent(joined.requestId)}`, { replace: true });
-          } else {
-            await queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(registered.userId) });
-            navigate(`/activities/${joined.activityId}`, { replace: true });
-          }
-        } catch (error) {
-          navigate(`/join/${encodeURIComponent(invitationToken)}`, { replace: true, state: { joinError: errorMessage(error) } });
-        }
-      }
+      await mutation.mutateAsync({ username, displayName, password, invitationToken: invitationToken || undefined });
+      // 注册只创建账号，回到同一邀请后由用户明确选择账务身份，避免提前生成重复成员。
+      navigate(invitationToken ? `/join/${encodeURIComponent(invitationToken)}` : "/activities", { replace: true });
     } catch {
       setCompleting(false);
     }
@@ -181,7 +163,7 @@ export function RegisterPage() {
   return (
     <AuthLayout>
       <header className="auth-panel__header">
-        <h1>{invitationToken ? preview.data?.purpose === "GUEST_BINDING" ? "注册并绑定" : "注册并加入" : "创建账号"}</h1>
+        <h1>{invitationToken ? "注册账号" : "创建账号"}</h1>
         {invitationToken ? <p>{preview.data?.activityName}</p> : null}
       </header>
       <form className="auth-form" onSubmit={submit}>
@@ -201,17 +183,51 @@ export function RegisterPage() {
   );
 }
 
+/** 邀请页把账号认证与账务身份选择分开；选项失效时要求重新确认，绝不隐式新建成员。 */
 export function JoinPage() {
   const { token = "" } = useParams();
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const session = useSessionQuery();
   const preview = useInvitationPreviewQuery(token);
   const mutation = useJoinInvitationMutation(session.data?.userId ?? "", token);
-  const [requestId, setRequestId] = useState(searchParams.get("request") ?? "");
+  const requestId = searchParams.get("request") ?? "";
   const joinRequest = useJoinRequestQuery(session.data?.userId ?? "", requestId);
+  const needsJoinOptions = Boolean(session.data && preview.data?.purpose === "JOIN" && !requestId);
+  const joinOptions = useInvitationJoinOptionsQuery(session.data?.userId ?? "", token, needsJoinOptions);
+  const [selectedGuestId, setSelectedGuestId] = useState<string | null>("");
   const navigate = useNavigate();
-  const joinError = (location.state as { joinError?: string } | null)?.joinError;
+  const claimableMembers = joinOptions.data?.claimableMembers ?? [];
+  const claimRequest = Boolean(joinRequest.data?.guestMemberId);
+  const requireApproval = joinOptions.data?.inviteMode === "REQUIRE_APPROVAL";
+
+  useEffect(() => { setSelectedGuestId(""); }, [token, session.data?.userId]);
+  useEffect(() => {
+    if (selectedGuestId && joinOptions.data && !joinOptions.data.claimableMembers.some((member) => member.memberId === selectedGuestId)) {
+      setSelectedGuestId(null);
+    }
+  }, [selectedGuestId, joinOptions.data]);
+
+  async function submitJoin() {
+    try {
+      const joined = await mutation.mutateAsync(preview.data?.purpose === "JOIN" ? selectedGuestId || undefined : undefined);
+      if (joined.status === "PENDING_APPROVAL" && joined.requestId) {
+        setSearchParams({ request: joined.requestId }, { replace: true });
+      } else {
+        navigate(`/activities/${joined.activityId}`);
+      }
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.code === "GUEST_CLAIM_UNAVAILABLE") {
+        setSelectedGuestId(null);
+        void joinOptions.refetch();
+      }
+    }
+  }
+
+  function chooseAgain() {
+    setSelectedGuestId(null);
+    mutation.reset();
+    setSearchParams({}, { replace: true });
+  }
 
   if (preview.isPending || session.isPending) return <AuthLayout><LoadingState label="正在读取邀请…" /></AuthLayout>;
   const expiresAt = new Date(preview.data?.expiresAt ?? "");
@@ -220,16 +236,17 @@ export function JoinPage() {
     : `邀请有效期至 ${expiresAt.toLocaleDateString("zh-CN")}`;
   const requestStatus = requestId ? (
     <div className="join-request-status" role="status" aria-live="polite">
+      {claimRequest ? <p>申请认领「{joinRequest.data?.guestDisplayName ?? "临时成员"}」</p> : null}
       {joinRequest.isPending ? <LoadingState label="正在读取审批结果…" /> : null}
       {joinRequest.error ? <ErrorNotice error={joinRequest.error} /> : null}
       {!joinRequest.isPending && !joinRequest.error && joinRequest.data?.status === "APPROVED" ? (
-        <><strong>申请已批准</strong><Link className="button button--primary" to={`/activities/${joinRequest.data.activityId}`}>打开活动 <ArrowRight aria-hidden="true" size={18} /></Link></>
+        <><strong>{claimRequest ? "认领申请已批准" : "申请已批准"}</strong><Link className="button button--primary" to={`/activities/${joinRequest.data.activityId}`}>打开活动 <ArrowRight aria-hidden="true" size={18} /></Link></>
       ) : null}
       {!joinRequest.isPending && !joinRequest.error && joinRequest.data?.status === "REJECTED" ? (
-        <><strong>申请未通过</strong><p>活动所有者没有批准本次加入申请。</p></>
+        <><strong>申请未通过</strong><p>活动所有者没有批准本次加入申请。</p>{claimRequest ? <Button variant="secondary" onClick={chooseAgain}>重新选择身份</Button> : null}</>
       ) : null}
       {!joinRequest.isPending && !joinRequest.error && joinRequest.data?.status === "INVALIDATED" ? (
-        <><strong>邀请已作废</strong><p>请联系活动所有者获取新的邀请链接。</p></>
+        <><strong>{claimRequest ? "认领申请已失效" : "邀请已作废"}</strong><p>{claimRequest ? "请重新查看邀请或联系活动所有者。" : "请联系活动所有者获取新的邀请链接。"}</p>{claimRequest && !preview.error ? <Button variant="secondary" onClick={chooseAgain}>重新选择身份</Button> : null}</>
       ) : null}
       {!joinRequest.isPending && !joinRequest.error && (!joinRequest.data || joinRequest.data.status === "PENDING") ? (
         <><strong>等待活动所有者审批</strong><p>审批结果会显示在通知中。</p></>
@@ -240,7 +257,6 @@ export function JoinPage() {
   return (
     <AuthLayout>
       <div className="join-panel">
-        {joinError ? <div className="field__error" role="alert">账号已创建，但未能加入活动：{joinError}</div> : null}
         {preview.error ? <><ErrorNotice error={preview.error} />{requestStatus}<Link className="button button--secondary" to="/activities">返回活动列表</Link></> : preview.data ? (
           <>
             <header className="auth-panel__header">
@@ -252,25 +268,30 @@ export function JoinPage() {
             {session.data ? (
               <>
                 {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
-                {requestId ? requestStatus : (
+                {requestId ? requestStatus : (<>
+                  {needsJoinOptions && joinOptions.isPending ? <LoadingState label="正在读取加入身份…" /> : null}
+                  {needsJoinOptions && joinOptions.error ? <><ErrorNotice error={joinOptions.error} /><Button variant="secondary" onClick={() => void joinOptions.refetch()}>重试</Button></> : null}
+                  {needsJoinOptions && joinOptions.data && (claimableMembers.length > 0 || selectedGuestId === null) ? (
+                    <fieldset className="join-identity" disabled={mutation.isPending}>
+                      <legend>选择加入身份</legend>
+                      <label className="join-identity__option"><input type="radio" name="join-identity" checked={selectedGuestId === ""} onChange={() => setSelectedGuestId("")} /><span>作为新成员加入</span></label>
+                      {claimableMembers.map((member) => <label className="join-identity__option" key={member.memberId}><input type="radio" name="join-identity" checked={selectedGuestId === member.memberId} onChange={() => setSelectedGuestId(member.memberId)} /><span>认领「{member.displayName}」</span></label>)}
+                    </fieldset>
+                  ) : null}
+                  {needsJoinOptions && selectedGuestId ? <p className="join-identity__hint">认领后将承接该成员的历史账目。</p> : null}
+                  {needsJoinOptions && selectedGuestId === null ? <p className="field__error" role="alert">请重新选择加入身份。</p> : null}
                   <Button
                     busy={mutation.isPending}
-                    onClick={() => void mutation.mutateAsync().then((joined) => {
-                      if (joined.status === "PENDING_APPROVAL" && joined.requestId) {
-                        setRequestId(joined.requestId);
-                        setSearchParams({ request: joined.requestId }, { replace: true });
-                      } else {
-                        navigate(`/activities/${joined.activityId}`);
-                      }
-                    }).catch(() => undefined)}
+                    disabled={needsJoinOptions && (!joinOptions.data || Boolean(joinOptions.error) || selectedGuestId === null)}
+                    onClick={() => void submitJoin()}
                   >
-                    {preview.data.purpose === "GUEST_BINDING" ? "确认绑定" : "加入活动"} <ArrowRight aria-hidden="true" size={18} />
+                    {preview.data.purpose === "GUEST_BINDING" ? "确认绑定" : selectedGuestId ? requireApproval ? "申请认领" : "认领并加入" : "加入活动"} <ArrowRight aria-hidden="true" size={18} />
                   </Button>
-                )}
+                </>)}
               </>
             ) : (
               <div className="join-panel__actions">
-                <Link className="button button--primary" to={`/register?invite=${encodeURIComponent(token)}`}>{preview.data.purpose === "GUEST_BINDING" ? "注册后确认绑定" : "注册并加入"}</Link>
+                <Link className="button button--primary" to={`/register?invite=${encodeURIComponent(token)}`}>{preview.data.purpose === "GUEST_BINDING" ? "注册后确认绑定" : "注册后加入"}</Link>
                 <AuthSwitch prompt="已有账号？" label="登录" href="/login" from={`/join/${encodeURIComponent(token)}`} />
               </div>
             )}

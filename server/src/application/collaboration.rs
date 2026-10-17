@@ -174,7 +174,21 @@ pub struct JoinInvitationInput {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub guest_member_id: Option<Uuid>,
     pub now: OffsetDateTime,
+}
+
+/// 仅登录后可读取的加入选项；临时成员只暴露选择身份所需的 ID 和昵称。
+#[derive(Clone, Debug)]
+pub struct InvitationJoinOptions {
+    pub invite_mode: crate::domain::activity::InviteMode,
+    pub claimable_members: Vec<ClaimableMember>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClaimableMember {
+    pub member_id: Uuid,
+    pub display_name: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,6 +228,8 @@ pub struct JoinRequestView {
     pub activity_id: Uuid,
     pub applicant_user_id: Uuid,
     pub applicant_display_name: String,
+    pub guest_member_id: Option<Uuid>,
+    pub guest_display_name: Option<String>,
     pub status: JoinRequestStatus,
     pub decided_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
@@ -230,6 +246,10 @@ pub enum CollaborationRepositoryError {
     GuestNotFound,
     #[error("目标用户已存在活动成员身份")]
     GuestBindingConflict,
+    #[error("该临时成员已被认领或移除，请重新选择加入身份")]
+    GuestClaimUnavailable,
+    #[error("已有待审批申请，不能更换加入身份")]
+    JoinRequestTargetConflict,
     #[error("协作资源状态冲突")]
     Conflict,
     #[error("加入申请已经处理")]
@@ -296,6 +316,13 @@ pub trait CollaborationRepository: Send + Sync {
         input: JoinInvitationInput,
     ) -> Result<JoinedInvitation, CollaborationRepositoryError>;
 
+    async fn invitation_join_options(
+        &self,
+        token_hash: &[u8; 32],
+        user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<InvitationJoinOptions, CollaborationRepositoryError>;
+
     async fn list_join_requests(
         &self,
         activity_id: Uuid,
@@ -347,6 +374,7 @@ pub struct JoinInput {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
+    pub guest_member_id: Option<Uuid>,
 }
 
 /// 邀请 token 只在本次 join 的内存流程中使用，Debug 输出必须保持不可逆脱敏。
@@ -358,6 +386,7 @@ impl fmt::Debug for JoinInput {
             .field("user_id", &self.user_id)
             .field("username", &self.username)
             .field("display_name", &self.display_name)
+            .field("guest_member_id", &self.guest_member_id)
             .finish()
     }
 }
@@ -376,6 +405,10 @@ pub enum CollaborationError {
     GuestNotFound,
     #[error("目标用户已存在活动成员身份")]
     GuestBindingConflict,
+    #[error("该临时成员已被认领或移除，请重新选择加入身份")]
+    GuestClaimUnavailable,
+    #[error("已有待审批申请，不能更换加入身份")]
+    JoinRequestTargetConflict,
     #[error("协作资源状态冲突")]
     Conflict,
     #[error("加入申请已经处理")]
@@ -615,6 +648,7 @@ pub async fn join_invitation(
             user_id: input.user_id,
             username: input.username,
             display_name: input.display_name,
+            guest_member_id: input.guest_member_id,
             now: clock.now(),
         })
         .await
@@ -624,6 +658,27 @@ pub async fn join_invitation(
             }
             other => map_repository_error(other),
         })
+}
+
+/// 持有有效邀请的登录用户可选择临时身份；已有身份时不提供合并选项。
+///
+/// # Errors
+///
+/// 邀请无效、用途不符或存储失败时返回对应协作错误。
+pub async fn invitation_join_options(
+    repository: &dyn CollaborationRepository,
+    codec: &dyn InvitationTokenCodec,
+    clock: &dyn Clock,
+    raw_token: &str,
+    user_id: Uuid,
+) -> Result<InvitationJoinOptions, CollaborationError> {
+    let token_hash = codec
+        .hash(raw_token)
+        .ok_or(CollaborationError::InvalidInvitation)?;
+    repository
+        .invitation_join_options(&token_hash, user_id, clock.now())
+        .await
+        .map_err(map_repository_error)
 }
 
 /// 读取 Owner 的待审批队列，普通成员没有读取权限。
@@ -691,6 +746,12 @@ fn map_repository_error(error: CollaborationRepositoryError) -> CollaborationErr
         CollaborationRepositoryError::GuestNotFound => CollaborationError::GuestNotFound,
         CollaborationRepositoryError::GuestBindingConflict => {
             CollaborationError::GuestBindingConflict
+        }
+        CollaborationRepositoryError::GuestClaimUnavailable => {
+            CollaborationError::GuestClaimUnavailable
+        }
+        CollaborationRepositoryError::JoinRequestTargetConflict => {
+            CollaborationError::JoinRequestTargetConflict
         }
         CollaborationRepositoryError::Conflict => CollaborationError::Conflict,
         CollaborationRepositoryError::JoinRequestClosed => CollaborationError::JoinRequestClosed,

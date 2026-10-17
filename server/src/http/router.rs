@@ -371,6 +371,10 @@ pub fn router_with_state(static_dir: Option<PathBuf>, state: AppState) -> Router
             get(collaboration::preview_invitation).fallback(api_method_not_allowed),
         )
         .route(
+            "/invitations/{token}/join-options",
+            get(collaboration::invitation_join_options).fallback(api_method_not_allowed),
+        )
+        .route(
             "/invitations/{token}/join",
             axum::routing::post(collaboration::join_invitation).fallback(api_method_not_allowed),
         )

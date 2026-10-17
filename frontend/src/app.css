@@ -305,6 +305,14 @@ input[data-e2e-sensitive-mask="true"] { opacity: 0 !important; }
 .center-page { display: grid; min-height: 100dvh; align-content: center; justify-items: center; gap: 24px; padding: 24px; }
 .join-panel { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 20px; }
 .join-panel__details { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 14px; }
+.join-identity { display: grid; min-width: 0; gap: 4px; margin: 0; padding: 0; border: 0; }
+.join-identity legend { margin-bottom: 8px; font-size: 14px; font-weight: 650; }
+.join-identity__option { display: flex; min-width: 0; min-height: 48px; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+.join-identity__option:has(input:checked) { border-color: var(--primary); background: var(--secondary); }
+.join-identity__option:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.join-identity__option input { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--primary); }
+.join-identity__option span { min-width: 0; overflow-wrap: anywhere; }
+.join-identity__hint { color: var(--muted-foreground); font-size: 14px; }
 .join-panel__actions { display: grid; width: 100%; gap: 20px; }
 .join-panel > .button, .join-panel .join-request-status { width: 100%; }
 .button-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
@@ -1068,7 +1076,9 @@ body:has(.activity-add-fab) .update-prompt { bottom: calc(var(--safe-area-bottom
 .inline-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--primary); font-size: 14px; text-decoration: none; }
 .inline-link:hover { text-decoration: underline; }
 .update-prompt__spinner { flex: 0 0 auto; color: var(--primary); animation: update-prompt-spin 900ms linear infinite; }
-.update-prompt__text { display: block; min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--foreground); font-size: 13px; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.update-prompt__message { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: 8px; }
+.update-prompt__text { display: block; min-width: 0; flex: 1 1 auto; color: var(--foreground); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.update-prompt__action { flex: 0 0 auto; }
 .update-prompt--error { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
 @keyframes update-prompt-enter { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes update-prompt-spin { to { transform: rotate(360deg); } }

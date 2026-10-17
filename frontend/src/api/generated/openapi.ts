@@ -841,6 +841,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/invitations/{token}/join-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["invitation_join_options"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/join-requests/{join_request_id}": {
         parameters: {
             query?: never;
@@ -1427,6 +1443,10 @@ export interface components {
             currentPassword: string;
             newUsername: string;
         };
+        ClaimableMemberData: {
+            displayName: string;
+            memberId: string;
+        };
         ClearNotificationsRequest: {
             filter: components["schemas"]["NotificationFilterData"];
         };
@@ -1713,6 +1733,14 @@ export interface components {
         InvitationEnvelope: {
             data: components["schemas"]["InvitationData"];
         };
+        /** @description 登录后的身份选择仅含昵称，不暴露其他成员的账号或历史账务。 */
+        InvitationJoinOptionsData: {
+            claimableMembers: components["schemas"]["ClaimableMemberData"][];
+            inviteMode: string;
+        };
+        InvitationJoinOptionsEnvelope: {
+            data: components["schemas"]["InvitationJoinOptionsData"];
+        };
         InvitationLinkData: {
             token: string;
         };
@@ -1746,12 +1774,17 @@ export interface components {
         JoinInvitationEnvelope: {
             data: components["schemas"]["JoinInvitationData"];
         };
+        JoinInvitationRequest: {
+            guestMemberId?: string | null;
+        };
         JoinRequestData: {
             activityId: string;
             applicantDisplayName: string;
             applicantUserId: string;
             createdAt: string;
             decidedAt?: string | null;
+            guestDisplayName?: string | null;
+            guestMemberId?: string | null;
             requestId: string;
             revision: string;
             status: string;
@@ -5421,7 +5454,12 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description 可选临时成员认领目标；不传仍按普通加入处理 */
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["JoinInvitationRequest"];
+            };
+        };
         responses: {
             /** @description 已加入活动 */
             200: {
@@ -5450,11 +5488,70 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description 认领目标或待审批身份冲突 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description 请求频率过高 */
             429: {
                 headers: {
                     /** @description 等待秒数 */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    invitation_join_options: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 邀请明文 token */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 登录后的加入身份选项 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationJoinOptionsEnvelope"];
+                };
+            };
+            /** @description 未登录 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 邀请无效或用途不符 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description 请求频率过高 */
+            429: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

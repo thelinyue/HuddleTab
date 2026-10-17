@@ -28,6 +28,7 @@ import { ApiRequestError } from "../../api/error";
 import {
   useChangePasswordMutation,
   useJoinInvitationMutation,
+  useInvitationJoinOptionsQuery,
   useJoinRequestQuery,
   useLogoutMutation,
   useSessionQuery,
@@ -264,6 +265,23 @@ describe("useLogoutMutation", () => {
   });
 });
 
+describe("登录后的加入身份选项", () => {
+  it("使用用户和邀请隔离的缓存键，匿名时不请求候选", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const localWrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    const { rerender, result } = renderHook(({ userId }) => useInvitationJoinOptionsQuery(userId, "invite-token", true), {
+      initialProps: { userId: "" }, wrapper: localWrapper,
+    });
+    expect(client.GET).not.toHaveBeenCalled();
+    client.GET.mockResolvedValue({ data: { data: { inviteMode: "DIRECT_JOIN", claimableMembers: [{ memberId: "guest-1", displayName: "临时成员" }] } }, response: new Response(null, { status: 200 }) });
+    rerender({ userId: "user-1" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(client.GET).toHaveBeenCalledWith("/api/invitations/{token}/join-options", { params: { path: { token: "invite-token" } } });
+    expect(queryClient.getQueryData(queryKeys.invitationJoinOptions("user-1", "invite-token"))).toMatchObject({ claimableMembers: [{ memberId: "guest-1" }] });
+    expect(queryClient.getQueryData(queryKeys.invitationJoinOptions("user-2", "invite-token"))).toBeUndefined();
+  });
+});
+
 describe("join approval applicant adapter", () => {
   it.each(["BOUND", "ALREADY_BOUND"])(
     "%s 绑定结果会刷新当前活动列表",
@@ -295,10 +313,13 @@ describe("join approval applicant adapter", () => {
       await act(async () => {
         await expect(result.current.mutateAsync()).resolves.toMatchObject({ status });
       });
-      expect(invalidate).toHaveBeenCalledOnce();
+      expect(invalidate).toHaveBeenCalledTimes(4);
       expect(invalidate).toHaveBeenCalledWith({
         queryKey: queryKeys.activitiesCurrent("user-1"),
       });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.activitySnapshot("user-1", "activity-1") });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.members("user-1", "activity-1") });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.invitationJoinOptions("user-1", "invite-token") });
     },
   );
 
@@ -328,12 +349,17 @@ describe("join approval applicant adapter", () => {
     );
 
     await act(async () => {
-      await expect(result.current.mutateAsync()).resolves.toMatchObject({
+      await expect(result.current.mutateAsync("guest-1")).resolves.toMatchObject({
         requestId: "request-1",
         status: "PENDING_APPROVAL",
       });
     });
     expect(invalidate).not.toHaveBeenCalled();
+    expect(client.POST).toHaveBeenCalledWith("/api/invitations/{token}/join", {
+      params: { path: { token: "invite-token" } },
+      headers: { "X-CSRF-Token": "csrf-token" },
+      body: { guestMemberId: "guest-1" },
+    });
   });
 
   it("申请人状态查询使用 user-scoped key 与 generated GET", async () => {

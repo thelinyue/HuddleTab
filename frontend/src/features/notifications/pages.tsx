@@ -25,10 +25,17 @@ const filterLabels: Record<Filter, string> = Object.fromEntries(filters) as Reco
 const groupLabels: Record<Group, string> = { UNREAD: "未读", TODAY: "今天", YESTERDAY: "昨天", OLDER: "更早" };
 
 function notificationTitle(notification: Notification): string {
+  const guest = notification.payload.guestDisplayName ?? "临时成员";
+  const claim = Boolean(notification.payload.guestMemberId);
   switch (notification.kind) {
-    case "JOIN_APPROVAL_REQUESTED": return `${notification.payload.displayName ?? "新成员"} 申请加入活动`;
-    case "JOIN_APPROVAL_RESOLVED": return notification.payload.status === "APPROVED" ? "加入申请已批准" : notification.payload.status === "INVALIDATED" ? "邀请已作废" : "加入申请未通过";
-    case "MEMBER_JOINED": return `${notification.payload.displayName ?? "新成员"} 已加入活动`;
+    case "JOIN_APPROVAL_REQUESTED": return claim ? `${notification.payload.displayName ?? "新成员"} 申请认领「${guest}」` : `${notification.payload.displayName ?? "新成员"} 申请加入活动`;
+    case "JOIN_APPROVAL_RESOLVED": {
+      const label = claim ? "认领申请" : "加入申请";
+      if (notification.payload.status === "APPROVED") return `${label}已批准`;
+      if (notification.payload.status === "INVALIDATED") return claim ? "认领申请已失效" : "邀请已作废";
+      return `${label}未通过`;
+    }
+    case "MEMBER_JOINED": return claim ? `${notification.payload.displayName ?? "新成员"} 已认领「${guest}」并加入活动` : `${notification.payload.displayName ?? "新成员"} 已加入活动`;
     case "PARTICIPATING_EXPENSE_CHANGED": return "参与的账单已修改";
     case "PARTICIPATING_EXPENSE_DELETED": return "参与的账单已删除";
     case "SETTLEMENT_RECEIVED": return "收到一笔结算";
@@ -38,6 +45,9 @@ function notificationTitle(notification: Notification): string {
 }
 
 function notificationSummary(notification: Notification): string | undefined {
+  if (notification.payload.guestMemberId && notification.kind === "JOIN_APPROVAL_RESOLVED") {
+    return notification.payload.status === "INVALIDATED" ? "请重新查看邀请或联系活动所有者" : `认领对象：${notification.payload.guestDisplayName ?? "临时成员"}`;
+  }
   if (notification.kind === "JOIN_APPROVAL_REQUESTED") return "等待你处理加入申请";
   if (notification.kind === "JOIN_APPROVAL_RESOLVED") return notification.payload.status === "APPROVED" ? "你现在可以进入活动" : notification.payload.status === "INVALIDATED" ? "请向活动所有者索取新的邀请链接" : "申请已由管理员处理";
   if (notification.kind === "MEMBER_JOINED") return "成员已加入活动";

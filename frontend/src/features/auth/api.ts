@@ -15,6 +15,7 @@ export type ChangePasswordResult = components["schemas"]["ChangePasswordData"];
 export type InvitationPreview = components["schemas"]["InvitationPreviewData"];
 export type JoinRequest = components["schemas"]["JoinRequestData"];
 export type JoinInvitationResult = components["schemas"]["JoinInvitationData"];
+export type InvitationJoinOptions = components["schemas"]["InvitationJoinOptionsData"];
 
 const offlineSessionStorageKey = "huddletab:offline-session";
 
@@ -143,10 +144,11 @@ async function previewInvitation(token: string): Promise<InvitationPreview> {
   return unwrap(result).data;
 }
 
-export async function joinInvitation(token: string): Promise<JoinInvitationResult> {
+export async function joinInvitation(token: string, guestMemberId?: string): Promise<JoinInvitationResult> {
   const result = await apiClient.POST("/api/invitations/{token}/join", {
     params: { path: { token } },
     headers: await mutationHeaders(),
+    ...(guestMemberId ? { body: { guestMemberId } } : {}),
   });
   return unwrap(result).data;
 }
@@ -266,13 +268,28 @@ export function useInvitationPreviewQuery(token: string) {
 export function useJoinInvitationMutation(userId: string, token: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => joinInvitation(token),
+    mutationFn: (guestMemberId?: string) => joinInvitation(token, guestMemberId),
     onSuccess: (result) => {
       if (result.status === "PENDING_APPROVAL") return undefined;
-      return queryClient.invalidateQueries({
-        queryKey: queryKeys.activitiesCurrent(userId),
-      });
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, result.activityId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.members(userId, result.activityId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.invitationJoinOptions(userId, token) }),
+      ]);
     },
+  });
+}
+
+/** 加入身份含私人昵称，按当前用户及邀请分别缓存，匿名预览不读取此接口。 */
+export function useInvitationJoinOptionsQuery(userId: string, token: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.invitationJoinOptions(userId, token),
+    queryFn: async () => unwrap(await apiClient.GET("/api/invitations/{token}/join-options", {
+      params: { path: { token } },
+    })).data,
+    enabled: enabled && userId.length > 0 && token.length > 0,
+    retry: false,
   });
 }
 

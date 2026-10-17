@@ -111,7 +111,7 @@ fn authenticated_request(
     actor: &TestActor,
     method: &str,
     uri: String,
-    body: &'static str,
+    body: &str,
 ) -> Request<Body> {
     Request::builder()
         .header("host", "localhost:5660")
@@ -125,7 +125,7 @@ fn authenticated_request(
         .header(ORIGIN, "http://localhost:5660")
         .header("sec-fetch-site", "same-origin")
         .header("x-csrf-token", actor.csrf.expose_for_header())
-        .body(Body::from(body))
+        .body(Body::from(body.to_owned()))
         .expect("请求应可构造")
 }
 
@@ -835,6 +835,692 @@ async fn guest_binding_invitation_creation_requires_owner_and_active_guest() {
     )
     .await;
     assert_eq!(ended_status, StatusCode::FORBIDDEN);
+}
+
+/// 每个认领场景使用可丢弃库中的独立活动，测试必须串行执行，不能操作用户部署库。
+struct GuestClaimFixture {
+    pool: PgPool,
+    app: axum::Router,
+    secret: AppSecret,
+    owner: TestActor,
+    applicant: TestActor,
+    activity_id: Uuid,
+    guest_id: Uuid,
+    token: String,
+}
+
+impl GuestClaimFixture {
+    async fn new(approval: bool) -> Self {
+        let database_url = std::env::var("TEST_DATABASE_URL").expect("应提供隔离测试库");
+        let pool = connect_and_migrate(&database_url)
+            .await
+            .expect("应迁移测试库");
+        sqlx::query("TRUNCATE users CASCADE")
+            .execute(&pool)
+            .await
+            .expect("应清空测试数据");
+        let secret = AppSecret::from_bytes([17; 32]);
+        let owner = seed_actor(&pool, &secret, "alice", "Alice").await;
+        let applicant = seed_actor(&pool, &secret, "bob", "Bob").await;
+        let (activity_id, _) = seed_activity(&pool, &owner).await;
+        if approval {
+            sqlx::query("UPDATE activities SET invite_mode = 'REQUIRE_APPROVAL' WHERE id = $1")
+                .bind(activity_id)
+                .execute(&pool)
+                .await
+                .expect("应启用审批");
+        }
+        let app = router_with_state(None, AppState::new(pool.clone(), secret.clone()));
+        let guest_id = create_binding_guest(&app, &owner, activity_id).await;
+        let token = create_link_invitation(&app, &owner, activity_id).await;
+        Self {
+            pool,
+            app,
+            secret,
+            owner,
+            applicant,
+            activity_id,
+            guest_id,
+            token,
+        }
+    }
+
+    async fn claim(&self, actor: &TestActor, guest_id: Uuid) -> (StatusCode, Value) {
+        json_response(
+            &self.app,
+            authenticated_request(
+                actor,
+                "POST",
+                format!("/api/invitations/{}/join", self.token),
+                &serde_json::json!({"guestMemberId": guest_id}).to_string(),
+            ),
+        )
+        .await
+    }
+
+    async fn decide(&self, request_id: &str, decision: &str) -> (StatusCode, Value) {
+        json_response(
+            &self.app,
+            authenticated_request(
+                &self.owner,
+                "POST",
+                format!(
+                    "/api/activities/{}/join-requests/{request_id}",
+                    self.activity_id
+                ),
+                &serde_json::json!({"decision": decision}).to_string(),
+            ),
+        )
+        .await
+    }
+
+    async fn effects(&self) -> (i64, i64, i64, i64, i64) {
+        sqlx::query_as(
+            "SELECT revision,
+             (SELECT count(*) FROM activity_members WHERE activity_id = a.id),
+             (SELECT sum(use_count)::bigint FROM activity_invites WHERE activity_id = a.id),
+             (SELECT count(*) FROM activity_audit_logs WHERE activity_id = a.id),
+             (SELECT count(*) FROM notifications WHERE activity_id = a.id)
+             FROM activities a WHERE id = $1",
+        )
+        .bind(self.activity_id)
+        .fetch_one(&self.pool)
+        .await
+        .expect("应读取事务副作用")
+    }
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_claim_options_are_private_and_exclude_unavailable_or_existing_identities() {
+    let fixture = GuestClaimFixture::new(false).await;
+    let left_guest = create_binding_guest(&fixture.app, &fixture.owner, fixture.activity_id).await;
+    sqlx::query("UPDATE activity_members SET status = 'LEFT', left_at = NOW() WHERE id = $1")
+        .bind(left_guest)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let path = format!("/api/invitations/{}/join-options", fixture.token);
+    let (status, _) = json_response(
+        &fixture.app,
+        Request::builder()
+            .uri(&path)
+            .header("host", "localhost:5660")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let response = fixture
+        .app
+        .clone()
+        .oneshot(authenticated_request(
+            &fixture.applicant,
+            "GET",
+            path.clone(),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let options: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(options["data"]["inviteMode"], "DIRECT_JOIN");
+    assert_eq!(
+        options["data"]["claimableMembers"],
+        serde_json::json!([
+            {"memberId": fixture.guest_id, "displayName": "原临时昵称"}
+        ])
+    );
+    let (_, preview) = json_response(
+        &fixture.app,
+        Request::builder()
+            .uri(format!("/api/invitations/{}", fixture.token))
+            .header("host", "localhost:5660")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(preview["data"].get("claimableMembers").is_none());
+    let (_, owner_options) = json_response(
+        &fixture.app,
+        authenticated_request(&fixture.owner, "GET", path.clone(), ""),
+    )
+    .await;
+    assert_eq!(
+        owner_options["data"]["claimableMembers"],
+        serde_json::json!([])
+    );
+    fixture.claim(&fixture.applicant, fixture.guest_id).await;
+    sqlx::query("UPDATE activity_members SET status = 'LEFT', left_at = NOW() WHERE id = $1")
+        .bind(fixture.guest_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let available_guest =
+        create_binding_guest(&fixture.app, &fixture.owner, fixture.activity_id).await;
+    let (_, options) = json_response(
+        &fixture.app,
+        authenticated_request(&fixture.applicant, "GET", path, ""),
+    )
+    .await;
+    assert_eq!(options["data"]["claimableMembers"], serde_json::json!([]));
+    let (status, conflict) = fixture.claim(&fixture.applicant, available_guest).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(conflict["error"]["code"], "GUEST_BINDING_CONFLICT");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
+async fn guest_claim_preserves_all_accounting_facts_and_replays_without_side_effects() {
+    let fixture = GuestClaimFixture::new(false).await;
+    let activity = fixture.activity_id;
+    let guest = fixture.guest_id;
+    let owner = fixture.owner.user_id;
+    let owner_member: Uuid =
+        sqlx::query_scalar("SELECT owner_member_id FROM activities WHERE id = $1")
+            .bind(activity)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    let expense = Uuid::new_v4();
+    // 所有插值均为测试生成的 UUID；账务快照用数据库实际事实比较，避免仅检查成员行。
+    sqlx::raw_sql(&format!(r"
+        INSERT INTO expenses (id, activity_id, created_by_user_id, client_mutation_id, title,
+            category, occurred_at, original_currency, original_amount_minor, base_currency,
+            base_amount_minor, exchange_rate_kind, exchange_rate, split_mode, created_at, updated_at)
+        VALUES ('{expense}', '{activity}', '{owner}', gen_random_uuid(), '认领前账单', 'OTHER', NOW(), 'JPY', 100, 'JPY', 100, 'IDENTITY', 1, 'EXACT', NOW(), NOW());
+        INSERT INTO expense_payments (id, activity_id, expense_id, payer_member_id, original_currency, original_amount_minor, base_currency, base_amount_minor)
+        VALUES (gen_random_uuid(), '{activity}', '{expense}', '{guest}', 'JPY', 100, 'JPY', 100);
+        INSERT INTO expense_shares (id, activity_id, expense_id, member_id, original_currency, original_amount_minor, base_currency, base_amount_minor)
+        VALUES (gen_random_uuid(), '{activity}', '{expense}', '{guest}', 'JPY', 100, 'JPY', 100);
+        INSERT INTO settlements (id, activity_id, created_by_user_id, client_mutation_id, payer_member_id, receiver_member_id, currency, amount_minor, created_at, updated_at)
+        VALUES (gen_random_uuid(), '{activity}', '{owner}', gen_random_uuid(), '{guest}', '{owner_member}', 'JPY', 20, NOW(), NOW());
+    ")).execute(&fixture.pool).await.unwrap();
+    let facts_sql = "SELECT jsonb_build_object(
+        'payments', (SELECT jsonb_agg(to_jsonb(p)) FROM expense_payments p WHERE activity_id = $1),
+        'shares', (SELECT jsonb_agg(to_jsonb(s)) FROM expense_shares s WHERE activity_id = $1),
+        'settlements', (SELECT jsonb_agg(to_jsonb(s)) FROM settlements s WHERE activity_id = $1),
+        'expenses', (SELECT jsonb_agg(to_jsonb(e)) FROM expenses e WHERE activity_id = $1))::text";
+    let before_facts: String = sqlx::query_scalar(facts_sql)
+        .bind(activity)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+    let before_member: Value = sqlx::query_scalar::<_, String>(
+        "SELECT to_jsonb(m)::text FROM activity_members m WHERE id = $1",
+    )
+    .bind(guest)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap()
+    .parse()
+    .unwrap();
+    let before = fixture.effects().await;
+    let (status, bound) = fixture.claim(&fixture.applicant, guest).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bound["data"]["status"], "BOUND");
+    assert_eq!(bound["data"]["memberId"], guest.to_string());
+    let after_facts: String = sqlx::query_scalar(facts_sql)
+        .bind(activity)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+    assert_eq!(before_facts, after_facts);
+    let after_member: Value = sqlx::query_scalar::<_, String>(
+        "SELECT to_jsonb(m)::text FROM activity_members m WHERE id = $1",
+    )
+    .bind(guest)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap()
+    .parse()
+    .unwrap();
+    let mut expected_member = before_member;
+    expected_member["user_id"] = serde_json::json!(fixture.applicant.user_id);
+    expected_member["version"] = serde_json::json!(2);
+    assert_eq!(after_member, expected_member);
+    let after = fixture.effects().await;
+    assert_eq!(
+        after,
+        (
+            before.0 + 1,
+            before.1,
+            before.2 + 1,
+            before.3 + 1,
+            before.4 + 1
+        )
+    );
+    let (status, replay) = fixture.claim(&fixture.applicant, guest).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(replay["data"]["status"], "ALREADY_BOUND");
+    assert_eq!(fixture.effects().await, after);
+    let (status, snapshot) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &fixture.applicant,
+            "GET",
+            format!("/api/activities/{activity}/snapshot"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(snapshot["data"]["revision"], bound["data"]["revision"]);
+    // 旧客户端的空请求体仍可普通加入，且不会认领另一个身份。
+    let newcomer = seed_actor(&fixture.pool, &fixture.secret, "carol", "Carol").await;
+    let (status, joined) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &newcomer,
+            "POST",
+            format!("/api/invitations/{}/join", fixture.token),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(joined["data"]["status"], "JOINED");
+    assert_ne!(joined["data"]["memberId"], guest.to_string());
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
+async fn guest_claim_approval_records_target_replays_and_invalidates_competitors() {
+    let fixture = GuestClaimFixture::new(true).await;
+    let other = seed_actor(&fixture.pool, &fixture.secret, "carol", "Carol").await;
+    let other_guest = create_binding_guest(&fixture.app, &fixture.owner, fixture.activity_id).await;
+    let (status, pending) = fixture.claim(&fixture.applicant, fixture.guest_id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pending["data"]["status"], "PENDING_APPROVAL");
+    let request_id = pending["data"]["requestId"].as_str().unwrap();
+    let effects = fixture.effects().await;
+    let (_, replay) = fixture.claim(&fixture.applicant, fixture.guest_id).await;
+    assert_eq!(pending, replay);
+    assert_eq!(fixture.effects().await, effects);
+    for body in [
+        serde_json::json!({"guestMemberId": other_guest}),
+        serde_json::json!({}),
+    ] {
+        let (status, error) = json_response(
+            &fixture.app,
+            authenticated_request(
+                &fixture.applicant,
+                "POST",
+                format!("/api/invitations/{}/join", fixture.token),
+                &body.to_string(),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(error["error"]["code"], "JOIN_REQUEST_TARGET_CONFLICT");
+        assert_eq!(fixture.effects().await, effects);
+    }
+    let (status, competing) = fixture.claim(&other, fixture.guest_id).await;
+    assert_eq!(status, StatusCode::OK);
+    let competing_id = competing["data"]["requestId"].as_str().unwrap();
+    let (status, requests) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &fixture.owner,
+            "GET",
+            format!("/api/activities/{}/join-requests", fixture.activity_id),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        requests["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(
+                |request| request["guestMemberId"] == fixture.guest_id.to_string()
+                    && request["guestDisplayName"] == "原临时昵称"
+            )
+    );
+    let unbound: Option<Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM activity_members WHERE id = $1")
+            .bind(fixture.guest_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(unbound, None);
+    let before_approval = fixture.effects().await;
+    let (status, approved) = fixture.decide(request_id, "APPROVE").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(approved["data"]["status"], "APPROVED");
+    let member: (Option<Uuid>, String, i64) =
+        sqlx::query_as("SELECT user_id, display_name, version FROM activity_members WHERE id = $1")
+            .bind(fixture.guest_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        member,
+        (Some(fixture.applicant.user_id), "原临时昵称".to_owned(), 2)
+    );
+    let after = fixture.effects().await;
+    assert_eq!(after.0, before_approval.0 + 1);
+    assert_eq!(after.1, before_approval.1);
+    assert_eq!(after.2, before_approval.2 + 1);
+    assert_eq!(after.3, before_approval.3 + 1);
+    assert_eq!(after.4, before_approval.4 + 2);
+    let (status, invalidated) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &other,
+            "GET",
+            format!("/api/join-requests/{competing_id}"),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(invalidated["data"]["status"], "INVALIDATED");
+    let (status, _) = fixture.decide(competing_id, "APPROVE").await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(fixture.effects().await, after);
+    let (status, _) = fixture.decide(request_id, "APPROVE").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(fixture.effects().await, after);
+    let (status, notices) = json_response(
+        &fixture.app,
+        authenticated_request(&other, "GET", "/api/notifications".to_owned(), ""),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        notices["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|notice| notice["payload"]["status"] == "INVALIDATED"
+                && notice["payload"]["guestDisplayName"] == "原临时昵称")
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_claim_rejection_and_removal_preserve_identity_and_close_pending_request() {
+    let fixture = GuestClaimFixture::new(true).await;
+    let (_, pending) = fixture.claim(&fixture.applicant, fixture.guest_id).await;
+    let (status, _) = fixture
+        .decide(pending["data"]["requestId"].as_str().unwrap(), "REJECT")
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let member: (Option<Uuid>, i64) =
+        sqlx::query_as("SELECT user_id, version FROM activity_members WHERE id = $1")
+            .bind(fixture.guest_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(member, (None, 1));
+    let (_, pending) = fixture.claim(&fixture.applicant, fixture.guest_id).await;
+    let before = fixture.effects().await;
+    let (status, _) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &fixture.owner,
+            "DELETE",
+            format!(
+                "/api/activities/{}/members/{}",
+                fixture.activity_id, fixture.guest_id
+            ),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let after = fixture.effects().await;
+    assert_eq!(
+        after,
+        (before.0 + 1, before.1, before.2, before.3 + 1, before.4 + 1)
+    );
+    let (_, invalidated) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &fixture.applicant,
+            "GET",
+            format!(
+                "/api/join-requests/{}",
+                pending["data"]["requestId"].as_str().unwrap()
+            ),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(invalidated["data"]["status"], "INVALIDATED");
+    assert_eq!(
+        fixture.claim(&fixture.applicant, fixture.guest_id).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(fixture.effects().await, after);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_claim_directed_binding_closes_claims_and_rejects_target_override() {
+    let fixture = GuestClaimFixture::new(true).await;
+    let (_, pending) = fixture.claim(&fixture.applicant, fixture.guest_id).await;
+    let binding_token = create_binding_token(
+        &fixture.app,
+        &fixture.owner,
+        fixture.activity_id,
+        fixture.guest_id,
+        r#"{"targetDisplayName":"bob"}"#,
+    )
+    .await;
+    let before = fixture.effects().await;
+    let (status, _) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &fixture.applicant,
+            "POST",
+            format!("/api/invitations/{binding_token}/join"),
+            &serde_json::json!({"guestMemberId": fixture.guest_id}).to_string(),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(fixture.effects().await, before);
+    let (status, _) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &fixture.applicant,
+            "POST",
+            format!("/api/invitations/{binding_token}/join"),
+            "{}",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, request) = json_response(
+        &fixture.app,
+        authenticated_request(
+            &fixture.applicant,
+            "GET",
+            format!(
+                "/api/join-requests/{}",
+                pending["data"]["requestId"].as_str().unwrap()
+            ),
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(request["data"]["status"], "INVALIDATED");
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_claim_concurrent_accounts_bind_only_once() {
+    let fixture = GuestClaimFixture::new(false).await;
+    let other = seed_actor(&fixture.pool, &fixture.secret, "carol", "Carol").await;
+    let before = fixture.effects().await;
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            fixture.claim(&fixture.applicant, fixture.guest_id),
+            fixture.claim(&other, fixture.guest_id)
+        )
+    })
+    .await
+    .expect("并发认领不应死锁");
+    let statuses = [first.0, second.0];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|&&status| status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|&&status| status == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    assert_eq!(
+        fixture.effects().await,
+        (
+            before.0 + 1,
+            before.1,
+            before.2 + 1,
+            before.3 + 1,
+            before.4 + 1
+        )
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)]
+async fn guest_claim_invalid_targets_invitations_and_existing_identity_have_no_side_effects() {
+    let fixture = GuestClaimFixture::new(false).await;
+    let (other_activity, _) = seed_activity(&fixture.pool, &fixture.owner).await;
+    let foreign_guest = create_binding_guest(&fixture.app, &fixture.owner, other_activity).await;
+    let before = fixture.effects().await;
+    for guest in [Uuid::new_v4(), foreign_guest] {
+        assert_eq!(
+            fixture.claim(&fixture.applicant, guest).await.0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(fixture.effects().await, before);
+    }
+    assert_eq!(
+        fixture.claim(&fixture.owner, fixture.guest_id).await.0,
+        StatusCode::CONFLICT
+    );
+    let request = authenticated_request(
+        &fixture.applicant,
+        "POST",
+        format!("/api/invitations/{}/join", fixture.token),
+        &serde_json::json!({"guestMemberId":fixture.guest_id}).to_string(),
+    );
+    let (mut parts, body) = request.into_parts();
+    parts.headers.remove("x-csrf-token");
+    let (status, _) = json_response(&fixture.app, Request::from_parts(parts, body)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(fixture.effects().await, before);
+    for field in ["revoked_at", "expires_at"] {
+        let update = if field == "revoked_at" {
+            "UPDATE activity_invites SET revoked_at = NOW() WHERE activity_id = $1"
+        } else {
+            "UPDATE activity_invites SET revoked_at = NULL, expires_at = NOW() - interval '1 day' WHERE activity_id = $1"
+        };
+        sqlx::query(update)
+            .bind(fixture.activity_id)
+            .execute(&fixture.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture.claim(&fixture.applicant, fixture.guest_id).await.0,
+            StatusCode::NOT_FOUND
+        );
+        let (status, _) = json_response(
+            &fixture.app,
+            authenticated_request(
+                &fixture.applicant,
+                "GET",
+                format!("/api/invitations/{}/join-options", fixture.token),
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(fixture.effects().await, before);
+    }
+    sqlx::query(
+        "UPDATE activity_invites SET expires_at = NOW() + interval '1 day' WHERE activity_id = $1",
+    )
+    .bind(fixture.activity_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE activities SET status = 'ENDED' WHERE id = $1")
+        .bind(fixture.activity_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.claim(&fixture.applicant, fixture.guest_id).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(fixture.effects().await, before);
+    let invitation: Uuid =
+        sqlx::query_scalar("SELECT id FROM activity_invites WHERE activity_id = $1")
+            .bind(fixture.activity_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    let foreign_key_error = sqlx::query("INSERT INTO activity_join_requests (id, activity_id, invitation_id, applicant_user_id, guest_member_id, created_at) VALUES ($1,$2,$3,$4,$5,NOW())")
+        .bind(Uuid::new_v4()).bind(fixture.activity_id).bind(invitation).bind(fixture.applicant.user_id)
+        .bind(foreign_guest).execute(&fixture.pool).await.unwrap_err();
+    assert_eq!(
+        foreign_key_error
+            .as_database_error()
+            .unwrap()
+            .code()
+            .as_deref(),
+        Some("23503")
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn guest_claim_options_share_the_existing_invitation_ip_limit() {
+    let fixture = GuestClaimFixture::new(false).await;
+    for _ in 0..15 {
+        let (status, _) = json_response(
+            &fixture.app,
+            authenticated_request(
+                &fixture.applicant,
+                "GET",
+                format!("/api/invitations/{}/join-options", fixture.token),
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = json_response(
+            &fixture.app,
+            Request::builder()
+                .uri(format!("/api/invitations/{}", fixture.token))
+                .header("host", "localhost:5660")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    assert_eq!(
+        fixture.claim(&fixture.applicant, fixture.guest_id).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }
 
 async fn create_binding_guest(app: &axum::Router, owner: &TestActor, activity_id: Uuid) -> Uuid {

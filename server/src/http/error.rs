@@ -400,6 +400,26 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn guest_claim_unavailable(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "GUEST_CLAIM_UNAVAILABLE",
+            "该临时成员已被认领或移除，请重新选择加入身份。",
+            request_id,
+        )
+    }
+
+    #[must_use]
+    pub fn join_request_target_conflict(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "JOIN_REQUEST_TARGET_CONFLICT",
+            "你已有待审批的加入申请，不能更换加入身份，请等待活动所有者处理。",
+            request_id,
+        )
+    }
+
+    #[must_use]
     pub fn conflict(request_id: RequestId) -> Self {
         Self::new(
             StatusCode::CONFLICT,

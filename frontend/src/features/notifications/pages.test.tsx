@@ -56,6 +56,30 @@ function openPageMenu() {
   return screen.getByRole("menu");
 }
 
+describe("认领通知", () => {
+  it("所有者看到认领对象，且保留审批操作", () => {
+    state.notifications.items = [notification({ payload: {
+      requestId: "request-1", displayName: "Bob", guestMemberId: "guest-1", guestDisplayName: "临时成员",
+    } })];
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(screen.getByText("Bob 申请认领「临时成员」")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "通过" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["APPROVED", "认领申请已批准"],
+    ["REJECTED", "认领申请未通过"],
+    ["INVALIDATED", "认领申请已失效"],
+  ])("%s 结果按认领展示，避免把目标失效误称为邀请作废", (status, label) => {
+    state.notifications.items = [notification({ kind: "JOIN_APPROVAL_RESOLVED", payload: {
+      requestId: "request-1", status, guestMemberId: "guest-1", guestDisplayName: "临时成员",
+    } })];
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.queryByText("邀请已作废")).not.toBeInTheDocument();
+  });
+});
+
 function openRowMenu(notificationId = "notification-1") {
   const row = screen.getByTestId(`notification-${notificationId}`);
   fireEvent.pointerDown(within(row).getByRole("button", { name: "通知操作" }), { button: 0, ctrlKey: false });

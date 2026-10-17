@@ -25,7 +25,7 @@ services:
 
   app:
     container_name: huddletab
-    image: ghcr.io/thelinyue/huddletab:0.0.34
+    image: ghcr.io/thelinyue/huddletab:0.0.35
     restart: unless-stopped
     depends_on:
       postgres:
@@ -86,7 +86,7 @@ docker compose ps
 docker compose logs -f app
 ```
 
-自动化发布门禁流程见[最终 Release Verification](docs/deployment/release-verification.md)。本次 `0.0.14` 发布跳过真实 iPhone Safari/Home Screen 验收，属于已知发布例外。
+历史 `0.0.14` 自动化发布门禁与真机验收例外记录见[最终 Release Verification](docs/deployment/release-verification.md)。当前版本以标签触发的 GitHub Actions 发布检查为准。
 
 容器支持可选的 `PUID`/`PGID` 环境变量，默认值为 `10001`。将它们设置为 NAS 宿主用户的数字 UID/GID 后，入口会短暂以 root 修正 `/data`、`app-secret` 和 `uploads` 的属主，然后立即以该非 root 身份运行 Rust 服务；不会处理 PostgreSQL 目录，也不会递归改写 `/data` 中未知文件。切换 UID/GID 时，旧 app-secret 和附件会自动迁移属主。`PUID`/`PGID` 不能设置为 `0`，也不要在 Compose 中额外设置 `user:`。
 
@@ -118,7 +118,7 @@ docker compose up -d
 docker compose ps
 ```
 
-`v0.0.34` 支持全新安装和从 `v0.0.33`、`v0.0.32`、`v0.0.31` 原地升级，也保留从 `v0.0.30` 数据库升级的路径；不支持直接从更早版本升级。原地升级应保留 PostgreSQL、应用数据和密钥，并先同步旧格式的未完成离线附件；全新安装须使用空数据库和独立应用目录。具体操作见 [安装与升级](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
+`v0.0.35` 支持全新安装和从 `v0.0.34`、`v0.0.33`、`v0.0.32`、`v0.0.31` 原地升级，也保留从 `v0.0.30` 数据库升级的路径；不支持直接从更早版本升级。原地升级应保留 PostgreSQL、应用数据和密钥，并先同步旧格式的未完成离线附件；全新安装须使用空数据库和独立应用目录。具体操作见 [安装与升级](docs/deployment/upgrade.md) 和 [数据保护与恢复](docs/deployment/data-protection.md)。
 
 前端热更新要求 Rust API 已运行在 `127.0.0.1:5660`：
 

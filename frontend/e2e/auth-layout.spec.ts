@@ -41,6 +41,8 @@ async function installFixture(page: Page) {
       await state.invitationWait;
       if (state.invitationError) { await fail(410, "邀请已过期，请联系活动所有者获取新的邀请链接。"); return; }
       data = state.preview;
+    } else if (path === "/api/invitations/mobile-invite/join-options") {
+      data = { inviteMode: "REQUIRE_APPROVAL", claimableMembers: [] };
     } else if (path === "/api/invitations/mobile-invite/join") {
       state.joinCalls += 1;
       data = { activityId: "activity-1", requestId: "request-1", memberId: null, revision: "1", status: "PENDING_APPROVAL" };
@@ -72,7 +74,7 @@ async function assertPrimary(page: Page, button: Locator, firstScreen = true) {
 const screens = [
   { path: "/login", title: "登录伙记", action: "登录", role: "button", name: "login" },
   { path: "/register", title: "创建账号", action: "注册", role: "button", name: "register" },
-  { path: "/join/mobile-invite", title: "周末杭州游", action: "注册并加入", role: "link", name: "invite" },
+  { path: "/join/mobile-invite", title: "周末杭州游", action: "注册后加入", role: "link", name: "invite" },
 ] as const;
 
 for (const screen of screens) {
@@ -190,6 +192,9 @@ test("注册校验、错误重试和邀请审批在紧凑布局中完成", async
   await page.getByRole("button", { name: "注册", exact: true }).click();
   await expect(page.getByRole("button", { name: "注册", exact: true })).toBeDisabled();
   finish();
+  await expect(page).toHaveURL(/\/join\/mobile-invite$/);
+  expect(state.joinCalls).toBe(0);
+  await page.getByRole("button", { name: "加入活动", exact: true }).click();
   await expect(page).toHaveURL(/\/join\/mobile-invite\?request=request-1$/);
   await expect(page.getByText("等待活动所有者审批", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "伙记首页" })).toBeVisible();

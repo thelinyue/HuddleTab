@@ -12,7 +12,7 @@ describe("PWA 更新保护", () => {
   ] as MutationStatus[])("%s 本地记录存在时阻止激活", (status) => {
     expect(canActivatePwaUpdate({ mutationStatuses: [status], attachmentStatuses: [] })).toEqual({
       allowed: false,
-      message: "有新版本可用，完成同步后将自动更新。",
+      message: "同步完成后自动更新",
     });
   });
 

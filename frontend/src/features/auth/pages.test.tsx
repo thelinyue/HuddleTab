@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { PropsWithChildren } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiRequestError } from "../../api/error";
 
 const state = vi.hoisted(() => ({
   preview: {
@@ -18,8 +19,12 @@ const state = vi.hoisted(() => ({
   session: { displayName: "Bob", userId: "user-2", username: "bob" } as
     | { displayName: string; userId: string; username: string }
     | undefined,
-  joinRequest: undefined as undefined | { activityId: string; requestId: string; status: string },
-  join: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
+  joinRequest: undefined as undefined | { activityId: string; requestId: string; status: string; guestMemberId?: string | null; guestDisplayName?: string | null },
+  join: { error: null as unknown, isPending: false, mutateAsync: vi.fn(), reset: vi.fn() },
+  joinOptions: {
+    data: { inviteMode: "DIRECT_JOIN", claimableMembers: [] as Array<{ memberId: string; displayName: string }> } as undefined | { inviteMode: string; claimableMembers: Array<{ memberId: string; displayName: string }> },
+    isPending: false, error: null as unknown, refetch: vi.fn(),
+  },
   joinApi: vi.fn(),
   login: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
   register: { error: null as unknown, isPending: false, mutateAsync: vi.fn() },
@@ -32,6 +37,7 @@ vi.mock("./api", () => ({
     isPending: false,
   }),
   useJoinInvitationMutation: () => state.join,
+  useInvitationJoinOptionsQuery: () => state.joinOptions,
   joinInvitation: state.joinApi,
   useJoinRequestQuery: () => ({ data: state.joinRequest, isPending: false }),
   useLoginMutation: () => state.login,
@@ -90,6 +96,7 @@ afterEach(() => {
   state.register.error = null;
   state.policy = { data: "OPEN", isPending: false, isFetching: false, error: null, refetch: vi.fn() };
   state.joinRequest = undefined;
+  state.joinOptions = { data: { inviteMode: "DIRECT_JOIN", claimableMembers: [] }, isPending: false, error: null, refetch: vi.fn() };
   state.session = { displayName: "Bob", userId: "user-2", username: "bob" };
   state.preview = {
     activeMemberCount: 2,
@@ -146,18 +153,22 @@ describe("注册策略与邀请续接", () => {
     expect(state.joinApi).not.toHaveBeenCalled();
   });
 
-  it("受邀注册需要审批时展示可恢复的申请状态", async () => {
+  it("受邀注册先回到邀请页，再明确提交审批申请", async () => {
     state.session = undefined;
     state.register.mutateAsync.mockImplementation(async () => {
       state.session = { displayName: "新成员", userId: "user-new", username: "new-user" };
       return state.session;
     });
-    state.joinApi.mockResolvedValue({ activityId: "activity-1", requestId: "request-1", status: "PENDING_APPROVAL" });
+    state.join.mutateAsync.mockResolvedValue({ activityId: "activity-1", requestId: "request-1", status: "PENDING_APPROVAL" });
     state.joinRequest = { activityId: "activity-1", requestId: "request-1", status: "PENDING" };
     renderAuth("/register?invite=token-1");
     fillRegistration();
+    const join = await screen.findByRole("button", { name: "加入活动" });
+    expect(state.joinApi).not.toHaveBeenCalled();
+    expect(state.join.mutateAsync).not.toHaveBeenCalled();
+    fireEvent.click(join);
     expect(await screen.findByText("等待活动所有者审批")).toBeInTheDocument();
-    expect(state.joinApi).toHaveBeenCalledWith("token-1");
+    expect(state.join.mutateAsync).toHaveBeenCalledWith(undefined);
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
@@ -174,7 +185,7 @@ describe("注册策略与邀请续接", () => {
     expect(state.joinApi).not.toHaveBeenCalled();
   });
 
-  it("策略读取失败仍允许从有效邀请注册并自动加入", async () => {
+  it("策略读取失败仍允许从有效邀请注册后选择加入身份", async () => {
     state.session = undefined;
     state.policy.error = new Error("策略读取失败");
     state.register.mutateAsync.mockImplementation(async () => {
@@ -188,26 +199,26 @@ describe("注册策略与邀请续接", () => {
     fireEvent.change(screen.getByLabelText("密码", { exact: true }), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: "注册" }));
-    expect(await screen.findByText("活动工作台")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "加入活动" })).toBeInTheDocument();
     expect(state.register.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ invitationToken: "token-1" }));
-    expect(state.joinApi).toHaveBeenCalledWith("token-1");
+    expect(state.joinApi).not.toHaveBeenCalled();
   });
 
-  it("注册成功但加入失败时保留账号和重试入口", async () => {
+  it("受邀注册成功保留账号，加入页提供明确确认入口", async () => {
     state.session = undefined;
     state.register.mutateAsync.mockImplementation(async () => {
       state.session = { displayName: "新成员", userId: "user-new", username: "new-user" };
       return state.session;
     });
-    state.joinApi.mockRejectedValue(new Error("加入暂时失败"));
     renderAuth("/register?invite=token-1");
     fireEvent.change(screen.getByRole("textbox", { name: "昵称" }), { target: { value: "新成员" } });
     fireEvent.change(screen.getByRole("textbox", { name: "用户名" }), { target: { value: "new-user" } });
     fireEvent.change(screen.getByLabelText("密码", { exact: true }), { target: { value: "password123" } });
     fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: "注册" }));
-    expect(await screen.findByText(/账号已创建，但未能加入活动/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "加入活动" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "加入活动" })).toBeInTheDocument();
+    expect(state.joinApi).not.toHaveBeenCalled();
+    expect(state.session).toMatchObject({ userId: "user-new" });
     state.join.mutateAsync.mockResolvedValue({ activityId: "activity-1", requestId: null, status: "JOINED" });
     fireEvent.click(screen.getByRole("button", { name: "加入活动" }));
     expect(await screen.findByText("活动工作台")).toBeInTheDocument();
@@ -229,6 +240,94 @@ describe("注册策略与邀请续接", () => {
     fireEvent.change(screen.getByLabelText("密码", { exact: true }), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     expect(await screen.findByRole("button", { name: "加入活动" })).toBeInTheDocument();
+  });
+});
+
+describe("JoinPage 临时成员认领", () => {
+  function offerGuests(approval = false) {
+    state.joinOptions.data = {
+      inviteMode: approval ? "REQUIRE_APPROVAL" : "DIRECT_JOIN",
+      claimableMembers: [
+        { memberId: "guest-1", displayName: "Bob" },
+        { memberId: "guest-2", displayName: "另一位成员" },
+      ],
+    };
+  }
+
+  it("默认新成员身份，即使昵称一致也不自动认领", async () => {
+    offerGuests();
+    state.join.mutateAsync.mockResolvedValue({ activityId: "activity-1", status: "JOINED" });
+    renderJoin();
+    expect(screen.getByRole("radio", { name: "作为新成员加入" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "认领「Bob」" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "加入活动" }));
+    await screen.findByText("活动工作台");
+    expect(state.join.mutateAsync).toHaveBeenCalledWith(undefined);
+  });
+
+  it("直接认领提交原成员 ID，并提示承接历史账目", async () => {
+    offerGuests();
+    state.join.mutateAsync.mockResolvedValue({ activityId: "activity-1", memberId: "guest-2", status: "BOUND" });
+    renderJoin();
+    fireEvent.click(screen.getByRole("radio", { name: "认领「另一位成员」" }));
+    expect(screen.getByText("认领后将承接该成员的历史账目。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "认领并加入" }));
+    await screen.findByText("活动工作台");
+    expect(state.join.mutateAsync).toHaveBeenCalledWith("guest-2");
+  });
+
+  it("需审批时显示申请认领，提交后展示对象和等待状态", async () => {
+    offerGuests(true);
+    state.join.mutateAsync.mockResolvedValue({ activityId: "activity-1", requestId: "request-1", status: "PENDING_APPROVAL" });
+    state.joinRequest = { activityId: "activity-1", requestId: "request-1", status: "PENDING", guestMemberId: "guest-1", guestDisplayName: "Bob" };
+    renderJoin();
+    fireEvent.click(screen.getByRole("radio", { name: "认领「Bob」" }));
+    fireEvent.click(screen.getByRole("button", { name: "申请认领" }));
+    await screen.findByText("等待活动所有者审批");
+    expect(screen.getByText("申请认领「Bob」")).toBeInTheDocument();
+    expect(state.join.mutateAsync).toHaveBeenCalledWith("guest-1");
+  });
+
+  it("候选加载失败不能隐式作为新成员加入，可以重试", () => {
+    state.joinOptions.data = undefined;
+    state.joinOptions.error = new Error("读取加入身份失败");
+    renderJoin();
+    expect(screen.getByRole("alert")).toHaveTextContent("读取加入身份失败");
+    expect(screen.getByRole("button", { name: "加入活动" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(state.joinOptions.refetch).toHaveBeenCalledOnce();
+    expect(state.join.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("认领目标失效后刷新候选，要求重新选择且不自动新建成员", async () => {
+    offerGuests();
+    const error = new ApiRequestError(409, { error: { code: "GUEST_CLAIM_UNAVAILABLE", message: "该成员已被认领", details: {}, fieldErrors: {}, requestId: "failure-1" } });
+    state.join.mutateAsync.mockImplementationOnce(async () => {
+      state.join.error = error;
+      state.joinOptions.data = { inviteMode: "DIRECT_JOIN", claimableMembers: [] };
+      throw error;
+    });
+    renderJoin();
+    fireEvent.click(screen.getByRole("radio", { name: "认领「Bob」" }));
+    fireEvent.click(screen.getByRole("button", { name: "认领并加入" }));
+    await screen.findByText("请重新选择加入身份。");
+    expect(state.joinOptions.refetch).toHaveBeenCalledOnce();
+    expect(screen.getByRole("radio", { name: "作为新成员加入" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "加入活动" })).toBeDisabled();
+    expect(state.join.mutateAsync).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("radio", { name: "作为新成员加入" }));
+    expect(screen.getByRole("button", { name: "加入活动" })).toBeEnabled();
+  });
+
+  it("失效认领申请保留对象，能回到身份选择", async () => {
+    offerGuests();
+    state.joinRequest = { activityId: "activity-1", requestId: "request-1", status: "INVALIDATED", guestMemberId: "guest-1", guestDisplayName: "Bob" };
+    renderAuth("/join/token-1?request=request-1");
+    expect(screen.getByText("认领申请已失效")).toBeInTheDocument();
+    expect(screen.queryByText("邀请已作废")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重新选择身份" }));
+    expect(await screen.findByRole("radio", { name: "认领「Bob」" })).toBeInTheDocument();
+    expect(state.join.mutateAsync).not.toHaveBeenCalled();
   });
 });
 
@@ -307,7 +406,7 @@ describe("JoinPage approval states", () => {
   it("匿名邀请保留携带口令的注册入口", () => {
     state.session = undefined;
     renderJoin();
-    expect(screen.getByRole("link", { name: "注册并加入" })).toHaveAttribute("href", "/register?invite=token-1");
+    expect(screen.getByRole("link", { name: "注册后加入" })).toHaveAttribute("href", "/register?invite=token-1");
     expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login");
   });
 

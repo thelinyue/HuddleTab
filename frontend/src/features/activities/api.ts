@@ -420,6 +420,8 @@ export function useRemoveGuestMutation(userId: string, activityId: string) {
     onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.members(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.invitations(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.joinRequests(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications(userId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitiesCurrent(userId) }),

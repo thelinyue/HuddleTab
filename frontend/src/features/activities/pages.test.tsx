@@ -740,6 +740,16 @@ describe("成员 Overlay", () => {
     });
   });
 
+  it("审批列表明确显示申请人选择的临时成员身份", () => {
+    activityApiState.joinRequests = [{
+      activityId: "activity-1", applicantDisplayName: "申请人", applicantUserId: "user-2",
+      requestId: "request-1", status: "PENDING", guestMemberId: "member-guest", guestDisplayName: "临时成员",
+    }];
+    renderWorkspace();
+    expect(screen.getByText("申请认领「临时成员」")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "批准申请人" })).toBeInTheDocument();
+  });
+
   it("只显示未撤销、未过期且未用尽的有效邀请", async () => {
     activityApiState.invitations = [
       {

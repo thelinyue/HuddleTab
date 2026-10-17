@@ -130,7 +130,8 @@ async fn fresh_database_migrates_and_replay_is_idempotent() {
             202_609_250_002,
             202_609_250_003,
             202_609_250_004,
-            202_609_300_001
+            202_609_300_001,
+            202_610_020_001
         ]
     );
     let settings: (String, i64) = sqlx::query_as(
@@ -308,7 +309,7 @@ async fn v030_history_preserves_business_data_without_applying_baseline() {
             .fetch_all(&upgraded)
             .await
             .expect("应读取升级记录");
-    assert_eq!(versions.last(), Some(&202_609_300_001));
+    assert_eq!(versions.last(), Some(&202_610_020_001));
     upgraded.close().await;
     drop_schema(admin, &schema).await;
 }

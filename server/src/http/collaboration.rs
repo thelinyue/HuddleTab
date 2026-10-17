@@ -1,5 +1,6 @@
 use axum::{
     Extension, Json,
+    body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header::CACHE_CONTROL},
 };
@@ -17,8 +18,8 @@ use crate::{
             create_guest_binding_invitation as issue_guest_binding_invitation,
             create_invitation as issue_invitation, decide_join_request as decide_request,
             get_join_request as load_join_request, get_link_token as load_link_token,
-            join_invitation as accept_invitation, list_invitations as load_invitations,
-            list_join_requests as load_join_requests,
+            invitation_join_options as load_join_options, join_invitation as accept_invitation,
+            list_invitations as load_invitations, list_join_requests as load_join_requests,
             preview_invitation as load_invitation_preview, remove_guest as remove_guest_member,
             revoke_invitation as cancel_invitation,
         },
@@ -179,6 +180,32 @@ pub struct JoinInvitationEnvelope {
     pub data: JoinInvitationData,
 }
 
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinInvitationRequest {
+    pub guest_member_id: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct InvitationJoinOptionsEnvelope {
+    pub data: InvitationJoinOptionsData,
+}
+
+/// 登录后的身份选择仅含昵称，不暴露其他成员的账号或历史账务。
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InvitationJoinOptionsData {
+    pub invite_mode: &'static str,
+    pub claimable_members: Vec<ClaimableMemberData>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimableMemberData {
+    pub member_id: String,
+    pub display_name: String,
+}
+
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinInvitationData {
@@ -206,6 +233,8 @@ pub struct JoinRequestData {
     pub activity_id: String,
     pub applicant_user_id: String,
     pub applicant_display_name: String,
+    pub guest_member_id: Option<String>,
+    pub guest_display_name: Option<String>,
     pub status: &'static str,
     pub decided_at: Option<String>,
     pub created_at: String,
@@ -622,12 +651,66 @@ pub(crate) async fn preview_invitation(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/invitations/{token}/join-options",
+    params(("token" = String, Path, description = "邀请明文 token")),
+    responses(
+        (status = 200, description = "登录后的加入身份选项", body = InvitationJoinOptionsEnvelope),
+        (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 404, description = "邀请无效或用途不符", body = super::error::ErrorEnvelope),
+        (status = 429, description = "请求频率过高", body = super::error::ErrorEnvelope)
+    )
+)]
+pub(crate) async fn invitation_join_options(
+    State(state): State<AppState>,
+    Extension(client_ip): Extension<ClientIp>,
+    Extension(request_id): Extension<RequestId>,
+    Path(token): Path<String>,
+    jar: CookieJar,
+) -> Result<(HeaderMap, Json<InvitationJoinOptionsEnvelope>), ApiError> {
+    state
+        .rate_limiter
+        .check(RateLimitCategory::AnonymousInvite, client_ip.as_str())
+        .map_err(|limited| ApiError::rate_limited(request_id.clone(), limited.retry_after()))?;
+    let actor = authenticate(&state, &jar, request_id.clone()).await?;
+    let options = load_join_options(
+        &PostgresCollaborationRepository::new(state.pool),
+        &SecureInvitationTokenCodec,
+        &SystemClock,
+        &token,
+        actor.user_id,
+    )
+    .await
+    .map_err(|error| map_error(error, request_id))?;
+    let mut headers = HeaderMap::new();
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(InvitationJoinOptionsEnvelope {
+            data: InvitationJoinOptionsData {
+                invite_mode: options.invite_mode.as_str(),
+                claimable_members: options
+                    .claimable_members
+                    .into_iter()
+                    .map(|member| ClaimableMemberData {
+                        member_id: member.member_id.to_string(),
+                        display_name: member.display_name,
+                    })
+                    .collect(),
+            },
+        }),
+    ))
+}
+
+#[utoipa::path(
     post,
     path = "/api/invitations/{token}/join",
     params(("token" = String, Path, description = "邀请明文 token")),
+    request_body(content = Option<JoinInvitationRequest>, description = "可选临时成员认领目标；不传仍按普通加入处理"),
     responses(
         (status = 200, description = "已加入活动", body = JoinInvitationEnvelope),
         (status = 401, description = "未登录", body = super::error::ErrorEnvelope),
+        (status = 409, description = "认领目标或待审批身份冲突", body = super::error::ErrorEnvelope),
         (status = 404, description = "邀请无效", body = super::error::ErrorEnvelope),
         (status = 429, description = "请求频率过高", headers(("Retry-After" = u64, description = "等待秒数")), body = super::error::ErrorEnvelope)
     )
@@ -639,6 +722,7 @@ pub(crate) async fn join_invitation(
     Path(token): Path<String>,
     jar: CookieJar,
     headers: HeaderMap,
+    payload: Bytes,
 ) -> Result<Json<JoinInvitationEnvelope>, ApiError> {
     state
         .rate_limiter
@@ -652,6 +736,19 @@ pub(crate) async fn join_invitation(
         return Err(ApiError::forbidden(request_id.clone()));
     }
     let actor = authenticate_mutation(&state, &jar, &headers, request_id.clone()).await?;
+    // 先完成共享限流、认证和 CSRF，再解析可选请求体；兼容旧客户端发送空 body。
+    let guest_member_id = if payload.is_empty() {
+        None
+    } else {
+        serde_json::from_slice::<JoinInvitationRequest>(&payload)
+            .map_err(|_| ApiError::invalid_collaboration_input(request_id.clone()))?
+            .guest_member_id
+    }
+    .map(|value| {
+        Uuid::parse_str(&value)
+            .map_err(|_| ApiError::invalid_collaboration_input(request_id.clone()))
+    })
+    .transpose()?;
     let repository = PostgresCollaborationRepository::new(state.pool);
     let joined = accept_invitation(
         &repository,
@@ -662,6 +759,7 @@ pub(crate) async fn join_invitation(
             user_id: actor.user_id,
             username: actor.username,
             display_name: actor.display_name,
+            guest_member_id,
         },
     )
     .await
@@ -864,6 +962,8 @@ fn join_request_data(request: JoinRequestView) -> JoinRequestData {
         activity_id: request.activity_id.to_string(),
         applicant_user_id: request.applicant_user_id.to_string(),
         applicant_display_name: request.applicant_display_name,
+        guest_member_id: request.guest_member_id.map(|id| id.to_string()),
+        guest_display_name: request.guest_display_name,
         status: request.status.as_str(),
         decided_at: request.decided_at.map(|value| value.to_string()),
         created_at: request.created_at.to_string(),
@@ -883,6 +983,10 @@ fn map_error(error: CollaborationError, request_id: RequestId) -> ApiError {
         CollaborationError::NotFound => ApiError::not_found(request_id),
         CollaborationError::GuestNotFound => ApiError::guest_not_found(request_id),
         CollaborationError::GuestBindingConflict => ApiError::guest_binding_conflict(request_id),
+        CollaborationError::GuestClaimUnavailable => ApiError::guest_claim_unavailable(request_id),
+        CollaborationError::JoinRequestTargetConflict => {
+            ApiError::join_request_target_conflict(request_id)
+        }
         CollaborationError::Conflict => ApiError::conflict(request_id),
         CollaborationError::JoinRequestClosed => ApiError::join_request_closed(request_id),
         CollaborationError::ActivityNotJoinable => ApiError::activity_not_joinable(request_id),

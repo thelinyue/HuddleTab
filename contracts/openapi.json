@@ -4308,6 +4308,23 @@
             }
           }
         ],
+        "requestBody": {
+          "description": "可选临时成员认领目标；不传仍按普通加入处理",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/JoinInvitationRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "已加入活动",
@@ -4339,6 +4356,16 @@
               }
             }
           },
+          "409": {
+            "description": "认领目标或待审批身份冲突",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "429": {
             "description": "请求频率过高",
             "headers": {
@@ -4351,6 +4378,65 @@
                 "description": "等待秒数"
               }
             },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invitations/{token}/join-options": {
+      "get": {
+        "tags": [],
+        "operationId": "invitation_join_options",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "邀请明文 token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "登录后的加入身份选项",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationJoinOptionsEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "邀请无效或用途不符",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "请求频率过高",
             "content": {
               "application/json": {
                 "schema": {
@@ -6902,6 +6988,21 @@
           }
         }
       },
+      "ClaimableMemberData": {
+        "type": "object",
+        "required": [
+          "memberId",
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          }
+        }
+      },
       "ClearNotificationsRequest": {
         "type": "object",
         "required": [
@@ -8040,6 +8141,36 @@
           }
         }
       },
+      "InvitationJoinOptionsData": {
+        "type": "object",
+        "description": "登录后的身份选择仅含昵称，不暴露其他成员的账号或历史账务。",
+        "required": [
+          "inviteMode",
+          "claimableMembers"
+        ],
+        "properties": {
+          "claimableMembers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimableMemberData"
+            }
+          },
+          "inviteMode": {
+            "type": "string"
+          }
+        }
+      },
+      "InvitationJoinOptionsEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InvitationJoinOptionsData"
+          }
+        }
+      },
       "InvitationLinkData": {
         "type": "object",
         "required": [
@@ -8173,6 +8304,17 @@
           }
         }
       },
+      "JoinInvitationRequest": {
+        "type": "object",
+        "properties": {
+          "guestMemberId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "JoinRequestData": {
         "type": "object",
         "required": [
@@ -8198,6 +8340,18 @@
             "type": "string"
           },
           "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guestDisplayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guestMemberId": {
             "type": [
               "string",
               "null"

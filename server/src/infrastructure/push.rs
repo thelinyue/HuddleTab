@@ -531,19 +531,40 @@ fn notification_copy(
         .get("displayName")
         .and_then(Value::as_str)
         .unwrap_or("新成员");
+    let guest_name = payload
+        .get("guestDisplayName")
+        .and_then(Value::as_str)
+        .unwrap_or("临时成员");
+    let claim = payload
+        .get("guestMemberId")
+        .and_then(Value::as_str)
+        .is_some();
     match kind {
         "JOIN_APPROVAL_REQUESTED" => (
-            format!("{display_name} 申请加入活动"),
+            if claim {
+                format!("{display_name} 申请认领「{guest_name}」")
+            } else {
+                format!("{display_name} 申请加入活动")
+            },
             "等待你处理加入申请".to_owned(),
             format!("{activity}?panel=members"),
         ),
         "JOIN_APPROVAL_RESOLVED" => (
-            "加入申请已处理".to_owned(),
+            if claim {
+                "认领申请已处理"
+            } else {
+                "加入申请已处理"
+            }
+            .to_owned(),
             "请打开伙记查看申请结果".to_owned(),
             format!("/notifications?focus={notification_id}"),
         ),
         "MEMBER_JOINED" => (
-            format!("{display_name} 已加入活动"),
+            if claim {
+                format!("{display_name} 已认领「{guest_name}」并加入活动")
+            } else {
+                format!("{display_name} 已加入活动")
+            },
             "活动成员发生变化".to_owned(),
             activity,
         ),
@@ -742,6 +763,21 @@ mod tests {
         assert!(!copy.contains("123456"));
         assert!(!copy.contains("1,234.56"));
         assert!(url.contains("tab=settlement"));
+    }
+
+    #[test]
+    fn guest_claim_push_identifies_the_requested_member() {
+        let activity_id = Uuid::new_v4();
+        let payload = json!({"displayName": "申请人", "guestMemberId": Uuid::new_v4(), "guestDisplayName": "临时成员"});
+        let (title, _, url) = notification_copy(
+            "JOIN_APPROVAL_REQUESTED",
+            &activity_id,
+            &activity_id,
+            &payload,
+            Uuid::new_v4(),
+        );
+        assert_eq!(title, "申请人 申请认领「临时成员」");
+        assert!(url.ends_with("?panel=members"));
     }
 
     #[test]

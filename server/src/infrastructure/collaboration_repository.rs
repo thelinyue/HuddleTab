@@ -4,15 +4,17 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::application::collaboration::{
-    CollaborationRepository, CollaborationRepositoryError, GuestMember, GuestRemovalResult,
-    Invitation, InvitationKind, InvitationPreview, JoinInvitationInput, JoinRequestView,
-    JoinStatus, JoinedInvitation, NewGuest, NewInvitation, RemovedGuest,
+    ClaimableMember, CollaborationRepository, CollaborationRepositoryError, GuestMember,
+    GuestRemovalResult, Invitation, InvitationJoinOptions, InvitationKind, InvitationPreview,
+    JoinInvitationInput, JoinRequestView, JoinStatus, JoinedInvitation, NewGuest, NewInvitation,
+    RemovedGuest,
 };
 use crate::domain::{
     activity::InviteMode,
     join_request::{DecisionEffect, JoinDecision, JoinRequestStatus},
 };
 
+/// 协作事务以活动行锁串行化成员身份变更，账务始终引用原成员 ID。
 #[derive(Clone, Debug)]
 pub struct PostgresCollaborationRepository {
     pool: PgPool,
@@ -125,6 +127,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .await
         .map_err(log_repository_error)?;
         let result = GuestRemovalResult::Left;
+        invalidate_guest_claims(&mut transaction, activity_id, member_id, None, now).await?;
 
         sqlx::query(
             "UPDATE activity_invites
@@ -457,6 +460,49 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .transpose()
     }
 
+    async fn invitation_join_options(
+        &self,
+        token_hash: &[u8; 32],
+        user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<InvitationJoinOptions, CollaborationRepositoryError> {
+        let (activity_id, invite_mode) = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT a.id, a.invite_mode FROM activity_invites i
+             JOIN activities a ON a.id = i.activity_id
+             WHERE i.token_hash = $1 AND i.guest_member_id IS NULL AND i.kind = 'LINK'
+               AND i.revoked_at IS NULL AND i.expires_at > $2
+               AND (i.max_uses IS NULL OR i.use_count < i.max_uses) AND a.status = 'ACTIVE'",
+        )
+        .bind(token_hash.as_slice())
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(log_repository_error)?
+        .ok_or(CollaborationRepositoryError::InvalidInvitation)?;
+        let members = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT id, display_name FROM activity_members
+             WHERE activity_id = $1 AND status = 'ACTIVE' AND role = 'MEMBER' AND user_id IS NULL
+               AND NOT EXISTS (SELECT 1 FROM activity_members WHERE activity_id = $1 AND user_id = $2)
+             ORDER BY joined_at, id",
+        )
+        .bind(activity_id)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(log_repository_error)?;
+        Ok(InvitationJoinOptions {
+            invite_mode: InviteMode::parse(&invite_mode)
+                .map_err(|_| CollaborationRepositoryError::Unavailable)?,
+            claimable_members: members
+                .into_iter()
+                .map(|(member_id, display_name)| ClaimableMember {
+                    member_id,
+                    display_name,
+                })
+                .collect(),
+        })
+    }
+
     async fn join_invitation(
         &self,
         input: JoinInvitationInput,
@@ -514,6 +560,10 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             return Err(CollaborationRepositoryError::Forbidden);
         }
         if let Some(guest_member_id) = invitation.5 {
+            // 所有者预先指定的绑定目标不可被普通认领请求覆盖。
+            if input.guest_member_id.is_some() {
+                return Err(CollaborationRepositoryError::InvalidInvitation);
+            }
             let guest_user_id = sqlx::query_scalar::<_, Option<Uuid>>(
                 "SELECT user_id FROM activity_members \
                  WHERE id = $1 AND activity_id = $2 AND status = 'ACTIVE' FOR UPDATE",
@@ -562,6 +612,14 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             .execute(&mut *transaction)
             .await
             .map_err(log_repository_error)?;
+            invalidate_guest_claims(
+                &mut transaction,
+                activity_id,
+                guest_member_id,
+                None,
+                input.now,
+            )
+            .await?;
             sqlx::query("UPDATE activity_invites SET use_count = use_count + 1 WHERE id = $1")
                 .bind(invitation.0)
                 .execute(&mut *transaction)
@@ -598,6 +656,61 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .fetch_optional(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
+        let invite_mode = InviteMode::parse(&invitation.4)
+            .map_err(|_| CollaborationRepositoryError::Unavailable)?;
+        if let Some(guest_member_id) = input.guest_member_id {
+            let guest = lock_claim_guest(&mut transaction, activity_id, guest_member_id).await?;
+            if guest.0 == Some(input.user_id) {
+                let revision = current_revision(&mut transaction, activity_id).await?;
+                transaction.commit().await.map_err(log_repository_error)?;
+                return Ok(JoinedInvitation {
+                    status: JoinStatus::AlreadyBound,
+                    activity_id,
+                    member_id: Some(guest_member_id),
+                    request_id: None,
+                    revision,
+                });
+            }
+            if existing_member.is_some() {
+                return Err(CollaborationRepositoryError::GuestBindingConflict);
+            }
+            if guest.0.is_some() {
+                return Err(CollaborationRepositoryError::GuestClaimUnavailable);
+            }
+            if let Some(pending) =
+                replay_pending_join_request(&mut transaction, &input, activity_id).await?
+            {
+                transaction.commit().await.map_err(log_repository_error)?;
+                return Ok(pending);
+            }
+            if invite_mode == InviteMode::RequireApproval {
+                let pending =
+                    create_join_request(&mut transaction, &input, invitation.0, activity_id)
+                        .await?;
+                transaction.commit().await.map_err(log_repository_error)?;
+                return Ok(pending);
+            }
+            bind_claim_guest(
+                &mut transaction,
+                activity_id,
+                guest_member_id,
+                input.user_id,
+                None,
+                input.now,
+            )
+            .await?;
+            let joined = finish_join(
+                &mut transaction,
+                input,
+                invitation.0,
+                activity_id,
+                guest_member_id,
+                Some(&guest.1),
+            )
+            .await?;
+            transaction.commit().await.map_err(log_repository_error)?;
+            return Ok(joined);
+        }
         if let Some((member_id, status)) = &existing_member
             && status == "ACTIVE"
         {
@@ -615,12 +728,15 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 revision,
             });
         }
-        let invite_mode = InviteMode::parse(&invitation.4)
-            .map_err(|_| CollaborationRepositoryError::Unavailable)?;
+        if let Some(pending) =
+            replay_pending_join_request(&mut transaction, &input, activity_id).await?
+        {
+            transaction.commit().await.map_err(log_repository_error)?;
+            return Ok(pending);
+        }
         if invite_mode == InviteMode::RequireApproval {
             let pending =
-                create_or_replay_join_request(&mut transaction, &input, invitation.0, invitation.1)
-                    .await?;
+                create_join_request(&mut transaction, &input, invitation.0, invitation.1).await?;
             transaction.commit().await.map_err(log_repository_error)?;
             return Ok(pending);
         }
@@ -640,6 +756,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 invitation.0,
                 invitation.1,
                 member_id,
+                None,
             )
             .await?;
             transaction.commit().await.map_err(log_repository_error)?;
@@ -664,6 +781,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             invitation.0,
             invitation.1,
             member_id,
+            None,
         )
         .await?;
         transaction.commit().await.map_err(log_repository_error)?;
@@ -685,10 +803,12 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 .map_err(log_repository_error)?;
         let rows = sqlx::query_as::<_, JoinRequestRow>(
             "SELECT request.id, request.activity_id, request.applicant_user_id,
-                    applicant.display_name AS applicant_display_name, request.status,
+                    applicant.display_name AS applicant_display_name, request.guest_member_id,
+                    guest.display_name AS guest_display_name, request.status,
                     request.decided_at, request.created_at
              FROM activity_join_requests request
              JOIN users applicant ON applicant.id = request.applicant_user_id
+             LEFT JOIN activity_members guest ON guest.id = request.guest_member_id AND guest.activity_id = request.activity_id
              WHERE request.activity_id = $1 AND request.status = 'PENDING'
              ORDER BY request.created_at, request.id",
         )
@@ -709,10 +829,12 @@ impl CollaborationRepository for PostgresCollaborationRepository {
     ) -> Result<JoinRequestView, CollaborationRepositoryError> {
         let row = sqlx::query_as::<_, JoinRequestWithRevisionRow>(
             "SELECT request.id, request.activity_id, request.applicant_user_id,
-                    applicant.display_name AS applicant_display_name, request.status,
+                    applicant.display_name AS applicant_display_name, request.guest_member_id,
+                    guest.display_name AS guest_display_name, request.status,
                     request.decided_at, request.created_at, activity.revision
              FROM activity_join_requests request
              JOIN users applicant ON applicant.id = request.applicant_user_id
+             LEFT JOIN activity_members guest ON guest.id = request.guest_member_id AND guest.activity_id = request.activity_id
              JOIN activities activity ON activity.id = request.activity_id
              WHERE request.id = $1 AND request.applicant_user_id = $2",
         )
@@ -743,7 +865,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .map_err(log_repository_error)?
         .ok_or(CollaborationRepositoryError::NotFound)?;
         let request = sqlx::query_as::<_, LockedJoinRequestRow>(
-            "SELECT invitation_id, applicant_user_id, status
+            "SELECT invitation_id, applicant_user_id, guest_member_id, status
              FROM activity_join_requests
              WHERE id = $1 AND activity_id = $2 FOR UPDATE",
         )
@@ -774,7 +896,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
             if activity.status != "ACTIVE" {
                 return Err(CollaborationRepositoryError::ActivityNotJoinable);
             }
-            approve_join_request(&mut transaction, activity_id, &request, now).await?;
+            approve_join_request(&mut transaction, activity_id, request_id, &request, now).await?;
         }
         let target_status = decision.status();
         sqlx::query(
@@ -808,7 +930,9 @@ impl CollaborationRepository for PostgresCollaborationRepository {
                 id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
              ) VALUES (
                 $1, $2, 'JOIN_APPROVAL_RESOLVED', 'ACTIVITY', $3, $3,
-                jsonb_build_object('requestId', $4::text, 'status', $5::text), $6
+                jsonb_strip_nulls(jsonb_build_object('requestId', $4::text, 'status', $5::text,
+                    'guestMemberId', $7::uuid::text,
+                    'guestDisplayName', (SELECT display_name FROM activity_members WHERE id = $7))), $6
              )",
         )
         .bind(Uuid::new_v4())
@@ -817,6 +941,7 @@ impl CollaborationRepository for PostgresCollaborationRepository {
         .bind(request_id)
         .bind(target_status.as_str())
         .bind(now)
+        .bind(request.guest_member_id)
         .execute(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
@@ -849,17 +974,57 @@ async fn invalidate_pending_requests(
     invitation_id: Uuid,
     now: OffsetDateTime,
 ) -> Result<(), CollaborationRepositoryError> {
-    let requests = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+    let requests = sqlx::query_as::<_, InvalidatedJoinRequestRow>(
         "UPDATE activity_join_requests SET status = 'INVALIDATED', decided_at = $1 \
          WHERE invitation_id = $2 AND status = 'PENDING' \
-         RETURNING id, applicant_user_id, activity_id",
+         RETURNING id, applicant_user_id, activity_id, guest_member_id",
     )
     .bind(now)
     .bind(invitation_id)
     .fetch_all(&mut **transaction)
     .await
     .map_err(log_repository_error)?;
-    for (request_id, applicant_user_id, activity_id) in requests {
+    notify_invalidated_requests(transaction, requests, now).await
+}
+
+/// 申请不预占身份；绑定或移除目标后，同事务关闭竞争申请，避免用户永远等待不可完成的审批。
+async fn invalidate_guest_claims(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    guest_member_id: Uuid,
+    approved_request_id: Option<Uuid>,
+    now: OffsetDateTime,
+) -> Result<(), CollaborationRepositoryError> {
+    let requests = sqlx::query_as::<_, InvalidatedJoinRequestRow>(
+        "UPDATE activity_join_requests SET status = 'INVALIDATED', decided_at = $1
+         WHERE activity_id = $2 AND guest_member_id = $3 AND status = 'PENDING'
+           AND id IS DISTINCT FROM $4
+         RETURNING id, applicant_user_id, activity_id, guest_member_id",
+    )
+    .bind(now)
+    .bind(activity_id)
+    .bind(guest_member_id)
+    .bind(approved_request_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?;
+    notify_invalidated_requests(transaction, requests, now).await
+}
+
+#[derive(sqlx::FromRow)]
+struct InvalidatedJoinRequestRow {
+    id: Uuid,
+    applicant_user_id: Uuid,
+    activity_id: Uuid,
+    guest_member_id: Option<Uuid>,
+}
+
+async fn notify_invalidated_requests(
+    transaction: &mut Transaction<'_, Postgres>,
+    requests: Vec<InvalidatedJoinRequestRow>,
+    now: OffsetDateTime,
+) -> Result<(), CollaborationRepositoryError> {
+    for request in requests {
         sqlx::query(
             "UPDATE notifications SET read_at = COALESCE(read_at, $1), \
              payload = payload || jsonb_build_object('status', 'INVALIDATED') \
@@ -867,8 +1032,8 @@ async fn invalidate_pending_requests(
                AND payload->>'requestId' = $3::text",
         )
         .bind(now)
-        .bind(activity_id)
-        .bind(request_id)
+        .bind(request.activity_id)
+        .bind(request.id)
         .execute(&mut **transaction)
         .await
         .map_err(log_repository_error)?;
@@ -876,13 +1041,16 @@ async fn invalidate_pending_requests(
             "INSERT INTO notifications (id, recipient_user_id, type, target_type, target_id, \
              activity_id, payload, created_at) VALUES \
              ($1, $2, 'JOIN_APPROVAL_RESOLVED', 'ACTIVITY', $3, $3, \
-              jsonb_build_object('requestId', $4::text, 'status', 'INVALIDATED'), $5)",
+              jsonb_strip_nulls(jsonb_build_object('requestId', $4::text, 'status', 'INVALIDATED',
+                  'guestMemberId', $6::uuid::text,
+                  'guestDisplayName', (SELECT display_name FROM activity_members WHERE id = $6))), $5)",
         )
         .bind(Uuid::new_v4())
-        .bind(applicant_user_id)
-        .bind(activity_id)
-        .bind(request_id)
+        .bind(request.applicant_user_id)
+        .bind(request.activity_id)
+        .bind(request.id)
         .bind(now)
+        .bind(request.guest_member_id)
         .execute(&mut **transaction)
         .await
         .map_err(log_repository_error)?;
@@ -896,6 +1064,8 @@ struct JoinRequestRow {
     activity_id: Uuid,
     applicant_user_id: Uuid,
     applicant_display_name: String,
+    guest_member_id: Option<Uuid>,
+    guest_display_name: Option<String>,
     status: String,
     decided_at: Option<OffsetDateTime>,
     created_at: OffsetDateTime,
@@ -912,6 +1082,7 @@ struct JoinRequestWithRevisionRow {
 struct LockedJoinRequestRow {
     invitation_id: Uuid,
     applicant_user_id: Uuid,
+    guest_member_id: Option<Uuid>,
     status: String,
 }
 
@@ -1020,9 +1191,12 @@ async fn authorize_owner_for_join_requests(
 }
 
 /// 批准路径在申请和 Activity 已加锁后再锁邀请，随后才接触成员行，保持固定锁序。
+// 两种身份共享邀请校验与消费，保留完整事务流程便于核对失败回滚和审批权限。
+#[allow(clippy::too_many_lines)]
 async fn approve_join_request(
     transaction: &mut Transaction<'_, Postgres>,
     activity_id: Uuid,
+    request_id: Uuid,
     request: &LockedJoinRequestRow,
     now: OffsetDateTime,
 ) -> Result<(), CollaborationRepositoryError> {
@@ -1067,36 +1241,55 @@ async fn approve_join_request(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(log_repository_error)?;
-    match existing_member {
-        Some((_, status)) if status == "ACTIVE" => {
-            return Err(CollaborationRepositoryError::Conflict);
+    if let Some(guest_member_id) = request.guest_member_id {
+        if existing_member.is_some() {
+            return Err(CollaborationRepositoryError::GuestBindingConflict);
         }
-        Some((member_id, _)) => {
-            sqlx::query(
-                "UPDATE activity_members
+        let guest = lock_claim_guest(transaction, activity_id, guest_member_id).await?;
+        if guest.0.is_some() {
+            return Err(CollaborationRepositoryError::GuestClaimUnavailable);
+        }
+        bind_claim_guest(
+            transaction,
+            activity_id,
+            guest_member_id,
+            request.applicant_user_id,
+            Some(request_id),
+            now,
+        )
+        .await?;
+    } else {
+        match existing_member {
+            Some((_, status)) if status == "ACTIVE" => {
+                return Err(CollaborationRepositoryError::Conflict);
+            }
+            Some((member_id, _)) => {
+                sqlx::query(
+                    "UPDATE activity_members
                  SET status = 'ACTIVE', left_at = NULL, display_name = $1, version = version + 1
                  WHERE id = $2",
-            )
-            .bind(&applicant.1)
-            .bind(member_id)
-            .execute(&mut **transaction)
-            .await
-            .map_err(log_repository_error)?;
-        }
-        None => {
-            sqlx::query(
-                "INSERT INTO activity_members (
+                )
+                .bind(&applicant.1)
+                .bind(member_id)
+                .execute(&mut **transaction)
+                .await
+                .map_err(log_repository_error)?;
+            }
+            None => {
+                sqlx::query(
+                    "INSERT INTO activity_members (
                     id, activity_id, user_id, display_name, role, joined_at
                  ) VALUES ($1, $2, $3, $4, 'MEMBER', $5)",
-            )
-            .bind(Uuid::new_v4())
-            .bind(activity_id)
-            .bind(request.applicant_user_id)
-            .bind(&applicant.1)
-            .bind(now)
-            .execute(&mut **transaction)
-            .await
-            .map_err(log_repository_error)?;
+                )
+                .bind(Uuid::new_v4())
+                .bind(activity_id)
+                .bind(request.applicant_user_id)
+                .bind(&applicant.1)
+                .bind(now)
+                .execute(&mut **transaction)
+                .await
+                .map_err(log_repository_error)?;
+            }
         }
     }
     let consumed = sqlx::query(
@@ -1122,10 +1315,12 @@ async fn load_join_request_view(
 ) -> Result<JoinRequestView, CollaborationRepositoryError> {
     let row = sqlx::query_as::<_, JoinRequestRow>(
         "SELECT request.id, request.activity_id, request.applicant_user_id,
-                applicant.display_name AS applicant_display_name, request.status,
+                applicant.display_name AS applicant_display_name, request.guest_member_id,
+                guest.display_name AS guest_display_name, request.status,
                 request.decided_at, request.created_at
          FROM activity_join_requests request
          JOIN users applicant ON applicant.id = request.applicant_user_id
+         LEFT JOIN activity_members guest ON guest.id = request.guest_member_id AND guest.activity_id = request.activity_id
          WHERE request.id = $1",
     )
     .bind(request_id)
@@ -1144,6 +1339,8 @@ fn join_request_from_row(
         activity_id: row.activity_id,
         applicant_user_id: row.applicant_user_id,
         applicant_display_name: row.applicant_display_name,
+        guest_member_id: row.guest_member_id,
+        guest_display_name: row.guest_display_name,
         status: JoinRequestStatus::parse(&row.status)
             .map_err(|_| CollaborationRepositoryError::Unavailable)?,
         decided_at: row.decided_at,
@@ -1201,6 +1398,7 @@ async fn finish_join(
     invitation_id: Uuid,
     activity_id: Uuid,
     member_id: Uuid,
+    guest_display_name: Option<&str>,
 ) -> Result<JoinedInvitation, CollaborationRepositoryError> {
     sqlx::query("UPDATE activity_invites SET use_count = use_count + 1 WHERE id = $1")
         .bind(invitation_id)
@@ -1220,13 +1418,16 @@ async fn finish_join(
         "INSERT INTO notifications (
             id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
          ) VALUES ($1, $2, 'MEMBER_JOINED', 'ACTIVITY', $3, $3,
-            jsonb_build_object('displayName', $4::text), $5)",
+            jsonb_strip_nulls(jsonb_build_object('displayName', $4::text,
+                'guestMemberId', $6::uuid::text, 'guestDisplayName', $7::text)), $5)",
     )
     .bind(Uuid::new_v4())
     .bind(owner_user_id)
     .bind(activity_id)
     .bind(&input.display_name)
     .bind(input.now)
+    .bind(input.guest_member_id)
+    .bind(guest_display_name)
     .execute(&mut **transaction)
     .await
     .map_err(log_repository_error)?;
@@ -1236,7 +1437,11 @@ async fn finish_join(
             activity_id,
             actor_user_id: input.user_id,
             actor_member_id: Some(member_id),
-            action: "MEMBER_JOINED",
+            action: if guest_display_name.is_some() {
+                "MEMBER_GUEST_BOUND"
+            } else {
+                "MEMBER_JOINED"
+            },
             resource_type: "ACTIVITY_MEMBER",
             resource_id: member_id,
             now: input.now,
@@ -1244,7 +1449,11 @@ async fn finish_join(
     )
     .await?;
     Ok(JoinedInvitation {
-        status: JoinStatus::Joined,
+        status: if guest_display_name.is_some() {
+            JoinStatus::Bound
+        } else {
+            JoinStatus::Joined
+        },
         activity_id,
         member_id: Some(member_id),
         request_id: None,
@@ -1252,15 +1461,14 @@ async fn finish_join(
     })
 }
 
-/// Activity 行锁保证同一活动的申请创建串行化；部分唯一索引继续承担最终一致性约束。
-async fn create_or_replay_join_request(
+/// 相同目标的重试返回原申请；不能把“普通加入”与另一临时身份的认领悄悄互换。
+async fn replay_pending_join_request(
     transaction: &mut Transaction<'_, Postgres>,
     input: &JoinInvitationInput,
-    invitation_id: Uuid,
     activity_id: Uuid,
-) -> Result<JoinedInvitation, CollaborationRepositoryError> {
-    if let Some(request_id) = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM activity_join_requests
+) -> Result<Option<JoinedInvitation>, CollaborationRepositoryError> {
+    if let Some((request_id, guest_member_id)) = sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
+        "SELECT id, guest_member_id FROM activity_join_requests
          WHERE activity_id = $1 AND applicant_user_id = $2 AND status = 'PENDING'",
     )
     .bind(activity_id)
@@ -1269,32 +1477,40 @@ async fn create_or_replay_join_request(
     .await
     .map_err(log_repository_error)?
     {
-        let revision =
-            sqlx::query_scalar::<_, i64>("SELECT revision FROM activities WHERE id = $1")
-                .bind(activity_id)
-                .fetch_one(&mut **transaction)
-                .await
-                .map_err(log_repository_error)?;
-        return Ok(JoinedInvitation {
+        if guest_member_id != input.guest_member_id {
+            return Err(CollaborationRepositoryError::JoinRequestTargetConflict);
+        }
+        let revision = current_revision(transaction, activity_id).await?;
+        return Ok(Some(JoinedInvitation {
             status: JoinStatus::PendingApproval,
             activity_id,
             member_id: None,
             request_id: Some(request_id),
             revision,
-        });
+        }));
     }
+    Ok(None)
+}
 
+/// 调用者已持有活动锁且确认没有待审批申请；部分唯一索引仍约束每个用户最多一项待审批。
+async fn create_join_request(
+    transaction: &mut Transaction<'_, Postgres>,
+    input: &JoinInvitationInput,
+    invitation_id: Uuid,
+    activity_id: Uuid,
+) -> Result<JoinedInvitation, CollaborationRepositoryError> {
     let request_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO activity_join_requests (
-            id, activity_id, invitation_id, applicant_user_id, created_at
-         ) VALUES ($1, $2, $3, $4, $5)",
+            id, activity_id, invitation_id, applicant_user_id, created_at, guest_member_id
+         ) VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(request_id)
     .bind(activity_id)
     .bind(invitation_id)
     .bind(input.user_id)
     .bind(input.now)
+    .bind(input.guest_member_id)
     .execute(&mut **transaction)
     .await
     .map_err(log_repository_error)?;
@@ -1313,7 +1529,9 @@ async fn create_or_replay_join_request(
             id, recipient_user_id, type, target_type, target_id, activity_id, payload, created_at
          ) VALUES (
             $1, $2, 'JOIN_APPROVAL_REQUESTED', 'ACTIVITY', $3, $3,
-            jsonb_build_object('requestId', $4::text, 'displayName', $5::text), $6
+            jsonb_strip_nulls(jsonb_build_object('requestId', $4::text, 'displayName', $5::text,
+                'guestMemberId', $7::uuid::text,
+                'guestDisplayName', (SELECT display_name FROM activity_members WHERE id = $7))), $6
          )",
     )
     .bind(Uuid::new_v4())
@@ -1322,6 +1540,7 @@ async fn create_or_replay_join_request(
     .bind(request_id)
     .bind(&input.display_name)
     .bind(input.now)
+    .bind(input.guest_member_id)
     .execute(&mut **transaction)
     .await
     .map_err(log_repository_error)?;
@@ -1345,6 +1564,59 @@ async fn create_or_replay_join_request(
         request_id: Some(request_id),
         revision,
     })
+}
+
+/// 最终写入前再次读取并锁定原身份；绑定不改昵称、角色、加入时间或任何账务引用。
+async fn lock_claim_guest(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    guest_member_id: Uuid,
+) -> Result<(Option<Uuid>, String), CollaborationRepositoryError> {
+    sqlx::query_as::<_, (Option<Uuid>, String)>(
+        "SELECT user_id, display_name FROM activity_members
+         WHERE activity_id = $1 AND id = $2 AND status = 'ACTIVE' AND role = 'MEMBER' FOR UPDATE",
+    )
+    .bind(activity_id)
+    .bind(guest_member_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(log_repository_error)?
+    .ok_or(CollaborationRepositoryError::GuestClaimUnavailable)
+}
+
+async fn bind_claim_guest(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    guest_member_id: Uuid,
+    user_id: Uuid,
+    approved_request_id: Option<Uuid>,
+    now: OffsetDateTime,
+) -> Result<(), CollaborationRepositoryError> {
+    sqlx::query("UPDATE activity_members SET user_id = $1, version = version + 1 WHERE id = $2")
+        .bind(user_id)
+        .bind(guest_member_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(log_repository_error)?;
+    invalidate_guest_claims(
+        transaction,
+        activity_id,
+        guest_member_id,
+        approved_request_id,
+        now,
+    )
+    .await
+}
+
+async fn current_revision(
+    transaction: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+) -> Result<i64, CollaborationRepositoryError> {
+    sqlx::query_scalar("SELECT revision FROM activities WHERE id = $1")
+        .bind(activity_id)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(log_repository_error)
 }
 
 fn parse_kind(value: &str) -> Result<InvitationKind, CollaborationRepositoryError> {

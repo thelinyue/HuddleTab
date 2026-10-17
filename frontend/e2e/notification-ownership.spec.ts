@@ -9,8 +9,12 @@ async function issueLinkInvitation(page: Page): Promise<string> {
   await members.getByRole("button", { name: "邀请" }).click();
   await page.getByRole("menuitem", { name: "邀请成员" }).click();
   const invitation = page.getByRole("dialog", { name: "邀请成员" });
-  await invitation.getByRole("button", { name: "生成链接邀请" }).click();
-  const invitationUrl = await invitation.getByRole("link", { name: "邀请链接，可左右滑动查看完整地址" }).getAttribute("href");
+  const createLink = invitation.getByRole("button", { name: "生成链接邀请" });
+  const link = invitation.getByRole("link", { name: "邀请链接，可左右滑动查看完整地址" });
+  await expect(createLink.or(link).first()).toBeVisible();
+  if (await createLink.isVisible()) await createLink.click();
+  await expect(link).toBeVisible();
+  const invitationUrl = await link.getAttribute("href");
   const token = invitationUrl ? new URL(invitationUrl).pathname.split("/").at(-1) : undefined;
   expect(token).toBeTruthy();
   await invitation.getByRole("button", { name: "关闭邀请成员" }).click();
@@ -47,12 +51,14 @@ async function registerAndJoin(browser: Browser, testInfo: TestInfo, token: stri
     response = await submitRegistration();
   }
   if (response.status() >= 400) throw new Error(`注册请求失败（HTTP ${response.status()}）。`);
+  await expect(page).toHaveURL(new RegExp(`/join/${token}$`));
+  await page.getByRole("button", { name: "加入活动", exact: true }).click();
   return { context, page, displayName };
 }
 
 async function changeInviteModeToApproval(page: Page): Promise<void> {
   await page.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("navigation", { name: "活动操作" }).getByRole("link", { name: "活动管理" }).click();
+  await page.getByRole("navigation", { name: "活动操作" }).getByRole("link", { name: "活动信息" }).click();
   const management = page.getByRole("dialog", { name: "活动管理" });
   await management.getByRole("button", { name: "直接加入" }).click();
   await page.getByRole("radiogroup", { name: "加入方式选项" }).getByRole("radio", { name: /需要审批/ }).click();
@@ -81,7 +87,8 @@ test("通知筛选、加入审批和所有权转让保持同一活动交互层�
   const activityName = `Phase 1E 通知-${Date.now()}`;
   await login(page);
   const activityId = await createActivity(page, activityName);
-  await expect(page.getByRole("navigation", { name: "活动导航" }).getByRole("link")).toHaveText(["流水", "结算"]);
+  await expect(page.getByRole("button", { name: "记一笔", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "结算", exact: true })).toHaveAttribute("href", `/activities/${activityId}/settlement`);
 
   const linkToken = await issueLinkInvitation(page);
   const member = await registerAndJoin(browser, testInfo, linkToken, "member");

@@ -226,6 +226,8 @@ describe("Activity mutation adapter", () => {
     expect(invalidate.mock.calls.map(([options]) => options?.queryKey)).toEqual([
       queryKeys.members("user-1", "activity-1"),
       queryKeys.invitations("user-1", "activity-1"),
+      queryKeys.joinRequests("user-1", "activity-1"),
+      queryKeys.notifications("user-1"),
       queryKeys.activityDetail("user-1", "activity-1"),
       queryKeys.activitySnapshot("user-1", "activity-1"),
       queryKeys.activitiesCurrent("user-1"),

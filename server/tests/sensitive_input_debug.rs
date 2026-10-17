@@ -87,6 +87,7 @@ fn join_input_debug_redacts_raw_invitation_token() {
     let rendered = format!(
         "{:?}",
         JoinInput {
+            guest_member_id: None,
             raw_token: "join-invitation-secret".to_owned(),
             user_id: Uuid::nil(),
             username: "alice".to_owned(),

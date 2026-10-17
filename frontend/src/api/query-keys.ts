@@ -51,4 +51,6 @@ export const queryKeys = {
       ? ["users", userId, "activities", activityId, "summary", strategy, hubMemberId ?? ""] as const
       : ["users", userId, "activities", activityId, "summary"] as const,
   invitationPreview: (token: string) => ["invitations", token] as const,
+  invitationJoinOptions: (userId: string, token: string) =>
+    ["users", userId, "invitations", token, "join-options"] as const,
 };

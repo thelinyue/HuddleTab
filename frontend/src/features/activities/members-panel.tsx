@@ -413,7 +413,7 @@ export function MembersPage({ view = "list", onInvite, onMenuPointerDownOutside 
               <div className="join-request-row" key={request.requestId}>
                 <span>
                   <strong>{request.applicantDisplayName}</strong>
-                  <small>申请加入活动</small>
+                  <small>{request.guestMemberId ? `申请认领「${request.guestDisplayName ?? "临时成员"}」` : "申请加入活动"}</small>
                 </span>
                 <div className="join-request-actions">
                   <Button variant="secondary" busy={decideJoinRequest.isPending} aria-label={`拒绝${request.applicantDisplayName}`} onClick={() => void decide(request.requestId, "REJECT")}>拒绝</Button>
