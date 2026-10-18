@@ -100,6 +100,7 @@ test('日期多选：取消、空选择、跨页保留、100与60、部分付款
   await page.getByRole('button', { name: '记录 小林付给小王', exact: true }).click();
   form = page.getByRole('form', { name: '记录推荐转账' });
   await form.getByRole('button', { name: '记录结算', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByText('所选日期已结清', { exact: true })).toBeVisible();
   await capture(page, info, 'settled');
   dialog = await choose(page, ['2026-09-24']);

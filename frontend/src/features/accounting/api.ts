@@ -227,7 +227,8 @@ function useAccountingInvalidation(userId: string, activityId: string) {
   const queryClient = useQueryClient();
   return () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.expenses(userId, activityId) }),
+      // 结算会改变账单当前余额；离开流水时也刷新缓存，避免返回时用旧列表恢复阅读位置。
+      queryClient.invalidateQueries({ queryKey: queryKeys.expenses(userId, activityId), refetchType: "all" }),
       queryClient.invalidateQueries({ queryKey: queryKeys.ledger(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.recommendations(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settlements(userId, activityId) }),
