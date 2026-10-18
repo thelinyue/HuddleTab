@@ -1,5 +1,13 @@
 import type { PendingAttachment, PendingExpenseMutation } from "../../pwa/indexed-db/schema";
 import type { ActivityMember } from "../activities/api";
+import type { ExpenseAggregate } from "./api";
+
+/** 历史进度只辅助区分原本无需结算的账单，待结状态统一以当前净余额为准。 */
+export function currentSettlementLabel(aggregate: Pick<ExpenseAggregate, "currentSettlement" | "settlementProgress">): string {
+  if (!aggregate.currentSettlement) return "当前结算信息待同步";
+  if (BigInt(aggregate.currentSettlement.remainingMinor) > 0n) return "待结算";
+  return aggregate.settlementProgress?.status === "NO_SETTLEMENT_REQUIRED" ? "无需结算" : "已结清";
+}
 export const categories = [
   ["FOOD", "餐饮", "food"], ["TRANSPORT", "交通", "transport"], ["LODGING", "住宿", "lodging"],
   ["TICKET", "门票", "ticket"], ["SHOPPING", "购物", "shopping"], ["ENTERTAINMENT", "娱乐", "entertainment"], ["OTHER", "其他", "other"],

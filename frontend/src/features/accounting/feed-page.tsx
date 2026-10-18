@@ -19,7 +19,7 @@ import { usePendingExpenseMutations } from "./expense-queue-sync";
 import { AiExpenseEntry, type AiExpenseEditorInitialValues } from "./ai-expense-entry";
 
 import { retryableLazy } from "../../components/retryable-lazy";
-import { categories, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
+import { currentSettlementLabel, categories, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
 import { AccountingSkeleton } from "./skeleton";
 import { FeedFilterControls } from "./feed-filter-controls";
 import { ActivityFloatingActions } from "./activity-floating-actions";
@@ -200,7 +200,7 @@ export function ExpenseFeedPage() {
           <section className="expense-date-group" key={group.date} aria-labelledby={`date-${group.date}`}>
             <h3 id={`date-${group.date}`}>{dateHeading(group.date)}</h3>
             <div className="expense-list">
-              {group.expenses.map(({ expense, payments, shares, attachments, settlementProgress }) => {
+              {group.expenses.map(({ expense, payments, shares, attachments, settlementProgress, currentSettlement }) => {
                 const categoryInfo = categories.find(([value]) => value === expense.category) ?? categories.at(-1)!;
                 const payerNames = payments.map((payment) => memberName(payment.memberId, memberData)).join("、");
                 const local = localRecords.find((record) =>
@@ -215,16 +215,7 @@ export function ExpenseFeedPage() {
                 const hasAttachments = (attachments?.length ?? 0) > 0 || local?.attachments.some(
                   (attachment) => attachment.status !== "REJECTED",
                 ) === true;
-                const settlementStatus = settlementProgress?.status;
-                const settlementLabel = settlementStatus === "NO_SETTLEMENT_REQUIRED"
-                  ? "无需结算"
-                  : settlementStatus === "SETTLED"
-                    ? "已结清 ✓"
-                    : settlementStatus === "PARTIALLY_SETTLED"
-                      ? "部分结算"
-                      : settlementStatus === "UNSETTLED"
-                        ? "待结算"
-                        : undefined;
+                const settlementLabel = currentSettlementLabel({ currentSettlement, settlementProgress });
                 const editQuery = new URLSearchParams(searchParams);
                 editQuery.set(existingExpenseWritable ? "editExpense" : "viewExpense", expense.expenseId);
                 const rowUrl = { pathname: `/activities/${activity.activityId}`, search: `?${editQuery.toString()}` };

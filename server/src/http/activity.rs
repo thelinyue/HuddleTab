@@ -18,11 +18,11 @@ use crate::{
     application::{
         activity::{
             ActivityAuditEntry, ActivityLifecycleInput, ActivityMemberView, ActivityVersionInput,
-            ActivityView, CreateActivityError, CreateActivityInput, ReadActivityAuditError,
-            ReadActivityError, TransferActivityOwnershipInput, UpdateActivityError,
-            UpdateActivityInput, create_activity, delete_activity, get_activity, list_activities,
-            list_activity_audit_logs, list_activity_members, transfer_activity_ownership,
-            transition_activity, update_activity,
+            ActivityView, CreateActivityError, CreateActivityInput, ExpenseAccountingChanges,
+            ReadActivityAuditError, ReadActivityError, TransferActivityOwnershipInput,
+            UpdateActivityError, UpdateActivityInput, create_activity, delete_activity,
+            get_activity, list_activities, list_activity_audit_logs, list_activity_members,
+            transfer_activity_ownership, transition_activity, update_activity,
         },
         auth::{CurrentSessionError, current_session},
     },
@@ -179,6 +179,8 @@ pub struct ActivityAuditData {
     pub actor_avatar_image_id: Option<String>,
     pub revision: String,
     pub changes: Vec<ActivityAuditChangeData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expense_accounting_changes: Option<ExpenseAccountingChanges>,
     pub expense: Option<ActivityAuditExpenseData>,
     pub created_at: String,
 }
@@ -964,6 +966,7 @@ pub(crate) fn member_data(member: ActivityMemberView) -> ActivityMemberData {
 
 fn activity_audit_data(entry: ActivityAuditEntry) -> ActivityAuditData {
     ActivityAuditData {
+        expense_accounting_changes: entry.expense_accounting_changes,
         audit_id: entry.id.to_string(),
         action: entry.action,
         source: entry.source,

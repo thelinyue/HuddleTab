@@ -2,6 +2,7 @@ import { History, RefreshCw } from "lucide-react";
 import { Button, ErrorNotice, LoadingState } from "../../components/ui";
 import { MemberAvatar } from "../../components/member-avatar";
 import { formatMoney } from "../../domain-preview/money";
+import { categories } from "../accounting/shared";
 import { type ActivityAuditEntry, useActivityAuditQuery } from "./api";
 
 const actionLabels: Record<string, string> = {
@@ -82,6 +83,8 @@ function actionLabel(action: string): string {
 function displayValue(field: string, value: string | null | undefined): string {
   if (value === null || value === undefined || value === "") return "未设置";
   if (field === "inviteMode") return inviteModeLabels[value] ?? value;
+  // 仅转换内置分类代码，保留历史中文和自定义分类，避免改变审计记录的含义。
+  if (field === "category") return categories.find(([key]) => key === value)?.[1] ?? value;
   return value;
 }
 
@@ -219,7 +222,8 @@ export function ActivityAuditPanel({
 
 function AuditEntry({ entry }: { entry: ActivityAuditEntry }) {
   const actorKey = entry.actorMemberId ?? entry.actorUserId ?? entry.auditId;
-  const hasChanges = ["ACTIVITY_UPDATED", "EXPENSE_UPDATED"].includes(entry.action) && entry.changes.length > 0;
+  const accountingChanges = Object.entries(entry.expenseAccountingChanges ?? {}).flatMap(([field, change]) => change ? [{ field, change }] : []);
+  const hasChanges = ["ACTIVITY_UPDATED", "EXPENSE_UPDATED"].includes(entry.action) && (entry.changes.length > 0 || accountingChanges.length > 0);
   return (
     <li className="activity-audit-entry">
       <MemberAvatar
@@ -247,7 +251,7 @@ function AuditEntry({ entry }: { entry: ActivityAuditEntry }) {
               <b>{expenseAmount(entry)}</b>
             </div>
             <div className="activity-audit-entry__expense-meta">
-              <span>{entry.expense.category}</span>
+              <span>{displayValue("category", entry.expense.category)}</span>
               <time dateTime={entry.expense.occurredAt}>发生于 {expenseTimeFormatter.format(new Date(entry.expense.occurredAt))}</time>
             </div>
           </div>
@@ -263,6 +267,14 @@ function AuditEntry({ entry }: { entry: ActivityAuditEntry }) {
                 <span className="activity-audit-entry__value">{displayChangeValue(entry, change.field, change.beforeValue, "before")}</span>
                 <span className="activity-audit-entry__arrow" aria-hidden="true">→</span>
                 <span className="activity-audit-entry__value">{displayChangeValue(entry, change.field, change.afterValue, "after")}</span>
+              </li>
+            ))}
+            {accountingChanges.map(({ field, change }) => (
+              <li className="activity-audit-entry__change" key={field}>
+                <span>{field === "payments" ? "付款人" : "分摊"}</span>
+                <span className="activity-audit-entry__value activity-audit-entry__amounts">{change.before.map(amount => <span key={amount.memberId}>{amount.displayName} {formatMoney(amount.currency, amount.amountMinor)}</span>)}</span>
+                <span className="activity-audit-entry__arrow" aria-hidden="true">→</span>
+                <span className="activity-audit-entry__value activity-audit-entry__amounts">{change.after.map(amount => <span key={amount.memberId}>{amount.displayName} {formatMoney(amount.currency, amount.amountMinor)}</span>)}</span>
               </li>
             ))}
           </ul>

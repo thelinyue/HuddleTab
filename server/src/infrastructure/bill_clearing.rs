@@ -121,7 +121,7 @@ pub async fn reconcile_activity(
     _preserve_existing: bool,
     _origin: &'static str,
     now: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
+) -> Result<ClearingState, sqlx::Error> {
     let state = load_state(connection, activity_id, None).await?;
     sqlx::query("DELETE FROM bill_clearing_entries WHERE activity_id = $1")
         .bind(activity_id)
@@ -134,7 +134,7 @@ pub async fn reconcile_activity(
             .bind(if entry.settlement_id.is_some() { "PAYMENT" } else { "OFFSET" })
             .bind(entry.amount_minor).bind(entry.origin).bind(now).execute(&mut *connection).await?;
     }
-    Ok(())
+    Ok(state)
 }
 
 fn integrity(message: impl Into<String>) -> sqlx::Error {

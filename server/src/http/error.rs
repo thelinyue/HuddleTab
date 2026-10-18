@@ -729,6 +729,16 @@ impl ApiError {
         )
     }
 
+    #[must_use]
+    pub fn expense_allocation_conflict(request_id: RequestId) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "SETTLEMENT_ALLOCATION_CONFLICT",
+            "这笔旧版账单已有明确结算归属，不能修改金额、付款人或分摊，也不能删除；请新增差价或更正账单。",
+            request_id,
+        )
+    }
+
     fn new(
         status: StatusCode,
         code: &'static str,

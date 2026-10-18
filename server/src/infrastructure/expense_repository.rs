@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use serde_json::{Map, Value};
@@ -6,12 +6,16 @@ use sqlx::{FromRow, PgConnection, PgPool};
 use time::{Date, OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
-use super::bill_clearing::reconcile_activity;
+use super::bill_clearing::{load_state, reconcile_activity};
+use crate::application::activity::{
+    ExpenseAccountingChanges, ExpenseMemberAmount, ExpenseMemberAmountChange,
+};
 use crate::application::expense::{
     ActivityExpenseContext, CreatedExpense, ExpenseAggregate, ExpenseAttachmentRecord,
     ExpenseAuditSource, ExpenseClearingRecord, ExpenseDelete, ExpensePayment, ExpenseRecord,
     ExpenseRepository, ExpenseRepositoryError, ExpenseShare, ExpenseUpdate, NewExpense,
 };
+use crate::domain::bill_clearing::ClearingState;
 use crate::domain::expense::{ExpenseFactRow, PreparedExpense};
 use crate::domain::ledger::LedgerEntry;
 use crate::domain::settlement_progress::{BillClearingFact, calculate_cleared_progress};
@@ -132,7 +136,10 @@ impl ExpenseRepository for PostgresExpenseRepository {
             if existing_activity_id != expense.activity_id {
                 return Err(ExpenseRepositoryError::MutationConflict);
             }
-            let aggregate = load_aggregate(&mut transaction, existing_id, false).await?;
+            let clearing = load_state(&mut transaction, expense.activity_id, None)
+                .await
+                .map_err(log_repository_error)?;
+            let aggregate = load_aggregate(&mut transaction, existing_id, false, &clearing).await?;
             transaction.commit().await.map_err(log_repository_error)?;
             return Ok(CreatedExpense {
                 aggregate,
@@ -182,7 +189,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
             &expense.prepared,
         )
         .await?;
-        reconcile_activity(
+        let clearing = reconcile_activity(
             &mut transaction,
             expense.activity_id,
             true,
@@ -214,7 +221,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
             },
         )
         .await?;
-        let aggregate = load_aggregate(&mut transaction, expense.id, false).await?;
+        let aggregate = load_aggregate(&mut transaction, expense.id, false, &clearing).await?;
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(CreatedExpense {
             aggregate,
@@ -229,6 +236,13 @@ impl ExpenseRepository for PostgresExpenseRepository {
     ) -> Result<Vec<ExpenseAggregate>, ExpenseRepositoryError> {
         self.activity_context(activity_id, actor_user_id).await?;
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+        let clearing = load_state(&mut transaction, activity_id, None)
+            .await
+            .map_err(log_repository_error)?;
         let ids = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM expenses WHERE activity_id = $1 AND deleted_at IS NULL \
              ORDER BY occurred_at DESC, id",
@@ -239,7 +253,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
         .map_err(log_repository_error)?;
         let mut expenses = Vec::with_capacity(ids.len());
         for id in ids {
-            expenses.push(load_aggregate(&mut transaction, id, true).await?);
+            expenses.push(load_aggregate(&mut transaction, id, true, &clearing).await?);
         }
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(expenses)
@@ -253,7 +267,14 @@ impl ExpenseRepository for PostgresExpenseRepository {
     ) -> Result<ExpenseAggregate, ExpenseRepositoryError> {
         self.activity_context(activity_id, actor_user_id).await?;
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
-        let aggregate = load_aggregate(&mut transaction, expense_id, true).await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
+        let clearing = load_state(&mut transaction, activity_id, None)
+            .await
+            .map_err(log_repository_error)?;
+        let aggregate = load_aggregate(&mut transaction, expense_id, true, &clearing).await?;
         if aggregate.expense.activity_id != activity_id {
             return Err(ExpenseRepositoryError::NotFound);
         }
@@ -298,7 +319,10 @@ impl ExpenseRepository for PostgresExpenseRepository {
             true,
         )
         .await?;
-        let current = load_aggregate(&mut transaction, expense.expense_id, true).await?;
+        let clearing = load_state(&mut transaction, expense.activity_id, None)
+            .await
+            .map_err(log_repository_error)?;
+        let current = load_aggregate(&mut transaction, expense.expense_id, true, &clearing).await?;
         if has_settlement_allocations(&mut transaction, expense.expense_id).await?
             && !accounting_facts_match(&current, &expense)
         {
@@ -309,7 +333,29 @@ impl ExpenseRepository for PostgresExpenseRepository {
             return Ok(current);
         }
         let preserve_clearings = accounting_facts_match(&current, &expense);
-        let participant_ids = participant_member_ids(&current);
+        let mut participant_ids = participant_member_ids(&current);
+        participant_ids.extend(
+            expense
+                .prepared
+                .payments
+                .iter()
+                .chain(&expense.prepared.shares)
+                .map(|fact| fact.member_id),
+        );
+        participant_ids.sort_unstable();
+        participant_ids.dedup();
+        let mut audit_details = expense_audit_details(&ExpenseAuditSnapshot {
+            title: &expense.title,
+            category: &expense.category,
+            note: expense.note.as_deref(),
+            original_currency: &expense.prepared.original_currency,
+            original_amount_minor: expense.prepared.original_amount_minor,
+            occurred_at: expense.occurred_at,
+            split_mode: &expense.prepared.split_mode,
+            source: None,
+            before: Some(&current.expense),
+        });
+        append_accounting_audit(&mut transaction, &mut audit_details, &current, &expense).await?;
         sqlx::query(
             "UPDATE expenses SET title = $1, category = $2, note = $3, occurred_at = $4, \
              original_currency = $5, original_amount_minor = $6, base_currency = $7, \
@@ -353,7 +399,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
             &expense.prepared,
         )
         .await?;
-        reconcile_activity(
+        let clearing = reconcile_activity(
             &mut transaction,
             expense.activity_id,
             preserve_clearings,
@@ -370,17 +416,7 @@ impl ExpenseRepository for PostgresExpenseRepository {
                 actor_member_id: expense.actor_member_id,
                 action: "EXPENSE_UPDATED",
                 expense_id: expense.expense_id,
-                details: expense_audit_details(&ExpenseAuditSnapshot {
-                    title: &expense.title,
-                    category: &expense.category,
-                    note: expense.note.as_deref(),
-                    original_currency: &expense.prepared.original_currency,
-                    original_amount_minor: expense.prepared.original_amount_minor,
-                    occurred_at: expense.occurred_at,
-                    split_mode: &expense.prepared.split_mode,
-                    source: None,
-                    before: Some(&current.expense),
-                }),
+                details: audit_details,
                 now: expense.now,
             },
         )
@@ -398,7 +434,8 @@ impl ExpenseRepository for PostgresExpenseRepository {
             expense.now,
         )
         .await?;
-        let aggregate = load_aggregate(&mut transaction, expense.expense_id, true).await?;
+        let aggregate =
+            load_aggregate(&mut transaction, expense.expense_id, true, &clearing).await?;
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(aggregate)
     }
@@ -430,7 +467,10 @@ impl ExpenseRepository for PostgresExpenseRepository {
         if owner.1 != expense.expected_version {
             return Err(ExpenseRepositoryError::VersionConflict);
         }
-        let current = load_aggregate(&mut transaction, expense.expense_id, true).await?;
+        let clearing = load_state(&mut transaction, expense.activity_id, None)
+            .await
+            .map_err(log_repository_error)?;
+        let current = load_aggregate(&mut transaction, expense.expense_id, true, &clearing).await?;
         if has_settlement_allocations(&mut transaction, expense.expense_id).await? {
             return Err(ExpenseRepositoryError::HasSettlementAllocations);
         }
@@ -752,6 +792,7 @@ pub(crate) async fn load_aggregate(
     connection: &mut PgConnection,
     expense_id: Uuid,
     require_active: bool,
+    clearing: &ClearingState,
 ) -> Result<ExpenseAggregate, ExpenseRepositoryError> {
     let row = sqlx::query_as::<_, ExpenseRow>(
         "SELECT e.id, e.activity_id, e.created_by_user_id, e.client_mutation_id, e.title, \
@@ -815,7 +856,7 @@ pub(crate) async fn load_aggregate(
     .await
     .map_err(log_repository_error)?;
     let settlement_progress = calculate_cleared_progress(
-        member_ids.into_iter().collect(),
+        member_ids.iter().copied().collect(),
         payments
             .iter()
             .map(|fact| LedgerEntry::new(fact.member_id, fact.base_amount_minor))
@@ -834,6 +875,9 @@ pub(crate) async fn load_aggregate(
             .collect(),
     )
     .map_err(|_| ExpenseRepositoryError::Unavailable)?;
+    let current_settlement = clearing
+        .current_settlement(expense_id, member_ids)
+        .map_err(|message| log_repository_error(sqlx::Error::Protocol(message)))?;
     let attachments = sqlx::query_as::<_, AttachmentRow>(
         "SELECT id, mime_type, width, height, byte_size, created_at \
          FROM expense_attachments WHERE expense_id = $1 ORDER BY created_at, id",
@@ -881,6 +925,7 @@ pub(crate) async fn load_aggregate(
         shares,
         attachments,
         settlement_progress,
+        current_settlement,
         clearings: allocations
             .into_iter()
             .map(|entry| ExpenseClearingRecord {
@@ -1006,7 +1051,7 @@ fn expense_audit_details(snapshot: &ExpenseAuditSnapshot<'_>) -> Value {
             Some(before_occurred_at.as_str()),
             Some(occurred_at.as_str()),
         );
-        // 分摊方式是账单可见的核心属性；付款人/参与人明细仍留在账单详情页。
+        // 标量变化与下方成员金额快照共用一次活动 revision，保持一次保存一条修改记录。
         push_expense_audit_change(
             &mut changes,
             "splitMode",
@@ -1034,6 +1079,103 @@ fn push_expense_audit_change(
             "after": after,
         }),
     );
+}
+
+/// 在账单写入事务内保存修改前后付款、分摊事实；不使用可变的 fact ID 或列表顺序判断变化。
+async fn append_accounting_audit(
+    connection: &mut PgConnection,
+    details: &mut Value,
+    current: &ExpenseAggregate,
+    update: &ExpenseUpdate,
+) -> Result<(), ExpenseRepositoryError> {
+    let before_payments = accounting_member_totals(
+        current
+            .payments
+            .iter()
+            .map(|fact| (fact.member_id, fact.original_amount_minor)),
+    );
+    let after_payments = accounting_member_totals(
+        update
+            .prepared
+            .payments
+            .iter()
+            .map(|fact| (fact.member_id, fact.original_amount_minor)),
+    );
+    let before_shares = accounting_member_totals(
+        current
+            .shares
+            .iter()
+            .map(|fact| (fact.member_id, fact.original_amount_minor)),
+    );
+    let after_shares = accounting_member_totals(
+        update
+            .prepared
+            .shares
+            .iter()
+            .map(|fact| (fact.member_id, fact.original_amount_minor)),
+    );
+    let currency_changed = current.expense.original_currency != update.prepared.original_currency;
+    let payments_changed = currency_changed || before_payments != after_payments;
+    let shares_changed = currency_changed || before_shares != after_shares;
+    if !payments_changed && !shares_changed {
+        return Ok(());
+    }
+    let member_ids = before_payments
+        .keys()
+        .chain(after_payments.keys())
+        .chain(before_shares.keys())
+        .chain(after_shares.keys())
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let names = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, display_name FROM activity_members WHERE activity_id = $1 AND id = ANY($2)",
+    )
+    .bind(update.activity_id)
+    .bind(member_ids)
+    .fetch_all(connection)
+    .await
+    .map_err(log_repository_error)?
+    .into_iter()
+    .collect::<BTreeMap<_, _>>();
+    let amounts = |facts: BTreeMap<Uuid, i64>, currency: &str| {
+        facts
+            .into_iter()
+            .map(|(member_id, amount)| ExpenseMemberAmount {
+                member_id,
+                display_name: names
+                    .get(&member_id)
+                    .cloned()
+                    .unwrap_or_else(|| "未知成员".to_owned()),
+                currency: currency.to_owned(),
+                amount_minor: amount.to_string(),
+            })
+            .collect::<Vec<_>>()
+    };
+    let changes = ExpenseAccountingChanges {
+        payments: payments_changed.then(|| ExpenseMemberAmountChange {
+            before: amounts(before_payments, &current.expense.original_currency),
+            after: amounts(after_payments, &update.prepared.original_currency),
+        }),
+        shares: shares_changed.then(|| ExpenseMemberAmountChange {
+            before: amounts(before_shares, &current.expense.original_currency),
+            after: amounts(after_shares, &update.prepared.original_currency),
+        }),
+    };
+    details["expenseAccountingChanges"] = serde_json::to_value(changes)
+        .map_err(|error| log_repository_error(sqlx::Error::Protocol(error.to_string())))?;
+    Ok(())
+}
+
+/// 旧账可能保留同一成员的多行付款，审计按成员累加，不能用 Map 覆盖前面的金额。
+/// 输入来自已校验并守恒的非负原币事实，成员合计不会超过账单的 i64 总额。
+fn accounting_member_totals(facts: impl Iterator<Item = (Uuid, i64)>) -> BTreeMap<Uuid, i64> {
+    let mut totals = BTreeMap::new();
+    for (member, amount) in facts {
+        *totals.entry(member).or_default() += amount;
+    }
+    totals
 }
 
 async fn revise_and_audit(

@@ -22,6 +22,7 @@ import {
   useUploadAttachmentMutation,
   useUpdateExpenseMutation
 } from "./api";
+import { CurrentSettlementSection } from "./current-settlement";
 import { aiSuggestionLabel, type AiExpenseEditorInitialValues, type AiExpenseField } from "./ai-expense-entry";
 
 import { attachmentAccept, ExpenseAttachments, SelectedAttachmentPreviews, validateAttachments } from "./expense-attachments";
@@ -93,63 +94,6 @@ function RoutedExpenseEditor(props: ExpenseEditorProps) {
       </div>
     </section>
   );
-}
-
-/** 只读详情按需展开服务端结算事实；编辑页保留完整展示，不在前端推导结算状态。 */
-function ExpenseSettlementProgressSection({
-  progress,
-  clearings,
-  members,
-  compact = false,
-}: {
-  progress?: ExpenseAggregate["settlementProgress"];
-  clearings?: ExpenseAggregate["clearings"];
-  members: readonly ActivityMember[];
-  compact?: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const sectionId = useId();
-  if (!progress) return null;
-  const statusLabel = progress.status === "NO_SETTLEMENT_REQUIRED"
-    ? "无需结算"
-    : progress.status === "SETTLED"
-      ? "已结清 ✓"
-      : progress.status === "PARTIALLY_SETTLED"
-        ? "部分结算"
-        : "待结算";
-  const statusClass = progress.status.toLowerCase().replaceAll("_", "-");
-  return <section className="expense-settlement-progress" aria-labelledby={`${sectionId}-heading`}>
-    <header className="expense-settlement-progress__header">
-      <div><h2 id={`${sectionId}-heading`}>结算进度</h2></div>
-      <strong className={`expense-settlement-progress__status expense-settlement-progress__status--${statusClass}`}>{statusLabel}</strong>
-      {compact && progress.status !== "NO_SETTLEMENT_REQUIRED" ? <button className="expense-detail-disclosure" type="button" aria-label={expanded ? "收起结算明细" : "查看结算明细"} aria-expanded={expanded} aria-controls={`${sectionId}-details`} onClick={() => setExpanded(value => !value)}>{expanded ? "收起明细" : "查看明细"}<ChevronDown aria-hidden="true" size={16} /></button> : null}
-    </header>
-    <div id={`${sectionId}-details`} hidden={compact && !expanded && progress.status !== "NO_SETTLEMENT_REQUIRED"}>
-    {progress.status === "NO_SETTLEMENT_REQUIRED"
-      ? <p className="expense-settlement-progress__empty">这笔账从一开始无需成员间结算。</p>
-      : <div className="expense-settlement-progress__table" role="table" aria-label="账单成员结算进度">
-        <div className="expense-settlement-progress__row expense-settlement-progress__row--heading" role="row">
-          <span role="columnheader">成员</span><span role="columnheader">应结算</span><span role="columnheader">已结算</span><span role="columnheader">待结算</span>
-        </div>
-        {progress.members.map((member) => {
-          const received = member.direction === "RECEIVABLE";
-          const settled = member.status === "SETTLED";
-          return <div className="expense-settlement-progress__row" role="row" key={member.memberId}>
-            <span role="cell" className="expense-settlement-progress__member"><MemberAvatar memberId={member.memberId} {...memberAvatarImage(member.memberId, members)} displayName={memberName(member.memberId, members)} avatarPreset={memberAvatarPreset(member.memberId, members)} size="sm" /><span>{memberName(member.memberId, members)}</span></span>
-            <span role="cell"><small>{received ? "应收" : "应结"}</small>{formatMoney(progress.currency, member.expectedMinor)}</span>
-            <span role="cell" className="expense-settlement-progress__breakdown"><small>{received ? "已收款" : "已付款"} {formatMoney(progress.currency, member.paidMinor ?? member.settledMinor)}</small><small>已抵销 {formatMoney(progress.currency, member.offsetMinor ?? "0")}</small></span>
-            <span role="cell" className={settled ? "expense-settlement-progress__remaining expense-settlement-progress__remaining--settled" : "expense-settlement-progress__remaining"}><small>{received ? "待收" : "待结"}</small><span>{formatMoney(progress.currency, member.remainingMinor)}{settled ? <Check aria-label="已结清" size={15} /> : null}</span></span>
-          </div>;
-        })}
-      </div>}
-    {clearings?.length ? <ul className="expense-settlement-progress__sources" aria-label="清偿来源">{clearings.map((entry, index) => <li key={`${entry.memberId}-${entry.settlementId ?? entry.offsetExpenseId}-${index}`}>
-      <strong>{memberName(entry.memberId, members)}</strong>
-      <span>{entry.kind === "OFFSET" ? `与「${entry.offsetExpenseTitle ?? "其他账单"}」抵销` : "转账清偿"}</span>
-      <span>{formatMoney(progress.currency, entry.amountMinor)}</span>
-      {entry.origin === "HISTORICAL_AUTO" ? <small>历史自动对账</small> : null}
-    </li>)}</ul> : null}
-    </div>
-  </section>;
 }
 
 /**
@@ -960,8 +904,9 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
             <QuickValueButton label="分摊设置" value={selectedSplitLabel} initialFocus={entryFocusTarget === "split"} onClick={() => { setEntryFocusTarget("split"); onViewChange("split"); }} />
           </div>
             <QuickFieldButton label="备注" value={noteSummary} initialFocus={entryFocusTarget === "note"} onClick={() => { setEntryFocusTarget("note"); onViewChange("note"); }} />
+          {initial ? <CurrentSettlementSection aggregate={initial} members={memberData} collapsible /> : null}
           {mutation.error ? <ErrorNotice error={mutation.error} /> : null}
-          {mutation.error instanceof ApiRequestError && mutation.error.status === 409 ? <div className="notice">服务器版本已更新。当前表单仍保留，请返回查看最新账单后再决定。</div> : null}
+          {mutation.error instanceof ApiRequestError && mutation.error.code === "VERSION_CONFLICT" ? <div className="notice">服务器版本已更新。当前表单仍保留，请返回查看最新账单后再决定。</div> : null}
           <QuickExpenseActionDock><Button type="submit" className="quick-expense-submit" busy={mutation.isPending}>{rejected ? "修改后重试" : "保存"}</Button></QuickExpenseActionDock>
         </div>
       ) : view === "payer" ? <div className="quick-expense-subview" data-quick-expense-view="payer">{renderMemberPicker(payerDraftMode)}</div>
@@ -1038,24 +983,23 @@ function ReadonlyExpenseDetail({ aggregate, memberData, activity, offline }: { a
   return <section className="standalone-detail-page expense-detail-readonly" aria-label="账单详情">
     {offline ? <div className="notice" role="status"><Info aria-hidden="true" size={18} /><span>当前离线，账单使用最近一次同步的只读快照。</span></div> : null}
     <section className="expense-detail-summary" aria-label="金额">
-      <small>金额</small>
+      <h1>{aggregate.expense.title}</h1>
       <div className="expense-detail-summary__amount"><span>{aggregate.expense.originalCurrency}</span><Money value={formatMoney(aggregate.expense.originalCurrency, aggregate.expense.originalAmountMinor)} /></div>
       {isForeignCurrency ? <div className="expense-detail-summary__conversion"><span>折算后 {formatMoney(aggregate.expense.baseCurrency, aggregate.expense.baseAmountMinor)}</span><small>汇率 {aggregate.expense.exchangeRate}（1 {aggregate.expense.originalCurrency} = N {aggregate.expense.baseCurrency}）</small>{aggregate.expense.exchangeRateReferenceDate ? <small>{aggregate.expense.exchangeRateKind === "CACHE" ? "缓存参考汇率" : aggregate.expense.exchangeRateProvider === "FRANKFURTER" ? "Frankfurter 参考汇率" : "参考汇率"} · {aggregate.expense.exchangeRateReferenceDate}</small> : null}</div> : null}
     </section>
+    <CurrentSettlementSection aggregate={aggregate} members={memberData} />
     <div className="expense-detail-fields">
       <dl>
-        <div><dt>分类</dt><dd><span className="expense-detail-category">{category ? <img src={`/expense-categories/${category[2]}.webp`} width="34" height="34" alt="" /> : null}<span>{category?.[1] ?? "其他"}</span></span></dd></div>
-        <div><dt>用途</dt><dd>{aggregate.expense.title}</dd></div>
         <div><dt>付款人</dt><dd>{memberRows(aggregate.payments)}</dd></div>
-        <div><dt>时间</dt><dd><time dateTime={aggregate.expense.occurredAt}>{new Date(aggregate.expense.occurredAt).toLocaleString("zh-CN")}</time></dd></div>
         <div><dt>参与人</dt><dd>{aggregate.shares.length} 人</dd></div>
         <div><dt>分摊设置</dt><dd>
           <div className="expense-detail-split-header"><strong className="expense-detail-split-mode">{splitModeLabel}</strong>{collapsibleSplit ? <button className="expense-detail-disclosure" type="button" aria-label={splitExpanded ? "收起分摊明细" : "查看分摊明细"} aria-expanded={splitExpanded} aria-controls={splitDetailsId} onClick={() => setSplitExpanded(value => !value)}>{splitExpanded ? "收起明细" : "查看明细"}<ChevronDown aria-hidden="true" size={16} /></button> : null}</div>
           <div className="expense-detail-split-members" id={splitDetailsId} hidden={collapsibleSplit && !splitExpanded}>{memberRows(aggregate.shares)}</div>
         </dd></div>
+        <div><dt>分类</dt><dd><span className="expense-detail-category">{category ? <img src={`/expense-categories/${category[2]}.webp`} width="34" height="34" alt="" /> : null}<span>{category?.[1] ?? "其他"}</span></span></dd></div>
+        <div><dt>时间</dt><dd><time dateTime={aggregate.expense.occurredAt}>{new Date(aggregate.expense.occurredAt).toLocaleString("zh-CN")}</time></dd></div>
       </dl>
     </div>
-    <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} clearings={aggregate.clearings} members={memberData} compact />
     {aggregate.expense.note ? <div className="expense-detail-fields expense-detail-note"><dl><div><dt>备注</dt><dd>{aggregate.expense.note}</dd></div></dl></div> : null}
     <ExpenseAttachments activityId={activity.activityId} expenseId={aggregate.expense.expenseId} attachments={aggregate.attachments ?? []} compact />
   </section>;
@@ -1095,7 +1039,6 @@ export function ExpenseDetailPage() {
       <div className="detail-toolbar"><Link className="inline-back" to={`/activities/${activity.activityId}`}><ArrowLeft aria-hidden="true" size={18} /> 返回流水</Link><Button variant="danger" busy={remove.isPending} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" size={17} /> 删除</Button></div>
       {remove.error ? <ErrorNotice error={remove.error} /> : null}
       <ConfirmDialog open={deleteOpen} title="删除账单" message="删除后账本会立即重新计算，这笔账单无法恢复。确定继续吗？" confirmLabel="确认删除" busy={remove.isPending} onConfirm={() => { void remove.mutateAsync(expense.data!.expense.version).then(() => { setDeleteOpen(false); navigate(`/activities/${activity.activityId}`); }).catch(() => undefined); }} onCancel={() => setDeleteOpen(false)} />
-      <ExpenseSettlementProgressSection progress={aggregate.settlementProgress} clearings={aggregate.clearings} members={memberData} />
       <RoutedExpenseEditor initial={aggregate} />
     </div>
   );

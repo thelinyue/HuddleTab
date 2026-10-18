@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     application::ports::Clock,
+    domain::bill_clearing::CurrentSettlement,
     domain::expense::{ExpenseSplitInput, PaymentInput, PreparedExpense, prepare_expense},
     domain::settlement_progress::ExpenseSettlementProgress,
 };
@@ -76,6 +77,7 @@ pub struct ExpenseAggregate {
     pub shares: Vec<ExpenseShare>,
     pub attachments: Vec<ExpenseAttachmentRecord>,
     pub settlement_progress: ExpenseSettlementProgress,
+    pub current_settlement: CurrentSettlement,
     pub clearings: Vec<ExpenseClearingRecord>,
 }
 

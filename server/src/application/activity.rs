@@ -1,6 +1,8 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::{Date, OffsetDateTime};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
@@ -98,6 +100,32 @@ pub struct ActivityAuditChange {
     pub after_value: Option<String>,
 }
 
+/// 审计中的成员金额保存修改时的名称与原币金额，成员改名后仍能还原当时的账务含义。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpenseMemberAmount {
+    pub member_id: Uuid,
+    pub display_name: String,
+    pub currency: String,
+    pub amount_minor: String,
+}
+
+/// 单次保存前后的完整成员金额，按成员 ID 排序，避免把行顺序变化记录成账务修改。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ExpenseMemberAmountChange {
+    pub before: Vec<ExpenseMemberAmount>,
+    pub after: Vec<ExpenseMemberAmount>,
+}
+
+/// 与标量字段变化属于同一条活动记录；旧日志没有此数据时不推测补写历史事实。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ExpenseAccountingChanges {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payments: Option<ExpenseMemberAmountChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shares: Option<ExpenseMemberAmountChange>,
+}
+
 /// 活动记录中的账单摘要；只保留成员查看账单时需要的展示字段，避免把账单 JSON 原样透传。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActivityAuditExpense {
@@ -122,6 +150,7 @@ pub struct ActivityAuditEntry {
     pub actor_avatar_image_id: Option<Uuid>,
     pub revision: i64,
     pub changes: Vec<ActivityAuditChange>,
+    pub expense_accounting_changes: Option<ExpenseAccountingChanges>,
     pub expense: Option<ActivityAuditExpense>,
     pub created_at: OffsetDateTime,
 }

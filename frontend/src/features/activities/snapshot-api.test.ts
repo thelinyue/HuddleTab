@@ -57,6 +57,17 @@ describe("Activity Snapshot adapter", () => {
     expect(result.value).toBe(current);
   });
 
+  it("旧快照缺少当前余额时即使 revision 未变也无条件重取完整快照", async () => {
+    const current = { etag: 'W/"snapshot-v2-r7"', snapshot: { ...snapshot, expenses: [{ expense: { expenseId: "e1" } }] } };
+    client.GET.mockResolvedValueOnce(response(304, undefined, current.etag))
+      .mockResolvedValueOnce(response(200, { data: snapshot }, current.etag));
+    const result = await fetchActivitySnapshot("activity-1", current as never);
+    expect(result.status).toBe("modified");
+    expect(result.value.snapshot).toBe(snapshot);
+    expect(client.GET).toHaveBeenCalledTimes(2);
+    for (const [, options] of client.GET.mock.calls) expect(options).not.toHaveProperty("headers");
+  });
+
   it("304 缺少或返回不匹配的 ETag 时拒绝复用旧对象", async () => {
     const current = { etag: 'W/"snapshot-v2-r7"', snapshot };
     client.GET.mockResolvedValue(response(304));

@@ -137,10 +137,13 @@ impl SnapshotRepository for PostgresSnapshotRepository {
         .fetch_all(&mut *transaction)
         .await
         .map_err(log_repository_error)?;
+        let clearing = super::bill_clearing::load_state(&mut transaction, activity_id, None)
+            .await
+            .map_err(log_repository_error)?;
         let mut expenses = Vec::with_capacity(expense_ids.len());
         for expense_id in expense_ids {
             expenses.push(
-                load_aggregate(&mut transaction, expense_id, true)
+                load_aggregate(&mut transaction, expense_id, true, &clearing)
                     .await
                     .map_err(|_| SnapshotRepositoryError::Unavailable)?,
             );

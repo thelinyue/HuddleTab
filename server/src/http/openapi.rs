@@ -1,3 +1,6 @@
+use crate::application::activity::{
+    ExpenseAccountingChanges, ExpenseMemberAmount, ExpenseMemberAmountChange,
+};
 use utoipa::OpenApi;
 
 use crate::application::ai_expense::{
@@ -81,11 +84,11 @@ use super::{
         __path_create as __path_expense_create, __path_delete as __path_expense_delete,
         __path_get as __path_expense_get, __path_list as __path_expense_list,
         __path_update as __path_expense_update, BillClearingData, CreatedExpenseData,
-        CreatedExpenseEnvelope, DeleteExpenseRequest, DeletedExpenseData, DeletedExpenseEnvelope,
-        ExpenseAggregateData, ExpenseAttachmentData, ExpenseData, ExpenseDraftRequest,
-        ExpenseEnvelope, ExpenseFactData, ExpenseListEnvelope, ExpensePaymentRequest,
-        ExpenseSettlementProgressData, ExpenseSplitEntryRequest, ExpenseSplitRequest,
-        MemberSettlementProgressData, UpdateExpenseRequest,
+        CreatedExpenseEnvelope, CurrentSettlementData, DeleteExpenseRequest, DeletedExpenseData,
+        DeletedExpenseEnvelope, ExpenseAggregateData, ExpenseAttachmentData, ExpenseData,
+        ExpenseDraftRequest, ExpenseEnvelope, ExpenseFactData, ExpenseListEnvelope,
+        ExpensePaymentRequest, ExpenseSettlementProgressData, ExpenseSplitEntryRequest,
+        ExpenseSplitRequest, MemberSettlementProgressData, UpdateExpenseRequest,
     },
     mcp::{
         __path_create_token, __path_list_tokens, __path_revoke_token, CreateMcpTokenRequest,
@@ -295,6 +298,9 @@ use super::{
         TransferOwnershipRequest,
         ActivityData,
         ActivityAuditChangeData,
+        ExpenseAccountingChanges,
+        ExpenseMemberAmountChange,
+        ExpenseMemberAmount,
         ActivityAuditData,
         ActivityAuditExpenseData,
         ActivityAuditListEnvelope,
@@ -355,6 +361,7 @@ use super::{
         ExpenseFactData,
         ExpenseAggregateData,
         BillClearingData,
+        CurrentSettlementData,
         ExpenseSettlementProgressData,
         MemberSettlementProgressData,
         ExpenseAttachmentData,

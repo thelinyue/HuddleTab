@@ -8,7 +8,7 @@ async function installFixture(page: Page, count = 4, shareMinor = 12000) {
   const recommendations = { recommendations: members.slice(1).map(member => ({ payerMemberId: member.memberId, receiverMemberId: 'm0', amountMinor: String(shareMinor) })) };
   const records = [{ settlementId: 's1', activityId: 'demo', payerMemberId: 'm1', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '8000', status: 'ACTIVE', createdAt: '2026-09-06T06:30:00Z', version: '1' }, { settlementId: 's2', activityId: 'demo', payerMemberId: 'm2', receiverMemberId: 'm0', currency: 'CNY', amountMinor: '2000', status: 'VOID', createdAt: '2026-09-05T10:20:00Z', version: '1' }];
   const expenses = [{ expense: { expenseId: 'e1', activityId: 'demo', title: '湖边晚餐', note: '四个人一起吃杭帮菜', baseAmountMinor: '48000', originalAmountMinor: '48000', originalCurrency: 'CNY', baseCurrency: 'CNY', category: 'FOOD', occurredAt: '2026-09-05T10:00:00Z', exchangeRate: '1', splitMode: 'EQUAL', version: '1' }, payments: [{ memberId: 'm0', originalAmountMinor: '48000', baseAmountMinor: '48000' }], shares: members.map(member => ({ memberId: member.memberId, originalAmountMinor: '12000', baseAmountMinor: '12000' })), attachments: [{ id: 'a1', byteSize: '456', createdAt: '2026-09-05T10:01:00Z', height: 480, mimeType: 'image/webp', width: 640 }] }];
-  const controls = { expenses, activityPending: false, historyPending: false, feedPending: false, snapshotPending: false, historyError: false, ledgerPending: false, failWrite: false, writes: [] as unknown[], summaryReads: 0, members, balances, activity };
+  const controls = { expenses, records, activityPending: false, historyPending: false, feedPending: false, snapshotPending: false, historyError: false, ledgerPending: false, failWrite: false, writes: [] as unknown[], summaryReads: 0, members, balances, activity };
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url()); const endpoint = url.pathname.split('/').at(-1);
     if (endpoint === 'settlement-preview') {
@@ -72,17 +72,18 @@ async function installReadonlyFixture(page: Page) {
       remainingMinor: ['18000', '6000', '0', '12000'][index], status: index === 2 ? 'SETTLED' : index < 2 ? 'PARTIALLY_SETTLED' : 'UNSETTLED',
     })),
   };
-  Object.assign(item, { settlementProgress: progress });
+  const currentSettlement = { currency: 'CNY', remainingMinor: '18000', members: control.members.map((member, index) => ({ memberId: member.memberId, netMinor: ['18000', '-6000', '0', '-12000', '0'][index] })) };
+  Object.assign(item, { settlementProgress: progress, currentSettlement });
   item.payments.forEach((payment, index) => Object.assign(payment, { factId: `payment-${index}` }));
   item.shares.forEach((share, index) => Object.assign(share, { factId: `share-${index}` }));
   await page.route('**/api/activities/demo/expenses/e1/attachments/**', route => route.fulfill({ path: 'public/expense-categories/food.webp', contentType: 'image/webp' }));
-  return { ...control, progress };
+  return { ...control, progress, currentSettlement };
 }
 
 async function readonlyFitsWidth(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   const detail = page.getByRole('region', { name: '账单详情', exact: true });
-  expect(await detail.evaluate(root => [root, ...root.querySelectorAll('.expense-detail-fields, .expense-detail-member-row, .money, .expense-settlement-progress__table, .expense-settlement-progress__row')].every(element => element.clientWidth === 0 || element.scrollWidth <= element.clientWidth + 1))).toBe(true);
+  expect(await detail.evaluate(root => [root, ...root.querySelectorAll('.expense-detail-fields, .expense-detail-member-row, .money, .current-settlement, .current-settlement__row, .current-settlement__record-heading')].every(element => element.clientWidth === 0 || element.scrollWidth <= element.clientWidth + 1))).toBe(true);
   for (const button of await detail.getByRole('button', { name: /明细/ }).all()) {
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }
@@ -94,10 +95,10 @@ test('只读账单：紧凑首屏、两种入口与原地展开', async ({ page 
   await page.locator('.expense-row').click();
   const detail = page.getByRole('region', { name: '账单详情', exact: true });
   await expect(detail.getByRole('button', { name: '查看分摊明细' })).toHaveAttribute('aria-expanded', 'false');
-  await expect(detail.getByRole('button', { name: '查看结算明细' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(detail.getByRole('button', { name: '查看收付款明细' })).toHaveAttribute('aria-expanded', 'false');
   await expect(detail.locator('.expense-detail-split-members')).toBeHidden();
   if (page.viewportSize()!.width >= 390) {
-    for (const selector of ['.expense-detail-summary', '.expense-detail-category', 'time']) {
+    for (const selector of ['.expense-detail-summary', '.current-settlement']) {
       await expect(detail.locator(selector)).toBeInViewport({ ratio: 1 });
     }
   }
@@ -107,19 +108,19 @@ test('只读账单：紧凑首屏、两种入口与原地展开', async ({ page 
   await detail.getByRole('button', { name: '查看分摊明细' }).click();
   await expect(detail.locator('.expense-detail-split-members .expense-detail-member-row')).toHaveCount(5);
   await expect(detail.locator('.expense-detail-split-members')).toContainText('¥0.00');
-  await detail.getByRole('button', { name: '查看结算明细' }).click();
-  await expect(detail.getByRole('table')).toBeVisible();
-  const firstRow = detail.locator('.expense-settlement-progress__row').nth(1);
-  // 桌面窄弹层也按容器切换为姓名下的纵向金额。
-  const cells = await firstRow.locator('[role="cell"]').evaluateAll(items => items.map(item => item.getBoundingClientRect().y));
-  expect(cells[1]).toBeGreaterThan(cells[0]);
-  expect(cells[2]).toBeGreaterThan(cells[1]);
+  await detail.getByRole('button', { name: '查看收付款明细' }).click();
+  await expect(detail.getByRole('heading', { name: '收付款记录' })).toBeVisible();
+  const firstRow = detail.locator('.current-settlement__row').first();
+  await expect(firstRow).toContainText('小林（我）');
+  await expect(firstRow).toContainText('待收 ¥180.00');
+  const cells = await firstRow.locator(':scope > span').evaluateAll(items => items.map(item => item.getBoundingClientRect()));
+  expect(cells[1]!.x).toBeGreaterThan(cells[0]!.x);
   await readonlyFitsWidth(page);
   await page.getByRole('button', { name: '关闭账单详情' }).click();
   await expect(page.getByRole('dialog', { name: '账单详情' })).toHaveCount(0);
   await page.locator('.expense-row').click();
   await expect(detail.getByRole('button', { name: '查看分摊明细' })).toHaveAttribute('aria-expanded', 'false');
-  await expect(detail.getByRole('button', { name: '查看结算明细' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(detail.getByRole('button', { name: '查看收付款明细' })).toHaveAttribute('aria-expanded', 'false');
   await page.getByRole('button', { name: '关闭账单详情' }).click();
   await page.goto('/activities/demo/expenses/e1');
   await expect(page.getByRole('button', { name: '返回流水' })).toBeVisible();
@@ -133,15 +134,11 @@ test('只读账单：紧凑首屏、两种入口与原地展开', async ({ page 
   await page.evaluate(() => new Promise<void>(resolve => { window.scrollTo(0, 0); requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
   await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-page.png`, fullPage: true, scale: 'css' });
   await detail.getByRole('button', { name: '查看分摊明细' }).click();
-  const settlementToggle = detail.getByRole('button', { name: /结算明细$/ });
+  const settlementToggle = detail.getByRole('button', { name: /收付款明细$/ });
   await settlementToggle.focus();
   await page.keyboard.press('Enter');
   await expect(settlementToggle).toHaveAttribute('aria-expanded', 'true');
-  if (info.project.name === 'chromium-desktop') {
-    await expect(detail.getByRole('columnheader', { name: '成员' })).toBeVisible();
-  }
-  await expect(detail.getByLabel('已结清', { exact: true })).toBeVisible();
-  expect(await detail.locator('.expense-settlement-progress__remaining--settled > span').evaluate(element => element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1)).toBe(true);
+  await expect(detail.locator('.current-settlement__balance--settled')).toHaveCount(2);
   await readonlyFitsWidth(page);
   await page.evaluate(() => new Promise<void>(resolve => { window.scrollTo(0, 0); requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
   await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-expanded.png`, fullPage: true, scale: 'css' });
@@ -149,6 +146,38 @@ test('只读账单：紧凑首屏、两种入口与原地展开', async ({ page 
   await expect(settlementToggle).toHaveAttribute('aria-expanded', 'false');
   await page.getByRole('button', { name: '返回流水' }).click();
   await expect(page).toHaveURL('/activities/demo');
+  expect(control.writes).toHaveLength(0);
+});
+
+test('酒店改为 C 垫付：当前余额与原始转账同时可见', async ({ page }, info) => {
+  const control = await installFixture(page, 3);
+  control.activity.status = 'ENDED';
+  control.activity.currentMemberId = 'm1';
+  control.members.forEach((member, index) => { member.displayName = ['A', 'B', 'C'][index]!; });
+  control.balances.forEach((balance, index) => { balance.netMinor = ['-15000', '-5000', '20000'][index]!; });
+  const item = control.expenses[0]!;
+  Object.assign(item.expense, { title: '酒店', note: '', category: 'LODGING', originalAmountMinor: '20000', baseAmountMinor: '20000' });
+  item.payments = [{ memberId: 'm2', originalAmountMinor: '20000', baseAmountMinor: '20000' }];
+  item.shares = control.members.slice(0, 2).map(member => ({ memberId: member.memberId, originalAmountMinor: '10000', baseAmountMinor: '10000' }));
+  item.attachments = [];
+  Object.assign(item, { currentSettlement: { currency: 'CNY', remainingMinor: '20000', members: [
+    { memberId: 'm0', netMinor: '-15000' }, { memberId: 'm1', netMinor: '-5000' }, { memberId: 'm2', netMinor: '20000' },
+  ] } });
+  control.records.splice(1);
+  Object.assign(control.records[0]!, { payerMemberId: 'm1', receiverMemberId: 'm0', amountMinor: '5000', scopeExpenseIds: ['e1'], allocations: [], applications: [] });
+  await page.goto('/activities/demo?viewExpense=e1');
+  const detail = page.getByRole('region', { name: '账单详情', exact: true });
+  const rows = detail.locator('.current-settlement__row');
+  await expect(rows.nth(0)).toContainText('A待付 ¥150.00');
+  await expect(rows.nth(1)).toContainText('B（我）待付 ¥50.00');
+  await expect(rows.nth(2)).toContainText('C待收 ¥200.00');
+  await readonlyFitsWidth(page);
+  await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-hotel.png`, scale: 'css' });
+  await detail.getByRole('button', { name: '查看收付款明细' }).click();
+  await expect(detail.locator('.current-settlement__records')).toContainText('B → A¥50.00');
+  await expect(detail.locator('.current-settlement__records')).toContainText('已记录');
+  await readonlyFitsWidth(page);
+  await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-hotel-history.png`, scale: 'css' });
   expect(control.writes).toHaveLength(0);
 });
 
@@ -160,14 +189,14 @@ test('只读账单：外币、大金额和长姓名在深色窄容器完整展�
   item.payments = [{ ...item.payments[0]!, originalAmountMinor: '9007199254740893' }, { ...item.payments[0]!, memberId: 'm1', originalAmountMinor: '100' }];
   item.payments.forEach((payment, index) => Object.assign(payment, { factId: `payment-${index}` }));
   item.shares[0]!.originalAmountMinor = '9007199254704993';
-  control.progress.members[0]!.remainingMinor = '63050394783186251';
+  control.currentSettlement.members[0]!.netMinor = '63050394783186251';
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.goto('/activities/demo?viewExpense=e1');
   const detail = page.getByRole('region', { name: '账单详情', exact: true });
   await expect(detail.locator('.expense-detail-summary__amount')).toContainText('US$90,071,992,547,409.93');
   await expect(detail.locator('.expense-detail-summary__conversion')).toContainText('折算后 ¥630,503,947,831,869.51');
   await detail.getByRole('button', { name: '查看分摊明细' }).click();
-  await detail.getByRole('button', { name: '查看结算明细' }).click();
+  await detail.getByRole('button', { name: '查看收付款明细' }).click();
   await readonlyFitsWidth(page);
   await page.screenshot({ path: `artifacts/readonly-detail/${info.project.name}-long-values.png`, scale: 'css' });
 });
@@ -188,7 +217,7 @@ test('只读账单：归档与离线保持展开功能和只读边界', async ({
   await expect(detail.getByRole('heading', { name: '图片' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /删除账单|保存账单/ })).toHaveCount(0);
   await detail.getByRole('button', { name: '查看分摊明细' }).click();
-  await detail.getByRole('button', { name: '查看结算明细' }).click();
+  await detail.getByRole('button', { name: '查看收付款明细' }).click();
   await readonlyFitsWidth(page);
   await page.getByRole('button', { name: '关闭账单详情' }).click();
   await expect(page.getByText(/当前离线，以下流水/)).toBeVisible();

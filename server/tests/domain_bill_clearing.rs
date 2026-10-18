@@ -33,6 +33,105 @@ fn conserved(state: &ClearingState) {
     }
 }
 
+fn current_balances(state: &ClearingState) -> Vec<(Uuid, i64)> {
+    state
+        .current_settlement(id(10), [id(1), id(2), id(3)])
+        .unwrap()
+        .members
+        .into_iter()
+        .map(|balance| (balance.member_id(), balance.net_minor()))
+        .collect()
+}
+
+#[test]
+fn current_settlement_replays_price_and_payer_changes_without_clipping_debt() {
+    let mut original = state(&[(10, 2, 1, 5000)]);
+    original
+        .transfer(id(100), id(2), id(1), 5000, &[id(10)], "AUTO")
+        .unwrap();
+    assert_eq!(
+        original
+            .current_settlement(id(10), [id(1), id(2)])
+            .unwrap()
+            .remaining_minor,
+        0
+    );
+
+    let mut increased = state(&[(10, 2, 1, 10000)]);
+    increased
+        .transfer(id(100), id(2), id(1), 5000, &[id(10)], "AUTO")
+        .unwrap();
+    assert_eq!(
+        current_balances(&increased),
+        vec![(id(1), 5000), (id(2), -5000), (id(3), 0)]
+    );
+
+    let mut corrected = state(&[(10, 1, 3, 10000), (10, 2, 3, 10000)]);
+    corrected
+        .transfer(id(100), id(2), id(1), 5000, &[id(10)], "AUTO")
+        .unwrap();
+    assert_eq!(
+        current_balances(&corrected),
+        vec![(id(1), -15000), (id(2), -5000), (id(3), 20000)]
+    );
+    assert_eq!(
+        corrected
+            .current_settlement(id(10), [])
+            .unwrap()
+            .remaining_minor,
+        20000
+    );
+    corrected
+        .transfer(id(101), id(1), id(3), 15000, &[id(10)], "AUTO")
+        .unwrap();
+    corrected
+        .transfer(id(102), id(2), id(3), 5000, &[id(10)], "AUTO")
+        .unwrap();
+    assert_eq!(
+        current_balances(&corrected),
+        vec![(id(1), 0), (id(2), 0), (id(3), 0)]
+    );
+    assert_eq!(
+        corrected
+            .current_settlement(id(10), [])
+            .unwrap()
+            .remaining_minor,
+        0
+    );
+}
+
+#[test]
+fn current_settlement_includes_collection_member_and_refund_direction() {
+    let mut collected = state(&[(10, 2, 1, 5000)]);
+    collected
+        .transfer(id(100), id(2), id(3), 5000, &[id(10)], "AUTO")
+        .unwrap();
+    let result = collected
+        .current_settlement(id(10), [id(1), id(2)])
+        .unwrap();
+    assert_eq!(result.members.len(), 3);
+    assert_eq!(
+        current_balances(&collected),
+        vec![(id(1), 5000), (id(2), 0), (id(3), -5000)]
+    );
+
+    let mut reduced = state(&[(10, 2, 1, 3000)]);
+    reduced
+        .transfer(id(100), id(2), id(1), 5000, &[id(10)], "AUTO")
+        .unwrap();
+    assert_eq!(
+        current_balances(&reduced),
+        vec![(id(1), -2000), (id(2), 2000), (id(3), 0)]
+    );
+    assert_eq!(
+        reduced
+            .current_settlement(id(10), [])
+            .unwrap()
+            .remaining_minor,
+        2000
+    );
+}
+
 #[test]
 fn one_day_is_100_and_combined_days_are_60_without_mutating_preview() {
     let state = state(&[(10, 1, 2, 100), (20, 2, 1, 40)]);

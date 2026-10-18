@@ -122,6 +122,8 @@ pub struct ExpenseAggregateData {
     pub attachments: Vec<ExpenseAttachmentData>,
     pub settlement_progress: ExpenseSettlementProgressData,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_settlement: Option<CurrentSettlementData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub clearings: Option<Vec<BillClearingData>>,
 }
 
@@ -135,6 +137,15 @@ pub struct BillClearingData {
     pub offset_expense_id: Option<String>,
     pub offset_expense_title: Option<String>,
     pub origin: String,
+}
+
+/// 账单当前待收付金额来自同一份清偿重放；可选字段用于兼容升级前的离线快照。
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentSettlementData {
+    pub currency: String,
+    pub remaining_minor: String,
+    pub members: Vec<super::accounting::BalanceData>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -186,6 +197,8 @@ pub struct CreatedExpenseData {
     pub payments: Vec<ExpenseFactData>,
     pub shares: Vec<ExpenseFactData>,
     pub settlement_progress: ExpenseSettlementProgressData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_settlement: Option<CurrentSettlementData>,
     pub idempotent_replay: bool,
 }
 
@@ -262,6 +275,7 @@ pub(crate) async fn create(
                 payments: data.payments,
                 shares: data.shares,
                 settlement_progress: data.settlement_progress,
+                current_settlement: data.current_settlement,
                 idempotent_replay: result.idempotent_replay,
             },
         }),
@@ -495,6 +509,19 @@ fn split(
 
 pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateData {
     let base_currency = aggregate.expense.base_currency.clone();
+    let current_settlement = Some(CurrentSettlementData {
+        currency: base_currency.clone(),
+        remaining_minor: aggregate.current_settlement.remaining_minor.to_string(),
+        members: aggregate
+            .current_settlement
+            .members
+            .into_iter()
+            .map(|balance| super::accounting::BalanceData {
+                member_id: balance.member_id().to_string(),
+                net_minor: balance.net_minor().to_string(),
+            })
+            .collect(),
+    });
     ExpenseAggregateData {
         expense: ExpenseData {
             expense_id: aggregate.expense.id.to_string(),
@@ -547,6 +574,7 @@ pub(crate) fn aggregate_data(aggregate: ExpenseAggregate) -> ExpenseAggregateDat
             .map(format_attachment)
             .collect(),
         settlement_progress: settlement_progress_data(aggregate.settlement_progress, base_currency),
+        current_settlement,
         clearings: (!aggregate.clearings.is_empty()).then(|| {
             aggregate
                 .clearings
@@ -622,9 +650,7 @@ fn map_error(error: ExpenseError, request_id: RequestId) -> ApiError {
         ExpenseError::NotFound => ApiError::not_found(request_id),
         ExpenseError::VersionConflict => ApiError::version_conflict(request_id),
         ExpenseError::MutationConflict => ApiError::mutation_conflict(request_id),
-        ExpenseError::HasSettlementAllocations => {
-            ApiError::settlement_allocation_conflict(request_id)
-        }
+        ExpenseError::HasSettlementAllocations => ApiError::expense_allocation_conflict(request_id),
         ExpenseError::Unavailable => ApiError::internal(request_id),
     }
 }

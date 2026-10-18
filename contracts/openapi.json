@@ -5708,6 +5708,16 @@
               }
             ]
           },
+          "expenseAccountingChanges": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExpenseAccountingChanges"
+              }
+            ]
+          },
           "revision": {
             "type": "string"
           },
@@ -7218,6 +7228,16 @@
           "idempotentReplay"
         ],
         "properties": {
+          "currentSettlement": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CurrentSettlementData"
+              }
+            ]
+          },
           "expense": {
             "$ref": "#/components/schemas/ExpenseData"
           },
@@ -7404,6 +7424,29 @@
           }
         }
       },
+      "CurrentSettlementData": {
+        "type": "object",
+        "description": "账单当前待收付金额来自同一份清偿重放；可选字段用于兼容升级前的离线快照。",
+        "required": [
+          "currency",
+          "remainingMinor",
+          "members"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BalanceData"
+            }
+          },
+          "remainingMinor": {
+            "type": "string"
+          }
+        }
+      },
       "DecideJoinRequestRequest": {
         "type": "object",
         "required": [
@@ -7566,6 +7609,32 @@
           }
         }
       },
+      "ExpenseAccountingChanges": {
+        "type": "object",
+        "description": "与标量字段变化属于同一条活动记录；旧日志没有此数据时不推测补写历史事实。",
+        "properties": {
+          "payments": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExpenseMemberAmountChange"
+              }
+            ]
+          },
+          "shares": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExpenseMemberAmountChange"
+              }
+            ]
+          }
+        }
+      },
       "ExpenseAggregateData": {
         "type": "object",
         "required": [
@@ -7590,6 +7659,16 @@
             "items": {
               "$ref": "#/components/schemas/BillClearingData"
             }
+          },
+          "currentSettlement": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CurrentSettlementData"
+              }
+            ]
           },
           "expense": {
             "$ref": "#/components/schemas/ExpenseData"
@@ -7849,6 +7928,53 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExpenseAggregateData"
+            }
+          }
+        }
+      },
+      "ExpenseMemberAmount": {
+        "type": "object",
+        "description": "审计中的成员金额保存修改时的名称与原币金额，成员改名后仍能还原当时的账务含义。",
+        "required": [
+          "memberId",
+          "displayName",
+          "currency",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ExpenseMemberAmountChange": {
+        "type": "object",
+        "description": "单次保存前后的完整成员金额，按成员 ID 排序，避免把行顺序变化记录成账务修改。",
+        "required": [
+          "before",
+          "after"
+        ],
+        "properties": {
+          "after": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseMemberAmount"
+            }
+          },
+          "before": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpenseMemberAmount"
             }
           }
         }

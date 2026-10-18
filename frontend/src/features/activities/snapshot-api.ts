@@ -44,13 +44,15 @@ export async function fetchActivitySnapshot(
   activityId: string,
   current?: CachedActivitySnapshot,
 ): Promise<SnapshotFetchResult> {
-  const result = await requestSnapshot(activityId, current?.etag);
+  // 旧快照的 revision 可能未变，但缺少当前余额，必须联网完整替换，不能继续复用 304。
+  const reusable = current?.snapshot.expenses.every(expense => expense.currentSettlement != null) ? current : undefined;
+  const result = await requestSnapshot(activityId, reusable?.etag);
   if (result.response.status === 304) {
-    if (current) {
-      if (result.response.headers.get("etag") !== current.etag) {
+    if (reusable) {
+      if (result.response.headers.get("etag") !== reusable.etag) {
         throw new Error("活动快照 304 响应的 ETag 无效。");
       }
-      return { status: "not-modified", value: current };
+      return { status: "not-modified", value: reusable };
     }
     const unconditional = await requestSnapshot(activityId);
     if (unconditional.response.status === 304) {

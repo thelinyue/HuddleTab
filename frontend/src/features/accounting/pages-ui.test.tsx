@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiRequestError } from "../../api/error";
-import type { ExpenseAggregate } from "./api";
+import type { ExpenseAggregate, Settlement } from "./api";
 
 const activity = vi.hoisted(() => ({
   activityId: "activity-1",
@@ -30,6 +30,7 @@ const members = vi.hoisted(() => [
   { activityId: "activity-1", displayName: "甲", memberId: "member-1", role: "OWNER", status: "ACTIVE", userId: "user-1", version: "1" },
   { activityId: "activity-1", displayName: "乙", memberId: "member-2", role: "MEMBER", status: "ACTIVE", userId: "user-2", version: "1" },
 ] as const);
+const detailRecordsState = vi.hoisted(() => ({ records: undefined as Settlement[] | undefined }));
 const removedMemberState = vi.hoisted(() => ({ enabled: false }));
 
 const expense = vi.hoisted(() => ({
@@ -107,7 +108,7 @@ const rateMutation = vi.hoisted(() => ({
 }));
 const pendingMutations = vi.hoisted(() => ({ records: [] as Array<Record<string, unknown>> }));
 const workspaceState = vi.hoisted(() => ({ offline: false, snapshotOnly: false }));
-const readonlyExpenseState = vi.hoisted(() => ({ data: undefined as (typeof expense & { settlementProgress?: ExpenseAggregate["settlementProgress"] }) | undefined }));
+const readonlyExpenseState = vi.hoisted(() => ({ data: undefined as (typeof expense & Partial<Pick<ExpenseAggregate, "settlementProgress" | "currentSettlement" | "clearings">>) | undefined }));
 const aiCapability = vi.hoisted(() => ({ textDraftAvailable: false }));
 const aiCapabilityQuery = vi.hoisted(() => vi.fn());
 const aiTextDraftMutation = vi.hoisted(() => vi.fn());
@@ -160,7 +161,7 @@ vi.mock("./api", () => ({
     recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }], settled: accountingQueryState.netMinor === "0", requiresOffsetConfirmation: false,
   }, isPending: accountingQueryState.ledgerPending, error: accountingQueryState.ledgerError, refetch: vi.fn() }),
   useConfirmBillOffsetsMutation: () => ({ ...mutation(), reset: vi.fn() }),
-  useSettlementsQuery: () => ({ data: accountingQueryState.emptySettlements ? [] : [settlement], isPending: false }),
+  useSettlementsQuery: () => ({ data: detailRecordsState.records ?? (accountingQueryState.emptySettlements ? [] : [settlement]), isPending: false }),
   useUpdateExpenseMutation: () => updateMutation,
   useUpdateSettlementMutation: mutation,
   useVoidSettlementMutation: mutation,
@@ -207,6 +208,7 @@ afterEach(() => {
   workspaceState.offline = false;
   workspaceState.snapshotOnly = false;
   readonlyExpenseState.data = undefined;
+  detailRecordsState.records = undefined;
   removedMemberState.enabled = false;
   aiCapability.textDraftAvailable = false;
   aiCapabilityQuery.mockClear();
@@ -703,6 +705,15 @@ describe("统一账单编辑器", () => {
     await waitFor(() => expect(updateMutation.mutateAsync).toHaveBeenCalled());
     expect(screen.getByText(/当前表单仍保留/)).toBeInTheDocument();
     expect(screen.getByLabelText("用途")).toHaveValue("仍保留的午餐草稿");
+  });
+
+  it("旧版明确归属限制独立显示原因，不误报版本冲突", () => {
+    updateMutation.error = new ApiRequestError(409, {
+      error: { code: "SETTLEMENT_ALLOCATION_CONFLICT", details: {}, fieldErrors: {}, message: "这笔旧版账单已有明确结算归属，请新增差价或更正账单。", requestId: "allocation" },
+    });
+    renderPage(<ExpenseDetailPage />);
+    expect(screen.getByRole("alert")).toHaveTextContent("旧版账单已有明确结算归属");
+    expect(screen.queryByText(/当前表单仍保留/)).not.toBeInTheDocument();
   });
 });
 
@@ -1694,26 +1705,54 @@ describe("只读账单紧凑明细", () => {
     }
   });
 
-  it.each([["UNSETTLED", "待结算"], ["PARTIALLY_SETTLED", "部分结算"], ["SETTLED", "已结清"]])("%s 使用服务端状态，展开后才展示结算事实", (status, label) => {
-    readonlyExpenseState.data!.settlementProgress = {
-      currency: "CNY", status, remainingMinor: "300", settledMinor: "200", paidMinor: "150", offsetMinor: "50", totalRequiredMinor: "500",
-      members: [{ memberId: "member-2", direction: "PAYABLE", expectedMinor: "500", settledMinor: "200", paidMinor: "150", offsetMinor: "50", remainingMinor: "300", status }],
-    };
+  it("改付款人后展示真实余额，历史转账保留且不按相同金额关联", async () => {
+    removedMemberState.enabled = true;
+    const data = readonlyExpenseState.data!;
+    data.currentSettlement = { currency: "CNY", remainingMinor: "20000", members: [
+      { memberId: "member-1", netMinor: "-15000" }, { memberId: "member-2", netMinor: "-5000" }, { memberId: "member-3", netMinor: "20000" },
+    ] };
+    // 旧进度被本金截断时，页面仍只使用当前余额。
+    data.settlementProgress = { currency: "CNY", status: "SETTLED", remainingMinor: "0", settledMinor: "10000", paidMinor: "10000", offsetMinor: "0", totalRequiredMinor: "10000", members: [] };
+    detailRecordsState.records = [
+      { ...settlement, amountMinor: "5000", payerMemberId: "member-2", receiverMemberId: "member-1", scopeExpenseIds: ["expense-1"], scopeDates: [], applications: [] },
+      { ...settlement, settlementId: "unrelated", amountMinor: "5000", scopeExpenseIds: ["other-bill"], scopeDates: [], applications: [] },
+      { ...settlement, settlementId: "void", status: "VOID", scopeExpenseIds: ["expense-1", "other-bill"], scopeDates: [], applications: [] },
+    ];
     renderPage(<ExpenseDetailPage />);
-    const progress = screen.getByRole("region", { name: "结算进度" });
-    expect(progress).toHaveTextContent(label);
-    expect(within(progress).queryByRole("table")).not.toBeInTheDocument();
-    fireEvent.click(within(progress).getByRole("button", { name: "查看结算明细" }));
-    expect(within(progress).getByRole("table")).toHaveTextContent("待结¥3.00");
-    expect(within(progress).getByText("已抵销 ¥0.50")).toBeVisible();
-    expect(document.querySelector(".expense-detail-fields")!.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const current = screen.getByRole("region", { name: "当前结算" });
+    expect(current).toHaveTextContent("待结算");
+    const rows = within(current).getByRole("list", { name: "账单成员当前余额" });
+    expect(rows).toHaveTextContent("甲（我）待付 ¥150.00乙待付 ¥50.00丙待收 ¥200.00");
+    expect(document.querySelector(".expense-detail-fields")!.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(within(current).queryByText("乙 → 甲")).not.toBeVisible();
+    fireEvent.click(within(current).getByRole("button", { name: "查看收付款明细" }));
+    expect(within(current).getByText("乙 → 甲")).toBeVisible();
+    expect(within(current).getByText("已作废，不计入余额", { exact: false })).toBeVisible();
+    expect(current.querySelectorAll(".current-settlement__records li")).toHaveLength(2);
+    expect(within(current).getByText(/共 2 笔/)).toBeVisible();
+    const toggle = within(current).getByRole("button", { name: "收起收付款明细" });
+    toggle.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("无需结算直接说明，不提供空的展开入口", () => {
-    readonlyExpenseState.data!.settlementProgress = { currency: "CNY", status: "NO_SETTLEMENT_REQUIRED", members: [], remainingMinor: "0", settledMinor: "0", paidMinor: "0", offsetMinor: "0", totalRequiredMinor: "0" };
+  it.each(["SETTLED", "NO_SETTLEMENT_REQUIRED"])("零余额显示正确的 %s 状态", status => {
+    const data = readonlyExpenseState.data!;
+    data.currentSettlement = { currency: "CNY", remainingMinor: "0", members: [{ memberId: "member-1", netMinor: "0" }] };
+    data.settlementProgress = { currency: "CNY", status, members: [], remainingMinor: "0", settledMinor: "0", paidMinor: "0", offsetMinor: "0", totalRequiredMinor: "0" };
     renderPage(<ExpenseDetailPage />);
-    expect(screen.getByText("这笔账从一开始无需成员间结算。")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "查看结算明细" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "当前结算" })).toHaveTextContent(status === "SETTLED" ? "已结清" : "无需结算");
+    expect(screen.getByRole("list", { name: "账单成员当前余额" })).toHaveTextContent("甲（我）已结清");
+    expect(screen.queryByText(/待付.*0.00/)).not.toBeInTheDocument();
+  });
+
+  it("抵销明细按成员展示关联账单，不隐藏零余额", () => {
+    readonlyExpenseState.data!.currentSettlement = { currency: "CNY", remainingMinor: "0", members: [{ memberId: "member-1", netMinor: "0" }] };
+    readonlyExpenseState.data!.clearings = [{ memberId: "member-1", amountMinor: "500", kind: "OFFSET", origin: "AUTO", offsetExpenseId: "other-bill", offsetExpenseTitle: "交通" }];
+    renderPage(<ExpenseDetailPage />);
+    fireEvent.click(screen.getByRole("button", { name: "查看收付款明细" }));
+    expect(screen.getByText("抵销记录")).toBeVisible();
+    expect(screen.getByText("甲 · 与「交通」抵销")).toBeVisible();
   });
 
   it("切换账单重置分摊与结算的展开状态", () => {
@@ -1722,14 +1761,14 @@ describe("只读账单紧凑明细", () => {
     data.settlementProgress = { currency: "CNY", status: "UNSETTLED", members: [], remainingMinor: "500", settledMinor: "0", paidMinor: "0", offsetMinor: "0", totalRequiredMinor: "500" };
     const view = renderPage(<ExpenseDetailPage />);
     fireEvent.click(screen.getByRole("button", { name: "查看分摊明细" }));
-    fireEvent.click(screen.getByRole("button", { name: "查看结算明细" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看收付款明细" }));
     data.expense.expenseId = "expense-2";
     view.rerender(<MemoryRouter><ExpenseDetailPage /></MemoryRouter>);
     expect(screen.getByRole("button", { name: "查看分摊明细" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: "查看结算明细" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "查看收付款明细" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("缺少进度、备注和图片时隐藏对应区域，外币和多付款人金额保持原始事实", () => {
+  it("缺少余额时显示待同步，缺少备注和图片时隐藏对应区域，外币和多付款人金额保持原始事实", () => {
     const data = readonlyExpenseState.data!;
     data.expense.note = "";
     data.attachments = [];
@@ -1738,7 +1777,7 @@ describe("只读账单紧凑明细", () => {
     data.expense.exchangeRate = "6.666667";
     data.payments = [{ ...data.payments[0], originalAmountMinor: "100" }, { ...data.payments[0], factId: "p2", memberId: "member-2", originalAmountMinor: "50" }];
     renderPage(<ExpenseDetailPage />);
-    expect(screen.queryByRole("region", { name: "结算进度" })).not.toBeInTheDocument();
+    expect(screen.getByText("当前结算信息待同步")).toBeVisible();
     expect(screen.queryByText("备注", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "图片" })).not.toBeInTheDocument();
     expect(screen.getByText("折算后 ¥10.00")).toBeVisible();
@@ -1775,8 +1814,8 @@ describe("Activity 生命周期写权限", () => {
     const detail = screen.getByRole("region", { name: "账单详情" });
     expect(detail).toHaveTextContent("午餐");
     expect(detail).toHaveTextContent("分类餐饮");
-    expect(detail).toHaveTextContent("金额CNY¥10.00");
-    expect(detail).toHaveTextContent("用途午餐");
+    expect(detail).toHaveTextContent("CNY¥10.00");
+    expect(within(detail).getByRole("heading", { name: "午餐" })).toBeVisible();
     expect(detail).toHaveTextContent("付款人甲¥10.00");
     const occurredAt = within(detail).getByText(new Date(expense.expense.occurredAt).toLocaleString("zh-CN"), { exact: true });
     expect(occurredAt).toHaveAttribute("dateTime", expense.expense.occurredAt);

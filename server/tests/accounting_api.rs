@@ -553,6 +553,10 @@ async fn net_payment_and_cross_bill_offset_clear_both_bills_without_manual_links
         assert_eq!(status, StatusCode::OK);
         assert_eq!(detail["data"]["settlementProgress"]["status"], "SETTLED");
         assert_eq!(detail["data"]["settlementProgress"]["remainingMinor"], "0");
+        assert_current_settlement(
+            &detail["data"],
+            &[(context.owner_member_id, 0), (context.guest_member_id, 0)],
+        );
     }
     let backdated = direct_bill_payload(
         "后补旧账",
@@ -698,6 +702,354 @@ async fn scope_bill(
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     created["data"].clone()
+}
+
+/// 同时检查本账单余额、应收总额及守恒，避免只验证旧的本金进度而漏掉代收债务。
+fn assert_current_settlement(data: &Value, expected: &[(Uuid, i64)]) {
+    let current = &data["currentSettlement"];
+    assert_eq!(current["currency"], "CNY");
+    let actual = current["members"]
+        .as_array()
+        .expect("应返回当前余额")
+        .iter()
+        .map(|member| {
+            (
+                Uuid::parse_str(member["memberId"].as_str().unwrap()).unwrap(),
+                member["netMinor"].as_str().unwrap().parse::<i64>().unwrap(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(actual, expected.iter().copied().collect(), "{data}");
+    assert_eq!(actual.values().sum::<i64>(), 0);
+    assert_eq!(
+        current["remainingMinor"],
+        actual
+            .values()
+            .filter(|net| **net > 0)
+            .sum::<i64>()
+            .to_string()
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)] // 连续重放涨价、改付款人、补款和作废，验证同一笔真实付款的归属不丢失。
+async fn current_settlement_survives_price_and_payer_changes_with_audit_and_history() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let a = context.owner_member_id;
+    let b = context.guest_member_id;
+    let c = Uuid::new_v4();
+    let b_user = Uuid::new_v4();
+    let c_user = Uuid::new_v4();
+    sqlx::query("INSERT INTO users(id,username,password_hash,display_name,created_at,updated_at) VALUES ($1,'bob','unused','B',now(),now()),($2,'carol','unused','C',now(),now())")
+        .bind(b_user).bind(c_user).execute(&context.pool).await.unwrap();
+    sqlx::query("UPDATE activity_members SET user_id=$1 WHERE id=$2")
+        .bind(b_user)
+        .bind(b)
+        .execute(&context.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO activity_members(id,activity_id,user_id,display_name,role,joined_at) VALUES ($1,$2,$3,'C','MEMBER',now())")
+        .bind(c).bind(context.activity_id).bind(c_user).execute(&context.pool).await.unwrap();
+    let base = format!("/api/activities/{}", context.activity_id);
+    let mut bill = direct_bill_payload("酒店", a, b, "10000", "2026-09-24T04:00:00Z");
+    bill["split"] = json!({"mode":"EQUAL","members":[a,b]});
+    let (status, created) = response(
+        &context,
+        request(&context, "POST", format!("{base}/expenses"), bill.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_current_settlement(&created["data"], &[(a, 5000), (b, -5000)]);
+    let expense_id = created["data"]["expense"]["expenseId"].as_str().unwrap();
+    let item = format!("{base}/expenses/{expense_id}");
+    let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await;
+    let (status, paid) = response(&context, request(&context, "POST", format!("{base}/settlements"), json!({
+        "clientMutationId":Uuid::new_v4(),"payerMemberId":b,"receiverMemberId":a,"currency":"CNY","amountMinor":"5000","scope":preview["scope"]
+    }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{paid}");
+    let original_payment_id = paid["data"]["settlement"]["settlementId"].clone();
+    let (_, settled) = response(
+        &context,
+        request(&context, "GET", item.clone(), Value::Null),
+    )
+    .await;
+    assert_current_settlement(&settled["data"], &[(a, 0), (b, 0)]);
+    let actor_notifications = notification_count(&context, context.user_id).await;
+
+    bill["version"] = json!("1");
+    bill["originalAmountMinor"] = json!("20000");
+    bill["payments"][0]["amountMinor"] = json!("20000");
+    let (status, increased) = response(
+        &context,
+        request(&context, "PUT", item.clone(), bill.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{increased}");
+    assert_current_settlement(&increased["data"], &[(a, 5000), (b, -5000)]);
+    bill["version"] = json!("2");
+    bill["payments"][0]["memberId"] = json!(c);
+    let (status, corrected) = response(
+        &context,
+        request(&context, "PUT", item.clone(), bill.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{corrected}");
+    assert_current_settlement(&corrected["data"], &[(a, -15000), (b, -5000), (c, 20000)]);
+    for (path, key) in [
+        (format!("{base}/expenses"), "list"),
+        (format!("{base}/snapshot"), "snapshot"),
+    ] {
+        let (status, value) = response(&context, request(&context, "GET", path, Value::Null)).await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        let data = if key == "list" {
+            &value["data"][0]
+        } else {
+            &value["data"]["expenses"][0]
+        };
+        assert_eq!(
+            data["currentSettlement"],
+            corrected["data"]["currentSettlement"]
+        );
+    }
+    let (_, audits) = response(
+        &context,
+        request(&context, "GET", format!("{base}/audit-logs"), Value::Null),
+    )
+    .await;
+    let edits = audits["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["action"] == "EXPENSE_UPDATED")
+        .collect::<Vec<_>>();
+    assert_eq!(edits.len(), 2);
+    let payer_edit = edits
+        .iter()
+        .find(|entry| entry["expenseAccountingChanges"]["shares"].is_null())
+        .unwrap();
+    assert_eq!(
+        payer_edit["expenseAccountingChanges"]["payments"]["before"][0],
+        json!({"memberId":a,"displayName":"Alice","currency":"CNY","amountMinor":"20000"})
+    );
+    assert_eq!(
+        payer_edit["expenseAccountingChanges"]["payments"]["after"][0]["memberId"],
+        c.to_string()
+    );
+    assert_eq!(
+        notification_count(&context, context.user_id).await,
+        actor_notifications
+    );
+    assert_eq!(notification_count(&context, c_user).await, 1);
+
+    let before_noop = activity_side_effects(&context).await;
+    bill["version"] = json!("3");
+    bill["split"]["members"].as_array_mut().unwrap().reverse();
+    let (status, noop) = response(
+        &context,
+        request(&context, "PUT", item.clone(), bill.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{noop}");
+    assert_eq!(activity_side_effects(&context).await, before_noop);
+
+    let mut a_payment = Value::Null;
+    for (payer, amount) in [(a, "15000"), (b, "5000")] {
+        let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await;
+        assert!(preview["recommendations"].as_array().unwrap().iter().any(
+            |row| row["payerMemberId"] == payer.to_string()
+                && row["receiverMemberId"] == c.to_string()
+                && row["amountMinor"] == amount
+        ));
+        let (status, paid) = response(&context, request(&context, "POST", format!("{base}/settlements"), json!({
+            "clientMutationId":Uuid::new_v4(),"payerMemberId":payer,"receiverMemberId":c,"currency":"CNY","amountMinor":amount,"scope":preview["scope"]
+        }))).await;
+        assert_eq!(status, StatusCode::CREATED, "{paid}");
+        if payer == a {
+            a_payment = paid["data"]["settlement"]["settlementId"].clone();
+        }
+    }
+    let (_, settled) = response(
+        &context,
+        request(&context, "GET", item.clone(), Value::Null),
+    )
+    .await;
+    assert_current_settlement(&settled["data"], &[(a, 0), (b, 0), (c, 0)]);
+    let (_, records) = response(
+        &context,
+        request(&context, "GET", format!("{base}/settlements"), Value::Null),
+    )
+    .await;
+    assert_eq!(records["data"].as_array().unwrap().len(), 3);
+    let original = records["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["settlementId"] == original_payment_id)
+        .unwrap();
+    assert_eq!(original["amountMinor"], "5000");
+    assert_eq!(original["scopeExpenseIds"], json!([expense_id]));
+
+    let (status, voided) = response(
+        &context,
+        request(
+            &context,
+            "DELETE",
+            format!("{base}/settlements/{}", a_payment.as_str().unwrap()),
+            json!({"version":"1"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{voided}");
+    assert_eq!(voided["data"]["settlement"]["status"], "VOID");
+    let (_, after_void) = response(
+        &context,
+        request(&context, "GET", item.clone(), Value::Null),
+    )
+    .await;
+    assert_current_settlement(&after_void["data"], &[(a, -15000), (b, 0), (c, 15000)]);
+
+    // 从新账单移除 B 之后，修改前参与的 B 仍收到一次通知；操作者不收通知。
+    let b_notifications = notification_count(&context, b_user).await;
+    bill["split"]["members"] = json!([a]);
+    let (status, changed) = response(&context, request(&context, "PUT", item, bill)).await;
+    assert_eq!(status, StatusCode::OK, "{changed}");
+    assert_eq!(
+        notification_count(&context, b_user).await,
+        b_notifications + 1
+    );
+    assert_eq!(
+        notification_count(&context, context.user_id).await,
+        actor_notifications
+    );
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)] // 同一保存包含金额、多人付款和分摊变化；随后重放旧付款验证降价退款。
+async fn current_settlement_refunds_and_combined_accounting_audit_are_consistent() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let a = context.owner_member_id;
+    let b = context.guest_member_id;
+    let base = format!("/api/activities/{}", context.activity_id);
+    let mut bill = direct_bill_payload("酒店退款", a, b, "10000", "2026-09-24T04:00:00Z");
+    let (_, created) = response(
+        &context,
+        request(&context, "POST", format!("{base}/expenses"), bill.clone()),
+    )
+    .await;
+    let expense_id = created["data"]["expense"]["expenseId"].as_str().unwrap();
+    let item = format!("{base}/expenses/{expense_id}");
+    let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await;
+    let (status, paid) = response(&context, request(&context, "POST", format!("{base}/settlements"), json!({
+        "clientMutationId":Uuid::new_v4(),"payerMemberId":b,"receiverMemberId":a,"currency":"CNY","amountMinor":"10000","scope":preview["scope"]
+    }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{paid}");
+    bill["version"] = json!("1");
+    bill["originalAmountMinor"] = json!("6000");
+    bill["payments"] =
+        json!([{"memberId":a,"amountMinor":"4000"},{"memberId":b,"amountMinor":"2000"}]);
+    bill["split"]["entries"][0]["value"] = json!("6000");
+    let (status, reduced) = response(
+        &context,
+        request(&context, "PUT", item.clone(), bill.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reduced}");
+    assert_current_settlement(&reduced["data"], &[(a, -6000), (b, 6000)]);
+    let (_, audits) = response(
+        &context,
+        request(&context, "GET", format!("{base}/audit-logs"), Value::Null),
+    )
+    .await;
+    let edits = audits["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["action"] == "EXPENSE_UPDATED")
+        .collect::<Vec<_>>();
+    assert_eq!(edits.len(), 1);
+    let changes = &edits[0]["expenseAccountingChanges"];
+    assert_eq!(changes["payments"]["after"].as_array().unwrap().len(), 2);
+    assert_eq!(changes["shares"]["before"][0]["amountMinor"], "10000");
+    assert_eq!(changes["shares"]["after"][0]["amountMinor"], "6000");
+    assert!(
+        edits[0]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["field"] == "originalAmountMinor")
+    );
+    let before_noop = activity_side_effects(&context).await;
+    bill["version"] = json!("2");
+    bill["payments"].as_array_mut().unwrap().reverse();
+    let (status, noop) = response(&context, request(&context, "PUT", item.clone(), bill)).await;
+    assert_eq!(status, StatusCode::OK, "{noop}");
+    assert_eq!(activity_side_effects(&context).await, before_noop);
+    let refund = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await;
+    assert_eq!(refund["recommendations"][0]["payerMemberId"], a.to_string());
+    assert_eq!(
+        refund["recommendations"][0]["receiverMemberId"],
+        b.to_string()
+    );
+    assert_eq!(refund["recommendations"][0]["amountMinor"], "6000");
+    let (status, refunded) = response(&context, request(&context, "POST", format!("{base}/settlements"), json!({
+        "clientMutationId":Uuid::new_v4(),"payerMemberId":a,"receiverMemberId":b,"currency":"CNY","amountMinor":"6000","scope":refund["scope"]
+    }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{refunded}");
+    let (_, settled) = response(&context, request(&context, "GET", item, Value::Null)).await;
+    assert_current_settlement(&settled["data"], &[(a, 0), (b, 0)]);
+}
+
+#[tokio::test]
+#[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+async fn current_settlement_preserves_legacy_explicit_allocation_edit_restriction() {
+    let _guard = DATABASE_TEST_LOCK.lock().await;
+    let context = seed_context().await;
+    let a = context.owner_member_id;
+    let b = context.guest_member_id;
+    let base = format!("/api/activities/{}", context.activity_id);
+    let mut bill = direct_bill_payload("旧账单", a, b, "10000", "2026-09-24T04:00:00Z");
+    let (_, created) = response(
+        &context,
+        request(&context, "POST", format!("{base}/expenses"), bill.clone()),
+    )
+    .await;
+    let expense_id = created["data"]["expense"]["expenseId"].as_str().unwrap();
+    let item = format!("{base}/expenses/{expense_id}");
+    let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", false).await;
+    let (_, paid) = response(&context, request(&context, "POST", format!("{base}/settlements"), json!({
+        "clientMutationId":Uuid::new_v4(),"payerMemberId":b,"receiverMemberId":a,"currency":"CNY","amountMinor":"5000","scope":preview["scope"]
+    }))).await;
+    let settlement_id =
+        Uuid::parse_str(paid["data"]["settlement"]["settlementId"].as_str().unwrap()).unwrap();
+    sqlx::query("INSERT INTO settlement_allocations(activity_id,settlement_id,expense_id,amount_minor,created_at) VALUES($1,$2,$3,5000,now())")
+        .bind(context.activity_id).bind(settlement_id).bind(Uuid::parse_str(expense_id).unwrap()).execute(&context.pool).await.unwrap();
+    bill["version"] = json!("1");
+    bill["title"] = json!("允许更正标题");
+    let (status, metadata) = response(
+        &context,
+        request(&context, "PUT", item.clone(), bill.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{metadata}");
+    assert_current_settlement(&metadata["data"], &[(a, 5000), (b, -5000)]);
+    bill["version"] = json!("2");
+    bill["payments"][0]["memberId"] = json!(b);
+    for (method, body) in [("PUT", bill), ("DELETE", json!({"version":"2"}))] {
+        let (status, denied) =
+            response(&context, request(&context, method, item.clone(), body)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{denied}");
+        assert_eq!(denied["error"]["code"], "SETTLEMENT_ALLOCATION_CONFLICT");
+        assert!(
+            denied["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("旧版账单已有明确结算归属")
+        );
+    }
 }
 
 #[tokio::test]
@@ -901,7 +1253,7 @@ async fn date_scope_centralized_collection_keeps_hub_outgoing_balance() {
     let creditor = Uuid::new_v4();
     sqlx::query("INSERT INTO activity_members(id, activity_id, display_name, role, joined_at) VALUES ($1,$2,'小周','MEMBER',now())")
         .bind(creditor).bind(context.activity_id).execute(&context.pool).await.unwrap();
-    scope_bill(
+    let bill = scope_bill(
         &context,
         "代收代付",
         creditor,
@@ -914,6 +1266,28 @@ async fn date_scope_centralized_collection_keeps_hub_outgoing_balance() {
     let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", true).await;
     let (status, collected) = response(&context, request(&context, "POST", collection.clone(), json!({"clientMutationId":Uuid::new_v4(), "payerMemberId":context.guest_member_id,"receiverMemberId":context.owner_member_id,"currency":"CNY","amountMinor":"100","scope":preview["scope"]}))).await;
     assert_eq!(status, StatusCode::CREATED, "{collected}");
+    let (_, detail) = response(
+        &context,
+        request(
+            &context,
+            "GET",
+            format!(
+                "/api/activities/{}/expenses/{}",
+                context.activity_id,
+                bill["expense"]["expenseId"].as_str().unwrap()
+            ),
+            Value::Null,
+        ),
+    )
+    .await;
+    assert_current_settlement(
+        &detail["data"],
+        &[
+            (context.owner_member_id, -100),
+            (context.guest_member_id, 0),
+            (creditor, 100),
+        ],
+    );
     let next = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", true).await;
     assert_eq!(next["recommendations"].as_array().unwrap().len(), 1);
     assert_eq!(
@@ -1617,6 +1991,7 @@ async fn notification_count(context: &AccountingContext, recipient_user_id: Uuid
 
 #[tokio::test]
 #[ignore = "需要 TEST_DATABASE_URL 指向可丢弃的 PostgreSQL 测试库"]
+#[allow(clippy::too_many_lines)] // 同一历史重复付款场景验证 no-op、顺序无关及审计按成员合计。
 async fn expense_noop_ignores_zero_base_fact_input_order() {
     let context = seed_context().await;
     let mut members = [context.owner_member_id, context.guest_member_id];
@@ -1693,6 +2068,37 @@ async fn expense_noop_ignores_zero_base_fact_input_order() {
         .count();
     assert_eq!(second_member_count, 2);
     assert_eq!(activity_side_effects(&context).await, (3, 2));
+    let (_, audit) = response(
+        &context,
+        request(
+            &context,
+            "GET",
+            format!("/api/activities/{}/audit-logs", context.activity_id),
+            Value::Null,
+        ),
+    )
+    .await;
+    let edit = audit["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["action"] == "EXPENSE_UPDATED")
+        .unwrap();
+    let payment_change = &edit["expenseAccountingChanges"]["payments"];
+    for (side, amounts) in [
+        ("before", [(members[0], "2"), (members[1], "1")]),
+        ("after", [(members[0], "1"), (members[1], "2")]),
+    ] {
+        let rows = payment_change[side].as_array().unwrap();
+        assert_eq!(rows.len(), 2, "审计应汇总同一成员的多行事实");
+        for (member, amount) in amounts {
+            assert!(
+                rows.iter().any(
+                    |row| row["memberId"] == member.to_string() && row["amountMinor"] == amount
+                )
+            );
+        }
+    }
 }
 
 #[tokio::test]

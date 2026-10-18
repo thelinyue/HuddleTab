@@ -2,7 +2,16 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use uuid::Uuid;
 
+use super::ledger::Balance;
+
 type Positions = BTreeMap<(Uuid, Uuid), i64>;
+
+/// 本账单重放后的真实收付款余额，包含代收产生的额外债务；不能用原始本金清偿进度截断。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CurrentSettlement {
+    pub remaining_minor: i64,
+    pub members: Vec<Balance>,
+}
 
 #[derive(Clone, Debug)]
 pub struct ClearingEntry {
@@ -34,6 +43,39 @@ pub struct ClearingState {
 }
 
 impl ClearingState {
+    /// 保留账单参与人的零余额，并补入历史转账引入的代收成员；应收总额只累计一次。
+    /// # Errors
+    /// 当前余额不守恒或金额累加溢出时返回中文错误。
+    pub fn current_settlement(
+        &self,
+        expense: Uuid,
+        member_ids: impl IntoIterator<Item = Uuid>,
+    ) -> Result<CurrentSettlement, String> {
+        let mut balances = self.balances(&[expense])?;
+        for member in member_ids {
+            balances.entry(member).or_default();
+        }
+        let mut total = 0_i64;
+        let mut remaining_minor = 0_i64;
+        let mut members = Vec::with_capacity(balances.len());
+        for (member, net) in balances {
+            total = total.checked_add(net).ok_or("账单余额超出安全范围")?;
+            if net > 0 {
+                remaining_minor = remaining_minor
+                    .checked_add(net)
+                    .ok_or("账单待结金额超出安全范围")?;
+            }
+            members.push(Balance::new(member, net));
+        }
+        if total != 0 {
+            return Err("账单当前余额不守恒".to_owned());
+        }
+        Ok(CurrentSettlement {
+            remaining_minor,
+            members,
+        })
+    }
+
     #[must_use]
     pub fn scope_with_cash(&self, scope: &[Uuid]) -> Vec<Uuid> {
         scope

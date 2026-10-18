@@ -1267,7 +1267,7 @@ describe("活动管理 Overlay", () => {
             expense: {
               expenseId: "expense-1",
               title: "西湖午餐",
-              category: "餐饮",
+              category: "FOOD",
               originalCurrency: "CNY",
               originalAmountMinor: "12800",
               occurredAt: "2026-09-21T07:30:00Z",
@@ -1295,13 +1295,14 @@ describe("活动管理 Overlay", () => {
             auditId: "audit-expense-update",
             changes: [
               { field: "title", beforeValue: "西湖午餐", afterValue: "西湖晚餐" },
+              { field: "category", beforeValue: "TRANSPORT", afterValue: "FOOD" },
               { field: "originalAmountMinor", beforeValue: "10000", afterValue: "12800" },
               { field: "occurredAt", beforeValue: "2026-09-20T07:30:00Z", afterValue: "2026-09-21T07:30:00Z" },
             ],
             expense: {
               expenseId: "expense-1",
               title: "西湖晚餐",
-              category: "餐饮",
+              category: "FOOD",
               originalCurrency: "CNY",
               originalAmountMinor: "12800",
               occurredAt: "2026-09-21T07:30:00Z",
@@ -1336,7 +1337,10 @@ describe("活动管理 Overlay", () => {
     expect(screen.getByText("通过 MCP")).toBeInTheDocument();
     expect(screen.getAllByText("西湖午餐")).toHaveLength(2);
     expect(screen.getAllByText("¥128.00")).toHaveLength(3);
-    expect(screen.getAllByText("餐饮")).toHaveLength(2);
+    expect(screen.getAllByText("餐饮")).toHaveLength(3);
+    expect(screen.getByText("交通")).toBeInTheDocument();
+    expect(screen.queryByText("FOOD")).not.toBeInTheDocument();
+    expect(screen.queryByText("TRANSPORT")).not.toBeInTheDocument();
     expect(screen.getByText("更新了活动资料")).toBeInTheDocument();
     expect(screen.getByText("杭州")).toBeInTheDocument();
     expect(screen.getByText("苏州")).toBeInTheDocument();
@@ -1352,6 +1356,78 @@ describe("活动管理 Overlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "返回活动管理" }));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "活动管理" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /^活动记录/ })).toHaveFocus();
+  });
+
+  it("只有付款和分摊变化时也展示保存的姓名与前后金额", () => {
+    activityApiState.auditQuery.data = { pages: [{ data: [{
+      action: "EXPENSE_UPDATED", revision: "8", actorAvatarPreset: null,
+      actorDisplayName: "小林", actorMemberId: "member-1", actorUserId: "user-1",
+      auditId: "accounting-change", changes: [], createdAt: "2026-10-18T08:00:00Z",
+      expenseAccountingChanges: {
+        payments: {
+          before: [{ memberId: "old-payer", displayName: "A 当时的名字", currency: "CNY", amountMinor: "20000" }],
+          after: [{ memberId: "new-payer", displayName: "C 当时的名字", currency: "CNY", amountMinor: "20000" }],
+        },
+        shares: {
+          before: [{ memberId: "old-share", displayName: "B", currency: "CNY", amountMinor: "20000" }],
+          after: [{ memberId: "new-share", displayName: "A", currency: "CNY", amountMinor: "20000" }],
+        },
+      },
+    }], nextCursor: null }] };
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: /^活动记录/ }));
+    const changes = screen.getByRole("list", { name: "账单修改前后" });
+    expect(changes).toHaveTextContent("付款人A 当时的名字 ¥200.00→C 当时的名字 ¥200.00");
+    expect(changes).toHaveTextContent("分摊B ¥200.00→A ¥200.00");
+  });
+
+  it.each([
+    ["FOOD", "餐饮"],
+    ["TRANSPORT", "交通"],
+    ["LODGING", "住宿"],
+    ["TICKET", "门票"],
+    ["SHOPPING", "购物"],
+    ["ENTERTAINMENT", "娱乐"],
+    ["OTHER", "其他"],
+    ["餐饮", "餐饮"],
+    ["团建餐费", "团建餐费"],
+    ["CUSTOM_CATEGORY", "CUSTOM_CATEGORY"],
+    ["", "未设置"],
+    [null, "未设置"],
+    [undefined, "未设置"],
+  ] as const)("活动记录分类 %s 在账单摘要和修改前后显示为 %s", (category, label) => {
+    const beforeValue = category === "FOOD" ? "TRANSPORT" : "FOOD";
+    const beforeLabel = beforeValue === "FOOD" ? "餐饮" : "交通";
+    activityApiState.auditQuery.data = {
+      pages: [{
+        data: [{
+          action: "EXPENSE_UPDATED",
+          revision: "2",
+          actorAvatarPreset: 4,
+          actorDisplayName: "Alice",
+          actorMemberId: "member-owner",
+          actorUserId: "user-1",
+          auditId: "audit-category",
+          changes: [{ field: "category", beforeValue, afterValue: category }],
+          expense: {
+            expenseId: "expense-1",
+            title: "测试账单",
+            category: category ?? "",
+            originalCurrency: "CNY",
+            originalAmountMinor: "12800",
+            occurredAt: "2026-09-21T07:30:00Z",
+          },
+          createdAt: "2026-09-21T08:00:00Z",
+        }],
+        nextCursor: null,
+      }],
+    };
+    renderWorkspace("/activities/activity-1?panel=manage");
+    fireEvent.click(screen.getByRole("button", { name: /^活动记录/ }));
+
+    const dialog = within(screen.getByRole("dialog", { name: "活动记录" }));
+    expect(within(dialog.getByLabelText("账单信息")).getByText(label)).toBeInTheDocument();
+    expect(dialog.getByRole("list", { name: "账单修改前后" })).toHaveTextContent(`分类${beforeLabel}→${label}`);
   });
 
   it("离线时禁用活动记录入口且不发起请求", () => {

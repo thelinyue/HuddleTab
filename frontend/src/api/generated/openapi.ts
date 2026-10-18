@@ -1137,6 +1137,7 @@ export interface components {
             changes: components["schemas"]["ActivityAuditChangeData"][];
             createdAt: string;
             expense?: null | components["schemas"]["ActivityAuditExpenseData"];
+            expenseAccountingChanges?: null | components["schemas"]["ExpenseAccountingChanges"];
             revision: string;
             source?: string | null;
         };
@@ -1502,6 +1503,7 @@ export interface components {
             scope?: null | components["schemas"]["SettlementScope"];
         };
         CreatedExpenseData: {
+            currentSettlement?: null | components["schemas"]["CurrentSettlementData"];
             expense: components["schemas"]["ExpenseData"];
             idempotentReplay: boolean;
             payments: components["schemas"]["ExpenseFactData"][];
@@ -1550,6 +1552,12 @@ export interface components {
         CsrfEnvelope: {
             data: components["schemas"]["CsrfData"];
         };
+        /** @description 账单当前待收付金额来自同一份清偿重放；可选字段用于兼容升级前的离线快照。 */
+        CurrentSettlementData: {
+            currency: string;
+            members: components["schemas"]["BalanceData"][];
+            remainingMinor: string;
+        };
         DecideJoinRequestRequest: {
             decision: string;
         };
@@ -1595,9 +1603,15 @@ export interface components {
         ExchangeRateSuggestionEnvelope: {
             data: components["schemas"]["ExchangeRateSuggestionData"];
         };
+        /** @description 与标量字段变化属于同一条活动记录；旧日志没有此数据时不推测补写历史事实。 */
+        ExpenseAccountingChanges: {
+            payments?: null | components["schemas"]["ExpenseMemberAmountChange"];
+            shares?: null | components["schemas"]["ExpenseMemberAmountChange"];
+        };
         ExpenseAggregateData: {
             attachments: components["schemas"]["ExpenseAttachmentData"][];
             clearings?: components["schemas"]["BillClearingData"][] | null;
+            currentSettlement?: null | components["schemas"]["CurrentSettlementData"];
             expense: components["schemas"]["ExpenseData"];
             payments: components["schemas"]["ExpenseFactData"][];
             settlementProgress: components["schemas"]["ExpenseSettlementProgressData"];
@@ -1661,6 +1675,19 @@ export interface components {
         };
         ExpenseListEnvelope: {
             data: components["schemas"]["ExpenseAggregateData"][];
+        };
+        /** @description 审计中的成员金额保存修改时的名称与原币金额，成员改名后仍能还原当时的账务含义。 */
+        ExpenseMemberAmount: {
+            amountMinor: string;
+            currency: string;
+            displayName: string;
+            /** Format: uuid */
+            memberId: string;
+        };
+        /** @description 单次保存前后的完整成员金额，按成员 ID 排序，避免把行顺序变化记录成账务修改。 */
+        ExpenseMemberAmountChange: {
+            after: components["schemas"]["ExpenseMemberAmount"][];
+            before: components["schemas"]["ExpenseMemberAmount"][];
         };
         ExpensePaymentRequest: {
             amountMinor: string;

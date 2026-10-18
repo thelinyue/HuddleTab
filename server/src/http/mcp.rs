@@ -886,6 +886,7 @@ impl McpHandler {
             payments: aggregate.payments,
             shares: aggregate.shares,
             settlement_progress: aggregate.settlement_progress,
+            current_settlement: aggregate.current_settlement,
             idempotent_replay: result.idempotent_replay,
         };
         Ok(McpJson(McpToolOutput {

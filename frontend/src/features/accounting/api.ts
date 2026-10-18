@@ -235,6 +235,7 @@ function useAccountingInvalidation(userId: string, activityId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.activitySummary(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDetail(userId, activityId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.activitySnapshot(userId, activityId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activityAudit(userId, activityId) }),
     ]);
 }
 

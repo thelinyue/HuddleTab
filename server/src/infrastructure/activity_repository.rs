@@ -1003,6 +1003,10 @@ fn activity_audit_from_row(row: ActivityAuditRow) -> ActivityAuditEntry {
         actor_avatar_image_id: row.actor_avatar_image_id,
         revision: row.activity_revision,
         changes: activity_audit_changes(&row.details),
+        expense_accounting_changes: row
+            .details
+            .get("expenseAccountingChanges")
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
         expense,
         created_at: row.created_at,
     }
