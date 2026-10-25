@@ -197,11 +197,13 @@ function chooseCurrency(code: string) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn() })));
 });
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   activity.activityId = "activity-1";
   activity.status = "ACTIVE";
   pendingMutations.records = [];
@@ -282,6 +284,28 @@ describe("Expense 参考汇率", () => {
     expect(screen.getByRole("region", { name: "设置汇率" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("例如 7.25")).toHaveValue("");
     expect(screen.queryByText(/Frankfurter 参考汇率/)).not.toBeInTheDocument();
+  });
+});
+
+describe("记账金额表达式", () => {
+  it("显示表达式结果并支持运算按钮插入", () => {
+    renderPage(<NewExpensePage />);
+    const input = screen.getByPlaceholderText("0.00") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "12.5+8*2" } });
+    expect(screen.getByText("计算结果：¥28.50")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "12" } });
+    input.setSelectionRange(2, 2);
+    fireEvent.click(screen.getByRole("button", { name: "插入乘运算符" }));
+    expect(input).toHaveValue("12×");
+  });
+
+  it("非法表达式保留输入并显示中文错误", () => {
+    renderPage(<NewExpensePage />);
+    const input = screen.getByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "1/0" } });
+    expect(input).toHaveValue("1/0");
+    expect(screen.getByRole("alert")).toHaveTextContent("除数不能为 0");
   });
 });
 

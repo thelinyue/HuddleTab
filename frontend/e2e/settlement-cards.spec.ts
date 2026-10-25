@@ -15,10 +15,13 @@ async function installCards(page: Page) {
 
 async function screenshot(page: Page, info: TestInfo, name: string) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  for (const dialog of await page.getByRole('dialog').all()) {
+    await expect(dialog).toHaveCSS('opacity', '1');
+  }
   await page.screenshot({ path: `artifacts/settlement-cards/${info.project.name}-${name}.png`, fullPage: true, scale: 'css', animations: 'disabled' });
 }
 
-test('轻分组卡片：历史展开、菜单修改作废、焦点恢复与截图', async ({ page }, info) => {
+test('轻分组卡片：账单弹窗、菜单修改作废、焦点恢复与截图', async ({ page }, info) => {
   const fixture = await installCards(page);
   await page.goto('/activities/travel/settlement');
   const history = page.getByRole('region', { name: '全部结算记录' });
@@ -35,20 +38,24 @@ test('轻分组卡片：历史展开、菜单修改作废、焦点恢复与截�
   const first = history.locator('[data-reading-key="record-s1"]');
   const details = first.getByRole('button', { name: /结算 9\/20、9\/22/ });
   await details.focus(); await page.keyboard.press('Enter');
-  await expect(details).toHaveAttribute('aria-expanded', 'true');
-  await expect(first.getByText('自动清偿 1 笔账单')).toBeVisible();
-  await expect(first.getByText(/结算日期：2026\/09\/20、2026\/09\/22/)).toBeVisible();
+  const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
+  await expect(dialog.getByRole('heading', { name: '本次结算账单 · 2 笔' })).toBeVisible();
+  await expect(dialog.locator('.settlement-transfer')).toHaveCount(0);
+  await expect(dialog.getByText(/转账金额|结算日期：|记录于|自动清偿/)).toHaveCount(0);
+  await expect(dialog.locator('.settlement-bill__title')).toHaveText(['早餐', '打车']);
   await screenshot(page, info, 'details');
-  await details.press('Space');
-  await expect(details).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(details).toBeFocused();
   const old = history.locator('[data-reading-key="record-s3"]');
   await expect(old.getByRole('button', { name: '未记录日期范围' })).toBeVisible();
   const voided = history.locator('[data-reading-key="record-s2"]');
   await expect(voided.getByText('已作废', { exact: true })).toBeVisible();
   await expect(voided.getByRole('button', { name: '结算记录操作' })).toHaveCount(0);
   await voided.getByRole('button', { name: '结算 3 天 · 3 笔' }).click();
-  await expect(voided.getByText(/2025\/12\/31、2026\/01\/01、2026\/01\/03/)).toBeVisible();
-  await voided.getByRole('button', { name: '结算 3 天 · 3 笔' }).click();
+  await expect(dialog.locator('.settlement-bill__title')).toHaveText(['门票', '午餐', '下午茶']);
+  await dialog.getByRole('button', { name: '关闭结算账单' }).click();
+  await expect(dialog).toHaveCount(0);
   const menu = first.getByRole('button', { name: '结算记录操作' });
   await menu.click();
   await screenshot(page, info, 'menu');
@@ -80,6 +87,68 @@ test('轻分组卡片：历史展开、菜单修改作废、焦点恢复与截�
   await expect(recommendation).toBeFocused();
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await expect(page.getByRole('button', { name: '结算记录操作' })).toHaveCount(0);
+});
+
+test('历史结算账单：独立弹窗隔离范围、缺失提示、刷新及离线查看', async ({ page }, info) => {
+  const fixture = await installCards(page);
+  Object.assign(fixture.records[0], { scopeExpenseIds: ['e1', 'e2', 'missing-expense'] });
+  await page.goto('/activities/travel/settlement');
+  const first = page.locator('[data-reading-key="record-s1"]');
+  const firstSummary = first.getByRole('button', { name: '结算 9/20、9/22 · 3 笔' });
+  await firstSummary.click();
+  const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
+  await expect(dialog.locator('.settlement-bill__title')).toHaveText(['早餐', '打车']);
+  await expect(dialog.getByRole('status')).toHaveText('有 1 笔账单暂时无法读取。');
+  await screenshot(page, info, 'record-bills');
+  await dialog.getByRole('button', { name: '关闭结算账单' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  const voided = page.locator('[data-reading-key="record-s2"]');
+  await voided.getByRole('button', { name: '结算 3 天 · 3 笔' }).click();
+  await expect(dialog.locator('.settlement-bill__title')).toHaveText(['门票', '午餐', '下午茶']);
+  await dialog.getByRole('button', { name: '关闭结算账单' }).click();
+  await expect(dialog).toHaveCount(0);
+  const old = page.locator('[data-reading-key="record-s3"]');
+  await old.getByRole('button', { name: '未记录日期范围' }).click();
+  await expect(dialog).toContainText('这笔结算未保存账单范围，无法列出对应账单。');
+  await expect(dialog.locator('.settlement-bill')).toHaveCount(0);
+
+  await page.reload();
+  await firstSummary.click();
+  await expect(dialog.locator('.settlement-bill__title')).toHaveText(['早餐', '打车']);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(page.getByText('当前离线，以下结算使用最近一次同步的只读快照。')).toBeVisible();
+  await expect(dialog.locator('.settlement-bill__title')).toHaveText(['早餐', '打车']);
+  expect(fixture.control.writes).toHaveLength(0);
+});
+
+test('结算账单弹窗：59笔独立滚动、关闭可达且不改变历史列表位置', async ({ page }, info) => {
+  const fixture = await installCards(page);
+  const template = fixture.expenses[0];
+  for (let index = 31; index <= 59; index++) {
+    fixture.expenses.push({ ...template, expense: { ...template.expense, expenseId: `e${index}`, title: `核对账单${index}` } });
+  }
+  Object.assign(fixture.records[0], { scopeExpenseIds: fixture.expenses.map(item => item.expense.expenseId) });
+  await page.goto('/activities/travel/settlement');
+  const trigger = page.getByRole('button', { name: '结算 9/20、9/22 · 59 笔' });
+  await trigger.scrollIntoViewIfNeeded();
+  const before = (await trigger.boundingBox())!.y;
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
+  await expect(dialog.locator('.settlement-bill')).toHaveCount(59);
+  await expect(dialog.getByRole('heading', { name: '本次结算账单 · 59 笔' })).toBeVisible();
+  await expect(page.locator('.settlement-record__details')).toHaveCount(0);
+  expect(await dialog.evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true);
+  await screenshot(page, info, 'bills-long-list');
+  const body = dialog.locator('.form-overlay__body');
+  await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await expect(dialog.getByText('核对账单59', { exact: true })).toBeInViewport();
+  const close = dialog.getByRole('button', { name: '关闭结算账单' });
+  await expect(close).toBeInViewport();
+  await close.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect.poll(async () => Math.abs((await trigger.boundingBox())!.y - before)).toBeLessThanOrEqual(2);
 });
 
 test('轻分组卡片：空态、长姓名、大金额、深色与只读状态', async ({ page }, info) => {

@@ -240,7 +240,7 @@ export function ExpenseFeedPage() {
         title={entryMode === "ai" ? "智能录入" : quickExpenseViewTitle(quickView)}
         onBack={quickView === "entry" ? undefined : { label: quickExpenseBackLabel(quickView), onClick: () => setQuickView(parentQuickExpenseView(quickView)) }}
         focusKey={`${entryMode}-${quickView}-${initialDraft?.draftKey ?? "new"}`}
-        initialFocus="mobile-dialog"
+        initialFocus={entryMode === "manual" && quickView === "entry" ? "auto" : "mobile-dialog"}
         mobileSheet={quickExpenseMobileSheet(quickView)}
         onClose={() => { setEntryMode("manual"); setInitialDraft(undefined); setQuickView("entry"); setEntryOpen(false); }}
         className={`${quickExpenseOverlayClass(quickView)}${entryMode === "ai" ? " ai-expense-overlay" : ""}`}

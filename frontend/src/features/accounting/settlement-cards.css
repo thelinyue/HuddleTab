@@ -42,11 +42,16 @@
 .settlement-record__summary { display: inline-flex; flex: 1 1 auto; min-width: 0; min-height: 44px; align-items: center; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--muted-foreground); text-align: left; font-size: 12px; }
 .settlement-record__summary > span { overflow-wrap: anywhere; }
 .settlement-record__summary > svg { flex-shrink: 0; }
-.settlement-record__summary[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .settlement-record__meta > time { font-size: 11px; white-space: nowrap; }
-.settlement-record__details { margin: 0 0 10px; padding: 12px; border-radius: 10px; background: var(--surface-muted); color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
-.settlement-record__details p { margin: 0; }
-.settlement-record__details p + p { margin-top: 6px; }
+.settlement-bills-overlay .form-overlay__sheet { width: min(100%, 560px); }
+.settlement-bills-list h3 { margin: 16px 0 4px; color: var(--foreground); font-size: 13px; font-weight: 650; }
+.settlement-bills-list h3 span { color: var(--muted-foreground); font-weight: 400; }
+.settlement-bill { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.settlement-bill:last-of-type { border-bottom: 0; }
+.settlement-bill__title { min-width: 0; color: var(--foreground); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.settlement-bill > .money { white-space: nowrap; color: var(--foreground); font-size: 14px; font-weight: 650; }
+.settlement-bill small { grid-column: 1 / -1; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.settlement-bills-empty, .settlement-bills-list > p { margin: 16px 0 0; color: var(--muted-foreground); font-size: 13px; }
 .settlement-page .settlement-card .settlement-record--void { background: transparent; }
 .settlement-record--void .settlement-record__main { color: var(--muted-foreground); }
 .settlement-record--void .settlement-record__amount .money { color: var(--muted-foreground); font-weight: 400; text-decoration: line-through; text-decoration-thickness: 1px; }

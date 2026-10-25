@@ -6,7 +6,7 @@ import { usePwaUpdateBlock } from "../../app/pwa-update-safety";
 import { MemberAvatar } from "../../components/member-avatar";
 import { Overlay } from "../../components/overlay";
 import { Button, ConfirmDialog, ErrorNotice, Field, Input, LoadingState, Money, Textarea } from "../../components/ui";
-import { amountToMinor, formatMoney, minorToInput, normalizeCurrency } from "../../domain-preview/money";
+import { amountExpressionToMinor, amountToMinor, formatMoney, minorToInput, normalizeCurrency } from "../../domain-preview/money";
 import type { PendingAttachmentDraft } from "../../pwa/indexed-db/schema";
 import { type ActivityMember, useCreateGuestMutation, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
@@ -27,7 +27,7 @@ import { aiSuggestionLabel, type AiExpenseEditorInitialValues, type AiExpenseFie
 
 import { attachmentAccept, ExpenseAttachments, SelectedAttachmentPreviews, validateAttachments } from "./expense-attachments";
 
-import { categories, memberAvatarImage, memberAvatarPreset, memberName, parentQuickExpenseView, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
+import { categories, memberAvatarImage, memberAvatarPreset, memberName, parentQuickExpenseView, readQuickExpensePreferences, saveQuickExpensePreferences, type PendingExpenseDraft, quickExpenseBackLabel, quickExpenseMobileSheet, quickExpenseOverlayClass, type QuickExpenseView, quickExpenseViewTitle } from "./shared";
 const splitModes = [
   ["EQUAL", "均摊"], ["EXACT", "按金额"], ["PERCENTAGE", "按比例"], ["WEIGHT", "按份数"],
 ] as const;
@@ -334,6 +334,15 @@ function QuickValueButton({ label, value, children, onClick, initialFocus = fals
   );
 }
 
+/** 金额运算按钮只插入文本，不维护独立计算器状态，保证键盘输入和触屏输入一致。 */
+function AmountExpressionTools({ onInsert }: { onInsert: (value: string) => void }) {
+  return <div className="quick-expense-amount__tools" role="toolbar" aria-label="金额运算">
+    {[["+", "加"], ["-", "减"], ["×", "乘"], ["÷", "除"], ["(", "左括号"], [")", "右括号"]].map(([value, label]) => (
+      <button key={value} type="button" aria-label={`插入${label}运算符`} onPointerDown={event => event.preventDefault()} onClick={() => onInsert(value)}>{value}</button>
+    ))}
+  </div>;
+}
+
 /** 保留远程版时间单元格的视觉层级，由覆盖整格的原生输入直接唤起系统选择器。 */
 function QuickTimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
@@ -499,7 +508,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [dismissedAiFields, setDismissedAiFields] = useState<Set<string>>(() => new Set());
   const [entryFocusTarget, setEntryFocusTarget] = useState<"amount" | "payer" | "participants" | "split" | "category" | "currency" | "note" | null>(() => (
-    typeof window !== "undefined" && window.innerWidth >= 640 ? "amount" : null
+    !initial && !rejected ? "amount" : null
   ));
   const amountRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -508,7 +517,12 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
   const activeMembers = memberData.filter((member) => member.status === "ACTIVE");
   const selectableMembers = initial ? memberData : activeMembers;
   const canAddGuest = activity.status === "ACTIVE" && activity.currentMemberRole === "OWNER";
-  const totalMinor = (() => { try { return amount.trim() ? BigInt(amountToMinor(amount, currency)) : null; } catch { return null; } })();
+  const amountExpressionError = (() => {
+    if (!amount.trim() || !/[+\-*/×÷()]/.test(amount)) return undefined;
+    try { amountExpressionToMinor(amount, currency); return undefined; }
+    catch (error) { return error instanceof Error ? error.message : "金额表达式格式不正确。"; }
+  })();
+  const totalMinor = (() => { try { return amount.trim() ? BigInt(amountExpressionToMinor(amount, currency)) : null; } catch { return null; } })();
   const splitPreview = previewQuickSplit(totalMinor, currency, participantIds, splitMode, splitValues);
   const mutation = rejected ? reviseRejected : initial ? update : create;
 
@@ -547,18 +561,31 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
 
   useEffect(() => {
     if (initialized || activeMembers.length === 0) return;
+    const remembered = !initial && !rejected && !initialDraft
+      ? readQuickExpensePreferences(session.userId, activity.activityId)
+      : undefined;
+    const activeIds = new Set(activeMembers.map((member) => member.memberId));
+    const rememberedPayers = remembered?.payerIds?.filter((id) => activeIds.has(id)) ?? [];
+    const restoredPayers = remembered?.payerMode === "multiple" ? rememberedPayers : rememberedPayers.slice(0, 1);
+    const rememberedParticipants = remembered?.participantIds?.filter((id) => activeIds.has(id)) ?? [];
     const current = activeMembers.some((member) => member.memberId === activity.currentMemberId) ? activity.currentMemberId : activeMembers[0].memberId;
+    if (remembered?.category && categories.some(([value]) => value === remembered.category)) setCategory(remembered.category);
     if (payerIds.length === 0) {
-      setPayerIds([current]);
-      setPayerDraftIds([current]);
+      const nextPayers = restoredPayers.length ? restoredPayers : [current];
+      setPayerIds(nextPayers);
+      setPayerDraftIds(nextPayers);
+      if (remembered?.payerMode && restoredPayers.length > 0) {
+        setPayerMode(remembered.payerMode);
+        setPayerDraftMode(remembered.payerMode);
+      }
     }
     if (participantIds.length === 0) {
-      const allIds = activeMembers.map((member) => member.memberId);
-      setParticipantIds(allIds);
-      setParticipantDraft(allIds);
+      const nextParticipants = rememberedParticipants.length ? rememberedParticipants : activeMembers.map((member) => member.memberId);
+      setParticipantIds(nextParticipants);
+      setParticipantDraft(nextParticipants);
     }
     setInitialized(true);
-  }, [activeMembers, activity.currentMemberId, initialized, participantIds.length, payerIds.length]);
+  }, [activeMembers, activity.activityId, activity.currentMemberId, initial, initialDraft, initialized, participantIds.length, payerIds.length, rejected, session.userId]);
 
   useEffect(() => {
     const field = Object.keys(fieldErrors)[0];
@@ -583,6 +610,22 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
   function clearFieldError(field: string) {
     setFieldErrors((current) => { if (!current[field]) return current; const next = { ...current }; delete next[field]; return next; });
     setQuickError(undefined);
+  }
+
+  function insertAmountToken(token: string) {
+    const input = amountRef.current;
+    const start = input?.selectionStart ?? amount.length;
+    const end = input?.selectionEnd ?? start;
+    const next = `${amount.slice(0, start)}${token}${amount.slice(end)}`;
+    setAmount(next);
+    markAiFieldEdited("amount");
+    markAiFieldEdited("payer");
+    markAiFieldEdited("split");
+    clearFieldError("amount");
+    requestAnimationFrame(() => {
+      input?.focus({ preventScroll: true });
+      input?.setSelectionRange(start + token.length, start + token.length);
+    });
   }
 
   function openPayer() {
@@ -775,7 +818,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
       const normalizedCurrency = normalizeCurrency(currency);
       let total: string;
       try {
-        total = amountToMinor(amount, normalizedCurrency);
+        total = amountExpressionToMinor(amount, normalizedCurrency);
       } catch (error) {
         setFieldErrors({ amount: error instanceof Error ? error.message : "金额格式不正确。" });
         return;
@@ -823,6 +866,7 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
         });
       } else {
         await create.mutateAsync({ input: draft, files: selectedAttachments.map(({ file }) => file) });
+        saveQuickExpensePreferences(session.userId, activity.activityId, { category, payerMode, payerIds: [...payerIds], participantIds: [...participantIds] });
       }
       if (onSaved) onSaved();
       else navigate(`/activities/${activity.activityId}`);
@@ -891,10 +935,12 @@ export function UnifiedExpenseEditor({ initial, rejected, initialDraft, view, on
           <div className="quick-expense-amount">
             <button type="button" className="quick-expense-currency" aria-label={`币种：${currency}`} aria-haspopup="dialog" data-overlay-initial-focus={entryFocusTarget === "currency" ? "true" : undefined} onClick={() => { setEntryFocusTarget("currency"); onViewChange("currency"); }}><span>{currency}</span><ChevronRight aria-hidden="true" size={14} /></button>
             <label htmlFor="quick-expense-amount" className="sr-only">金额</label>
-            <Input ref={amountRef} id="quick-expense-amount" data-overlay-initial-focus={entryFocusTarget === "amount" ? "true" : undefined} className="quick-expense-amount__input" inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); markAiFieldEdited("amount"); markAiFieldEdited("payer"); markAiFieldEdited("split"); clearFieldError("amount"); }} placeholder="0.00" aria-invalid={Boolean(fieldErrors.amount)} aria-describedby={fieldErrors.amount ? "quick-expense-amount-error" : undefined} required />
+            <Input ref={amountRef} id="quick-expense-amount" data-overlay-initial-focus={entryFocusTarget === "amount" ? "true" : undefined} className="quick-expense-amount__input" inputMode="decimal" type="text" value={amount} onChange={(event) => { setAmount(event.target.value); markAiFieldEdited("amount"); markAiFieldEdited("payer"); markAiFieldEdited("split"); clearFieldError("amount"); }} placeholder="0.00" title="支持四则表达式，例如 12.5+8*2" aria-invalid={Boolean(fieldErrors.amount || amountExpressionError)} aria-describedby={[fieldErrors.amount ? "quick-expense-amount-error" : undefined, amountExpressionError ? "quick-expense-expression-error" : undefined].filter(Boolean).join(" ") || undefined} required />
             <small>金额 {aiBadge("amount")}</small>
             {fieldErrors.amount ? <small id="quick-expense-amount-error" className="quick-expense-field-error" role="alert">{fieldErrors.amount}</small> : null}
           </div>
+          <AmountExpressionTools onInsert={insertAmountToken} />
+          {amountExpressionError ? <small id="quick-expense-expression-error" className="quick-expense-expression-error" role="alert">{amountExpressionError}</small> : amount.trim() && /[+\-*/×÷()]/.test(amount) && totalMinor !== null ? <small className="quick-expense-expression-preview" aria-live="polite">计算结果：{formatMoney(currency, totalMinor.toString())}</small> : null}
           <div className="quick-expense-grid">
             <QuickValueButton label="分类" value={selectedCategory[1]} initialFocus={entryFocusTarget === "category"} onClick={() => { setEntryFocusTarget("category"); onViewChange("category"); }}><img className="quick-expense-value-button__image" src={`/expense-categories/${selectedCategory[2]}.webp`} width={34} height={34} alt="" /></QuickValueButton>
             <label className="quick-expense-inline-field"><span>用途 {aiBadge("title")}</span><Input ref={titleRef} aria-label="用途" value={title} onChange={(event) => { setTitle(event.target.value); markAiFieldEdited("title"); clearFieldError("title"); }} placeholder="例如：晚餐" maxLength={120} aria-invalid={Boolean(fieldErrors.title)} aria-describedby={fieldErrors.title ? "quick-expense-title-error" : undefined} required />{fieldErrors.title ? <small id="quick-expense-title-error" className="quick-expense-error" role="alert">{fieldErrors.title}</small> : null}</label>

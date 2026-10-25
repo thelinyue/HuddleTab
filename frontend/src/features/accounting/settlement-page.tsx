@@ -1,5 +1,5 @@
 import { ArrowLeft, Check, ChevronDown, ChevronRight, Info, MoreHorizontal, UsersRound } from "lucide-react";
-import { type FormEvent, useId, useRef, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Popover } from "radix-ui";
 import { useActivityView, useActivityPagePosition } from "../activities/activity-view-state";
@@ -11,9 +11,9 @@ import { Button, ConfirmDialog, ErrorNotice, Field, Input, Money } from "../../c
 import { amountToMinor, formatMoney, minorToInput } from "../../domain-preview/money";
 import { type ActivityMember, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
-import { type RecommendationStrategy, type Settlement, type SettlementScope, useCreateSettlementMutation, useSettlementPreviewQuery, useConfirmBillOffsetsMutation, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
+import { type ExpenseAggregate, type RecommendationStrategy, type Settlement, type SettlementScope, useCreateSettlementMutation, useSettlementPreviewQuery, useConfirmBillOffsetsMutation, useExpensesQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
 import { SettlementDates, settlementDateLabel, settlementRecordDates } from "./settlement-dates";
-import { memberAvatarImage, memberAvatarPreset, memberName } from "./shared";
+import { categories, currentSettlementLabel, memberAvatarImage, memberAvatarPreset, memberName } from "./shared";
 import { AccountingSkeleton } from "./skeleton";
 import "./settlement-cards.css";
 
@@ -98,19 +98,23 @@ function TransferParties({ payer, receiver, members }: { payer: string; receiver
   return <span className="settlement-transfer"><span><MemberAvatar memberId={payer} {...memberAvatarImage(payer, members)} displayName={memberName(payer, members)} avatarPreset={memberAvatarPreset(payer, members)} size="sm" /><strong>{name(payer)}</strong></span><small>付给</small><span><MemberAvatar memberId={receiver} {...memberAvatarImage(receiver, members)} displayName={memberName(receiver, members)} avatarPreset={memberAvatarPreset(receiver, members)} size="sm" /><strong>{name(receiver)}</strong></span></span>;
 }
 
-/** 常态只展示收付与日期摘要，完整范围按需展开；菜单关闭后焦点回到持久存在的行内入口。 */
-function SettlementRow({ settlement, members, writable, onEdit, beforeChange, afterChange }: { settlement: Settlement; members: readonly ActivityMember[]; writable: boolean; onEdit: () => void; beforeChange: () => void; afterChange: () => void }) {
+/** 账单列表仅使用该笔转账保存的 scopeExpenseIds，不用当前预览或日期重新推断历史范围。 */
+function SettlementRow({ settlement, members, expenses, expensesPending, writable, onEdit, beforeChange, afterChange }: { settlement: Settlement; members: readonly ActivityMember[]; expenses: readonly ExpenseAggregate[]; expensesPending: boolean; writable: boolean; onEdit: () => void; beforeChange: () => void; afterChange: () => void }) {
   const { session, activity } = useWorkspace();
   const voidMutation = useVoidSettlementMutation(session.userId, activity.activityId);
   const [voidOpen, setVoidOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [billsOpen, setBillsOpen] = useState(false);
   const openingDialog = useRef(false);
-  const detailsId = useId();
-  const { dates, summary } = settlementRecordDates(settlement);
+  const billsTrigger = useRef<HTMLButtonElement>(null);
+  const { summary } = settlementRecordDates(settlement);
   const recordedAt = new Date(settlement.createdAt);
   const recordedDate = recordedAt.toLocaleDateString('zh-CN', { ...(recordedAt.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' as const } : {}), month: 'numeric', day: 'numeric' });
-  const applicationCount = new Set(settlement.applications?.map(application => application.expenseId) ?? []).size;
+  const expenseById = new Map(expenses.map(expense => [expense.expense.expenseId, expense]));
+  const scopedExpenseIds = settlement.scopeExpenseIds ?? [];
+  const scopedExpenses = scopedExpenseIds.map(expenseId => expenseById.get(expenseId)).filter((expense): expense is ExpenseAggregate => Boolean(expense));
+  const missingExpenseCount = Math.max(0, scopedExpenseIds.length - scopedExpenses.length);
+  const closeBills = () => { setBillsOpen(false); afterChange(); };
   return <article data-reading-key={`record-${settlement.settlementId}`} className={`settlement-record${settlement.status === 'VOID' ? ' settlement-record--void' : ''}`}>
     <div className="settlement-record__main">
       <TransferParties payer={settlement.payerMemberId} receiver={settlement.receiverMemberId} members={members} />
@@ -129,14 +133,26 @@ function SettlementRow({ settlement, members, writable, onEdit, beforeChange, af
     <div className="settlement-record__meta">
       {settlement.status === 'VOID' ? <small className="settlement-record__status">已作废</small> : null}
       {/* 作废后菜单消失，由详情入口接续菜单的焦点身份，保持键盘阅读位置。 */}
-      <button type="button" className="settlement-record__summary" aria-expanded={expanded} aria-controls={detailsId} data-focus-key={`${writable && settlement.status === 'ACTIVE' ? 'record-details' : 'record-menu'}-${settlement.settlementId}`} onClick={() => setExpanded(value => !value)}><span>{summary}</span><ChevronDown size={14} aria-hidden="true" /></button>
+      <button ref={billsTrigger} type="button" className="settlement-record__summary" aria-haspopup="dialog" data-focus-key={`${writable && settlement.status === 'ACTIVE' ? 'record-details' : 'record-menu'}-${settlement.settlementId}`} onClick={() => { billsTrigger.current?.focus({ preventScroll: true }); beforeChange(); setBillsOpen(true); }}><span>{summary}</span><ChevronRight size={14} aria-hidden="true" /></button>
       <time dateTime={settlement.createdAt}>{recordedDate} 录入</time>
     </div>
-    <div id={detailsId} hidden={!expanded} className="settlement-record__details">
-      <p>结算日期：{dates.length ? dates.map(date => date.replaceAll('-', '/')).join('、') : '未记录日期范围'}{dates.length ? ` · ${settlement.scopeExpenseIds?.length ?? 0} 笔账单` : ''}</p>
-      <p>记录于 {recordedAt.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
-      <p>{settlement.status === 'VOID' ? '已作废，不计入余额' : applicationCount ? `自动清偿 ${applicationCount} 笔账单` : '已记录转账'}</p>
-    </div>
+    {billsOpen ? <Overlay open title="结算账单" onClose={closeBills} initialFocus="mobile-dialog" mobileSheet={{ maxHeight: 0.92 }} className="settlement-bills-overlay">
+      {scopedExpenseIds.length ? <section className="settlement-bills-list" aria-label="本次结算账单">
+        <h3>本次结算账单 <span>· {scopedExpenseIds.length} 笔</span></h3>
+        {expensesPending && !expenses.length ? <p>正在读取账单…</p> : null}
+        {scopedExpenses.map(({ expense, payments, shares, settlementProgress, currentSettlement }) => {
+          const category = categories.find(([value]) => value === expense.category) ?? categories.at(-1)!;
+          const payerNames = payments.map(payment => memberName(payment.memberId, members)).join('、') || '未知付款人';
+          return <article className="settlement-bill" key={expense.expenseId}>
+            <span className="settlement-bill__title">{expense.title}</span>
+            <Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} />
+            <small>{category[1]} · {payerNames} 付款 · {shares.length} 人参与</small>
+            <small>{new Date(expense.occurredAt).toLocaleDateString('zh-CN')} · {currentSettlementLabel({ currentSettlement, settlementProgress })}</small>
+          </article>;
+        })}
+        {missingExpenseCount && !expensesPending ? <p role="status">有 {missingExpenseCount} 笔账单暂时无法读取。</p> : null}
+      </section> : <p className="settlement-bills-empty">这笔结算未保存账单范围，无法列出对应账单。</p>}
+    </Overlay> : null}
     <ConfirmDialog open={voidOpen && writable} title="作废结算" message="作废后这笔结算将不再计入余额，确定继续吗？" confirmLabel="确认作废" busy={voidMutation.isPending} error={voidMutation.error ? <ErrorNotice error={voidMutation.error} /> : undefined} onConfirm={() => void voidMutation.mutateAsync({ settlementId: settlement.settlementId, version: settlement.version }).then(() => { setVoidOpen(false); afterChange(); }).catch(() => undefined)} onCancel={() => { setVoidOpen(false); afterChange(); }} />
   </article>;
 }
@@ -189,6 +205,7 @@ export function SettlementsPage() {
   const offsetSubmission = useRef<{ payload: string; id: string } | undefined>(undefined);
   const offsetBusy = useRef(false);
   const settlements = useSettlementsQuery(session.userId, activity.activityId, !offline);
+  const expenses = useExpensesQuery(session.userId, activity.activityId, !offline);
   const [strategySheetOpen, setStrategySheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [datesOpen, setDatesOpen] = useState(false);
@@ -197,6 +214,7 @@ export function SettlementsPage() {
   const ledgerData = offline ? snapshot?.snapshot.ledger : ledger.data;
   const recommendationData = offline ? snapshot?.snapshot.recommendations : recommendations.data;
   const records = settlements.data ?? snapshot?.snapshot.settlements;
+  const expenseData = expenses.data ?? snapshot?.snapshot.expenses ?? [];
   const balances = ledgerData?.balances;
   const current = balances?.find(balance => balance.memberId === activity.currentMemberId);
   const fullySettled = offline ? Boolean(balances?.length && balances.every(balance => BigInt(balance.netMinor) === 0n)) : Boolean(!preview.error && preview.data?.settled);
@@ -277,7 +295,7 @@ export function SettlementsPage() {
         {!offline && settlementDates ? <p className="settlement-history-hint">包含活动全部结算记录</p> : null}
         <div className="settlement-card settlement-card--history">
         <RefreshError error={settlements.error} retry={() => void settlements.refetch()} />
-        {records && memberReady ? records.length ? <div className="settlement-list">{[...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} writable={writable} onEdit={() => openForm({ key: record.settlementId, existing: record })} beforeChange={capturePosition} afterChange={restorePosition} />)}</div> : !settlements.error ? <div className="settlement-card__state settlement-history-empty"><UsersRound size={22} aria-hidden="true" /><p>还没有结算记录</p></div> : null : !settlements.error && !members.error ? <div className="settlement-card__state"><AccountingSkeleton kind="settlement" section /></div> : null}
+        {records && memberReady ? records.length ? <div className="settlement-list">{[...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} expenses={expenseData} expensesPending={!offline && expenses.isPending} writable={writable} onEdit={() => openForm({ key: record.settlementId, existing: record })} beforeChange={capturePosition} afterChange={restorePosition} />)}</div> : !settlements.error ? <div className="settlement-card__state settlement-history-empty"><UsersRound size={22} aria-hidden="true" /><p>还没有结算记录</p></div> : null : !settlements.error && !members.error ? <div className="settlement-card__state"><AccountingSkeleton kind="settlement" section /></div> : null}
         </div>
       </section>
     </div></main>

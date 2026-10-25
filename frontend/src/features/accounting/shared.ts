@@ -13,6 +13,43 @@ export const categories = [
   ["TICKET", "门票", "ticket"], ["SHOPPING", "购物", "shopping"], ["ENTERTAINMENT", "娱乐", "entertainment"], ["OTHER", "其他", "other"],
 ] as const;
 
+export type QuickExpensePreferences = {
+  category?: (typeof categories)[number][0];
+  payerMode?: "single" | "multiple";
+  payerIds?: string[];
+  participantIds?: string[];
+};
+
+function quickExpensePreferencesKey(userId: string, activityId: string): string {
+  return `huddletab:expense-preferences:${userId}:${activityId}`;
+}
+
+/** 本地记忆按账号和活动隔离；成员状态变化时由调用方再过滤 ID。 */
+export function readQuickExpensePreferences(userId: string, activityId: string): QuickExpensePreferences | undefined {
+  try {
+    const raw = window.localStorage.getItem(quickExpensePreferencesKey(userId, activityId));
+    if (!raw) return undefined;
+    const value = JSON.parse(raw) as Partial<QuickExpensePreferences>;
+    if (!value || typeof value !== "object") return undefined;
+    return {
+      category: typeof value.category === "string" ? value.category as QuickExpensePreferences["category"] : undefined,
+      payerMode: value.payerMode === "single" || value.payerMode === "multiple" ? value.payerMode : undefined,
+      payerIds: Array.isArray(value.payerIds) ? value.payerIds.filter((id): id is string => typeof id === "string") : undefined,
+      participantIds: Array.isArray(value.participantIds) ? value.participantIds.filter((id): id is string => typeof id === "string") : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveQuickExpensePreferences(userId: string, activityId: string, value: QuickExpensePreferences): void {
+  try {
+    window.localStorage.setItem(quickExpensePreferencesKey(userId, activityId), JSON.stringify(value));
+  } catch {
+    // 隐私模式或存储配额不足时退化为当前表单状态，不影响账单写入。
+  }
+}
+
 export function memberName(memberId: string, members: readonly ActivityMember[] | undefined): string {
   return members?.find((member) => member.memberId === memberId)?.displayName ?? "未知成员";
 }

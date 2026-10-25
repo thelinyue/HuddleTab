@@ -247,6 +247,47 @@ test('紧凑流水摘要为只读字段，独立结算页覆盖收付和零余�
   await expect(page).toHaveURL(/\/share-summary\/demo$/);
 });
 
+test('移动端记账金额自动聚焦并支持运算按钮插入', async ({ page }) => {
+  await installFixture(page);
+  await page.goto('/activities/demo');
+  await page.getByRole('button', { name: '记一笔', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '记一笔', exact: true });
+  const amount = dialog.getByLabel('金额', { exact: true });
+  await expect(amount).toBeFocused();
+  await amount.fill('12');
+  await amount.evaluate(element => {
+    const input = element as HTMLInputElement;
+    input.focus();
+    input.setSelectionRange(2, 2);
+  });
+  await dialog.getByRole('button', { name: '插入乘运算符' }).click();
+  await expect(amount).toHaveValue('12×');
+  await expect(amount).toBeFocused();
+  await amount.fill('12.5+8*2');
+  await expect(dialog).toContainText('计算结果：¥28.50');
+});
+
+test('移动端点击结算笔数打开独立账单弹窗', async ({ page }) => {
+  const fixture = await installFixture(page);
+  Object.assign(fixture.records[0], { scopeDates: ['2026-09-05'], scopeExpenseIds: ['e1'], scope: { dates: ['2026-09-05'], timeZone: 'Asia/Shanghai', revision: '1' } });
+  await page.goto('/activities/demo/settlement');
+  const record = page.locator('[data-reading-key="record-s1"]');
+  const bills = record.getByRole('button', { name: '结算 9/5 · 1 笔' });
+  await expect(bills).toHaveAttribute('aria-haspopup', 'dialog');
+  await bills.scrollIntoViewIfNeeded();
+  const before = (await record.boundingBox())!.y;
+  await bills.click();
+  const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
+  await expect(dialog.getByRole('heading', { name: '本次结算账单 · 1 笔' })).toBeVisible();
+  await expect(dialog).toContainText('湖边晚餐');
+  await expect(dialog).toContainText('¥480.00');
+  await expect(page).toHaveURL('/activities/demo/settlement');
+  await dialog.getByRole('button', { name: '关闭结算账单' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(bills).toBeFocused();
+  await expect.poll(async () => Math.abs((await record.boundingBox())!.y - before)).toBeLessThanOrEqual(2);
+});
+
 test('活动统计：通过活动级更多操作进入，分类、每日和成员统计在桌面与移动端完整可读', async ({ page }, info) => {
   const control = await installFixture(page);
   control.expenses.push(
