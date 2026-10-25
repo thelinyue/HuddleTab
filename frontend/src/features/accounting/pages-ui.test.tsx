@@ -31,6 +31,7 @@ const members = vi.hoisted(() => [
   { activityId: "activity-1", displayName: "乙", memberId: "member-2", role: "MEMBER", status: "ACTIVE", userId: "user-2", version: "1" },
 ] as const);
 const detailRecordsState = vi.hoisted(() => ({ records: undefined as Settlement[] | undefined }));
+const settlementBillsState = vi.hoisted(() => ({ data: undefined as ExpenseAggregate[] | undefined, pending: false, error: undefined as unknown, refetch: vi.fn() }));
 const removedMemberState = vi.hoisted(() => ({ enabled: false }));
 
 const expense = vi.hoisted(() => ({
@@ -130,7 +131,7 @@ vi.mock("../activities/workspace-context", () => ({
   useWorkspace: () => ({
     activity,
     offline: workspaceState.offline,
-    snapshot: workspaceState.snapshotOnly ? { snapshot: { expenses: [expense] } } : undefined,
+    snapshot: workspaceState.snapshotOnly ? { snapshot: { expenses: [expense], settlements: detailRecordsState.records } } : undefined,
     session: { displayName: "测试用户", userId: "user-1", username: "tester" },
   }),
 }));
@@ -152,7 +153,7 @@ vi.mock("./api", () => ({
   useExchangeRateSuggestionMutation: () => rateMutation,
   useAiCapabilityQuery: (...args: unknown[]) => { aiCapabilityQuery(...args); return { data: aiCapability, isPending: false, error: null }; },
   createAiTextDraft: (...args: unknown[]) => aiTextDraftMutation(...args),
-  useExpensesQuery: () => ({ data: workspaceState.snapshotOnly ? undefined : accountingQueryState.emptyExpenses ? [] : [expense], isPending: false }),
+  useExpensesQuery: () => ({ data: workspaceState.snapshotOnly || settlementBillsState.pending ? undefined : settlementBillsState.data ?? (accountingQueryState.emptyExpenses ? [] : [expense]), isPending: settlementBillsState.pending, error: settlementBillsState.error, refetch: settlementBillsState.refetch }),
   useLedgerQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : { balances: [{ memberId: "member-1", netMinor: accountingQueryState.netMinor }, { memberId: "member-2", netMinor: String(-BigInt(accountingQueryState.netMinor)) }] }, isPending: accountingQueryState.ledgerPending, error: accountingQueryState.ledgerError }),
   useRecommendationsQuery: () => ({ data: { recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }] }, isPending: false }),
   useSettlementPreviewQuery: () => ({ data: accountingQueryState.ledgerPending ? undefined : {
@@ -161,7 +162,7 @@ vi.mock("./api", () => ({
     recommendations: [{ payerMemberId: "member-1", receiverMemberId: "member-2", amountMinor: "500" }], settled: accountingQueryState.netMinor === "0", requiresOffsetConfirmation: false,
   }, isPending: accountingQueryState.ledgerPending, error: accountingQueryState.ledgerError, refetch: vi.fn() }),
   useConfirmBillOffsetsMutation: () => ({ ...mutation(), reset: vi.fn() }),
-  useSettlementsQuery: () => ({ data: detailRecordsState.records ?? (accountingQueryState.emptySettlements ? [] : [settlement]), isPending: false }),
+  useSettlementsQuery: () => ({ data: workspaceState.snapshotOnly ? undefined : detailRecordsState.records ?? (accountingQueryState.emptySettlements ? [] : [settlement]), isPending: false }),
   useUpdateExpenseMutation: () => updateMutation,
   useUpdateSettlementMutation: mutation,
   useVoidSettlementMutation: mutation,
@@ -211,6 +212,10 @@ afterEach(() => {
   workspaceState.snapshotOnly = false;
   readonlyExpenseState.data = undefined;
   detailRecordsState.records = undefined;
+  settlementBillsState.data = undefined;
+  settlementBillsState.pending = false;
+  settlementBillsState.error = undefined;
+  settlementBillsState.refetch.mockClear();
   removedMemberState.enabled = false;
   aiCapability.textDraftAvailable = false;
   aiCapabilityQuery.mockClear();
@@ -1520,6 +1525,112 @@ describe("账务空状态插画", () => {
     expect(screen.getByText("还没有结算记录")).toBeInTheDocument();
     expect(container.querySelector('img[src="/illustrations/settlement-history-empty.webp"]')).not.toBeInTheDocument();
     expect(container.querySelector('.settlement-history-empty svg')).toBeInTheDocument();
+  });
+});
+
+describe("结算账单清偿关联", () => {
+  const bill: ExpenseAggregate = { ...expense, settlementProgress: { currency: "CNY", status: "UNSETTLED", totalRequiredMinor: "500", remainingMinor: "500", settledMinor: "0", paidMinor: "0", offsetMinor: "0", members: [] } };
+
+  function openBills(fields: Partial<Settlement> = {}) {
+    detailRecordsState.records = [{ ...settlement, applications: [], scopeExpenseIds: ["expense-1", "pure-k"], scopeDates: ["2026-09-01"], ...fields }];
+    renderPage(<SettlementsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "结算范围 9/1 · 2 笔" }));
+    return screen.getByRole("dialog", { name: "结算账单" });
+  }
+
+  it("不显示仅在结算范围内的纯K，同账单双侧应用及显式归属去重", () => {
+    settlementBillsState.data = [bill, { ...bill, expense: { ...bill.expense, expenseId: "pure-k", title: "纯K" }, shares: [bill.shares[0]] }];
+    const dialog = openBills({
+      applications: ["member-1", "member-2"].map(memberId => ({ expenseId: "expense-1", memberId, amountMinor: "500", origin: "AUTO" })),
+      allocations: [{ expenseId: "expense-1", amountMinor: "500" }],
+    });
+    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 1 笔" })).toBeVisible();
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
+    expect(within(dialog).queryByText("纯K")).toBeNull();
+    expect(dialog).toHaveTextContent("账单总额");
+    expect(dialog).toHaveTextContent("本笔清偿涉及：甲、乙");
+    expect(dialog).not.toHaveTextContent("明确归属");
+    expect(dialog).toHaveTextContent("当前：待同步");
+  });
+
+  it("保留结算人未参与消费但确有清偿关联的账单", () => {
+    settlementBillsState.data = [{ ...bill, shares: [bill.shares[0]] }];
+    const dialog = openBills({ applications: [{ expenseId: "expense-1", memberId: "member-1", amountMinor: "500", origin: "AUTO" }] });
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
+    expect(dialog).toHaveTextContent("1 人参与");
+    expect(dialog).toHaveTextContent("本笔清偿涉及：甲");
+  });
+
+  it("仅显式归属的账单也展示，并按发生时间及ID排序而非关联顺序", () => {
+    const makeBill = (expenseId: string, occurredAt: string): ExpenseAggregate => ({ ...bill, expense: { ...bill.expense, expenseId, title: expenseId, occurredAt } });
+    settlementBillsState.data = [makeBill("later", "2026-09-02T08:00:00Z"), makeBill("b", "2026-09-01T08:00:00Z"), makeBill("a", "2026-09-01T08:00:00Z")];
+    const dialog = openBills({ allocations: ["later", "b", "a"].map(expenseId => ({ expenseId, amountMinor: "100" })) });
+    expect(Array.from(dialog.querySelectorAll(".settlement-bill__title"), item => item.textContent)).toEqual(["a", "b", "later"]);
+    expect(within(dialog).getAllByText("明确归属")).toHaveLength(3);
+    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 3 笔" })).toBeVisible();
+  });
+
+  it("有范围但无关联时不回退范围，也不推断为活动整体结算", () => {
+    const dialog = openBills();
+    expect(dialog).toHaveTextContent("暂无具体清偿关联");
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(0);
+    expect(dialog).not.toHaveTextContent("活动整体结算");
+  });
+
+  it("作废且无关联时说明不计入余额，不伪造历史明细", () => {
+    const dialog = openBills({ status: "VOID" });
+    expect(dialog).toHaveTextContent("已作废，不计入余额");
+    expect(dialog).toHaveTextContent("暂无具体清偿关联");
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(0);
+  });
+
+  it("作废后保留的归属信息不描述为有效清偿", () => {
+    const dialog = openBills({ status: "VOID", allocations: [{ expenseId: "expense-1", amountMinor: "500" }] });
+    expect(dialog).toHaveTextContent("已作废，不计入余额");
+    expect(dialog).toHaveTextContent("保留的关联信息");
+    expect(dialog).toHaveTextContent("明确归属");
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
+  });
+
+  it("关联账单缺失时按去重后的关联数计数并提示", () => {
+    const dialog = openBills({ applications: ["expense-1", "missing", "missing"].map(expenseId => ({ expenseId, memberId: "member-1", amountMinor: "100", origin: "AUTO" })) });
+    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 2 笔" })).toBeVisible();
+    expect(within(dialog).getByRole("status")).toHaveTextContent("有 1 笔关联账单暂时无法读取。");
+  });
+
+  it("加载期间不误报关联账单缺失", () => {
+    settlementBillsState.pending = true;
+    const dialog = openBills({ allocations: [{ expenseId: "expense-1", amountMinor: "500" }] });
+    expect(dialog).toHaveTextContent("正在读取账单…");
+    expect(dialog).not.toHaveTextContent("暂时无法读取");
+  });
+
+  it("详情加载失败时保留已有账单和缺失提示，并允许重试", () => {
+    settlementBillsState.error = new Error("账单读取失败");
+    const dialog = openBills({ allocations: ["expense-1", "missing"].map(expenseId => ({ expenseId, amountMinor: "100" })) });
+    expect(dialog).toHaveTextContent("午餐");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("账单读取失败");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("有 1 笔关联账单暂时无法读取。");
+    fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
+    expect(settlementBillsState.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("没有在线查询数据时按离线快照的真实清偿关联展示", () => {
+    workspaceState.offline = true;
+    workspaceState.snapshotOnly = true;
+    const dialog = openBills({ applications: [{ expenseId: "expense-1", memberId: "member-2", amountMinor: "500", origin: "AUTO" }] });
+    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 1 笔" })).toBeVisible();
+    expect(dialog).toHaveTextContent("本笔清偿涉及：乙");
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
+  });
+
+  it.each(["applications", "allocations"] as const)("旧离线数据缺少 %s 时提示同步而不推断历史", field => {
+    workspaceState.offline = true;
+    workspaceState.snapshotOnly = true;
+    const dialog = openBills({ [field]: undefined });
+    expect(dialog).toHaveTextContent("具体清偿信息待同步，请联网后重试。");
+    expect(dialog).not.toHaveTextContent("暂无具体清偿关联");
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(0);
   });
 });
 

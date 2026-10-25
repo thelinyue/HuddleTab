@@ -19,7 +19,7 @@ export function settlementRecordDates(settlement: Settlement) {
     const [year, month, day] = date.split('-');
     return `${sameYear ? '' : `${year}/`}${Number(month)}/${Number(day)}`;
   }).join('、');
-  return { dates, summary: `结算 ${label} · ${count} 笔` };
+  return { dates, summary: `结算范围 ${label} · ${count} 笔` };
 }
 
 /** 弹层内勾选只修改草稿，应用后才切换结算范围；整行可点并保留原生复选框键盘语义。 */
