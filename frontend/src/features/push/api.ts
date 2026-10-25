@@ -162,7 +162,9 @@ export async function attachPushForLogin(userId: string): Promise<void> {
 export async function detachPushForLogout(): Promise<void> {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   try {
-    const registration = await navigator.serviceWorker.ready;
+    // 退出只清理已有订阅；Worker 未注册或被禁用时，ready 可能永不完成。
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.pushManager) return;
     const subscription = await registration.pushManager.getSubscription();
     if (!subscription) return;
     const headers = await mutationHeaders();
