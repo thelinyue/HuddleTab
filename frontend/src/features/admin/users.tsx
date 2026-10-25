@@ -28,8 +28,13 @@ export function AdminUsersContent() {
 
   useEffect(() => { if (!online) setSelectedId(null); }, [online]);
   useEffect(() => {
-    // 删除导致原入口与弹层一起卸载，等弹层完成焦点清理后再聚焦仍存在的搜索框。
-    if (message && selectedId === null) searchRef.current?.focus({ preventScroll: true });
+    // 删除导致原入口与弹层一起卸载；等本轮子级焦点清理结束后，再聚焦仍存在的搜索框。
+    if (!message || selectedId !== null) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) searchRef.current?.focus({ preventScroll: true });
+    });
+    return () => { cancelled = true; };
   }, [message, selectedId]);
 
   if (!online) return <div className="notice" role="status">当前离线，系统管理需要联网后使用。</div>;

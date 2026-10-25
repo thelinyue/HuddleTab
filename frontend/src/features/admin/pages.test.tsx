@@ -60,7 +60,7 @@ describe("系统管理页面", () => {
     expect(state.remove.mutateAsync).toHaveBeenCalledExactlyOnceWith("user-1");
     expect(screen.getByText("账号已删除。")).toHaveAttribute("role", "status");
     expect(search).toHaveValue("alice");
-    expect(search).toHaveFocus();
+    await waitFor(() => expect(search).toHaveFocus());
     expect(screen.getByRole("button", { name: "全部 0" })).toBeInTheDocument();
     expect(state.status.mutateAsync).not.toHaveBeenCalled();
   });
