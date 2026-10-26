@@ -1556,8 +1556,8 @@ describe("结算账单现金拆分", () => {
     expect(dialog).toHaveTextContent("跨账清偿");
     expect(dialog).toHaveTextContent("金额仅计一次");
     expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥70.00");
-    expect(within(dialog).getByRole("link", { name: /午餐.*16:00\s*· 甲付款.*账单总额 ¥10.00/ })).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1?view=readonly");
-    expect(within(dialog).getByRole("link", { name: /房费.*16:00\s*· 甲付款.*账单总额 ¥10.00/ })).toHaveAttribute("href", "/activities/activity-1/expenses/hotel?view=readonly");
+    expect(within(dialog).getByRole("link", { name: /午餐.*甲付款.*账单总额 ¥10.00/ })).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1?view=readonly");
+    expect(within(dialog).getByRole("link", { name: /房费.*甲付款.*账单总额 ¥10.00/ })).toHaveAttribute("href", "/activities/activity-1/expenses/hotel?view=readonly");
     expect(dialog.querySelectorAll(".settlement-cross-bill__link .settlement-bill__meta")).toHaveLength(2);
   });
 
@@ -1565,11 +1565,13 @@ describe("结算账单现金拆分", () => {
     settlementBillsState.data = [bill, { ...bill, expense: { ...bill.expense, expenseId: "second-lunch", occurredAt: "2026-09-02T08:30:00Z", originalCurrency: "USD", originalAmountMinor: "2500" }, payments: [{ ...bill.payments[0], memberId: "member-2" }] }];
     const dialog = openBills({ amountMinor: "7000", cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "3000" }, { expenseIds: ["second-lunch"], amountMinor: "4000" }] });
     const rows = dialog.querySelectorAll(".settlement-bill");
+    // 展示遵循设备时区；CI 使用 UTC，不能把本机的北京时间写死为期望值。
+    const timeLabel = (value: string) => new Date(value).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
     expect(rows[0].querySelector("time")).toHaveAttribute("datetime", "2026-09-01T08:00:00Z");
-    expect(rows[0].querySelector(".settlement-bill__meta")).toHaveTextContent("16:00 · 甲付款");
+    expect(rows[0].querySelector(".settlement-bill__meta")).toHaveTextContent(`${timeLabel("2026-09-01T08:00:00Z")} · 甲付款`);
     expect(rows[0].querySelector(".settlement-bill__total")).toHaveTextContent("账单总额 ¥10.00");
     expect(rows[1].querySelector("time")).toHaveAttribute("datetime", "2026-09-02T08:30:00Z");
-    expect(rows[1].querySelector(".settlement-bill__meta")).toHaveTextContent("16:30 · 乙付款");
+    expect(rows[1].querySelector(".settlement-bill__meta")).toHaveTextContent(`${timeLabel("2026-09-02T08:30:00Z")} · 乙付款`);
     expect(rows[1].querySelector(".settlement-bill__total")).toHaveTextContent("账单总额 US$25.00");
     expect(within(dialog).getAllByRole("link", { name: /午餐.*账单总额/ }).map(link => link.getAttribute("href"))).toEqual([
       "/activities/activity-1/expenses/expense-1?view=readonly", "/activities/activity-1/expenses/second-lunch?view=readonly",
