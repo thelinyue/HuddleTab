@@ -117,8 +117,8 @@ use super::{
         __path_list as __path_settlement_list, __path_update as __path_settlement_update,
         __path_void as __path_settlement_void, CreateSettlementRequest, CreatedSettlementData,
         CreatedSettlementEnvelope, SettlementAllocationData, SettlementApplicationData,
-        SettlementData, SettlementEnvelope, SettlementEnvelopeData, SettlementListEnvelope,
-        UpdateSettlementRequest, VoidSettlementRequest,
+        SettlementCashApplicationData, SettlementData, SettlementEnvelope, SettlementEnvelopeData,
+        SettlementListEnvelope, UpdateSettlementRequest, VoidSettlementRequest,
     },
     settlement_scope::{
         __path_confirm as __path_confirm_bill_offsets, __path_preview as __path_settlement_preview,
@@ -407,6 +407,7 @@ use super::{
         SettlementData,
         SettlementAllocationData,
         SettlementApplicationData,
+        SettlementCashApplicationData,
         SettlementEnvelopeData,
         SettlementEnvelope,
         CreatedSettlementData,

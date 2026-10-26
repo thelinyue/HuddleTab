@@ -40,6 +40,9 @@ pub struct ClearingState {
     pub expense_order: Vec<Uuid>,
     /// 没有存续账单承接的真实付款保留为独立现金头寸，只能在全活动范围内退回或确认抵销。
     pub cash_positions: BTreeSet<Uuid>,
+    /// 逐笔转账的现金去向，与双侧清偿进度分开。路径中的账单共享同一笔现金，不能重复累计。
+    /// 空路径表示当前没有存续账单承接的现金往来；它也必须计入转账金额核对。
+    pub cash_applications: BTreeMap<Uuid, BTreeMap<Vec<Uuid>, i64>>,
 }
 
 impl ClearingState {
@@ -184,6 +187,30 @@ impl ClearingState {
         });
     }
 
+    fn record_cash(
+        &mut self,
+        settlement: Uuid,
+        expenses: &[Uuid],
+        amount: i64,
+    ) -> Result<(), String> {
+        let mut path = Vec::new();
+        for expense in expenses {
+            if !self.cash_positions.contains(expense) && !path.contains(expense) {
+                path.push(*expense);
+            }
+        }
+        let total = self
+            .cash_applications
+            .entry(settlement)
+            .or_default()
+            .entry(path)
+            .or_default();
+        *total = total
+            .checked_add(amount)
+            .ok_or("转账清偿明细金额超出安全范围")?;
+        Ok(())
+    }
+
     /// 沿债务路径核销两端现金及中间抵销；没有通向收款人的路径时，把待转出债务交给代收人。
     /// # Errors
     /// 头寸变化超出安全金额范围时返回错误。
@@ -224,6 +251,11 @@ impl ClearingState {
                         origin,
                     );
                 }
+                self.record_cash(
+                    id,
+                    &path.iter().map(|edge| edge.expense).collect::<Vec<_>>(),
+                    applied,
+                )?;
                 amount -= applied;
             } else {
                 let target = self
@@ -247,6 +279,7 @@ impl ClearingState {
                                 (net > 0).then_some((*expense, net))
                             })
                     });
+                let has_bill_target = target.is_some();
                 let (expense, capacity) = target.unwrap_or_else(|| {
                     let expense = scope
                         .iter()
@@ -266,6 +299,17 @@ impl ClearingState {
                 self.change(expense, receiver, -applied)?;
                 self.record(expense, payer, Some(id), None, applied, origin);
                 self.record(expense, receiver, Some(id), None, applied, origin);
+                // 无债务可承接时，旧算法仍保留现金头寸，但不能冒充已清偿某笔消费。
+                let target_expenses = [expense];
+                self.record_cash(
+                    id,
+                    if has_bill_target {
+                        &target_expenses
+                    } else {
+                        &[]
+                    },
+                    applied,
+                )?;
                 amount -= applied;
             }
         }

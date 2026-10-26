@@ -43,15 +43,41 @@
 .settlement-record__summary > span { overflow-wrap: anywhere; }
 .settlement-record__summary > svg { flex-shrink: 0; }
 .settlement-record__meta > time { font-size: 11px; white-space: nowrap; }
+/* 内容区独立滚动，合计始终留在底部；标题栏、关闭按钮和 Sheet 手势均沿用 Overlay。 */
 .settlement-bills-overlay .form-overlay__sheet { width: min(100%, 560px); }
-.settlement-bills-list h3 { margin: 16px 0 4px; color: var(--foreground); font-size: 13px; font-weight: 650; }
-.settlement-bills-list h3 span { color: var(--muted-foreground); font-weight: 400; }
-.settlement-bill { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--border); }
-.settlement-bill:last-of-type { border-bottom: 0; }
-.settlement-bill__title { min-width: 0; color: var(--foreground); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
-.settlement-bill > .money { white-space: nowrap; color: var(--foreground); font-size: 14px; font-weight: 650; }
-.settlement-bill small { grid-column: 1 / -1; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
-.settlement-bills-empty, .settlement-bills-list > p { margin: 16px 0 0; color: var(--muted-foreground); font-size: 13px; }
+.settlement-bills-overlay .form-overlay__body { display: flex; min-height: 0; overflow: hidden; padding: 0; }
+.settlement-bills-list { display: flex; width: 100%; min-height: 0; flex: 1; flex-direction: column; }
+.settlement-bills-scroll { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 18px; }
+.settlement-bill-group { padding-top: 14px; }
+.settlement-bill-group + .settlement-bill-group { border-top: 1px solid var(--border); }
+.settlement-bill-group__header { display: flex; min-height: 34px; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
+.settlement-bill-group__header h3 { margin: 0; color: var(--foreground); font-size: 13px; font-weight: 650; }
+.settlement-bill-group__header > span { color: var(--muted-foreground); font-size: 11px; }
+.settlement-bill { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--border); color: var(--foreground); text-decoration: none; }
+.settlement-bill-group > .settlement-bill:last-child, .settlement-cross-bill__link:last-child { border-bottom: 0; }
+.settlement-bill__title { display: flex; min-width: 0; align-items: center; gap: 3px; color: var(--foreground); font-size: 14px; line-height: 1.4; }
+.settlement-bill__title strong { overflow-wrap: anywhere; font-weight: 650; }
+.settlement-bill__title svg { flex-shrink: 0; color: var(--muted-foreground); }
+a.settlement-bill:hover .settlement-bill__title, .settlement-cross-bill__link:hover .settlement-bill__title { color: var(--primary); }
+a.settlement-bill:focus-visible, .settlement-cross-bill__link:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 6px; }
+.settlement-bill > .money, .settlement-cross-bill__amount > .money { justify-self: end; text-align: right; white-space: nowrap; color: var(--foreground); font-size: 15px; font-weight: 650; }
+.settlement-bill__meta { min-width: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.settlement-bill__total { color: var(--muted-foreground); font-size: 11px; line-height: 1.4; text-align: right; white-space: nowrap; }
+.settlement-bill--unavailable > .settlement-bill__title { color: var(--muted-foreground); }
+.settlement-bill--unavailable > .settlement-bill__meta { grid-column: 1 / -1; }
+.settlement-cross-bill { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.settlement-bill-group > .settlement-cross-bill:last-child { border-bottom: 0; }
+.settlement-cross-bill__amount { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
+.settlement-cross-bill__amount > span { color: var(--muted-foreground); font-size: 11px; }
+.settlement-cross-bill__link { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; margin-top: 7px; border-left: 2px solid color-mix(in srgb, var(--border) 80%, var(--primary)); padding: 7px 0 7px 10px; color: var(--foreground); text-decoration: none; }
+.settlement-cross-bill__link .settlement-bill__meta { grid-column: 1; }
+.settlement-cross-bill__link .settlement-bill__total { grid-column: 2; }
+.settlement-bills-empty, .settlement-bills-none, .settlement-bills-missing { margin: 16px 0 0; color: var(--muted-foreground); font-size: 13px; }
+.settlement-bills-empty { padding: 18px; }
+.settlement-bills-missing { padding-bottom: 2px; font-size: 12px; }
+.settlement-bills-footer { flex: 0 0 auto; border-top: 1px solid var(--border); padding: 10px 18px; background: var(--surface); }
+.settlement-bills-footer > p { margin: 0 0 6px; color: var(--destructive); font-size: 12px; }
+.settlement-bills-total { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; }
 .settlement-page .settlement-card .settlement-record--void { background: transparent; }
 .settlement-record--void .settlement-record__main { color: var(--muted-foreground); }
 .settlement-record--void .settlement-record__amount .money { color: var(--muted-foreground); font-weight: 400; text-decoration: line-through; text-decoration-thickness: 1px; }

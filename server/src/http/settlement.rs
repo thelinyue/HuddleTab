@@ -66,9 +66,19 @@ pub struct SettlementData {
     pub voided_at: Option<String>,
     pub allocations: Vec<SettlementAllocationData>,
     pub applications: Vec<SettlementApplicationData>,
+    /// 兼容旧离线快照缺少此字段；在线响应总是提供服务端重放得到的现金拆分。
+    #[schema(required = false)]
+    pub cash_applications: Vec<SettlementCashApplicationData>,
     pub scope: Option<crate::application::settlement::SettlementScope>,
     pub scope_expense_ids: Vec<String>,
     pub scope_dates: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SettlementCashApplicationData {
+    pub expense_ids: Vec<String>,
+    pub amount_minor: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -318,6 +328,14 @@ pub(crate) async fn void(
 
 pub(crate) fn settlement_data(record: SettlementRecord) -> SettlementData {
     SettlementData {
+        cash_applications: record
+            .cash_applications
+            .into_iter()
+            .map(|item| SettlementCashApplicationData {
+                expense_ids: item.expense_ids.iter().map(ToString::to_string).collect(),
+                amount_minor: item.amount_minor.to_string(),
+            })
+            .collect(),
         scope: record.scope,
         scope_expense_ids: record
             .scope_expense_ids
@@ -406,6 +424,7 @@ mod tests {
                     voided_at,
                     allocations: Vec::new(),
                     applications: Vec::new(),
+                    cash_applications: Vec::new(),
                     scope: None,
                     scope_expense_ids: Vec::new(),
                     scope_dates: Vec::new(),

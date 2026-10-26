@@ -269,7 +269,7 @@ test('移动端记账金额自动聚焦并支持运算按钮插入', async ({ pa
 
 test('移动端点击结算笔数打开独立账单弹窗', async ({ page }) => {
   const fixture = await installFixture(page);
-  Object.assign(fixture.records[0], { scopeDates: ['2026-09-05'], scopeExpenseIds: ['e1'], scope: { dates: ['2026-09-05'], timeZone: 'Asia/Shanghai', revision: '1' }, applications: [{ expenseId: 'e1', memberId: 'm0', amountMinor: '5000', origin: 'AUTO' }], allocations: [] });
+  Object.assign(fixture.records[0], { cashApplications: [{ expenseIds: ['e1'], amountMinor: fixture.records[0].amountMinor }], scopeDates: ['2026-09-05'], scopeExpenseIds: ['e1'], scope: { dates: ['2026-09-05'], timeZone: 'Asia/Shanghai', revision: '1' }, applications: [{ expenseId: 'e1', memberId: 'm0', amountMinor: '5000', origin: 'AUTO' }], allocations: [] });
   await page.goto('/activities/demo/settlement');
   const record = page.locator('[data-reading-key="record-s1"]');
   const bills = record.getByRole('button', { name: '结算范围 9/5 · 1 笔' });
@@ -278,9 +278,11 @@ test('移动端点击结算笔数打开独立账单弹窗', async ({ page }) => 
   const before = (await record.boundingBox())!.y;
   await bills.click();
   const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
-  await expect(dialog.getByRole('heading', { name: '本次清偿涉及账单 · 1 笔' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: '2026年9月5日' })).toBeVisible();
+  await expect(dialog.getByText('本次结算', { exact: true })).toBeVisible();
   await expect(dialog).toContainText('湖边晚餐');
-  await expect(dialog).toContainText('¥480.00');
+  await expect(dialog).toContainText('账单总额 ¥480.00');
+  await expect(dialog.getByLabel('清偿明细合计')).toContainText('¥80.00');
   await expect(page).toHaveURL('/activities/demo/settlement');
   await dialog.getByRole('button', { name: '关闭结算账单' }).click();
   await expect(dialog).toHaveCount(0);

@@ -3,12 +3,12 @@ use sqlx::{FromRow, PgConnection, PgPool};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::bill_clearing::reconcile_activity;
+use super::bill_clearing::{load_state, reconcile_activity};
 use super::settlement_scope::{normalize_scope, validate_submission, validate_transfer};
 use crate::application::settlement::{
     ActivitySettlementContext, CreatedSettlement, NewSettlement, SettlementAllocationRecord,
-    SettlementApplicationRecord, SettlementRecord, SettlementRepository, SettlementRepositoryError,
-    SettlementUpdate, SettlementVoid,
+    SettlementApplicationRecord, SettlementCashApplicationRecord, SettlementRecord,
+    SettlementRepository, SettlementRepositoryError, SettlementUpdate, SettlementVoid,
 };
 
 #[derive(Clone, Debug)]
@@ -216,6 +216,11 @@ impl SettlementRepository for PostgresSettlementRepository {
     ) -> Result<Vec<SettlementRecord>, SettlementRepositoryError> {
         authorize_read(&self.pool, activity_id, actor_user_id).await?;
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        // 金额明细与转账、账单事实必须来自同一快照，避免重放期间发生修改而导致合计不符。
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
         let ids = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM settlements WHERE activity_id = $1 ORDER BY created_at DESC, id",
         )
@@ -224,8 +229,12 @@ impl SettlementRepository for PostgresSettlementRepository {
         .await
         .map_err(log_repository_error)?;
         let mut records = Vec::with_capacity(ids.len());
+        // 整个列表共用一次重放，避免每条结算各自重放整个活动。
+        let state = load_state(&mut transaction, activity_id, None)
+            .await
+            .map_err(log_repository_error)?;
         for id in ids {
-            records.push(load(&mut transaction, id).await?);
+            records.push(load_with_state(&mut transaction, id, Some(&state)).await?);
         }
         transaction.commit().await.map_err(log_repository_error)?;
         Ok(records)
@@ -239,6 +248,10 @@ impl SettlementRepository for PostgresSettlementRepository {
     ) -> Result<SettlementRecord, SettlementRepositoryError> {
         authorize_read(&self.pool, activity_id, actor_user_id).await?;
         let mut transaction = self.pool.begin().await.map_err(log_repository_error)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(log_repository_error)?;
         let record = load(&mut transaction, settlement_id).await?;
         if record.activity_id != activity_id {
             return Err(SettlementRepositoryError::NotFound);
@@ -557,6 +570,14 @@ pub(crate) async fn load(
     connection: &mut PgConnection,
     settlement_id: Uuid,
 ) -> Result<SettlementRecord, SettlementRepositoryError> {
+    load_with_state(connection, settlement_id, None).await
+}
+
+async fn load_with_state(
+    connection: &mut PgConnection,
+    settlement_id: Uuid,
+    state: Option<&crate::domain::bill_clearing::ClearingState>,
+) -> Result<SettlementRecord, SettlementRepositoryError> {
     let row = sqlx::query_as::<_, SettlementRow>(
         "SELECT s.id, s.activity_id, s.created_by_user_id, s.client_mutation_id, \
          s.payer_member_id, s.receiver_member_id, s.currency, s.amount_minor, s.status, \
@@ -569,7 +590,28 @@ pub(crate) async fn load(
     .await
     .map_err(log_repository_error)?
     .ok_or(SettlementRepositoryError::NotFound)?;
+    let mut cash_applications = Vec::new();
+    if row.status == "ACTIVE" {
+        let replayed;
+        let state = if let Some(state) = state {
+            state
+        } else {
+            replayed = load_state(connection, row.activity_id, None)
+                .await
+                .map_err(log_repository_error)?;
+            &replayed
+        };
+        if let Some(paths) = state.cash_applications.get(&settlement_id) {
+            for (expense_ids, amount_minor) in paths {
+                cash_applications.push(SettlementCashApplicationRecord {
+                    expense_ids: expense_ids.clone(),
+                    amount_minor: *amount_minor,
+                });
+            }
+        }
+    }
     Ok(SettlementRecord {
+        cash_applications,
         id: row.id,
         activity_id: row.activity_id,
         created_by_user_id: row.created_by_user_id,

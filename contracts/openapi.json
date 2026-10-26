@@ -9293,6 +9293,24 @@
           }
         }
       },
+      "SettlementCashApplicationData": {
+        "type": "object",
+        "required": [
+          "expenseIds",
+          "amountMinor"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "string"
+          },
+          "expenseIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "SettlementData": {
         "type": "object",
         "required": [
@@ -9331,6 +9349,13 @@
             "items": {
               "$ref": "#/components/schemas/SettlementApplicationData"
             }
+          },
+          "cashApplications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettlementCashApplicationData"
+            },
+            "description": "兼容旧离线快照缺少此字段；在线响应总是提供服务端重放得到的现金拆分。"
           },
           "clientMutationId": {
             "type": "string"

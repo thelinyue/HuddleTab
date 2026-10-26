@@ -49,10 +49,10 @@ function ActivityActionsMenu({ activityId }: { activityId: string }) {
 function StandaloneDetailFrame({ activityId, children, pending = false, readOnly = false, title = "账单详情" }: { activityId: string; children: ReactNode; pending?: boolean; readOnly?: boolean; title?: string }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const state = location.state as { activityStatisticsFromFeed?: boolean; activityStatisticsFromWorkspace?: boolean; activityStatisticsFromTab?: ActivityTab; expenseDetailFromFeed?: boolean; expenseDetailFromStatistics?: boolean } | null;
+  const state = location.state as { activityStatisticsFromFeed?: boolean; activityStatisticsFromWorkspace?: boolean; activityStatisticsFromTab?: ActivityTab; expenseDetailFromFeed?: boolean; expenseDetailFromStatistics?: boolean; expenseDetailFromSettlement?: boolean } | null;
   const statisticsReturnTab = state?.activityStatisticsFromTab === "settlement" ? "settlement" : "feed";
-  const fromWorkspace = Boolean(state?.expenseDetailFromFeed || state?.expenseDetailFromStatistics || state?.activityStatisticsFromFeed || state?.activityStatisticsFromWorkspace);
-  const backTab = title === "活动统计" ? statisticsReturnTab : "feed";
+  const fromWorkspace = Boolean(state?.expenseDetailFromFeed || state?.expenseDetailFromStatistics || state?.expenseDetailFromSettlement || state?.activityStatisticsFromFeed || state?.activityStatisticsFromWorkspace);
+  const backTab = state?.expenseDetailFromSettlement ? "settlement" : title === "活动统计" ? statisticsReturnTab : "feed";
   const backLabel = state?.expenseDetailFromStatistics ? "活动统计" : backTab === "settlement" ? "结算" : "流水";
   const goBack = () => {
     if (fromWorkspace) navigate(-1);

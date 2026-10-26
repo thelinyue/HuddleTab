@@ -13,7 +13,8 @@ import { type ActivityMember, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
 import { type ExpenseAggregate, type RecommendationStrategy, type Settlement, type SettlementScope, useCreateSettlementMutation, useSettlementPreviewQuery, useConfirmBillOffsetsMutation, useExpensesQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
 import { SettlementDates, settlementDateLabel, settlementRecordDates } from "./settlement-dates";
-import { categories, currentSettlementLabel, memberAvatarImage, memberAvatarPreset, memberName } from "./shared";
+import { memberAvatarImage, memberAvatarPreset, memberName } from "./shared";
+import { SettlementCashBills } from "./settlement-cash-bills";
 import { AccountingSkeleton } from "./skeleton";
 import "./settlement-cards.css";
 
@@ -98,7 +99,7 @@ function TransferParties({ payer, receiver, members }: { payer: string; receiver
   return <span className="settlement-transfer"><span><MemberAvatar memberId={payer} {...memberAvatarImage(payer, members)} displayName={memberName(payer, members)} avatarPreset={memberAvatarPreset(payer, members)} size="sm" /><strong>{name(payer)}</strong></span><small>付给</small><span><MemberAvatar memberId={receiver} {...memberAvatarImage(receiver, members)} displayName={memberName(receiver, members)} avatarPreset={memberAvatarPreset(receiver, members)} size="sm" /><strong>{name(receiver)}</strong></span></span>;
 }
 
-/** 范围只用于历史摘要；明细按服务端清偿应用和显式归属关联，不用参与名单过滤代收代付。 */
+/** 范围只用于历史摘要；弹窗以服务端现金拆分说明这笔转账的金额组成。 */
 function SettlementRow({ settlement, members, expenses, expensesPending, expensesError, onRetryExpenses, writable, onEdit, beforeChange, afterChange }: { settlement: Settlement; members: readonly ActivityMember[]; expenses: readonly ExpenseAggregate[]; expensesPending: boolean; expensesError: unknown; onRetryExpenses: () => void; writable: boolean; onEdit: () => void; beforeChange: () => void; afterChange: () => void }) {
   const { session, activity } = useWorkspace();
   const voidMutation = useVoidSettlementMutation(session.userId, activity.activityId);
@@ -110,14 +111,6 @@ function SettlementRow({ settlement, members, expenses, expensesPending, expense
   const { summary } = settlementRecordDates(settlement);
   const recordedAt = new Date(settlement.createdAt);
   const recordedDate = recordedAt.toLocaleDateString('zh-CN', { ...(recordedAt.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' as const } : {}), month: 'numeric', day: 'numeric' });
-  const expenseById = new Map(expenses.map(expense => [expense.expense.expenseId, expense]));
-  const applications = settlement.applications ?? [];
-  const allocations = settlement.allocations ?? [];
-  const associationsPending = !settlement.applications || !settlement.allocations;
-  const relatedExpenseIds = [...new Set([...applications, ...allocations].map(item => item.expenseId))];
-  const relatedExpenses = relatedExpenseIds.map(expenseId => expenseById.get(expenseId)).filter((expense): expense is ExpenseAggregate => Boolean(expense))
-    .sort((a, b) => Date.parse(a.expense.occurredAt) - Date.parse(b.expense.occurredAt) || a.expense.expenseId.localeCompare(b.expense.expenseId));
-  const missingExpenseCount = relatedExpenseIds.length - relatedExpenses.length;
   const closeBills = () => { setBillsOpen(false); afterChange(); };
   return <article data-reading-key={`record-${settlement.settlementId}`} className={`settlement-record${settlement.status === 'VOID' ? ' settlement-record--void' : ''}`}>
     <div className="settlement-record__main">
@@ -141,26 +134,7 @@ function SettlementRow({ settlement, members, expenses, expensesPending, expense
       <time dateTime={settlement.createdAt}>{recordedDate} 录入</time>
     </div>
     {billsOpen ? <Overlay open title="结算账单" onClose={closeBills} initialFocus="mobile-dialog" mobileSheet={{ maxHeight: 0.92 }} className="settlement-bills-overlay">
-      {settlement.status === 'VOID' ? <p className="settlement-bills-empty">已作废，不计入余额。{relatedExpenseIds.length ? '以下仅为保留的关联信息。' : ''}</p> : null}
-      {associationsPending ? <p className="settlement-bills-empty">具体清偿信息待同步，请联网后重试。</p> : null}
-      {relatedExpenseIds.length ? <section className="settlement-bills-list" aria-label="本次清偿涉及账单">
-        <h3>{settlement.status === 'VOID' ? '保留的关联账单' : '本次清偿涉及账单'} <span>· {relatedExpenseIds.length} 笔</span></h3>
-        <RefreshError error={expensesError} retry={onRetryExpenses} />
-        {expensesPending && missingExpenseCount > 0 ? <p>正在读取账单…</p> : null}
-        {relatedExpenses.map(({ expense, payments, shares, settlementProgress, currentSettlement }) => {
-          const category = categories.find(([value]) => value === expense.category) ?? categories.at(-1)!;
-          const payerNames = payments.map(payment => memberName(payment.memberId, members)).join('、') || '未知付款人';
-          const appliedMembers = [...new Set(applications.filter(item => item.expenseId === expense.expenseId).map(item => item.memberId))];
-          return <article className="settlement-bill" key={expense.expenseId}>
-            <span className="settlement-bill__title">{expense.title}</span>
-            <Money value={formatMoney(expense.originalCurrency, expense.originalAmountMinor)} />
-            <small>账单总额 · {category[1]} · {payerNames} 付款 · {shares.length} 人参与</small>
-            <small>{appliedMembers.length ? `${settlement.status === 'VOID' ? '原清偿涉及' : '本笔清偿涉及'}：${appliedMembers.map(id => memberName(id, members)).join('、')}` : '明确归属'}</small>
-            <small>{new Date(expense.occurredAt).toLocaleDateString('zh-CN')} · 当前：{currentSettlement ? currentSettlementLabel({ currentSettlement, settlementProgress }) : '待同步'}</small>
-          </article>;
-        })}
-        {missingExpenseCount > 0 && !expensesPending ? <p role="status">有 {missingExpenseCount} 笔关联账单暂时无法读取。</p> : null}
-      </section> : !associationsPending ? <p className="settlement-bills-empty">暂无具体清偿关联。</p> : null}
+      <SettlementCashBills settlement={settlement} expenses={expenses} members={members} pending={expensesPending} error={expensesError} retry={onRetryExpenses} />
     </Overlay> : null}
     <ConfirmDialog open={voidOpen && writable} title="作废结算" message="作废后这笔结算将不再计入余额，确定继续吗？" confirmLabel="确认作废" busy={voidMutation.isPending} error={voidMutation.error ? <ErrorNotice error={voidMutation.error} /> : undefined} onConfirm={() => void voidMutation.mutateAsync({ settlementId: settlement.settlementId, version: settlement.version }).then(() => { setVoidOpen(false); afterChange(); }).catch(() => undefined)} onCancel={() => { setVoidOpen(false); afterChange(); }} />
   </article>;

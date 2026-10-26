@@ -2024,11 +2024,17 @@ export interface components {
             memberId: string;
             origin: string;
         };
+        SettlementCashApplicationData: {
+            amountMinor: string;
+            expenseIds: string[];
+        };
         SettlementData: {
             activityId: string;
             allocations: components["schemas"]["SettlementAllocationData"][];
             amountMinor: string;
             applications: components["schemas"]["SettlementApplicationData"][];
+            /** @description 兼容旧离线快照缺少此字段；在线响应总是提供服务端重放得到的现金拆分。 */
+            cashApplications?: components["schemas"]["SettlementCashApplicationData"][];
             clientMutationId: string;
             createdAt: string;
             currency: string;

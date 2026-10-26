@@ -1903,6 +1903,18 @@ describe("活动工作台访问边界", () => {
     expect(screen.getByText("结算工作台")).toBeInTheDocument();
   });
 
+  it("结算明细进入原账单只读详情后返回结算，而非流水", () => {
+    render(<MemoryRouter initialEntries={["/activities/activity-1/settlement", { pathname: "/activities/activity-1/expenses/expense-1", search: "?view=readonly", state: { expenseDetailFromSettlement: true } }]}><Routes>
+      <Route path="/activities/:activityId" element={<ActivityWorkspace />}>
+        <Route path="settlement" element={<p>结算工作台</p>} />
+        <Route path="expenses/:expenseId" element={<p>原账单内容</p>} />
+      </Route>
+    </Routes></MemoryRouter>);
+    expect(screen.getByText("只读")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "返回结算" }));
+    expect(screen.getByText("结算工作台")).toBeInTheDocument();
+  });
+
   it.each(["ENDED", "ARCHIVED"])("%s 账单详情使用独立页面外壳并隐藏活动导航", (status) => {
     activityApiState.activity.status = status;
     render(<MemoryRouter initialEntries={["/activities/activity-1/expenses/expense-1"]}><Routes>

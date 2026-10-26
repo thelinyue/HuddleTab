@@ -1528,108 +1528,125 @@ describe("账务空状态插画", () => {
   });
 });
 
-describe("结算账单清偿关联", () => {
+describe("结算账单现金拆分", () => {
   const bill: ExpenseAggregate = { ...expense, settlementProgress: { currency: "CNY", status: "UNSETTLED", totalRequiredMinor: "500", remainingMinor: "500", settledMinor: "0", paidMinor: "0", offsetMinor: "0", members: [] } };
-
   function openBills(fields: Partial<Settlement> = {}) {
-    detailRecordsState.records = [{ ...settlement, applications: [], scopeExpenseIds: ["expense-1", "pure-k"], scopeDates: ["2026-09-01"], ...fields }];
+    detailRecordsState.records = [{ ...settlement, applications: [], scopeExpenseIds: ["expense-1", "pure-k"], scopeDates: ["2026-09-01"], cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "500" }], ...fields }];
     renderPage(<SettlementsPage />);
     fireEvent.click(screen.getByRole("button", { name: "结算范围 9/1 · 2 笔" }));
     return screen.getByRole("dialog", { name: "结算账单" });
   }
 
-  it("不显示仅在结算范围内的纯K，同账单双侧应用及显式归属去重", () => {
-    settlementBillsState.data = [bill, { ...bill, expense: { ...bill.expense, expenseId: "pure-k", title: "纯K" }, shares: [bill.shares[0]] }];
-    const dialog = openBills({
-      applications: ["member-1", "member-2"].map(memberId => ({ expenseId: "expense-1", memberId, amountMinor: "500", origin: "AUTO" })),
-      allocations: [{ expenseId: "expense-1", amountMinor: "500" }],
-    });
-    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 1 笔" })).toBeVisible();
-    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
+  it("70元由30元和40元组成，不展示整单总额为清偿金额或重复计入双侧应用", () => {
+    settlementBillsState.data = [bill, { ...bill, expense: { ...expense.expense, expenseId: "tickets", title: "门票", originalAmountMinor: "20000" } }, { ...bill, expense: { ...expense.expense, expenseId: "pure-k", title: "纯K" } }];
+    const dialog = openBills({ amountMinor: "7000", cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "3000" }, { expenseIds: ["tickets"], amountMinor: "4000" }], applications: ["member-1", "member-2"].map(memberId => ({ expenseId: "expense-1", memberId, amountMinor: "3000", origin: "AUTO" })), allocations: [{ expenseId: "expense-1", amountMinor: "3000" }] });
+    expect(Array.from(dialog.querySelectorAll(".settlement-bill > .money"), item => item.textContent)).toEqual(["¥30.00", "¥40.00"]);
+    expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥70.00");
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(dialog.querySelectorAll(".settlement-bill > .money")).toHaveLength(2);
+    expect(within(dialog).getAllByText(/^账单总额 /)).toHaveLength(2);
     expect(within(dialog).queryByText("纯K")).toBeNull();
-    expect(dialog).toHaveTextContent("账单总额");
-    expect(dialog).toHaveTextContent("本笔清偿涉及：甲、乙");
-    expect(dialog).not.toHaveTextContent("明确归属");
-    expect(dialog).toHaveTextContent("当前：待同步");
   });
 
-  it("保留结算人未参与消费但确有清偿关联的账单", () => {
-    settlementBillsState.data = [{ ...bill, shares: [bill.shares[0]] }];
-    const dialog = openBills({ applications: [{ expenseId: "expense-1", memberId: "member-1", amountMinor: "500", origin: "AUTO" }] });
-    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
-    expect(dialog).toHaveTextContent("1 人参与");
-    expect(dialog).toHaveTextContent("本笔清偿涉及：甲");
+  it("跨账抵销路径计一次金额而不是每张账单各算70元", () => {
+    settlementBillsState.data = [bill, { ...bill, expense: { ...expense.expense, expenseId: "hotel", title: "房费" } }];
+    const dialog = openBills({ amountMinor: "7000", cashApplications: [{ expenseIds: ["expense-1", "hotel"], amountMinor: "7000" }] });
+    expect(dialog.querySelectorAll(".settlement-cross-bill")).toHaveLength(1);
+    expect(Array.from(dialog.querySelectorAll(".settlement-cross-bill__link .settlement-bill__title"), node => node.textContent)).toEqual(["午餐", "房费"]);
+    expect(dialog).toHaveTextContent("跨账清偿");
+    expect(dialog).toHaveTextContent("金额仅计一次");
+    expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥70.00");
+    expect(within(dialog).getByRole("link", { name: /午餐.*16:00\s*· 甲付款.*账单总额 ¥10.00/ })).toHaveAttribute("href", "/activities/activity-1/expenses/expense-1?view=readonly");
+    expect(within(dialog).getByRole("link", { name: /房费.*16:00\s*· 甲付款.*账单总额 ¥10.00/ })).toHaveAttribute("href", "/activities/activity-1/expenses/hotel?view=readonly");
+    expect(dialog.querySelectorAll(".settlement-cross-bill__link .settlement-bill__meta")).toHaveLength(2);
   });
 
-  it("仅显式归属的账单也展示，并按发生时间及ID排序而非关联顺序", () => {
-    const makeBill = (expenseId: string, occurredAt: string): ExpenseAggregate => ({ ...bill, expense: { ...bill.expense, expenseId, title: expenseId, occurredAt } });
-    settlementBillsState.data = [makeBill("later", "2026-09-02T08:00:00Z"), makeBill("b", "2026-09-01T08:00:00Z"), makeBill("a", "2026-09-01T08:00:00Z")];
-    const dialog = openBills({ allocations: ["later", "b", "a"].map(expenseId => ({ expenseId, amountMinor: "100" })) });
+  it("同名账单用日期、付款人和原币总额区分，右侧仍只显示本次金额", () => {
+    settlementBillsState.data = [bill, { ...bill, expense: { ...bill.expense, expenseId: "second-lunch", occurredAt: "2026-09-02T08:30:00Z", originalCurrency: "USD", originalAmountMinor: "2500" }, payments: [{ ...bill.payments[0], memberId: "member-2" }] }];
+    const dialog = openBills({ amountMinor: "7000", cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "3000" }, { expenseIds: ["second-lunch"], amountMinor: "4000" }] });
+    const rows = dialog.querySelectorAll(".settlement-bill");
+    expect(rows[0].querySelector("time")).toHaveAttribute("datetime", "2026-09-01T08:00:00Z");
+    expect(rows[0].querySelector(".settlement-bill__meta")).toHaveTextContent("16:00 · 甲付款");
+    expect(rows[0].querySelector(".settlement-bill__total")).toHaveTextContent("账单总额 ¥10.00");
+    expect(rows[1].querySelector("time")).toHaveAttribute("datetime", "2026-09-02T08:30:00Z");
+    expect(rows[1].querySelector(".settlement-bill__meta")).toHaveTextContent("16:30 · 乙付款");
+    expect(rows[1].querySelector(".settlement-bill__total")).toHaveTextContent("账单总额 US$25.00");
+    expect(within(dialog).getAllByRole("link", { name: /午餐.*账单总额/ }).map(link => link.getAttribute("href"))).toEqual([
+      "/activities/activity-1/expenses/expense-1?view=readonly", "/activities/activity-1/expenses/second-lunch?view=readonly",
+    ]);
+    expect(Array.from(dialog.querySelectorAll(".settlement-bill > .money"), node => node.textContent)).toEqual(["¥30.00", "¥40.00"]);
+    expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥70.00");
+  });
+
+  it("代收成员未参与消费也保留真实现金拆分", () => {
+    settlementBillsState.data = [{ ...bill, shares: [expense.shares[0]] }];
+    const dialog = openBills({ payerMemberId: "collection-member" });
+    expect(dialog.querySelector(".settlement-bill > .money")).toHaveTextContent("¥5.00");
+    expect(dialog).not.toHaveTextContent("人参与");
+  });
+
+  it("按时间和ID稳定排序，不改变服务端的跨账路径顺序", () => {
+    settlementBillsState.data = ["later", "b", "a"].map(expenseId => ({ ...bill, expense: { ...expense.expense, expenseId, title: expenseId, occurredAt: expenseId === "later" ? "2026-09-02T08:00:00Z" : expense.expense.occurredAt } }));
+    const dialog = openBills({ amountMinor: "300", cashApplications: ["later", "b", "a"].map(id => ({ expenseIds: [id], amountMinor: "100" })) });
     expect(Array.from(dialog.querySelectorAll(".settlement-bill__title"), item => item.textContent)).toEqual(["a", "b", "later"]);
-    expect(within(dialog).getAllByText("明确归属")).toHaveLength(3);
-    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 3 笔" })).toBeVisible();
   });
 
-  it("有范围但无关联时不回退范围，也不推断为活动整体结算", () => {
-    const dialog = openBills();
-    expect(dialog).toHaveTextContent("暂无具体清偿关联");
-    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(0);
-    expect(dialog).not.toHaveTextContent("活动整体结算");
+  it("无账单承接的现金单独列出，不伪造归属凑齐金额", () => {
+    const dialog = openBills({ amountMinor: "7000", cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "3000" }, { expenseIds: [], amountMinor: "4000" }] });
+    expect(dialog).toHaveTextContent("未关联账单");
+    expect(dialog).toHaveTextContent("未清偿具体账单");
+    expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥70.00");
   });
 
-  it("作废且无关联时说明不计入余额，不伪造历史明细", () => {
-    const dialog = openBills({ status: "VOID" });
-    expect(dialog).toHaveTextContent("已作废，不计入余额");
-    expect(dialog).toHaveTextContent("暂无具体清偿关联");
-    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(0);
+  it("详情缺失仍保留对应金额，使明细可与转账对账", () => {
+    const dialog = openBills({ amountMinor: "7000", cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "3000" }, { expenseIds: ["missing"], amountMinor: "4000" }] });
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(2);
+    expect(dialog).toHaveTextContent("账单详情暂不可用");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("1 笔账单详情暂不可用");
+    expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥70.00");
+    expect(within(dialog).getAllByRole("link")).toHaveLength(1);
+    expect(dialog.querySelectorAll(".settlement-bill__total")).toHaveLength(1);
   });
 
-  it("作废后保留的归属信息不描述为有效清偿", () => {
-    const dialog = openBills({ status: "VOID", allocations: [{ expenseId: "expense-1", amountMinor: "500" }] });
-    expect(dialog).toHaveTextContent("已作废，不计入余额");
-    expect(dialog).toHaveTextContent("保留的关联信息");
-    expect(dialog).toHaveTextContent("明确归属");
-    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
-  });
-
-  it("关联账单缺失时按去重后的关联数计数并提示", () => {
-    const dialog = openBills({ applications: ["expense-1", "missing", "missing"].map(expenseId => ({ expenseId, memberId: "member-1", amountMinor: "100", origin: "AUTO" })) });
-    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 2 笔" })).toBeVisible();
-    expect(within(dialog).getByRole("status")).toHaveTextContent("有 1 笔关联账单暂时无法读取。");
-  });
-
-  it("加载期间不误报关联账单缺失", () => {
+  it("详情加载时不误报缺失", () => {
     settlementBillsState.pending = true;
-    const dialog = openBills({ allocations: [{ expenseId: "expense-1", amountMinor: "500" }] });
+    settlementBillsState.data = [];
+    const dialog = openBills();
     expect(dialog).toHaveTextContent("正在读取账单…");
     expect(dialog).not.toHaveTextContent("暂时无法读取");
   });
 
-  it("详情加载失败时保留已有账单和缺失提示，并允许重试", () => {
+  it("请求失败保留金额并可重试", () => {
     settlementBillsState.error = new Error("账单读取失败");
-    const dialog = openBills({ allocations: ["expense-1", "missing"].map(expenseId => ({ expenseId, amountMinor: "100" })) });
-    expect(dialog).toHaveTextContent("午餐");
+    const dialog = openBills();
     expect(within(dialog).getByRole("alert")).toHaveTextContent("账单读取失败");
-    expect(within(dialog).getByRole("status")).toHaveTextContent("有 1 笔关联账单暂时无法读取。");
+    expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥5.00");
     fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
     expect(settlementBillsState.refetch).toHaveBeenCalledTimes(1);
   });
 
-  it("没有在线查询数据时按离线快照的真实清偿关联展示", () => {
+  it("快照保留真实金额拆分可离线查看", () => {
     workspaceState.offline = true;
     workspaceState.snapshotOnly = true;
-    const dialog = openBills({ applications: [{ expenseId: "expense-1", memberId: "member-2", amountMinor: "500", origin: "AUTO" }] });
-    expect(within(dialog).getByRole("heading", { name: "本次清偿涉及账单 · 1 笔" })).toBeVisible();
-    expect(dialog).toHaveTextContent("本笔清偿涉及：乙");
-    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(1);
+    const dialog = openBills();
+    expect(within(dialog).getByLabelText("清偿明细合计")).toHaveTextContent("¥5.00");
   });
 
-  it.each(["applications", "allocations"] as const)("旧离线数据缺少 %s 时提示同步而不推断历史", field => {
-    workspaceState.offline = true;
-    workspaceState.snapshotOnly = true;
-    const dialog = openBills({ [field]: undefined });
-    expect(dialog).toHaveTextContent("具体清偿信息待同步，请联网后重试。");
-    expect(dialog).not.toHaveTextContent("暂无具体清偿关联");
+  it("旧快照只有双侧应用和归属时提示同步，不自行推算现金组成", () => {
+    const dialog = openBills({ cashApplications: undefined, applications: [{ expenseId: "expense-1", memberId: "member-1", amountMinor: "500", origin: "AUTO" }], allocations: [{ expenseId: "expense-1", amountMinor: "500" }] });
+    expect(dialog).toHaveTextContent("金额明细待同步");
+    expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(0);
+  });
+
+  it("不一致或空明细明确报错，不补算账单金额", () => {
+    const dialog = openBills({ cashApplications: [] });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("明细合计与转账金额不符");
+    expect(dialog).not.toHaveTextContent("与本次转账金额一致。");
+  });
+
+  it("作废不把保留归属或金额明细宣称为有效清偿", () => {
+    const dialog = openBills({ status: "VOID", allocations: [{ expenseId: "expense-1", amountMinor: "500" }] });
+    expect(dialog).toHaveTextContent("已作废，不计入余额");
     expect(dialog.querySelectorAll(".settlement-bill")).toHaveLength(0);
   });
 });

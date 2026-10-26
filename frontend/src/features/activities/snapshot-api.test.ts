@@ -81,6 +81,22 @@ describe("Activity Snapshot adapter", () => {
     ).rejects.toThrow("活动快照 304 响应的 ETag 无效。");
   });
 
+  it("旧快照缺少转账金额拆分时不携带条件头，完整明细仍可复用304", async () => {
+    const legacy = { etag: 'W/"snapshot-v2-r7"', snapshot: { ...snapshot, settlements: [{ settlementId: "s1" }] } };
+    const fresh = { ...snapshot, settlements: [{ settlementId: "s1", cashApplications: [] }] };
+    client.GET.mockResolvedValueOnce(response(200, { data: fresh }, legacy.etag));
+    const result = await fetchActivitySnapshot("activity-1", legacy as never);
+    expect(result.status).toBe("modified");
+    expect(result.value.snapshot).toBe(fresh);
+    expect(client.GET).toHaveBeenLastCalledWith("/api/activities/{activity_id}/snapshot", {
+      params: { path: { activity_id: "activity-1" } },
+    });
+    client.GET.mockResolvedValueOnce(response(304, undefined, legacy.etag));
+    const reused = await fetchActivitySnapshot("activity-1", result.value);
+    expect(reused.status).toBe("not-modified");
+    expect(reused.value).toBe(result.value);
+  });
+
   it("没有本地值却收到 304 时只重试一次无条件 GET", async () => {
     client.GET
       .mockResolvedValueOnce(response(304, undefined, 'W/"snapshot-v2-r7"'))

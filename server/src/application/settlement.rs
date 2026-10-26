@@ -44,9 +44,17 @@ pub struct SettlementRecord {
     pub voided_at: Option<OffsetDateTime>,
     pub allocations: Vec<SettlementAllocationRecord>,
     pub applications: Vec<SettlementApplicationRecord>,
+    pub cash_applications: Vec<SettlementCashApplicationRecord>,
     pub scope: Option<SettlementScope>,
     pub scope_expense_ids: Vec<Uuid>,
     pub scope_dates: Vec<String>,
+}
+
+/// 转账金额只在一条清偿路径上计算一次；多账单路径表示跨账抵销，不是多次付款。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementCashApplicationRecord {
+    pub expense_ids: Vec<Uuid>,
+    pub amount_minor: i64,
 }
 
 /// 自动对账把真实转账的每一侧应用到具体账单，保留成员和来源供审计。

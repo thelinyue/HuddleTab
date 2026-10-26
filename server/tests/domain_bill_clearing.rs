@@ -33,6 +33,127 @@ fn conserved(state: &ClearingState) {
     }
 }
 
+#[test]
+fn cash_breakdown_splits_70_as_30_plus_40_without_counting_both_sides() {
+    let mut state = state(&[(10, 1, 2, 3000), (20, 1, 2, 6000), (30, 3, 2, 16600)]);
+    state
+        .transfer(
+            id(100),
+            id(1),
+            id(2),
+            7000,
+            &[id(10), id(20), id(30)],
+            "AUTO",
+        )
+        .unwrap();
+    assert_eq!(
+        state.cash_applications[&id(100)],
+        [(vec![id(10)], 3000), (vec![id(20)], 4000)].into()
+    );
+    assert_eq!(
+        state.cash_applications[&id(100)].values().sum::<i64>(),
+        7000
+    );
+    conserved(&state);
+}
+
+#[test]
+fn cash_breakdown_counts_a_cross_bill_path_only_once() {
+    let mut state = state(&[(10, 1, 2, 7000), (20, 2, 3, 7000), (30, 3, 4, 7000)]);
+    state
+        .transfer(
+            id(100),
+            id(1),
+            id(4),
+            7000,
+            &[id(10), id(20), id(30)],
+            "AUTO",
+        )
+        .unwrap();
+    assert_eq!(
+        state.cash_applications[&id(100)],
+        [(vec![id(10), id(20), id(30)], 7000)].into()
+    );
+    conserved(&state);
+}
+
+#[test]
+fn cash_breakdown_keeps_collection_and_forwarding_even_without_original_member_position() {
+    let mut state = state(&[(10, 1, 2, 7000)]);
+    state
+        .transfer(id(100), id(1), id(3), 7000, &[id(10)], "AUTO")
+        .unwrap();
+    state
+        .transfer(id(101), id(3), id(2), 7000, &[id(10)], "AUTO")
+        .unwrap();
+    for transfer in [100, 101] {
+        assert_eq!(
+            state.cash_applications[&id(transfer)],
+            [(vec![id(10)], 7000)].into()
+        );
+    }
+    conserved(&state);
+}
+
+#[test]
+fn cash_breakdown_combines_explicit_and_auto_without_double_counting() {
+    let mut state = state(&[(10, 1, 2, 7000)]);
+    state
+        .transfer(
+            id(100),
+            id(1),
+            id(2),
+            3000,
+            &[id(10)],
+            "HISTORICAL_EXPLICIT",
+        )
+        .unwrap();
+    state
+        .transfer(id(100), id(1), id(2), 4000, &[id(10)], "AUTO")
+        .unwrap();
+    assert_eq!(
+        state.cash_applications[&id(100)],
+        [(vec![id(10)], 7000)].into()
+    );
+}
+
+#[test]
+fn cash_breakdown_retains_unassigned_cash_instead_of_inventing_a_bill() {
+    let mut state = state(&[(10, 1, 2, 3000)]);
+    state
+        .transfer(id(100), id(1), id(2), 7000, &[id(10)], "AUTO")
+        .unwrap();
+    assert_eq!(
+        state.cash_applications[&id(100)],
+        [(vec![], 4000), (vec![id(10)], 3000)].into()
+    );
+    let mut empty = ClearingState::default();
+    empty
+        .transfer(id(100), id(1), id(2), 7000, &[], "AUTO")
+        .unwrap();
+    assert_eq!(empty.cash_applications[&id(100)], [(vec![], 7000)].into());
+}
+
+#[test]
+fn cash_breakdown_does_not_shrink_when_display_progress_is_clipped_by_later_transfers() {
+    let mut state = state(&[(10, 1, 2, 7000)]);
+    state
+        .transfer(id(100), id(1), id(2), 7000, &[id(10)], "AUTO")
+        .unwrap();
+    state
+        .transfer(id(101), id(2), id(1), 7000, &[id(10)], "AUTO")
+        .unwrap();
+    assert!(state.display_entries().is_empty());
+    assert_eq!(
+        state.cash_applications[&id(100)].values().sum::<i64>(),
+        7000
+    );
+    assert_eq!(
+        state.cash_applications[&id(101)].values().sum::<i64>(),
+        7000
+    );
+}
+
 fn current_balances(state: &ClearingState) -> Vec<(Uuid, i64)> {
     state
         .current_settlement(id(10), [id(1), id(2), id(3)])

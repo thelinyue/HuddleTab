@@ -538,6 +538,10 @@ async fn net_payment_and_cross_bill_offset_clear_both_bills_without_manual_links
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        created["data"]["settlement"]["cashApplications"],
+        json!([{"expenseIds": [first_id], "amountMinor": "60"}])
+    );
     let applications = created["data"]["settlement"]["applications"]
         .as_array()
         .expect("应返回自动清偿来源");
@@ -1266,6 +1270,12 @@ async fn date_scope_centralized_collection_keeps_hub_outgoing_balance() {
     let preview = date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", true).await;
     let (status, collected) = response(&context, request(&context, "POST", collection.clone(), json!({"clientMutationId":Uuid::new_v4(), "payerMemberId":context.guest_member_id,"receiverMemberId":context.owner_member_id,"currency":"CNY","amountMinor":"100","scope":preview["scope"]}))).await;
     assert_eq!(status, StatusCode::CREATED, "{collected}");
+    let expected_cash =
+        json!([{"expenseIds": [bill["expense"]["expenseId"]], "amountMinor": "100"}]);
+    assert_eq!(
+        collected["data"]["settlement"]["cashApplications"],
+        expected_cash
+    );
     let (_, detail) = response(
         &context,
         request(
@@ -1301,6 +1311,44 @@ async fn date_scope_centralized_collection_keeps_hub_outgoing_balance() {
     assert_eq!(next["settled"], false);
     let (status, paid) = response(&context, request(&context, "POST", collection, json!({"clientMutationId":Uuid::new_v4(), "payerMemberId":context.owner_member_id,"receiverMemberId":creditor,"currency":"CNY","amountMinor":"100","scope":next["scope"]}))).await;
     assert_eq!(status, StatusCode::CREATED, "{paid}");
+    assert_eq!(
+        paid["data"]["settlement"]["cashApplications"],
+        expected_cash
+    );
+    // 真实接口读写均返回同一现金拆分；代收人不必是原消费参与人。
+    let (status, listed) = response(
+        &context,
+        request(
+            &context,
+            "GET",
+            format!("/api/activities/{}/settlements", context.activity_id),
+            Value::Null,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for record in listed["data"].as_array().unwrap() {
+        assert_eq!(record["cashApplications"], expected_cash);
+        let (status, detail) = response(
+            &context,
+            request(
+                &context,
+                "GET",
+                format!(
+                    "/api/activities/{}/settlements/{}",
+                    context.activity_id,
+                    record["settlementId"].as_str().unwrap()
+                ),
+                Value::Null,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            detail["data"]["settlement"]["cashApplications"],
+            expected_cash
+        );
+    }
     assert_eq!(
         date_preview(&context, json!(["2026-09-24"]), "Asia/Shanghai", true).await["settled"],
         true
