@@ -12,9 +12,9 @@ import { amountToMinor, formatMoney, minorToInput } from "../../domain-preview/m
 import { type ActivityMember, useMembersQuery } from "../activities/api";
 import { useWorkspace } from "../activities/workspace-context";
 import { type ExpenseAggregate, type RecommendationStrategy, type Settlement, type SettlementScope, useCreateSettlementMutation, useSettlementPreviewQuery, useConfirmBillOffsetsMutation, useExpensesQuery, useSettlementsQuery, useUpdateSettlementMutation, useVoidSettlementMutation } from "./api";
-import { SettlementDates, settlementDateLabel, settlementRecordDates } from "./settlement-dates";
+import { SettlementDates, settlementDateLabel } from "./settlement-dates";
 import { memberAvatarImage, memberAvatarPreset, memberName } from "./shared";
-import { SettlementCashBills } from "./settlement-cash-bills";
+import { SettlementCashBills, settlementCashBillSummary } from "./settlement-cash-bills";
 import { AccountingSkeleton } from "./skeleton";
 import "./settlement-cards.css";
 
@@ -99,8 +99,8 @@ function TransferParties({ payer, receiver, members }: { payer: string; receiver
   return <span className="settlement-transfer"><span><MemberAvatar memberId={payer} {...memberAvatarImage(payer, members)} displayName={memberName(payer, members)} avatarPreset={memberAvatarPreset(payer, members)} size="sm" /><strong>{name(payer)}</strong></span><small>付给</small><span><MemberAvatar memberId={receiver} {...memberAvatarImage(receiver, members)} displayName={memberName(receiver, members)} avatarPreset={memberAvatarPreset(receiver, members)} size="sm" /><strong>{name(receiver)}</strong></span></span>;
 }
 
-/** 范围只用于历史摘要；弹窗以服务端现金拆分说明这笔转账的金额组成。 */
-function SettlementRow({ settlement, members, expenses, expensesPending, expensesError, onRetryExpenses, writable, onEdit, beforeChange, afterChange }: { settlement: Settlement; members: readonly ActivityMember[]; expenses: readonly ExpenseAggregate[]; expensesPending: boolean; expensesError: unknown; onRetryExpenses: () => void; writable: boolean; onEdit: () => void; beforeChange: () => void; afterChange: () => void }) {
+/** 卡片和弹窗均以服务端现金拆分说明这笔转账涉及的账单。 */
+function SettlementRow({ settlement, members, expenses, expenseById, expensesPending, expensesError, onRetryExpenses, writable, onEdit, beforeChange, afterChange }: { settlement: Settlement; members: readonly ActivityMember[]; expenses: readonly ExpenseAggregate[]; expenseById: ReadonlyMap<string, ExpenseAggregate>; expensesPending: boolean; expensesError: unknown; onRetryExpenses: () => void; writable: boolean; onEdit: () => void; beforeChange: () => void; afterChange: () => void }) {
   const { session, activity } = useWorkspace();
   const voidMutation = useVoidSettlementMutation(session.userId, activity.activityId);
   const [voidOpen, setVoidOpen] = useState(false);
@@ -108,7 +108,7 @@ function SettlementRow({ settlement, members, expenses, expensesPending, expense
   const [billsOpen, setBillsOpen] = useState(false);
   const openingDialog = useRef(false);
   const billsTrigger = useRef<HTMLButtonElement>(null);
-  const { summary } = settlementRecordDates(settlement);
+  const summary = settlementCashBillSummary(settlement, expenseById, expensesPending);
   const recordedAt = new Date(settlement.createdAt);
   const recordedDate = recordedAt.toLocaleDateString('zh-CN', { ...(recordedAt.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' as const } : {}), month: 'numeric', day: 'numeric' });
   const closeBills = () => { setBillsOpen(false); afterChange(); };
@@ -198,6 +198,7 @@ export function SettlementsPage() {
   const recommendationData = offline ? snapshot?.snapshot.recommendations : recommendations.data;
   const records = settlements.data ?? snapshot?.snapshot.settlements;
   const expenseData = expenses.data ?? snapshot?.snapshot.expenses ?? [];
+  const expenseById = new Map(expenseData.map(item => [item.expense.expenseId, item]));
   const balances = ledgerData?.balances;
   const current = balances?.find(balance => balance.memberId === activity.currentMemberId);
   const fullySettled = offline ? Boolean(balances?.length && balances.every(balance => BigInt(balance.netMinor) === 0n)) : Boolean(!preview.error && preview.data?.settled);
@@ -278,7 +279,7 @@ export function SettlementsPage() {
         {!offline && settlementDates ? <p className="settlement-history-hint">包含活动全部结算记录</p> : null}
         <div className="settlement-card settlement-card--history">
         <RefreshError error={settlements.error} retry={() => void settlements.refetch()} />
-        {records && memberReady ? records.length ? <div className="settlement-list">{[...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} expenses={expenseData} expensesPending={!offline && expenses.isPending} expensesError={!offline ? expenses.error : undefined} onRetryExpenses={() => void expenses.refetch()} writable={writable} onEdit={() => openForm({ key: record.settlementId, existing: record })} beforeChange={capturePosition} afterChange={restorePosition} />)}</div> : !settlements.error ? <div className="settlement-card__state settlement-history-empty"><UsersRound size={22} aria-hidden="true" /><p>还没有结算记录</p></div> : null : !settlements.error && !members.error ? <div className="settlement-card__state"><AccountingSkeleton kind="settlement" section /></div> : null}
+        {records && memberReady ? records.length ? <div className="settlement-list">{[...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(record => <SettlementRow key={record.settlementId} settlement={record} members={memberData} expenses={expenseData} expenseById={expenseById} expensesPending={!offline && expenses.isPending} expensesError={!offline ? expenses.error : undefined} onRetryExpenses={() => void expenses.refetch()} writable={writable} onEdit={() => openForm({ key: record.settlementId, existing: record })} beforeChange={capturePosition} afterChange={restorePosition} />)}</div> : !settlements.error ? <div className="settlement-card__state settlement-history-empty"><UsersRound size={22} aria-hidden="true" /><p>还没有结算记录</p></div> : null : !settlements.error && !members.error ? <div className="settlement-card__state"><AccountingSkeleton kind="settlement" section /></div> : null}
         </div>
       </section>
     </div></main>

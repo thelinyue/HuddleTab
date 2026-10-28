@@ -36,7 +36,8 @@ test('轻分组卡片：账单弹窗、菜单修改作废、焦点恢复与截�
   }))).toBe(true);
   await screenshot(page, info, 'overview');
   const first = history.locator('[data-reading-key="record-s1"]');
-  const details = first.getByRole('button', { name: /结算范围 9\/20、9\/22/ });
+  const details = first.locator('.settlement-record__summary');
+  await expect(details).toHaveAccessibleName('清偿账单 9/20 · 1 笔');
   await details.focus(); await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
   await expect(dialog.getByRole('heading', { name: '2026年9月20日' })).toBeVisible();
@@ -51,11 +52,11 @@ test('轻分组卡片：账单弹窗、菜单修改作废、焦点恢复与截�
   await expect(dialog).toHaveCount(0);
   await expect(details).toBeFocused();
   const old = history.locator('[data-reading-key="record-s3"]');
-  await expect(old.getByRole('button', { name: '未记录日期范围' })).toBeVisible();
+  await expect(old.getByRole('button', { name: '清偿明细待核对' })).toBeVisible();
   const voided = history.locator('[data-reading-key="record-s2"]');
   await expect(voided.getByText('已作废', { exact: true })).toBeVisible();
   await expect(voided.getByRole('button', { name: '结算记录操作' })).toHaveCount(0);
-  await voided.getByRole('button', { name: '结算范围 3 天 · 3 笔' }).click();
+  await voided.getByRole('button', { name: '查看结算明细' }).click();
   await expect(dialog.locator('.settlement-bill')).toHaveCount(0);
   await expect(dialog).toContainText('已作废，不计入余额');
   await dialog.getByRole('button', { name: '关闭结算账单' }).click();
@@ -78,6 +79,7 @@ test('轻分组卡片：账单弹窗、菜单修改作废、焦点恢复与截�
   await page.getByRole('button', { name: '确认作废', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(first.getByText('已作废', { exact: true })).toBeVisible();
+  await expect(details).toHaveAccessibleName('查看结算明细');
   await expect(details).toBeFocused();
   await expect.poll(async () => Math.abs((await first.boundingBox())!.y - beforeVoid)).toBeLessThanOrEqual(2);
   expect(fixture.control.writes).toHaveLength(2);
@@ -103,7 +105,7 @@ test('历史结算账单：独立弹窗隔离范围、缺失提示、刷新及�
   });
   await page.goto('/activities/travel/settlement');
   const first = page.locator('[data-reading-key="record-s1"]');
-  const firstSummary = first.getByRole('button', { name: '结算范围 9/20、9/22 · 3 笔' });
+  const firstSummary = first.getByRole('button', { name: '清偿账单 日期暂不可用 · 3 笔' });
   await firstSummary.click();
   const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
   await expect(dialog.locator('.settlement-bill-group').filter({ hasText: '2026年9月20日' }).locator('.settlement-bill__title')).toHaveText(['早餐', '打车']);
@@ -117,13 +119,13 @@ test('历史结算账单：独立弹窗隔离范围、缺失提示、刷新及�
   await expect(dialog).toHaveCount(0);
 
   const voided = page.locator('[data-reading-key="record-s2"]');
-  await voided.getByRole('button', { name: '结算范围 3 天 · 3 笔' }).click();
+  await voided.getByRole('button', { name: '查看结算明细' }).click();
   await expect(dialog.locator('.settlement-bill')).toHaveCount(0);
   await expect(dialog).toContainText('已作废，不计入余额');
   await dialog.getByRole('button', { name: '关闭结算账单' }).click();
   await expect(dialog).toHaveCount(0);
   const old = page.locator('[data-reading-key="record-s3"]');
-  await old.getByRole('button', { name: '未记录日期范围' }).click();
+  await old.getByRole('button', { name: '清偿明细待核对' }).click();
   await expect(dialog).toContainText('暂无具体清偿关联');
   await expect(dialog.locator('.settlement-bill')).toHaveCount(0);
 
@@ -133,6 +135,8 @@ test('历史结算账单：独立弹窗隔离范围、缺失提示、刷新及�
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await expect(page.getByText('当前离线，以下结算使用最近一次同步的只读快照。')).toBeVisible();
   await expect(dialog.locator('.settlement-bill-group').filter({ hasText: '2026年9月20日' }).locator('.settlement-bill__title')).toHaveText(['早餐', '打车']);
+  await dialog.getByRole('button', { name: '关闭结算账单' }).click();
+  await expect(firstSummary).toBeVisible();
   expect(fixture.control.writes).toHaveLength(0);
 });
 
@@ -146,7 +150,15 @@ test('结算账单：排除仅在范围内的纯K，保留未参与消费的代�
     applications: ['e26', 'e1', 'e1'].map(expenseId => ({ expenseId, memberId: 'm0', amountMinor: '3000', origin: 'AUTO' })),
   });
   await page.goto('/activities/travel/settlement');
-  await page.locator('[data-reading-key="record-s1"]').getByRole('button', { name: '结算范围 9/20、9/22 · 3 笔' }).click();
+  const summary = page.locator('[data-reading-key="record-s1"]').getByRole('button', { name: '清偿账单 9/20、9/24 · 2 笔' });
+  await expect(summary).toBeVisible();
+  await page.getByRole('button', { name: '结算日期', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: '结算日期' });
+  await picker.getByRole('button', { name: '清空', exact: true }).click();
+  await picker.getByRole('checkbox', { name: /2026\/09\/21/ }).check();
+  await picker.getByRole('button', { name: '应用日期' }).click();
+  await expect(summary).toBeVisible();
+  await summary.click();
   const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
   await expect(dialog.getByRole('heading', { name: '2026年9月20日' })).toBeVisible();
   await expect(dialog.locator('.settlement-bill__title')).toHaveText(['早餐', '体验课程']);
@@ -154,6 +166,40 @@ test('结算账单：排除仅在范围内的纯K，保留未参与消费的代�
   await expect(dialog.locator('.settlement-bill').filter({ hasText: '体验课程' })).toContainText('¥40.00');
   await expect(dialog.getByLabel('清偿明细合计')).toContainText('¥70.00');
   expect(fixture.control.writes).toHaveLength(0);
+});
+
+test.describe('清偿账单摘要使用设备时区', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' });
+
+  test('跨账、重复账单和无关联现金按实际账单去重，日期修改后同步更新', async ({ page }) => {
+    const fixture = await installCards(page);
+    fixture.expenses[0].expense.occurredAt = '2026-01-01T00:30:00Z';
+    fixture.expenses[1].expense.occurredAt = '2026-01-01T08:00:00Z';
+    Object.assign(fixture.records[0], {
+      amountMinor: '7000',
+      cashApplications: [
+        { expenseIds: ['e1', 'e2'], amountMinor: '3000' },
+        { expenseIds: ['e1'], amountMinor: '2000' },
+        { expenseIds: [], amountMinor: '2000' },
+      ],
+    });
+    await page.goto('/activities/travel/settlement');
+    const summary = page.locator('[data-reading-key="record-s1"] .settlement-record__summary');
+    await expect(summary).toHaveAccessibleName('清偿账单 2025/12/31、2026/1/1 · 2 笔');
+    await summary.click();
+    const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
+    await expect(dialog.getByRole('heading', { name: '2025年12月31日' })).toBeVisible();
+    await expect(dialog.locator('.settlement-cross-bill__link .settlement-bill__title')).toHaveText(['早餐', '打车']);
+    await expect(dialog.locator('.settlement-cross-bill__link .settlement-bill__meta')).toContainText(['2025/12/31', '2026/1/1']);
+    await expect(dialog.getByText('未清偿具体账单')).toBeVisible();
+    await expect(dialog.getByLabel('清偿明细合计')).toContainText('¥70.00');
+    await dialog.getByRole('button', { name: '关闭结算账单' }).click();
+
+    fixture.expenses[0].expense.occurredAt = '2026-01-01T08:30:00Z';
+    await page.reload();
+    await expect(summary).toHaveAccessibleName('清偿账单 1/1 · 2 笔');
+    expect(fixture.control.writes).toHaveLength(0);
+  });
 });
 
 test('结算账单：读取失败可重试，不回退到范围冒充实际清偿', async ({ page }) => {
@@ -249,7 +295,9 @@ test('结算账单：旧离线快照缺少清偿字段时提示同步', async ({
   const fixture = await installCards(page);
   Reflect.deleteProperty(fixture.records[0], 'cashApplications');
   await page.goto('/activities/travel/settlement');
-  await page.locator('[data-reading-key="record-s1"] .settlement-record__summary').click();
+  const summary = page.locator('[data-reading-key="record-s1"] .settlement-record__summary');
+  await expect(summary).toHaveAccessibleName('清偿明细待同步');
+  await summary.click();
   const dialog = page.getByRole('dialog', { name: '结算账单', exact: true });
   await expect(dialog).toContainText('金额明细待同步，请联网刷新。');
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
@@ -272,7 +320,7 @@ test('结算账单弹窗：59笔独立滚动、关闭可达且不改变历史列
     applications: fixture.expenses.map(item => ({ expenseId: item.expense.expenseId, memberId: 'm0', amountMinor: '100', origin: 'AUTO' })),
   });
   await page.goto('/activities/travel/settlement');
-  const trigger = page.getByRole('button', { name: '结算范围 9/20、9/22 · 59 笔' });
+  const trigger = page.getByRole('button', { name: '清偿账单 6 天 · 59 笔' });
   await trigger.scrollIntoViewIfNeeded();
   const before = (await trigger.boundingBox())!.y;
   await trigger.click();

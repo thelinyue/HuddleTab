@@ -1,25 +1,12 @@
 import { useState } from "react";
 import { Overlay } from "../../components/overlay";
 import { Button } from "../../components/ui";
-import type { Settlement, SettlementPreview, SettlementScope } from "./api";
+import type { SettlementPreview, SettlementScope } from "./api";
 import "./settlement-dates.css";
 
 export function settlementDateLabel(scope?: SettlementScope | null) {
   if (!scope?.dates) return "全部日期";
   return scope.dates.map(date => date.replaceAll("-", "/")).join("、");
-}
-
-/** 历史展示只使用已保存的范围，不能用当前筛选或录入日期推断账单日期。 */
-export function settlementRecordDates(settlement: Settlement) {
-  const dates = [...new Set(settlement.scopeDates?.length ? settlement.scopeDates : settlement.scope?.dates ?? [])].sort();
-  const count = settlement.scopeExpenseIds?.length ?? 0;
-  if (!dates.length) return { dates, summary: "未记录日期范围" };
-  const sameYear = dates.every(date => date.slice(0, 4) === dates[0].slice(0, 4));
-  const label = dates.length > 2 ? `${dates.length} 天` : dates.map(date => {
-    const [year, month, day] = date.split('-');
-    return `${sameYear ? '' : `${year}/`}${Number(month)}/${Number(day)}`;
-  }).join('、');
-  return { dates, summary: `结算范围 ${label} · ${count} 笔` };
 }
 
 /** 弹层内勾选只修改草稿，应用后才切换结算范围；整行可点并保留原生复选框键盘语义。 */

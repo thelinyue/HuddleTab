@@ -14,7 +14,34 @@ function billTime(value: string, options: Intl.DateTimeFormatOptions) {
 
 function billDateKey(value: string) {
   const date = new Date(value);
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function cashExpenseIds(applications: readonly CashApplication[]) {
+  return [...new Set(applications.flatMap(item => item.expenseIds))];
+}
+
+/** 摘要与弹窗使用相同的现金路径和设备时区，不把原始结算范围当作实际清偿。 */
+export function settlementCashBillSummary(settlement: Settlement, byId: ReadonlyMap<string, ExpenseAggregate>, pending: boolean) {
+  if (settlement.status === "VOID") return "查看结算明细";
+  const applications = settlement.cashApplications;
+  if (!applications) return "清偿明细待同步";
+  if (!applications.length) return "清偿明细待核对";
+  const expenseIds = cashExpenseIds(applications);
+  if (!expenseIds.length) return "未关联账单";
+  const dates = new Set<string>();
+  for (const id of expenseIds) {
+    const bill = byId.get(id);
+    if (!bill) return `清偿账单 ${pending ? "日期读取中" : "日期暂不可用"} · ${expenseIds.length} 笔`;
+    dates.add(billDateKey(bill.expense.occurredAt));
+  }
+  const sorted = [...dates].sort();
+  const sameYear = sorted.every(date => date.slice(0, 4) === sorted[0].slice(0, 4));
+  const label = sorted.length > 2 ? `${sorted.length} 天` : sorted.map(date => {
+    const [year, month, day] = date.split("-");
+    return `${sameYear ? "" : `${year}/`}${Number(month)}/${Number(day)}`;
+  }).join("、");
+  return `清偿账单 ${label} · ${expenseIds.length} 笔`;
 }
 
 function BillTitle({ title }: { title: string }) {
@@ -88,7 +115,7 @@ export function SettlementCashBills({ settlement, expenses, members, pending, er
   const applications = settlement.cashApplications;
   if (!applications) return <p className="settlement-bills-empty">金额明细待同步，请联网刷新。</p>;
   const byId = new Map(expenses.map(item => [item.expense.expenseId, item]));
-  const expenseIds = [...new Set(applications.flatMap(item => item.expenseIds))];
+  const expenseIds = cashExpenseIds(applications);
   const missingCount = expenseIds.filter(id => !byId.has(id)).length;
   const total = applications.reduce((sum, item) => sum + BigInt(item.amountMinor), 0n);
   const byOccurredAt = (left: CashApplication, right: CashApplication) => {

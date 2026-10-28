@@ -1530,10 +1530,35 @@ describe("账务空状态插画", () => {
 
 describe("结算账单现金拆分", () => {
   const bill: ExpenseAggregate = { ...expense, settlementProgress: { currency: "CNY", status: "UNSETTLED", totalRequiredMinor: "500", remainingMinor: "500", settledMinor: "0", paidMinor: "0", offsetMinor: "0", members: [] } };
+
+  it("卡片按实际清偿的账单和日期统计，而不是原始结算范围", () => {
+    const occurredAt = new Date(2026, 8, 1, 12).toISOString();
+    settlementBillsState.data = [
+      { ...bill, expense: { ...bill.expense, occurredAt } },
+      { ...bill, expense: { ...bill.expense, expenseId: "tickets", title: "门票", occurredAt } },
+      { ...bill, expense: { ...bill.expense, expenseId: "pure-k", title: "纯K", occurredAt } },
+    ];
+    detailRecordsState.records = [{
+      ...settlement,
+      amountMinor: "7000",
+      applications: [],
+      scopeDates: ["2026-09-01", "2026-09-02", "2026-09-03"],
+      scopeExpenseIds: ["expense-1", "tickets", "pure-k", ...Array.from({ length: 7 }, (_, i) => `other-${i}`)],
+      cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "3000" }, { expenseIds: ["tickets"], amountMinor: "4000" }],
+    }];
+    renderPage(<SettlementsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "清偿账单 9/1 · 2 笔" }));
+    const dialog = screen.getByRole("dialog", { name: "结算账单" });
+    expect(Array.from(dialog.querySelectorAll(".settlement-bill__title"), item => item.textContent)).toEqual(["午餐", "门票"]);
+    expect(dialog).not.toHaveTextContent("纯K");
+  });
+
   function openBills(fields: Partial<Settlement> = {}) {
     detailRecordsState.records = [{ ...settlement, applications: [], scopeExpenseIds: ["expense-1", "pure-k"], scopeDates: ["2026-09-01"], cashApplications: [{ expenseIds: ["expense-1"], amountMinor: "500" }], ...fields }];
     renderPage(<SettlementsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "结算范围 9/1 · 2 笔" }));
+    const history = screen.getByRole("region", { name: "全部结算记录" });
+    fireEvent.click(within(history).getByRole("button", { name: /^(清偿账单|清偿明细待|未关联账单|查看结算明细)/ }));
     return screen.getByRole("dialog", { name: "结算账单" });
   }
 
