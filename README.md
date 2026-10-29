@@ -25,7 +25,7 @@ services:
 
   app:
     container_name: huddletab
-    image: ghcr.io/thelinyue/huddletab:0.0.35
+    image: ghcr.io/thelinyue/huddletab:0.0.43
     restart: unless-stopped
     depends_on:
       postgres:
